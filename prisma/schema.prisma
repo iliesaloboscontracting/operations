@@ -1,0 +1,164 @@
+// Job board data model
+// - Project: a long-running site/job (Projects page)
+// - Job: one project's plan for a given date + shift (a row on the Command Centre)
+// - Resource: register item. type = PERSONNEL | EQUIPMENT (plant) | ATTACHMENT | VEHICLE | HIRE
+// - Assignment: a resource placed on a job (join table) with a per-job role
+// - Tool: small-tool register (tagged tools that get held by people / sites)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Project {
+  id        String   @id @default(cuid())
+  name      String // the job/site name, kept separate from who it's for - see `client`
+  client    String? // who the work is for, e.g. "CD Constructions"
+  jobNo     String?
+  address   String?
+  status    String   @default("ACTIVE") // ACTIVE | STAND_DOWN | ON_HOLD
+  startDate String? // YYYY-MM-DD, when the project first mobilises (drives "starting soon" alerts)
+  dayStart  String? // e.g. "7am"
+  dayEnd    String?
+  nightStart String?
+  nightEnd  String?
+  notes     String?
+  archived  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  jobs      Job[]
+}
+
+model Job {
+  id          String       @id @default(cuid())
+  projectId   String?
+  project     Project?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  title       String // e.g. "Myers - Streetbuild"
+  client      String? // who the work is for (may differ from the project/site name)
+  siteCode    String? // job number e.g. "007"
+  siteAddress String?
+  date        DateTime
+  shift       String       @default("DAY") // DAY | NIGHT
+  startTime   String? // free text e.g. "8:30am"
+  endTime     String? // free text e.g. "3pm"
+  status      String       @default("ACTIVE") // INACTIVE | ACTIVE | STOOD_DOWN | COMPLETED
+  dayBrief    String? // instructions text for the day / scope of works
+  colorTag    String       @default("blue") // left border color on the board
+  notRunning  Boolean      @default(false) // derived from status = INACTIVE/STOOD_DOWN; drives the "not active" grouping. COMPLETED jobs are excluded from the board entirely (see /completed).
+  sortOrder   Int          @default(0)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  assignments Assignment[]
+
+  @@index([date])
+  @@index([projectId])
+}
+
+model Resource {
+  id          String       @id @default(cuid())
+  name        String
+  type        String // PERSONNEL | EQUIPMENT | ATTACHMENT | VEHICLE | HIRE
+  category    String? // register section: Site Manager / Tipper / PLANT|LABOUR|VEHICLE (hire) ...
+  role        String? // default role for assignments (Supervisor, Operator, ...)
+  identifier  String? // rego / asset tag
+  status      String       @default("AVAILABLE") // AVAILABLE | ON_SITE | DOWN | LEAVE
+  detail      String? // attachments: "suits 5.5t Excavator"; plant: free detail
+  serviceDue  String?
+  loadSize    String?
+  ownership   String       @default("OWNED") // OWNED | HIRED
+  payClass    String?
+  phone       String?
+  email       String?
+  tickets     String?
+  notes       String?
+  agency      String? // hire
+  hireStart   String? // hire
+  hireEnd     String? // hire expected finish
+  rate        String? // hire
+  dailyRateExGst Float? // cost code: $/day (ex GST) while allocated to a job
+  active      Boolean      @default(true)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  assignments Assignment[]
+  serviceRecords ServiceRecord[]
+
+  @@index([type])
+}
+
+// One service/repair visit for a vehicle (or any resource), oldest to newest.
+model ServiceRecord {
+  id          String   @id @default(cuid())
+  resourceId  String
+  resource    Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  date        String // YYYY-MM-DD
+  mechanic    String?
+  invoiceNo   String?
+  work        String? // work performed
+  amountExGst Float?
+  gst         Float?
+  total       Float?
+  odometer    Int? // km at time of service, if known
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([resourceId])
+  @@index([date])
+}
+
+model Assignment {
+  id         String   @id @default(cuid())
+  jobId      String
+  job        Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  resourceId String
+  resource   Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  role       String? // role for this specific job (defaults to resource.role, editable)
+  createdAt  DateTime @default(now())
+
+  @@unique([jobId, resourceId])
+  @@index([jobId])
+  @@index([resourceId])
+}
+
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique // stored lower-case
+  name         String
+  passwordHash String // scrypt$<salt>$<hash>
+  role         String    @default("VIEWER") // ADMIN | MANAGER | VIEWER
+  active       Boolean   @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+}
+
+model BugReport {
+  id          String   @id @default(cuid())
+  title       String
+  description String
+  page        String? // path it was reported from, e.g. /command
+  severity    String   @default("MEDIUM") // LOW | MEDIUM | HIGH
+  status      String   @default("OPEN") // OPEN | IN_PROGRESS | FIXED | WONT_FIX
+  reportedBy  String? // name + email snapshot, so it survives the user being removed later
+  userAgent   String?
+  notes       String? // resolution notes
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Tool {
+  id        String   @id @default(cuid())
+  tag       String   @unique // LOB-0001
+  name      String
+  model     String? // model / serial
+  condition String   @default("Good") // New | Good | Needs repair | Missing
+  heldBy    String   @default("Yard")
+  lastSeen  String?
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

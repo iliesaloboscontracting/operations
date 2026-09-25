@@ -1,0 +1,162 @@
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+import PageShell from "@/components/PageShell";
+import FormModal, { FieldDef } from "@/components/FormModal";
+import JobStatusBadge from "@/components/JobStatusBadge";
+import { ShiftBadge } from "@/components/ShiftBadge";
+import { JobDTO } from "@/lib/types";
+import { fmtDay } from "@/lib/dates";
+import { useAuth } from "@/components/AuthProvider";
+import { apiFetch } from "@/lib/apiFetch";
+
+const FIELDS: FieldDef[] = [
+  { key: "client", label: "Client", section: "Job details" },
+  { key: "siteCode", label: "Job number" },
+  { key: "title", label: "Job / site name", full: true },
+  { key: "siteAddress", label: "Site address", full: true },
+  { key: "date", label: "Date", type: "date", section: "Shift details" },
+  {
+    key: "shift",
+    label: "Shift",
+    type: "select",
+    options: [
+      { value: "DAY", label: "☀ Day" },
+      { value: "NIGHT", label: "☾ Night" },
+    ],
+  },
+  { key: "startTime", label: "Start time", placeholder: "7am" },
+  { key: "endTime", label: "Finish time", placeholder: "3:30pm" },
+  {
+    key: "status",
+    label: "Status",
+    type: "select",
+    full: true,
+    options: [
+      { value: "COMPLETED", label: "Completed" },
+      { value: "ACTIVE", label: "Active (moves back onto the Command Centre board)" },
+      { value: "INACTIVE", label: "Inactive" },
+    ],
+  },
+  { key: "dayBrief", label: "Scope of works / day brief", type: "textarea", full: true, section: "Work instructions" },
+];
+
+// Jobs marked Completed leave the Command Centre board and land here instead - a
+// standing record you can search whenever you need it, and re-open to reactivate
+// a job if it turns out there's still work to do.
+export default function CompletedPage() {
+  const { canEdit } = useAuth();
+  const [jobs, setJobs] = useState<JobDTO[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [editing, setEditing] = useState<JobDTO | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    const res = await apiFetch("/api/jobs/completed");
+    if (res.ok) setJobs(await res.json());
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const q = search.trim().toLowerCase();
+  const visible = jobs.filter(
+    (j) => !q || `${j.title} ${j.client ?? ""} ${j.siteCode ?? ""}`.toLowerCase().includes(q)
+  );
+
+  async function save(v: Record<string, any>) {
+    if (!editing) return;
+    const res = await fetch(`/api/jobs/${editing.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ...v,
+        notRunning: v.status === "INACTIVE",
+      }),
+    });
+    if (!res.ok) throw new Error("Couldn't save job");
+    if (v.status !== "COMPLETED") {
+      setMessage(
+        v.status === "ACTIVE"
+          ? `Moved back to Active — find it on the Command Centre on ${v.date}.`
+          : "Moved off the Completed list."
+      );
+    }
+    await load();
+  }
+
+  return (
+    <PageShell
+      title="Completed"
+      subtitle="Jobs marked Completed leave the Command Centre board and live here. Reopen one to change it back to Active if there's more work to do."
+    >
+      {message && (
+        <div className="mb-3 rounded-md bg-emerald-900/30 px-3 py-1.5 text-xs text-emerald-300">{message}</div>
+      )}
+
+      <input
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        placeholder="Search completed jobs..."
+        className="mb-4 w-64 rounded-md border border-edge bg-panel2 px-2 py-1.5 text-sm text-gray-200 placeholder:text-gray-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+      />
+
+      {loading ? (
+        <div className="py-10 text-center text-sm text-gray-500">Loading...</div>
+      ) : visible.length === 0 ? (
+        <div className="rounded-lg border border-dashed border-edge py-10 text-center text-sm text-gray-500">
+          {jobs.length === 0 ? "Nothing completed yet." : "No matches."}
+        </div>
+      ) : (
+        <div className="overflow-hidden rounded-lg border border-edge">
+          <div className="grid grid-cols-[1.4fr_0.6fr_1.8fr_0.8fr] gap-3 border-b border-edge bg-panel px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+            <div>Job</div>
+            <div>Date</div>
+            <div>Crew &amp; plant</div>
+            <div>Status</div>
+          </div>
+          {visible.map((j) => (
+            <button
+              key={j.id}
+              onClick={() => canEdit && setEditing(j)}
+              className="grid w-full grid-cols-[1.4fr_0.6fr_1.8fr_0.8fr] gap-3 border-b border-edge/60 px-3 py-2 text-left text-sm last:border-0 hover:bg-panel2/60"
+            >
+              <div className="min-w-0">
+                <div className="truncate font-medium text-gray-100">{j.title}</div>
+                <div className="truncate text-[11px] text-gray-500">
+                  {j.client ?? "—"} {j.siteCode && `· ${j.siteCode}`}
+                </div>
+              </div>
+              <div className="text-gray-400">
+                <div>{fmtDay(j.date, { day: "numeric", month: "short", year: "numeric" })}</div>
+                <ShiftBadge shift={j.shift} className="mt-0.5" />
+              </div>
+              <div className="min-w-0 truncate text-gray-400">
+                {j.assignments.length === 0
+                  ? "—"
+                  : j.assignments.map((a) => a.resource.name).join(", ")}
+              </div>
+              <div>
+                <JobStatusBadge status={j.status} />
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {editing && (
+        <FormModal
+          title={`Edit ${editing.title}`}
+          fields={FIELDS}
+          initial={editing}
+          onSave={save}
+          onClose={() => setEditing(null)}
+          submitLabel="Save"
+        />
+      )}
+    </PageShell>
+  );
+}

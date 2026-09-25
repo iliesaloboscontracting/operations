@@ -1,0 +1,20 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body {
+  height: 100%;
+}
+
+/* Page background/text follow the theme colours from tailwind.config.ts */
+body {
+  @apply bg-canvas text-gray-200;
+}
+
+/* Drop-zone highlight while dragging a compatible resource over it */
+.drop-zone-active {
+  outline: 2px dashed #3b82f6;
+  outline-offset: -2px;
+  background-color: rgba(59, 130, 246, 0.1);
+}

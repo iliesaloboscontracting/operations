@@ -1,0 +1,10 @@
+node_modules
+.next
+.env
+*.log
+.DS_Store
+
+# Real business data - never version this (contains client/job details), and it
+# doesn't need to be: `npx prisma db push` rebuilds the schema from prisma/schema.prisma.
+prisma/*.db
+prisma/*.db-journal

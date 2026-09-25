@@ -1,0 +1,78 @@
+import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { guard } from "@/lib/auth";
+import { pickProject } from "@/lib/pickProject";
+
+// GET /api/projects?date=YYYY-MM-DD&archived=1
+// Each project comes with today's assigned counts (crew / plant / attachments / trucks / hire).
+export async function GET(req: NextRequest) {
+  const denied = await guard("VIEWER");
+  if (denied) return denied;
+  const dateParam = req.nextUrl.searchParams.get("date");
+  const archived = req.nextUrl.searchParams.get("archived") === "1";
+  const start = dateParam ? new Date(dateParam) : new Date();
+  start.setUTCHours(0, 0, 0, 0);
+  const end = new Date(start);
+  end.setUTCDate(end.getUTCDate() + 1);
+
+  // "Cost to date" is a running total, so it's worked out against the real
+  // calendar day, independent of whichever date the caller is browsing.
+  const todayStart = new Date();
+  todayStart.setUTCHours(0, 0, 0, 0);
+  const todayEnd = new Date(todayStart);
+  todayEnd.setUTCDate(todayEnd.getUTCDate() + 1);
+
+  const projects = await prisma.project.findMany({
+    where: { archived },
+    orderBy: { name: "asc" },
+    include: {
+      jobs: {
+        where: { date: { gte: start, lt: end }, notRunning: false },
+        include: { assignments: { include: { resource: true } } },
+      },
+      _count: { select: { jobs: true } },
+    },
+  });
+
+  const out = await Promise.all(
+    projects.map(async ({ jobs, _count, ...p }) => {
+      const counts = { crew: 0, plant: 0, attach: 0, trucks: 0, hire: 0 };
+      for (const j of jobs)
+        for (const a of j.assignments) {
+          const r = a.resource;
+          if (r.type === "PERSONNEL" || (r.type === "HIRE" && r.category === "LABOUR")) counts.crew++;
+          else if (r.type === "EQUIPMENT") counts.plant++;
+          else if (r.type === "ATTACHMENT") counts.attach++;
+          else if (r.type === "VEHICLE") counts.trucks++;
+          else counts.hire++;
+        }
+
+      let costToDate: number | undefined;
+      if (_count.jobs > 0) {
+        const elapsed = await prisma.job.findMany({
+          where: { projectId: p.id, notRunning: false, date: { lt: todayEnd } },
+          include: { assignments: { include: { resource: { select: { dailyRateExGst: true } } } } },
+        });
+        const spend = elapsed.reduce(
+          (n, j) => n + j.assignments.reduce((m, a) => m + (a.resource.dailyRateExGst ?? 0), 0),
+          0
+        );
+        if (spend > 0) costToDate = spend;
+      }
+
+      return { ...p, counts, costToDate };
+    })
+  );
+  return NextResponse.json(out);
+}
+
+export async function POST(req: NextRequest) {
+  const denied = await guard("MANAGER");
+  if (denied) return denied;
+  const body = await req.json();
+  if (!body.name) {
+    return NextResponse.json({ error: "name is required" }, { status: 400 });
+  }
+  const project = await prisma.project.create({ data: pickProject(body) as any });
+  return NextResponse.json(project, { status: 201 });
+}

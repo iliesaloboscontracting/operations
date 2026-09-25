@@ -1,0 +1,174 @@
+export type ResourceType =
+  | "PERSONNEL"
+  | "EQUIPMENT"
+  | "ATTACHMENT"
+  | "VEHICLE"
+  | "HIRE";
+export type ShiftType = "DAY" | "NIGHT";
+export type BoardColumn = "crew" | "plant" | "hire";
+
+export interface AssignmentJobRef {
+  id: string;
+  title: string;
+  date: string;
+  shift: ShiftType;
+}
+
+export interface ResourceDTO {
+  id: string;
+  name: string;
+  type: ResourceType;
+  category: string | null;
+  role: string | null;
+  identifier: string | null;
+  status: string;
+  detail: string | null;
+  serviceDue: string | null;
+  loadSize: string | null;
+  ownership: string;
+  payClass: string | null;
+  phone: string | null;
+  email: string | null;
+  tickets: string | null;
+  notes: string | null;
+  agency: string | null;
+  hireStart: string | null;
+  hireEnd: string | null;
+  rate: string | null;
+  dailyRateExGst: number | null;
+  active: boolean;
+  assignments?: { id: string; job: AssignmentJobRef }[];
+}
+
+export interface AssignmentDTO {
+  id: string;
+  jobId: string;
+  resourceId: string;
+  role: string | null;
+  resource: ResourceDTO;
+}
+
+export type JobStatus = "INACTIVE" | "ACTIVE" | "COMPLETED";
+
+export interface JobDTO {
+  id: string;
+  projectId: string | null;
+  title: string;
+  client: string | null;
+  siteCode: string | null;
+  siteAddress: string | null;
+  date: string; // ISO date
+  shift: ShiftType;
+  startTime: string | null;
+  endTime: string | null;
+  status: JobStatus;
+  dayBrief: string | null;
+  colorTag: string;
+  notRunning: boolean;
+  sortOrder: number;
+  assignments: AssignmentDTO[];
+}
+
+export interface ProjectDTO {
+  id: string;
+  name: string;
+  client: string | null;
+  jobNo: string | null;
+  address: string | null;
+  startDate: string | null;
+  status: "ACTIVE" | "INACTIVE";
+  dayStart: string | null;
+  dayEnd: string | null;
+  nightStart: string | null;
+  nightEnd: string | null;
+  notes: string | null;
+  archived: boolean;
+  counts?: { crew: number; plant: number; attach: number; trucks: number; hire: number };
+  costToDate?: number; // sum of daily rates (ex GST) across every elapsed day worked
+}
+
+export interface BugReportDTO {
+  id: string;
+  title: string;
+  description: string;
+  page: string | null;
+  severity: "LOW" | "MEDIUM" | "HIGH";
+  status: "OPEN" | "IN_PROGRESS" | "FIXED" | "WONT_FIX";
+  reportedBy: string | null;
+  userAgent: string | null;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ServiceRecordDTO {
+  id: string;
+  resourceId: string;
+  date: string; // YYYY-MM-DD
+  mechanic: string | null;
+  invoiceNo: string | null;
+  work: string | null;
+  amountExGst: number | null;
+  gst: number | null;
+  total: number | null;
+  odometer: number | null;
+  notes: string | null;
+}
+
+export interface ToolDTO {
+  id: string;
+  tag: string;
+  name: string;
+  model: string | null;
+  condition: string;
+  heldBy: string;
+  lastSeen: string | null;
+  notes: string | null;
+}
+
+// Drag payload carried in the HTML5 DataTransfer object.
+// Yard cards carry resourceId; assigned chips also carry assignmentId (=> move).
+export interface DragResourcePayload {
+  resourceId: string;
+  resourceName: string;
+  column: BoardColumn;
+  assignmentId?: string;
+}
+
+export interface CalendarJobDTO {
+  id: string;
+  projectId: string | null;
+  title: string;
+  siteCode: string | null;
+  date: string; // YYYY-MM-DD
+  shift: ShiftType;
+  startTime: string | null;
+  endTime: string | null;
+  dayBrief: string | null;
+  notRunning: boolean;
+  crew: number;
+  plant: number;
+  hire: number;
+  hasSupervisor: boolean;
+  people: string[];
+  plantNames: string[];
+  hireNames: string[];
+  // Detail for the calendar's job panel
+  crewList: { name: string; role: string | null }[];
+  plantList: { name: string; type: string }[]; // type: EQUIPMENT | ATTACHMENT | VEHICLE
+  hireList: { name: string; agency: string | null }[];
+}
+
+export interface StartAlertDTO {
+  projectId: string;
+  name: string;
+  jobNo: string | null;
+  startDate: string; // YYYY-MM-DD
+  daysAway: number;
+  shifts: ShiftType[];
+  crew: number;
+  plant: number;
+  hasSupervisor: boolean;
+  issues: string[];
+  level: "critical" | "warn" | "ok";
+}
