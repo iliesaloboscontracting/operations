@@ -1,14 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { guard } from "@/lib/auth";
+import { withErrorHandling } from "@/lib/apiHandler";
 
 // PATCH /api/assignments/:id
 //  - { role }  -> change the role for this job assignment
 //  - { jobId } -> move the resource to another job (drag chip between rows)
-export async function PATCH(
+export const PATCH = withErrorHandling(async (
   req: NextRequest,
   { params }: { params: { id: string } }
-) {
+) => {
   const denied = await guard("MANAGER");
   if (denied) return denied;
   const body = await req.json();
@@ -40,15 +41,15 @@ export async function PATCH(
     include: { resource: true },
   });
   return NextResponse.json(assignment);
-}
+});
 
 // DELETE /api/assignments/:id -> unassign (drag off / remove chip)
-export async function DELETE(
+export const DELETE = withErrorHandling(async (
   _req: NextRequest,
   { params }: { params: { id: string } }
-) {
+) => {
   const denied = await guard("MANAGER");
   if (denied) return denied;
   await prisma.assignment.delete({ where: { id: params.id } });
   return NextResponse.json({ ok: true });
-}
+});

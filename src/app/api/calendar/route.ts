@@ -3,9 +3,10 @@ import { prisma } from "@/lib/prisma";
 import { guard } from "@/lib/auth";
 import { addDays } from "@/lib/dates";
 import { CalendarJobDTO } from "@/lib/types";
+import { withErrorHandling } from "@/lib/apiHandler";
 
 // GET /api/calendar?from=YYYY-MM-DD&to=YYYY-MM-DD -> every job in the range, with staffing summary
-export async function GET(req: NextRequest) {
+export const GET = withErrorHandling(async (req: NextRequest) => {
   const denied = await guard("VIEWER");
   if (denied) return denied;
   const from = req.nextUrl.searchParams.get("from");
@@ -73,4 +74,4 @@ export async function GET(req: NextRequest) {
   });
 
   return NextResponse.json(out);
-}
+});

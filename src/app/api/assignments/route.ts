@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { guard } from "@/lib/auth";
+import { withErrorHandling } from "@/lib/apiHandler";
 
 // POST /api/assignments -> drag a resource onto a job
 // body: { jobId, resourceId, role? }
-export async function POST(req: NextRequest) {
+export const POST = withErrorHandling(async (req: NextRequest) => {
   const denied = await guard("MANAGER");
   if (denied) return denied;
   const body = await req.json();
@@ -36,4 +37,4 @@ export async function POST(req: NextRequest) {
   });
 
   return NextResponse.json(assignment, { status: 201 });
-}
+});

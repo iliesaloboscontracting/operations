@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser, guard, hashPassword, MIN_PASSWORD, ROLES } from "@/lib/auth";
+import { withErrorHandling } from "@/lib/apiHandler";
 
 // PATCH /api/users/:id { name?, role?, active?, password? } (admin only)
 // Safety rules: you can't demote or deactivate yourself, and the last active admin can't be removed.
-export async function PATCH(
+export const PATCH = withErrorHandling(async (
   req: NextRequest,
   { params }: { params: { id: string } }
-) {
+) => {
   const denied = await guard("ADMIN");
   if (denied) return denied;
   const me = await getCurrentUser();
@@ -52,4 +53,4 @@ export async function PATCH(
     select: { id: true, email: true, name: true, role: true, active: true, lastLoginAt: true, createdAt: true },
   });
   return NextResponse.json(user);
-}
+});

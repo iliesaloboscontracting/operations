@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { guard } from "@/lib/auth";
+import { withErrorHandling } from "@/lib/apiHandler";
 
 // PATCH /api/jobs/:id -> update job fields
-export async function PATCH(
+export const PATCH = withErrorHandling(async (
   req: NextRequest,
   { params }: { params: { id: string } }
-) {
+) => {
   const denied = await guard("MANAGER");
   if (denied) return denied;
   const body = await req.json();
@@ -37,15 +38,15 @@ export async function PATCH(
   });
 
   return NextResponse.json(job);
-}
+});
 
 // DELETE /api/jobs/:id
-export async function DELETE(
+export const DELETE = withErrorHandling(async (
   _req: NextRequest,
   { params }: { params: { id: string } }
-) {
+) => {
   const denied = await guard("MANAGER");
   if (denied) return denied;
   await prisma.job.delete({ where: { id: params.id } });
   return NextResponse.json({ ok: true });
-}
+});

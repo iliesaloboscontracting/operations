@@ -1,14 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { guard } from "@/lib/auth";
+import { withErrorHandling } from "@/lib/apiHandler";
 
 const FIELDS = ["title", "description", "severity", "status", "notes"] as const;
 
 // PATCH /api/bugs/:id -> triage a report (status, notes, severity). Managers+ only.
-export async function PATCH(
+export const PATCH = withErrorHandling(async (
   req: NextRequest,
   { params }: { params: { id: string } }
-) {
+) => {
   const denied = await guard("MANAGER");
   if (denied) return denied;
   const body = await req.json().catch(() => ({}));
@@ -21,15 +22,15 @@ export async function PATCH(
   }
   const bug = await prisma.bugReport.update({ where: { id: params.id }, data });
   return NextResponse.json(bug);
-}
+});
 
 // DELETE /api/bugs/:id -> Managers+ only (e.g. clearing a duplicate/spam report)
-export async function DELETE(
+export const DELETE = withErrorHandling(async (
   _req: NextRequest,
   { params }: { params: { id: string } }
-) {
+) => {
   const denied = await guard("MANAGER");
   if (denied) return denied;
   await prisma.bugReport.delete({ where: { id: params.id } });
   return NextResponse.json({ ok: true });
-}
+});

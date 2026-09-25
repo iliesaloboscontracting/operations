@@ -1,15 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { hashPassword, MIN_PASSWORD, normaliseEmail, startSession } from "@/lib/auth";
+import { withErrorHandling } from "@/lib/apiHandler";
 
 // GET  /api/auth/setup -> { needsSetup: boolean }  (true until the first admin exists)
-export async function GET() {
+export const GET = withErrorHandling(async () => {
   return NextResponse.json({ needsSetup: (await prisma.user.count()) === 0 });
-}
+});
 
 // POST /api/auth/setup { name, email, password } -> creates the first ADMIN and signs in.
 // Refuses once any user exists, so it can't be used to take over an existing install.
-export async function POST(req: NextRequest) {
+export const POST = withErrorHandling(async (req: NextRequest) => {
   if ((await prisma.user.count()) > 0) {
     return NextResponse.json({ error: "Setup is already complete" }, { status: 403 });
   }
@@ -30,4 +31,4 @@ export async function POST(req: NextRequest) {
   });
   await startSession(user.id);
   return NextResponse.json({ ok: true }, { status: 201 });
-}
+});

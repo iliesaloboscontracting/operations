@@ -2,11 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { guard } from "@/lib/auth";
 import { pickProject } from "@/lib/pickProject";
+import { withErrorHandling } from "@/lib/apiHandler";
 
-export async function PATCH(
+export const PATCH = withErrorHandling(async (
   req: NextRequest,
   { params }: { params: { id: string } }
-) {
+) => {
   const denied = await guard("MANAGER");
   if (denied) return denied;
   const body = await req.json();
@@ -15,15 +16,15 @@ export async function PATCH(
     data: pickProject(body) as any,
   });
   return NextResponse.json(project);
-}
+});
 
 // Deleting a project keeps its past jobs (projectId set null); prefer archiving.
-export async function DELETE(
+export const DELETE = withErrorHandling(async (
   _req: NextRequest,
   { params }: { params: { id: string } }
-) {
+) => {
   const denied = await guard("MANAGER");
   if (denied) return denied;
   await prisma.project.delete({ where: { id: params.id } });
   return NextResponse.json({ ok: true });
-}
+});

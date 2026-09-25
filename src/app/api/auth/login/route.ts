@@ -2,9 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { dummyHash, normaliseEmail, startSession, verifyPassword } from "@/lib/auth";
 import { clearFailures, isLocked, recordFailure } from "@/lib/throttle";
+import { withErrorHandling } from "@/lib/apiHandler";
 
 // POST /api/auth/login { email, password }
-export async function POST(req: NextRequest) {
+export const POST = withErrorHandling(async (req: NextRequest) => {
   const body = await req.json().catch(() => ({}));
   const email = normaliseEmail(String(body.email ?? ""));
   const password = String(body.password ?? "");
@@ -33,4 +34,4 @@ export async function POST(req: NextRequest) {
   await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
   await startSession(user.id);
   return NextResponse.json({ ok: true });
-}
+});

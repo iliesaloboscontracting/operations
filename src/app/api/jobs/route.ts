@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { guard } from "@/lib/auth";
+import { withErrorHandling } from "@/lib/apiHandler";
 
 // GET /api/jobs?date=YYYY-MM-DD  -> jobs for that date, with assignments+resource included
-export async function GET(req: NextRequest) {
+export const GET = withErrorHandling(async (req: NextRequest) => {
   const denied = await guard("VIEWER");
   if (denied) return denied;
   const dateParam = req.nextUrl.searchParams.get("date");
@@ -28,10 +29,10 @@ export async function GET(req: NextRequest) {
   // JobDTO.date is documented (and used, e.g. in a <input type="date">) as YYYY-MM-DD.
   const out = jobs.map((j) => ({ ...j, date: j.date.toISOString().slice(0, 10) }));
   return NextResponse.json(out);
-}
+});
 
 // POST /api/jobs -> create a new job (optionally from a project)
-export async function POST(req: NextRequest) {
+export const POST = withErrorHandling(async (req: NextRequest) => {
   const denied = await guard("MANAGER");
   if (denied) return denied;
   const body = await req.json();
@@ -64,4 +65,4 @@ export async function POST(req: NextRequest) {
   });
 
   return NextResponse.json(job, { status: 201 });
-}
+});

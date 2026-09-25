@@ -1,18 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { guard, getCurrentUser } from "@/lib/auth";
+import { withErrorHandling } from "@/lib/apiHandler";
 
 // GET /api/bugs -> every bug report, newest first (any signed-in user can view)
-export async function GET() {
+export const GET = withErrorHandling(async () => {
   const denied = await guard("VIEWER");
   if (denied) return denied;
   const bugs = await prisma.bugReport.findMany({ orderBy: { createdAt: "desc" } });
   return NextResponse.json(bugs);
-}
+});
 
 // POST /api/bugs -> file a bug report. Deliberately open to any signed-in user
 // (including Viewers) - reporting a problem isn't "editing" app data.
-export async function POST(req: NextRequest) {
+export const POST = withErrorHandling(async (req: NextRequest) => {
   const denied = await guard("VIEWER");
   if (denied) return denied;
   const user = await getCurrentUser();
@@ -36,4 +37,4 @@ export async function POST(req: NextRequest) {
     },
   });
   return NextResponse.json(bug, { status: 201 });
-}
+});

@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { guard } from "@/lib/auth";
+import { withErrorHandling } from "@/lib/apiHandler";
 
 // POST /api/jobs/copy { from: "YYYY-MM-DD", to: "YYYY-MM-DD" }
 // Copies every running job (and its assignments) from one day to another.
 // Skips a project+shift that already has a job on the target day.
-export async function POST(req: NextRequest) {
+export const POST = withErrorHandling(async (req: NextRequest) => {
   const denied = await guard("MANAGER");
   if (denied) return denied;
   const { from, to } = await req.json();
@@ -52,4 +53,4 @@ export async function POST(req: NextRequest) {
     copied++;
   }
   return NextResponse.json({ copied });
-}
+});

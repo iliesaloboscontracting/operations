@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { upcomingStarts } from "@/lib/alerts";
 import { guard } from "@/lib/auth";
+import { withErrorHandling } from "@/lib/apiHandler";
 
 // GET /api/alerts?date=YYYY-MM-DD&days=7 -> projects starting within the window
-export async function GET(req: NextRequest) {
+export const GET = withErrorHandling(async (req: NextRequest) => {
   const denied = await guard("VIEWER");
   if (denied) return denied;
   const date = req.nextUrl.searchParams.get("date");
@@ -12,4 +13,4 @@ export async function GET(req: NextRequest) {
   }
   const days = Number(req.nextUrl.searchParams.get("days") ?? 7) || 7;
   return NextResponse.json(await upcomingStarts(date, days));
-}
+});

@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { guard } from "@/lib/auth";
+import { withErrorHandling } from "@/lib/apiHandler";
 
 // POST /api/jobs/clear { date: "YYYY-MM-DD" }
 // Resets every job on that date (running or not) back to a blank slate: unassigns
 // every crew/plant/hire allocation and wipes each job's day brief. The jobs
 // themselves - and everything else about them (times, site, shift) - are untouched.
-export async function POST(req: NextRequest) {
+export const POST = withErrorHandling(async (req: NextRequest) => {
   const denied = await guard("MANAGER");
   if (denied) return denied;
 
@@ -26,4 +27,4 @@ export async function POST(req: NextRequest) {
   ]);
 
   return NextResponse.json({ cleared, briefsCleared });
-}
+});

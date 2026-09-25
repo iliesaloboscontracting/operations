@@ -2,12 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { guard } from "@/lib/auth";
 import { pickServiceRecord } from "@/lib/pickServiceRecord";
+import { withErrorHandling } from "@/lib/apiHandler";
 
 // GET /api/resources/:id/service -> that resource's service history, newest first
-export async function GET(
+export const GET = withErrorHandling(async (
   _req: NextRequest,
   { params }: { params: { id: string } }
-) {
+) => {
   const denied = await guard("VIEWER");
   if (denied) return denied;
   const records = await prisma.serviceRecord.findMany({
@@ -15,13 +16,13 @@ export async function GET(
     orderBy: { date: "desc" },
   });
   return NextResponse.json(records);
-}
+});
 
 // POST /api/resources/:id/service -> add a service record
-export async function POST(
+export const POST = withErrorHandling(async (
   req: NextRequest,
   { params }: { params: { id: string } }
-) {
+) => {
   const denied = await guard("MANAGER");
   if (denied) return denied;
   const body = await req.json().catch(() => ({}));
@@ -32,4 +33,4 @@ export async function POST(
     data: { resourceId: params.id, ...pickServiceRecord(body) } as any,
   });
   return NextResponse.json(record, { status: 201 });
-}
+});

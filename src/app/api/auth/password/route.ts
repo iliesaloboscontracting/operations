@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser, hashPassword, MIN_PASSWORD, verifyPassword } from "@/lib/auth";
+import { withErrorHandling } from "@/lib/apiHandler";
 
 // POST /api/auth/password { current, next } -> change your own password
-export async function POST(req: NextRequest) {
+export const POST = withErrorHandling(async (req: NextRequest) => {
   const me = await getCurrentUser();
   if (!me) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
 
@@ -20,4 +21,4 @@ export async function POST(req: NextRequest) {
   }
   await prisma.user.update({ where: { id: me.id }, data: { passwordHash: await hashPassword(next) } });
   return NextResponse.json({ ok: true });
-}
+});

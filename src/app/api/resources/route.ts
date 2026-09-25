@@ -2,10 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { guard } from "@/lib/auth";
 import { pickResourceData } from "@/lib/resourceFields";
+import { withErrorHandling } from "@/lib/apiHandler";
 
 // GET /api/resources?type=PERSONNEL,EQUIPMENT&category=LABOUR
 // Includes assignments (+ job) so the UI can show "where is it today".
-export async function GET(req: NextRequest) {
+export const GET = withErrorHandling(async (req: NextRequest) => {
   const denied = await guard("VIEWER");
   if (denied) return denied;
   const type = req.nextUrl.searchParams.get("type");
@@ -29,10 +30,10 @@ export async function GET(req: NextRequest) {
   });
 
   return NextResponse.json(resources);
-}
+});
 
 // POST /api/resources -> add a register item
-export async function POST(req: NextRequest) {
+export const POST = withErrorHandling(async (req: NextRequest) => {
   const denied = await guard("MANAGER");
   if (denied) return denied;
   const body = await req.json();
@@ -49,4 +50,4 @@ export async function POST(req: NextRequest) {
   });
 
   return NextResponse.json(resource, { status: 201 });
-}
+});

@@ -2,10 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { guard } from "@/lib/auth";
 import { pickProject } from "@/lib/pickProject";
+import { withErrorHandling } from "@/lib/apiHandler";
 
 // GET /api/projects?date=YYYY-MM-DD&archived=1
 // Each project comes with today's assigned counts (crew / plant / attachments / trucks / hire).
-export async function GET(req: NextRequest) {
+export const GET = withErrorHandling(async (req: NextRequest) => {
   const denied = await guard("VIEWER");
   if (denied) return denied;
   const dateParam = req.nextUrl.searchParams.get("date");
@@ -64,9 +65,9 @@ export async function GET(req: NextRequest) {
     })
   );
   return NextResponse.json(out);
-}
+});
 
-export async function POST(req: NextRequest) {
+export const POST = withErrorHandling(async (req: NextRequest) => {
   const denied = await guard("MANAGER");
   if (denied) return denied;
   const body = await req.json();
@@ -75,4 +76,4 @@ export async function POST(req: NextRequest) {
   }
   const project = await prisma.project.create({ data: pickProject(body) as any });
   return NextResponse.json(project, { status: 201 });
-}
+});
