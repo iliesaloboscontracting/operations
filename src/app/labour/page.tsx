@@ -2,7 +2,7 @@
 
 import RegisterPage, { StatusPill } from "@/components/RegisterPage";
 import { ResourceDTO } from "@/lib/types";
-import { effectiveStatus, STATUS_LABEL, STATUS_OPTIONS, whereToday } from "@/lib/resource";
+import { CREW_ROLE_OPTIONS, effectiveStatus, STATUS_LABEL, STATUS_OPTIONS, whereToday } from "@/lib/resource";
 
 const CATEGORIES = ["Office", "Site Manager", "Truck Driver", "Labourer"];
 const SECTION_TITLES: Record<string, string> = {
@@ -47,7 +47,7 @@ export default function LabourPage() {
         fields: [
           { key: "name", label: "Name", required: true },
           { key: "category", label: "Group", type: "select", options: CATEGORIES },
-          { key: "role", label: "Role", type: "select", options: ["Supervisor", "Lead", "Operator", "Driver", "General labour"] },
+          { key: "role", label: "Role", type: "select", options: CREW_ROLE_OPTIONS },
           { key: "payClass", label: "Pay class" },
           { key: "phone", label: "Phone" },
           { key: "email", label: "Email" },

@@ -46,3 +46,17 @@ export const STATUS_LABEL: Record<string, string> = {
   DOWN: "Down",
   LEAVE: "Leave",
 };
+
+// A crew member's default role/trade - shown as an inline dropdown on their Yard
+// card, and editable from their full profile on the Labour register too.
+export const CREW_ROLE_OPTIONS = [
+  "Supervisor",
+  "Lead",
+  "Operator",
+  "Driver",
+  "Skilled labour",
+  "Carpenter",
+  "Traffic control",
+  "General labour",
+  "Other",
+];

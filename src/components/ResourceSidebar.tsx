@@ -89,6 +89,20 @@ export default function ResourceSidebar({
     await onResourcesChanged();
   }
 
+  async function updateRole(resourceId: string, role: string) {
+    if (!canEdit) return;
+    const res = await fetch(`/api/resources/${resourceId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ role: role || null }),
+    });
+    if (!res.ok) {
+      setMessage("Couldn't update that role. Try again.");
+      return;
+    }
+    await onResourcesChanged();
+  }
+
   async function addHire(v: Record<string, any>) {
     const res = await fetch("/api/resources", {
       method: "POST",
@@ -208,7 +222,11 @@ export default function ResourceSidebar({
                     <div className="px-1 text-xs text-gray-600">None</div>
                   )}
                   {list.map((r) => (
-                    <ResourceCard key={r.id} resource={r} />
+                    <ResourceCard
+                      key={r.id}
+                      resource={r}
+                      onRoleChange={g.key === "crew" && canEdit ? updateRole : undefined}
+                    />
                   ))}
                 </div>
               )}
