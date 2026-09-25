@@ -3,6 +3,7 @@ node_modules
 .env
 *.log
 .DS_Store
+*.tsbuildinfo
 
 # Real business data - never version this (contains client/job details), and it
 # doesn't need to be: `npx prisma db push` rebuilds the schema from prisma/schema.prisma.
