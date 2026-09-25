@@ -25,6 +25,7 @@ import {
 const STATUS_LABEL: Record<string, string> = {
   ACTIVE: "Active",
   INACTIVE: "Inactive",
+  COMPLETED: "Completed",
 };
 
 const FIELDS: FieldDef[] = [
@@ -38,6 +39,7 @@ const FIELDS: FieldDef[] = [
     options: [
       { value: "ACTIVE", label: "Active" },
       { value: "INACTIVE", label: "Inactive" },
+      { value: "COMPLETED", label: "Completed (moves to the Completed page)" },
     ],
   },
   { key: "startDate", label: "Start date", type: "date" },
@@ -119,6 +121,7 @@ export default function ProjectsPage() {
   const [editing, setEditing] = useState<ProjectDTO | "new" | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [message, setMessage] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -144,6 +147,7 @@ export default function ProjectsPage() {
 
   async function save(values: Record<string, any>) {
     const isNew = editing === "new";
+    const wasCompleted = !isNew && (editing as ProjectDTO).status === "COMPLETED";
     const res = await fetch(
       isNew ? "/api/projects" : `/api/projects/${(editing as ProjectDTO).id}`,
       {
@@ -153,6 +157,13 @@ export default function ProjectsPage() {
       }
     );
     if (!res.ok) throw new Error("Save failed");
+    setMessage(
+      !isNew && values.status === "COMPLETED" && !wasCompleted
+        ? "Marked complete — moved to the Completed page."
+        : !isNew && wasCompleted && values.status !== "COMPLETED"
+        ? "Moved back off the Completed page."
+        : null
+    );
     await load();
   }
 
@@ -166,19 +177,23 @@ export default function ProjectsPage() {
     await load();
   }
 
+  // A project marked Completed leaves this page entirely - same idea as a completed
+  // job leaving the Command Centre board - and lives on the Completed page instead.
+  const notCompleted = useMemo(() => projects.filter((p) => p.status !== "COMPLETED"), [projects]);
+
   // Only meaningful for the current (non-archived) list - a stat strip for
   // "what needs a look today", not a report on the whole project history.
   const stats = useMemo(() => {
     if (showArchived) return null;
     return {
-      active: projects.filter((p) => p.status === "ACTIVE").length,
-      needsAttention: projects.filter(needsAttention).length,
-      startingSoon: projects.filter(startsWithinWeek).length,
-      crewToday: projects.reduce((n, p) => n + (p.counts?.crew ?? 0), 0),
+      active: notCompleted.filter((p) => p.status === "ACTIVE").length,
+      needsAttention: notCompleted.filter(needsAttention).length,
+      startingSoon: notCompleted.filter(startsWithinWeek).length,
+      crewToday: notCompleted.reduce((n, p) => n + (p.counts?.crew ?? 0), 0),
     };
-  }, [projects, showArchived]);
+  }, [notCompleted, showArchived]);
 
-  const visible = attentionOnly && !showArchived ? projects.filter(needsAttention) : projects;
+  const visible = attentionOnly && !showArchived ? notCompleted.filter(needsAttention) : notCompleted;
 
   return (
     <PageShell
@@ -196,6 +211,10 @@ export default function ProjectsPage() {
         ) : undefined
       }
     >
+      {message && (
+        <div className="mb-4 rounded-md bg-emerald-900/30 px-3 py-1.5 text-xs text-emerald-300">{message}</div>
+      )}
+
       {stats && (
         <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
           <StatTile icon={Building2} value={stats.active} label="Active sites" />

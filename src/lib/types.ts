@@ -76,7 +76,7 @@ export interface ProjectDTO {
   jobNo: string | null;
   address: string | null;
   startDate: string | null;
-  status: "ACTIVE" | "INACTIVE";
+  status: "ACTIVE" | "INACTIVE" | "COMPLETED";
   dayStart: string | null;
   dayEnd: string | null;
   nightStart: string | null;
