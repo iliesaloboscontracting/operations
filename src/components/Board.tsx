@@ -93,19 +93,57 @@ export default function Board() {
     return true;
   }
 
+  // A placeholder row has no real job yet - dragging someone onto it creates
+  // today's job for that project first (same defaults as "+ New job" would use),
+  // then assigns onto the job that comes back.
+  async function materialize(projectId: string): Promise<string | null> {
+    const project = projects.find((p) => p.id === projectId);
+    if (!project) {
+      fail("Couldn't find that project.");
+      return null;
+    }
+    const res = await fetch("/api/jobs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        projectId: project.id,
+        title: project.name,
+        client: project.client,
+        siteCode: project.jobNo,
+        date: selectedDate,
+        shift: "DAY",
+        startTime: project.dayStart,
+        endTime: project.dayEnd,
+        status: "ACTIVE",
+      }),
+    });
+    if (!res.ok) {
+      fail("Couldn't create today's job for that project.");
+      return null;
+    }
+    const created = await res.json();
+    return created.id as string;
+  }
+
   async function handleAssign(jobId: string, payload: DragResourcePayload) {
     if (viewOnly()) return;
     setMessage(null);
+    let realJobId = jobId;
+    if (jobId.startsWith("virtual:")) {
+      const id = await materialize(jobId.slice("virtual:".length));
+      if (!id) return;
+      realJobId = id;
+    }
     const res = payload.assignmentId
       ? await fetch(`/api/assignments/${payload.assignmentId}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ jobId }),
+          body: JSON.stringify({ jobId: realJobId }),
         })
       : await fetch("/api/assignments", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ jobId, resourceId: payload.resourceId }),
+          body: JSON.stringify({ jobId: realJobId, resourceId: payload.resourceId }),
         });
     if (!res.ok) return fail("Couldn't assign that resource. Try again.");
     await refresh();
@@ -180,9 +218,38 @@ export default function Board() {
     await refresh();
   }
 
+  // ---- derived: every active/inactive project gets a row, even before its
+  // job for the day exists - a placeholder ("virtual") row stands in until
+  // then, so a project never just vanishes off the board. -----------------
+  const boardRows = useMemo(() => {
+    const hasJobToday = new Set(jobs.map((j) => j.projectId).filter((id): id is string => !!id));
+    const placeholders: JobDTO[] = projects
+      .filter((p) => p.status !== "COMPLETED" && !hasJobToday.has(p.id))
+      .map((p) => ({
+        id: `virtual:${p.id}`,
+        projectId: p.id,
+        title: p.name,
+        client: p.client,
+        siteCode: p.jobNo,
+        siteAddress: p.address,
+        date: selectedDate,
+        shift: "DAY",
+        startTime: p.dayStart,
+        endTime: p.dayEnd,
+        status: p.status,
+        dayBrief: null,
+        colorTag: "orange",
+        notRunning: p.status !== "ACTIVE",
+        sortOrder: 999,
+        assignments: [],
+        virtual: true,
+      }));
+    return [...jobs, ...placeholders];
+  }, [jobs, projects, selectedDate]);
+
   // ---- derived: conflicts + column totals -------------------------------
-  const running = useMemo(() => jobs.filter((j) => !j.notRunning), [jobs]);
-  const notRunning = useMemo(() => jobs.filter((j) => j.notRunning), [jobs]);
+  const running = useMemo(() => boardRows.filter((j) => !j.notRunning), [boardRows]);
+  const notRunning = useMemo(() => boardRows.filter((j) => j.notRunning), [boardRows]);
 
   // how many running jobs each resource is on, per shift
   const shiftCounts = useMemo(() => {
@@ -236,7 +303,15 @@ export default function Board() {
     onAssign: handleAssign,
     onRoleChange: handleRoleChange,
     onRemove: handleRemove,
-    onEdit: (j: JobDTO) => canEdit && setEditing(j),
+    onEdit: (j: JobDTO) => {
+      if (!canEdit) return;
+      if (j.virtual) {
+        setNewJobPrefill({ projectId: j.projectId!, title: j.title });
+        setEditing("new");
+      } else {
+        setEditing(j);
+      }
+    },
   };
 
   return (

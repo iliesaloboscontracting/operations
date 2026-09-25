@@ -32,7 +32,7 @@ export default function JobRow({
   const hasSupervisor = crew.some(
     (a) => a.role === "Supervisor" || a.role === "Lead"
   );
-  const needsSupervisor = !job.notRunning && !hasSupervisor;
+  const needsSupervisor = !job.notRunning && !job.virtual && !hasSupervisor;
 
   // What today's allocation costs, from each item's daily rate (cost code).
   const dailyCost = job.assignments.reduce((n, a) => n + (a.resource.dailyRateExGst ?? 0), 0);
@@ -47,7 +47,7 @@ export default function JobRow({
       <button
         onClick={() => onEdit(job)}
         className="flex gap-2.5 py-3 pl-3 text-left hover:bg-panel2/50"
-        title="Edit job"
+        title={job.virtual ? "Not scheduled yet - click to add today's job" : "Edit job"}
       >
         <div className="w-1 shrink-0 rounded-full bg-brand-600" />
         <div className="min-w-0">
@@ -67,6 +67,9 @@ export default function JobRow({
               </span>
             )}
           </div>
+          {job.virtual && (
+            <div className="mt-1 text-[11px] italic text-gray-500">Not scheduled yet</div>
+          )}
           {needsSupervisor && (
             <div className="mt-1 flex items-center gap-1 text-[11px] font-medium text-red-400">
               <TriangleAlert size={11} className="shrink-0" />

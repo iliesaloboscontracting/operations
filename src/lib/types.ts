@@ -67,6 +67,9 @@ export interface JobDTO {
   notRunning: boolean;
   sortOrder: number;
   assignments: AssignmentDTO[];
+  // Client-only: a placeholder row for an active/inactive project that has no
+  // job created yet for the selected date - see Board.tsx. Never sent to the API.
+  virtual?: boolean;
 }
 
 export interface ProjectDTO {

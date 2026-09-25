@@ -44,7 +44,7 @@ export default function JobFormModal({
             options: [
               { value: "", label: "— pick a project (or type a one-off below) —" },
               ...projects
-                .filter((p) => p.status === "ACTIVE")
+                .filter((p) => p.status === "ACTIVE" || p.id === defaultProjectId)
                 .map((p) => ({ value: p.id, label: p.client ? `${p.name} — ${p.client}` : p.name })),
             ],
           },
