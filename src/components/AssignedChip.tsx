@@ -40,7 +40,7 @@ export default function AssignedChip({
   }
 
   const tone = isSupervisorLike
-    ? "bg-blue-600 text-white"
+    ? "bg-brand-600 text-white"
     : column === "plant"
     ? "border border-orange-500/60 bg-orange-950/60 text-orange-200"
     : column === "hire"

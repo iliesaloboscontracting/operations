@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { useAuth } from "./AuthProvider";
 
 const input =
-  "w-full rounded-md border border-edge bg-panel2 px-2 py-1.5 text-sm text-gray-200 focus:outline-none focus:ring-1 focus:ring-blue-500";
+  "w-full rounded-md border border-edge bg-panel2 px-2 py-1.5 text-sm text-gray-200 focus:outline-none focus:ring-1 focus:ring-brand-500";
 
 // "Report a bug" trigger + form. Lives inline in The Yard sidebar on the Command
 // Centre (not floating - a fixed-position button here used to sit on top of the
@@ -97,7 +97,7 @@ export default function ReportBugButton({ className = "" }: { className?: string
                       setOpen(false);
                       reset();
                     }}
-                    className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-500"
+                    className="rounded-md bg-brand-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-500"
                   >
                     Close
                   </button>
@@ -154,7 +154,7 @@ export default function ReportBugButton({ className = "" }: { className?: string
                   <button
                     type="submit"
                     disabled={saving}
-                    className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-50"
+                    className="rounded-md bg-brand-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-500 disabled:opacity-50"
                   >
                     {saving ? "Sending..." : "Send report"}
                   </button>

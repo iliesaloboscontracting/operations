@@ -59,7 +59,7 @@ function JobCard({ job }: { job: CalendarJobDTO }) {
               {c.role && (
                 <span
                   className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] ${
-                    c.role === "Supervisor" || c.role === "Lead" ? "bg-blue-600 text-white" : "bg-gray-700 text-gray-300"
+                    c.role === "Supervisor" || c.role === "Lead" ? "bg-brand-600 text-white" : "bg-gray-700 text-gray-300"
                   }`}
                 >
                   {c.role}
@@ -146,7 +146,7 @@ export default function JobDetailsModal({
               {fmtDay(date, { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
             </div>
             {startsThisDay && (
-              <span className="mt-1 inline-block rounded bg-blue-600 px-1.5 py-0.5 text-[10px] font-bold uppercase text-white">
+              <span className="mt-1 inline-block rounded bg-brand-600 px-1.5 py-0.5 text-[10px] font-bold uppercase text-white">
                 ▶ Project starts this day
               </span>
             )}
@@ -164,7 +164,7 @@ export default function JobDetailsModal({
                 <div className="mt-3">
                   <button
                     onClick={onAddJob}
-                    className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-500"
+                    className="rounded-md bg-brand-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-500"
                   >
                     + Add a job for this day
                   </button>
@@ -179,7 +179,7 @@ export default function JobDetailsModal({
         <div className="flex items-center justify-between gap-2 border-t border-edge px-4 py-3">
           <Link
             href={`/command?date=${date}`}
-            className="text-sm font-medium text-blue-500 hover:text-blue-400"
+            className="text-sm font-medium text-brand-500 hover:text-brand-400"
           >
             {canEdit ? "Edit in Command Centre →" : "View in Command Centre →"}
           </Link>

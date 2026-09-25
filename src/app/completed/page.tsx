@@ -101,7 +101,7 @@ export default function CompletedPage() {
         value={search}
         onChange={(e) => setSearch(e.target.value)}
         placeholder="Search completed jobs..."
-        className="mb-4 w-64 rounded-md border border-edge bg-panel2 px-2 py-1.5 text-sm text-gray-200 placeholder:text-gray-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+        className="mb-4 w-64 rounded-md border border-edge bg-panel2 px-2 py-1.5 text-sm text-gray-200 placeholder:text-gray-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
       />
 
       {loading ? (

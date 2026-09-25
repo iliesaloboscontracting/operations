@@ -68,7 +68,7 @@ export default function SetupPage() {
         <button
           type="submit"
           disabled={busy || !name || !email || !password}
-          className="rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-50"
+          className="rounded-md bg-brand-600 px-3 py-2 text-sm font-medium text-white hover:bg-brand-500 disabled:opacity-50"
         >
           {busy ? "Creating..." : "Create admin account"}
         </button>

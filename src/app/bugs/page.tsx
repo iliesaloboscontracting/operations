@@ -106,7 +106,7 @@ export default function BugReportsPage() {
             key={s}
             onClick={() => setStatus(s)}
             className={`rounded-md px-3 py-1 text-xs font-semibold ${
-              status === s ? "bg-blue-600 text-white" : "bg-panel2 text-gray-400 hover:text-gray-200"
+              status === s ? "bg-brand-600 text-white" : "bg-panel2 text-gray-400 hover:text-gray-200"
             }`}
           >
             {s ? STATUS_LABEL[s] : "All"}

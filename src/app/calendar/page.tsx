@@ -265,7 +265,7 @@ export default function CalendarPage() {
             <button
               key={v}
               onClick={() => setView(v)}
-              className={`px-3 py-1.5 ${view === v ? "bg-blue-600 text-white" : "bg-panel text-gray-400 hover:text-gray-200"}`}
+              className={`px-3 py-1.5 ${view === v ? "bg-brand-600 text-white" : "bg-panel text-gray-400 hover:text-gray-200"}`}
             >
               {v}
             </button>
@@ -285,7 +285,7 @@ export default function CalendarPage() {
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search projects..."
-          className="w-56 rounded-md border border-edge bg-panel px-2 py-1.5 text-sm text-gray-200 placeholder:text-gray-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          className="w-56 rounded-md border border-edge bg-panel px-2 py-1.5 text-sm text-gray-200 placeholder:text-gray-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
         />
         <div className="flex overflow-hidden rounded-md border border-edge text-xs font-semibold uppercase tracking-wide">
           {(["ALL", "DAY", "NIGHT"] as ShiftFilter[]).map((v) => (
@@ -293,7 +293,7 @@ export default function CalendarPage() {
               key={v}
               onClick={() => setShift(v)}
               className={`flex items-center gap-1 px-3 py-1.5 ${
-                shift === v ? "bg-blue-600 text-white" : "bg-panel text-gray-400 hover:text-gray-200"
+                shift === v ? "bg-brand-600 text-white" : "bg-panel text-gray-400 hover:text-gray-200"
               }`}
             >
               {v !== "ALL" && (
@@ -389,7 +389,7 @@ export default function CalendarPage() {
                           className="flex h-full min-h-[2.75rem] w-full flex-col gap-0.5 p-0.5 text-left hover:bg-panel2"
                         >
                           {starts && (
-                            <span className="rounded bg-blue-600 px-1 py-0.5 text-center text-[9px] font-bold uppercase text-white">
+                            <span className="rounded bg-brand-600 px-1 py-0.5 text-center text-[9px] font-bold uppercase text-white">
                               ▶ {compact ? "" : "start"}
                             </span>
                           )}
@@ -468,7 +468,7 @@ function DayView({
   return (
     <div>
       {starting.map((p) => (
-        <div key={p.id} className="mb-2 rounded-md border border-blue-500/50 bg-blue-950/30 px-3 py-2 text-sm text-blue-200">
+        <div key={p.id} className="mb-2 rounded-md border border-brand-500/50 bg-brand-950/30 px-3 py-2 text-sm text-brand-200">
           ▶ <b>{p.name}</b> starts {day === today ? "today" : "this day"}
         </div>
       ))}
@@ -484,7 +484,7 @@ function DayView({
             className={`rounded-lg border p-3 text-left ${
               j.notRunning
                 ? "border-edge bg-panel/60 opacity-70 hover:border-gray-500"
-                : "border-edge bg-panel hover:border-blue-500/60"
+                : "border-edge bg-panel hover:border-brand-500/60"
             }`}
           >
             <div className="flex items-center justify-between gap-2">

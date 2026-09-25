@@ -121,7 +121,7 @@ export default function ProjectsPage() {
         canEdit ? (
           <button
             onClick={() => setEditing("new")}
-            className="shrink-0 rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-500"
+            className="shrink-0 rounded-md bg-brand-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-500"
           >
             + Add project
           </button>
@@ -150,7 +150,7 @@ export default function ProjectsPage() {
           <button
             key={p.id}
             onClick={() => canEdit && setEditing(p)}
-            className={`rounded-lg border border-edge bg-panel p-3 text-left hover:border-blue-500/60 ${
+            className={`rounded-lg border border-edge bg-panel p-3 text-left hover:border-brand-500/60 ${
               p.status !== "ACTIVE" ? "opacity-70" : ""
             }`}
           >

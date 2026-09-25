@@ -175,7 +175,7 @@ export default function ResourceSidebar({
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         placeholder="Search..."
-        className="rounded-md border border-edge bg-panel2 px-2 py-1.5 text-sm text-gray-200 placeholder:text-gray-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+        className="rounded-md border border-edge bg-panel2 px-2 py-1.5 text-sm text-gray-200 placeholder:text-gray-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
       />
 
       <div className="flex flex-1 flex-col gap-2 overflow-y-auto">
@@ -199,7 +199,7 @@ export default function ResourceSidebar({
                   {g.key === "hire" && canEdit && (
                     <button
                       onClick={() => setAddingHire(true)}
-                      className="mb-0.5 rounded-md border border-dashed border-edge px-2 py-1 text-left text-xs text-gray-400 hover:border-blue-500/60 hover:text-gray-200"
+                      className="mb-0.5 rounded-md border border-dashed border-edge px-2 py-1 text-left text-xs text-gray-400 hover:border-brand-500/60 hover:text-gray-200"
                     >
                       + Add hire (personnel, machine or truck)
                     </button>

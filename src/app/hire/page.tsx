@@ -35,7 +35,7 @@ export default function HirePage() {
                 key={t.key}
                 onClick={() => setTab(t.key)}
                 className={`rounded-md px-3 py-1 text-xs font-semibold uppercase tracking-wide ${
-                  tab === t.key ? "bg-blue-600 text-white" : "bg-panel2 text-gray-400 hover:text-gray-200"
+                  tab === t.key ? "bg-brand-600 text-white" : "bg-panel2 text-gray-400 hover:text-gray-200"
                 }`}
               >
                 {t.label}

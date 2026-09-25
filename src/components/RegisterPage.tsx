@@ -138,7 +138,7 @@ export default function RegisterPage<T extends { id: string }>({
         canEdit ? (
           <button
             onClick={() => setEditing("new")}
-            className="shrink-0 rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-500"
+            className="shrink-0 rounded-md bg-brand-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-500"
           >
             + {config.addLabel}
           </button>
@@ -153,7 +153,7 @@ export default function RegisterPage<T extends { id: string }>({
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search..."
-          className="w-64 rounded-md border border-edge bg-panel2 px-2 py-1.5 text-sm text-gray-200 placeholder:text-gray-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          className="w-64 rounded-md border border-edge bg-panel2 px-2 py-1.5 text-sm text-gray-200 placeholder:text-gray-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
         />
         {config.statusOptions && (
           <select

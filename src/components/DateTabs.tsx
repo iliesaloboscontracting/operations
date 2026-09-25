@@ -35,7 +35,7 @@ export default function DateTabs({
             onClick={() => onSelect(t.iso)}
             className={`shrink-0 rounded-md px-4 py-2 text-sm font-medium transition-colors ${
               active
-                ? "bg-blue-600 text-white"
+                ? "bg-brand-600 text-white"
                 : "bg-panel2 text-gray-300 hover:bg-gray-700"
             }`}
           >

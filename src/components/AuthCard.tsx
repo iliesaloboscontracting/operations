@@ -24,4 +24,4 @@ export default function AuthCard({
 }
 
 export const authInput =
-  "w-full rounded-md border border-edge bg-panel2 px-3 py-2 text-sm text-gray-200 focus:outline-none focus:ring-1 focus:ring-blue-500";
+  "w-full rounded-md border border-edge bg-panel2 px-3 py-2 text-sm text-gray-200 focus:outline-none focus:ring-1 focus:ring-brand-500";

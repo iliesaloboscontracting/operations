@@ -6,7 +6,7 @@ import { useAuth } from "./AuthProvider";
 import { apiFetch } from "@/lib/apiFetch";
 
 const input =
-  "w-full rounded-md border border-edge bg-panel2 px-2 py-1.5 text-xs text-gray-200 focus:outline-none focus:ring-1 focus:ring-blue-500";
+  "w-full rounded-md border border-edge bg-panel2 px-2 py-1.5 text-xs text-gray-200 focus:outline-none focus:ring-1 focus:ring-brand-500";
 
 const money = (n: number | null) =>
   n === null ? "—" : n.toLocaleString("en-AU", { style: "currency", currency: "AUD" });
@@ -93,7 +93,7 @@ function RecordForm({
           type="button"
           disabled={saving || !draft.date}
           onClick={onSave}
-          className="rounded-md bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:bg-blue-500 disabled:opacity-50"
+          className="rounded-md bg-brand-600 px-3 py-1 text-xs font-medium text-white hover:bg-brand-500 disabled:opacity-50"
         >
           {saving ? "Saving..." : "Save record"}
         </button>
