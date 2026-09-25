@@ -9,6 +9,7 @@ import { daysBetween } from "@/lib/dates";
 import UpcomingAlerts from "@/components/UpcomingAlerts";
 import { useAuth } from "@/components/AuthProvider";
 import { apiFetch } from "@/lib/apiFetch";
+import { Plus } from "lucide-react";
 
 const STATUS_STYLE: Record<string, string> = {
   ACTIVE: "bg-emerald-900/60 text-emerald-300",
@@ -121,36 +122,41 @@ export default function ProjectsPage() {
         canEdit ? (
           <button
             onClick={() => setEditing("new")}
-            className="shrink-0 rounded-md bg-brand-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-500"
+            className="flex shrink-0 items-center gap-1.5 rounded-lg bg-brand-600 px-3.5 py-2 text-sm font-medium text-white shadow-sm hover:bg-brand-500 active:scale-[0.98]"
           >
-            + Add project
+            <Plus size={16} strokeWidth={2.5} />
+            Add project
           </button>
         ) : undefined
       }
     >
       <UpcomingAlerts />
 
-      <div className="mb-4 flex gap-2 text-xs">
+      <div className="mb-5 inline-flex gap-1 rounded-full bg-panel2 p-1 text-xs">
         <button
           onClick={() => setShowArchived(false)}
-          className={`rounded-md px-3 py-1 ${!showArchived ? "bg-panel2 text-gray-100" : "text-gray-500 hover:text-gray-300"}`}
+          className={`rounded-full px-3 py-1 font-medium ${
+            !showArchived ? "bg-panel text-gray-100 shadow-sm" : "text-gray-500 hover:text-gray-300"
+          }`}
         >
           Current
         </button>
         <button
           onClick={() => setShowArchived(true)}
-          className={`rounded-md px-3 py-1 ${showArchived ? "bg-panel2 text-gray-100" : "text-gray-500 hover:text-gray-300"}`}
+          className={`rounded-full px-3 py-1 font-medium ${
+            showArchived ? "bg-panel text-gray-100 shadow-sm" : "text-gray-500 hover:text-gray-300"
+          }`}
         >
           Archived
         </button>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+      <div className="grid gap-3.5 md:grid-cols-2 xl:grid-cols-3">
         {projects.map((p) => (
           <button
             key={p.id}
             onClick={() => canEdit && setEditing(p)}
-            className={`rounded-lg border border-edge bg-panel p-3 text-left hover:border-brand-500/60 ${
+            className={`rounded-xl border border-edge bg-panel p-4 text-left shadow-soft hover:-translate-y-0.5 hover:shadow-soft-md ${
               p.status !== "ACTIVE" ? "opacity-70" : ""
             }`}
           >
@@ -162,29 +168,29 @@ export default function ProjectsPage() {
                   {p.jobNo && ` · ${p.jobNo}`}
                 </div>
               </div>
-              <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase ${STATUS_STYLE[p.status]}`}>
+              <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${STATUS_STYLE[p.status]}`}>
                 {STATUS_LABEL[p.status]}
               </span>
             </div>
             <div className="mt-2 flex flex-wrap gap-1 text-[11px]">
               {startsIn(p) && (
-                <span className="rounded bg-blue-900/70 px-1.5 py-0.5 font-semibold text-blue-200">
+                <span className="rounded-full bg-brand-900/70 px-2 py-0.5 font-semibold text-brand-200">
                   ▶ {startsIn(p)}
                 </span>
               )}
               {p.dayStart && (
-                <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-amber-600">
+                <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-amber-600">
                   <span className="text-amber-500">☀</span> {p.dayStart}{p.dayEnd ? `–${p.dayEnd}` : ""}
                 </span>
               )}
               {p.nightStart && (
-                <span className="rounded bg-purple-500/15 px-1.5 py-0.5 text-purple-600">
+                <span className="rounded-full bg-purple-500/15 px-2 py-0.5 text-purple-600">
                   <span className="text-purple-500">☾</span> {p.nightStart}{p.nightEnd ? `–${p.nightEnd}` : ""}
                 </span>
               )}
             </div>
             {p.counts && (
-              <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 border-t border-edge pt-2 text-[10px] uppercase tracking-wide">
+              <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 border-t border-edge pt-2.5 text-[10px] uppercase tracking-wide">
                 <Count n={p.counts.crew} label="crew" />
                 <Count n={p.counts.plant} label="plant" />
                 <Count n={p.counts.attach} label="attach" />

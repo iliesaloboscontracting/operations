@@ -33,7 +33,7 @@ function JobCard({ job }: { job: CalendarJobDTO }) {
   else if (!job.hasSupervisor) flags.push({ text: "No supervisor", tone: "bg-red-900/60 text-red-300" });
 
   return (
-    <div className="rounded-lg border border-edge bg-panel p-3">
+    <div className="rounded-xl border border-edge bg-panel p-3.5 shadow-soft">
       <div className="flex items-center gap-2">
         <ShiftBadge shift={job.shift} className="shrink-0 py-0.5 text-[10px] uppercase" />
         {(job.startTime || job.endTime) && (
@@ -42,7 +42,7 @@ function JobCard({ job }: { job: CalendarJobDTO }) {
           </span>
         )}
         {flags.map((f) => (
-          <span key={f.text} className={`ml-auto rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase ${f.tone}`}>
+          <span key={f.text} className={`ml-auto rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${f.tone}`}>
             {f.text}
           </span>
         ))}
@@ -128,14 +128,14 @@ export default function JobDetailsModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
+      className="animate-overlay-in fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-[2px]"
       onClick={onClose}
       role="dialog"
       aria-modal="true"
       aria-label={`${title} on ${date}`}
     >
       <div
-        className="flex max-h-full w-full max-w-2xl flex-col rounded-lg border border-edge bg-canvas shadow-xl"
+        className="animate-modal-in flex max-h-full w-full max-w-2xl flex-col rounded-2xl border border-edge bg-canvas shadow-soft-lg"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-3 border-b border-edge px-4 py-3">

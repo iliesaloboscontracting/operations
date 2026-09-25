@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useAutoRefresh } from "@/lib/useAutoRefresh";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { ChevronDown, KeyRound, LogOut } from "lucide-react";
 import { localISODate } from "@/lib/resource";
 import { useAuth } from "./AuthProvider";
 import FormModal from "./FormModal";
@@ -42,16 +43,16 @@ function NavTab({
   return (
     <Link
       href={href}
-      className={`flex shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2 text-sm transition-colors ${
+      className={`flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3.5 py-1.5 text-sm ${
         active
-          ? "border-brand font-medium text-white"
-          : "border-transparent text-slate-300 hover:border-white/20 hover:text-white"
+          ? "bg-white/12 font-medium text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.08)]"
+          : "text-slate-300 hover:bg-white/5 hover:text-white"
       }`}
     >
       {label}
       {!!badge && (
         <span
-          className="rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold text-black"
+          className="rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold leading-none text-black"
           title="Projects starting within a week"
         >
           {badge}
@@ -61,7 +62,7 @@ function NavTab({
   );
 }
 
-const Divider = () => <span className="mx-1 h-5 w-px shrink-0 self-center bg-white/10" aria-hidden />;
+const Divider = () => <span className="mx-1.5 h-5 w-px shrink-0 self-center bg-white/10" aria-hidden />;
 
 export default function TopNav() {
   const path = usePathname() ?? "";
@@ -84,13 +85,13 @@ export default function TopNav() {
   const isActive = (href: string) => path === href || path.startsWith(href + "/");
 
   return (
-    <nav className="flex h-14 w-full shrink-0 items-center border-b border-white/10 bg-sidebar px-3">
+    <nav className="relative z-10 flex h-14 w-full shrink-0 items-center border-b border-black/20 bg-sidebar px-3 shadow-soft">
       <Link href="/projects" className="mr-3 flex shrink-0 items-center">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/logo-dark.png" alt="Lobos Contracting" width={400} height={96} className="h-8 w-auto" />
       </Link>
 
-      <div className="flex min-w-0 flex-1 items-center overflow-x-auto">
+      <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto py-1.5">
         {OPERATIONS.map((i) => (
           <NavTab
             key={i.href}
@@ -116,39 +117,47 @@ export default function TopNav() {
         <div className="relative ml-2 shrink-0">
           <button
             onClick={() => setMenuOpen((o) => !o)}
-            className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-white/5"
+            className={`flex items-center gap-2 rounded-full py-1.5 pl-3 pr-2 ${
+              menuOpen ? "bg-white/10" : "hover:bg-white/5"
+            }`}
           >
-            <div className="min-w-0 text-right">
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brand-600 text-xs font-semibold text-white">
+              {user.name.charAt(0).toUpperCase()}
+            </span>
+            <div className="min-w-0 text-left">
               <div className="truncate text-xs font-medium text-white">{user.name}</div>
               <div className="truncate text-[10px] text-slate-400">
                 {user.role.charAt(0) + user.role.slice(1).toLowerCase()}
               </div>
             </div>
+            <ChevronDown size={14} className={`shrink-0 text-slate-400 transition-transform ${menuOpen ? "rotate-180" : ""}`} />
           </button>
           {menuOpen && (
-            <div
-              className="absolute right-0 top-full z-20 mt-1 w-52 rounded-md border border-white/10 bg-sidebar py-1 shadow-xl"
-              onMouseLeave={() => setMenuOpen(false)}
-            >
-              <div className="truncate border-b border-white/10 px-3 py-2 text-[11px] text-slate-400">
-                {user.email}
+            <>
+              <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
+              <div className="animate-modal-in absolute right-0 top-full z-20 mt-2 w-56 overflow-hidden rounded-xl border border-white/10 bg-sidebar py-1 shadow-soft-lg">
+                <div className="truncate border-b border-white/10 px-3 py-2.5 text-[11px] text-slate-400">
+                  {user.email}
+                </div>
+                <button
+                  onClick={() => {
+                    setChangingPw(true);
+                    setMenuOpen(false);
+                  }}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-300 hover:bg-white/5 hover:text-white"
+                >
+                  <KeyRound size={14} className="shrink-0 text-slate-500" />
+                  Change password
+                </button>
+                <button
+                  onClick={signOut}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-300 hover:bg-red-500/10 hover:text-red-400"
+                >
+                  <LogOut size={14} className="shrink-0 text-slate-500" />
+                  Sign out
+                </button>
               </div>
-              <button
-                onClick={() => {
-                  setChangingPw(true);
-                  setMenuOpen(false);
-                }}
-                className="block w-full px-3 py-2 text-left text-sm text-slate-300 hover:bg-white/5 hover:text-white"
-              >
-                Change password
-              </button>
-              <button
-                onClick={signOut}
-                className="block w-full px-3 py-2 text-left text-sm text-slate-300 hover:bg-white/5 hover:text-red-400"
-              >
-                Sign out
-              </button>
-            </div>
+            </>
           )}
         </div>
       )}

@@ -2,10 +2,11 @@
 
 import { useState } from "react";
 import { usePathname } from "next/navigation";
+import { Bug } from "lucide-react";
 import { useAuth } from "./AuthProvider";
 
 const input =
-  "w-full rounded-md border border-edge bg-panel2 px-2 py-1.5 text-sm text-gray-200 focus:outline-none focus:ring-1 focus:ring-brand-500";
+  "w-full rounded-lg border border-edge bg-panel2 px-3 py-2 text-sm text-gray-200 placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500";
 
 // "Report a bug" trigger + form. Lives inline in The Yard sidebar on the Command
 // Centre (not floating - a fixed-position button here used to sit on top of the
@@ -66,14 +67,15 @@ export default function ReportBugButton({ className = "" }: { className?: string
       <button
         onClick={() => setOpen(true)}
         title="Report a bug"
-        className={`flex w-full items-center justify-center gap-1.5 rounded-md border border-edge bg-panel2 px-2 py-1.5 text-xs font-medium text-gray-300 hover:bg-panel2/60 ${className}`}
+        className={`flex w-full items-center justify-center gap-1.5 rounded-lg border border-edge bg-panel2 px-2 py-1.5 text-xs font-medium text-gray-300 hover:bg-panel2/60 ${className}`}
       >
-        🐞 Report a bug
+        <Bug size={14} className="shrink-0 text-gray-400" />
+        Report a bug
       </button>
 
       {open && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
+          className="animate-overlay-in fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-[2px]"
           onClick={() => {
             setOpen(false);
             reset();
@@ -82,7 +84,7 @@ export default function ReportBugButton({ className = "" }: { className?: string
           <form
             onSubmit={submit}
             onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-md rounded-lg border border-edge bg-panel p-4"
+            className="animate-modal-in w-full max-w-md rounded-2xl border border-edge bg-panel p-5 shadow-soft-lg"
           >
             {done ? (
               <>
@@ -97,7 +99,7 @@ export default function ReportBugButton({ className = "" }: { className?: string
                       setOpen(false);
                       reset();
                     }}
-                    className="rounded-md bg-brand-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-500"
+                    className="rounded-lg bg-brand-600 px-3.5 py-2 text-sm font-medium text-white shadow-sm hover:bg-brand-500 active:scale-[0.98]"
                   >
                     Close
                   </button>
@@ -147,14 +149,14 @@ export default function ReportBugButton({ className = "" }: { className?: string
                       setOpen(false);
                       reset();
                     }}
-                    className="rounded-md px-3 py-1.5 text-sm text-gray-400 hover:text-gray-200"
+                    className="rounded-lg px-3.5 py-2 text-sm font-medium text-gray-400 hover:bg-panel2 hover:text-gray-200"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
                     disabled={saving}
-                    className="rounded-md bg-brand-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-500 disabled:opacity-50"
+                    className="rounded-lg bg-brand-600 px-3.5 py-2 text-sm font-medium text-white shadow-sm hover:bg-brand-500 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50"
                   >
                     {saving ? "Sending..." : "Send report"}
                   </button>

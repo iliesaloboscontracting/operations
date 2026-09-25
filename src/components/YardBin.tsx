@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Trash2 } from "lucide-react";
 import { DragResourcePayload } from "@/lib/types";
 
 // A permanent drop target pinned at the bottom of The Yard - not a floating overlay,
@@ -40,13 +41,13 @@ export default function YardBin({
       }}
       onDrop={onDrop}
       title="Drag an item from the Yard here to remove it from inventory"
-      className={`flex shrink-0 items-center justify-center gap-1.5 rounded-md border border-dashed px-2 py-2 text-xs font-medium transition-colors ${
+      className={`flex shrink-0 items-center justify-center gap-1.5 rounded-lg border border-dashed px-2 py-2 text-xs font-medium ${
         active
           ? "border-red-500 bg-red-950/40 text-red-300"
           : "border-edge text-gray-500 hover:border-red-500/50 hover:text-red-400"
       }`}
     >
-      <span aria-hidden>🗑️</span>
+      <Trash2 size={14} className="shrink-0" />
       Drag here to remove from inventory
     </div>
   );

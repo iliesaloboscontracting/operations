@@ -88,6 +88,17 @@ const config: Config = {
       fontFamily: {
         sans: ["var(--font-inter)", "ui-sans-serif", "system-ui", "sans-serif"],
       },
+      // A softer, multi-layer elevation (low-opacity, larger spread) instead of
+      // Tailwind's default single-layer shadow, which reads flatter/older.
+      boxShadow: {
+        soft: "0 1px 2px rgba(15, 23, 42, 0.04), 0 2px 8px rgba(15, 23, 42, 0.06)",
+        "soft-md": "0 2px 4px rgba(15, 23, 42, 0.04), 0 8px 24px rgba(15, 23, 42, 0.08)",
+        "soft-lg": "0 4px 8px rgba(15, 23, 42, 0.04), 0 16px 40px rgba(15, 23, 42, 0.12)",
+      },
+      borderRadius: {
+        xl: "0.875rem",
+        "2xl": "1.125rem",
+      },
     },
   },
   plugins: [],

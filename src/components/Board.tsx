@@ -19,6 +19,7 @@ import { addDays } from "@/lib/dates";
 import { buildDaySheet } from "@/lib/daySheet";
 import DaySheetModal from "./DaySheetModal";
 import { apiFetch } from "@/lib/apiFetch";
+import { CalendarClock, Download, Eraser, Plus } from "lucide-react";
 
 export default function Board() {
   const [selectedDate, setSelectedDate] = useState(localISODate());
@@ -229,11 +230,11 @@ export default function Board() {
 
   return (
     <div className="flex h-full flex-col">
-      <header className="border-b border-edge px-4 py-3">
+      <header className="border-b border-edge px-4 py-4 lg:px-6">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <h1 className="text-lg font-bold text-gray-100">Command Centre</h1>
-            <p className="text-xs text-gray-500">
+            <h1 className="text-2xl font-semibold tracking-tight text-gray-100">Command Centre</h1>
+            <p className="mt-0.5 text-xs text-gray-500">
               Every active site, one to a row. Drag to assign or move; it saves on drop.
             </p>
           </div>
@@ -241,8 +242,9 @@ export default function Board() {
             <button
               onClick={openDaySheet}
               title="Generate the labour, site & truck allocations message for this day"
-              className="rounded-md border border-edge px-3 py-1.5 text-sm text-gray-300 hover:bg-panel2"
+              className="flex items-center gap-1.5 rounded-lg border border-edge px-3.5 py-2 text-sm font-medium text-gray-300 hover:bg-panel2"
             >
+              <Download size={15} />
               Export
             </button>
             {canEdit ? (
@@ -250,25 +252,28 @@ export default function Board() {
                 <button
                   onClick={clearBoard}
                   title="Unassign everyone and everything, and clear every day brief, on this day"
-                  className="rounded-md border border-red-900/60 px-3 py-1.5 text-sm text-red-400 hover:bg-red-950/40"
+                  className="flex items-center gap-1.5 rounded-lg border border-red-900/60 px-3.5 py-2 text-sm font-medium text-red-400 hover:bg-red-950/40"
                 >
+                  <Eraser size={15} />
                   Clear board
                 </button>
                 <button
                   onClick={copyFromYesterday}
-                  className="rounded-md border border-edge px-3 py-1.5 text-sm text-gray-300 hover:bg-panel2"
+                  className="flex items-center gap-1.5 rounded-lg border border-edge px-3.5 py-2 text-sm font-medium text-gray-300 hover:bg-panel2"
                 >
+                  <CalendarClock size={15} />
                   Copy yesterday
                 </button>
                 <button
                   onClick={() => setEditing("new")}
-                  className="rounded-md bg-brand-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-500"
+                  className="flex items-center gap-1.5 rounded-lg bg-brand-600 px-3.5 py-2 text-sm font-medium text-white shadow-sm hover:bg-brand-500 active:scale-[0.98]"
                 >
-                  + New job
+                  <Plus size={16} strokeWidth={2.5} />
+                  New job
                 </button>
               </>
             ) : (
-              <span className="rounded bg-gray-700 px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-gray-300">
+              <span className="rounded-full bg-gray-700 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-gray-300">
                 View only
               </span>
             )}
@@ -281,7 +286,7 @@ export default function Board() {
             value={selectedDate}
             onChange={(e) => e.target.value && setSelectedDate(e.target.value)}
             title="Jump to any date"
-            className="shrink-0 rounded-md border border-edge bg-panel2 px-2 py-1.5 text-sm text-gray-200"
+            className="shrink-0 rounded-lg border border-edge bg-panel2 px-3 py-2 text-sm text-gray-200 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500"
           />
         </div>
         <div className="mt-3 empty:hidden">

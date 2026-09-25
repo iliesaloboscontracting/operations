@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Plus, Search } from "lucide-react";
 import PageShell from "./PageShell";
 import FormModal, { FieldDef } from "./FormModal";
 import { useAuth } from "./AuthProvider";
@@ -41,7 +42,7 @@ const PILL: Record<string, string> = {
 export function StatusPill({ value, label }: { value: string; label?: string }) {
   return (
     <span
-      className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase ${
+      className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${
         PILL[value] ?? "bg-gray-700 text-gray-300"
       }`}
     >
@@ -138,9 +139,10 @@ export default function RegisterPage<T extends { id: string }>({
         canEdit ? (
           <button
             onClick={() => setEditing("new")}
-            className="shrink-0 rounded-md bg-brand-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-500"
+            className="flex shrink-0 items-center gap-1.5 rounded-lg bg-brand-600 px-3.5 py-2 text-sm font-medium text-white shadow-sm hover:bg-brand-500 active:scale-[0.98]"
           >
-            + {config.addLabel}
+            <Plus size={16} strokeWidth={2.5} />
+            {config.addLabel}
           </button>
         ) : undefined
       }
@@ -149,17 +151,20 @@ export default function RegisterPage<T extends { id: string }>({
       {config.header?.(rows)}
 
       <div className="mb-4 flex flex-wrap gap-2">
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search..."
-          className="w-64 rounded-md border border-edge bg-panel2 px-2 py-1.5 text-sm text-gray-200 placeholder:text-gray-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
-        />
+        <div className="relative w-64">
+          <Search size={15} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-500" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search..."
+            className="w-full rounded-lg border border-edge bg-panel2 py-2 pl-8 pr-3 text-sm text-gray-200 placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500"
+          />
+        </div>
         {config.statusOptions && (
           <select
             value={status}
             onChange={(e) => setStatus(e.target.value)}
-            className="rounded-md border border-edge bg-panel2 px-2 py-1.5 text-sm text-gray-200"
+            className="rounded-lg border border-edge bg-panel2 px-3 py-2 text-sm text-gray-200 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500"
           >
             <option value="">All statuses</option>
             {config.statusOptions.map((o) => (
@@ -185,10 +190,10 @@ export default function RegisterPage<T extends { id: string }>({
                 {name} <span className="text-gray-600">· {list.length}</span>
               </div>
             )}
-            <div className="overflow-hidden rounded-lg border border-edge">
+            <div className="overflow-hidden rounded-xl border border-edge shadow-soft">
               <div
                 style={gridStyle}
-                className="grid gap-3 border-b border-edge bg-panel px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-gray-500"
+                className="grid gap-3 border-b border-edge bg-panel px-3.5 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-gray-500"
               >
                 {config.columns.map((c) => (
                   <div key={c.label}>{c.label}</div>
@@ -199,7 +204,7 @@ export default function RegisterPage<T extends { id: string }>({
                   key={row.id}
                   onClick={() => canEdit && setEditing(row)}
                   style={gridStyle}
-                  className="grid w-full gap-3 border-b border-edge/60 px-3 py-2 text-left text-sm text-gray-200 last:border-0 hover:bg-panel2/60"
+                  className="grid w-full gap-3 border-b border-edge/60 bg-panel px-3.5 py-2.5 text-left text-sm text-gray-200 last:border-0 hover:bg-panel2/60"
                 >
                   {config.columns.map((c) => (
                     <div key={c.label} className="min-w-0 truncate">
