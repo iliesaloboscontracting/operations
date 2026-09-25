@@ -66,14 +66,18 @@ type ShiftFilter = "ALL" | "DAY" | "NIGHT";
 // A stronger line at the start of each week (Monday) so weeks read as blocks.
 const weekStart = (d: string) => (parseISO(d).getDay() === 1 ? "border-l-2 border-l-gray-400" : "");
 
-// One shift's block in a grid cell - shown for every job on the day regardless of
-// whether anything has been allocated to it yet (an empty box used to mean "nothing
-// scheduled", which was indistinguishable from "scheduled but not staffed").
+// A job only shows on the grid once something has been allocated to it (people, plant,
+// vehicles or hire). Until then its box stays completely empty - showing every job
+// every day regardless of staffing turned out to be more noise than signal on a wide
+// month grid, so this is back to "nothing there yet = nothing shown".
+const hasAllocation = (j: CalendarJobDTO) => j.crew + j.plant + j.hire > 0;
+
+// One shift's block in a grid cell (only rendered for jobs with an allocation).
 function JobPill({ job, compact }: { job: CalendarJobDTO; compact: boolean }) {
   // The sun/moon keeps its own colour regardless of the pill's status tone, so shift
   // stays legible at a glance even on an amber/red warning pill.
   const icon = <ShiftIcon shift={job.shift} />;
-  const noCrew = !job.notRunning && job.crew === 0; // nobody on it yet (whether or not gear is)
+  const noCrew = !job.notRunning && job.crew === 0; // gear allocated, nobody on it
   const tone = job.notRunning
     ? "border-gray-600 bg-gray-800 text-gray-500 line-through"
     : noCrew
@@ -225,9 +229,9 @@ export default function CalendarPage() {
         map.set(p.id, { key: p.id, name: p.name, jobNo: p.jobNo, startDate: p.startDate, jobs: [] });
     }
     const q = search.trim().toLowerCase();
-    // A running job needs a look if it has no crew yet (including nothing allocated
-    // at all) or has crew but no supervisor.
-    const needsAttention = (j: CalendarJobDTO) => !j.notRunning && (j.crew === 0 || !j.hasSupervisor);
+    // Only blocks that are actually visible on the grid (i.e. have an allocation) can need attention.
+    const needsAttention = (j: CalendarJobDTO) =>
+      !j.notRunning && hasAllocation(j) && (j.crew === 0 || !j.hasSupervisor);
     return Array.from(map.values())
       .filter((r) => !q || `${r.name} ${r.jobNo ?? ""}`.toLowerCase().includes(q))
       .filter((r) => !attentionOnly || r.jobs.some(needsAttention))
@@ -318,8 +322,8 @@ export default function CalendarPage() {
         <div className="ml-auto flex flex-wrap items-center gap-3 text-[11px] text-gray-500">
           <span><span className="text-amber-500">☀</span> day</span>
           <span><span className="text-purple-500">☾</span> night</span>
-          <span>Empty box = nothing scheduled</span>
-          <span className="text-amber-300">Amber = no crew yet</span>
+          <span>Empty box = nothing allocated</span>
+          <span className="text-amber-300">Amber = gear but no crew</span>
           <span className="text-red-300">Red = no supervisor</span>
           <span className="text-blue-300">▶ = project starts</span>
         </div>
@@ -342,9 +346,8 @@ export default function CalendarPage() {
         <div className="py-10 text-center text-sm text-gray-600">Nothing scheduled in this period.</div>
       ) : (
         <div ref={scroller} className="overflow-x-auto rounded-lg border border-edge">
-          {/* Every day/project pair is its own bordered box, showing every job on that
-              day whether or not it's been staffed yet. A box is only truly empty when
-              nothing is scheduled there at all. */}
+          {/* Every day/project pair is its own bordered box. A box stays empty until
+              something has been allocated to that project on that day. */}
           <table className="w-full border-collapse text-left">
             <thead>
               <tr className="bg-panel">
@@ -373,7 +376,7 @@ export default function CalendarPage() {
                     {row.jobNo && <div className="text-[11px] text-gray-500">{row.jobNo}</div>}
                   </td>
                   {days.map((d) => {
-                    const cell = row.jobs.filter((j) => j.date === d);
+                    const cell = row.jobs.filter((j) => j.date === d && hasAllocation(j));
                     const starts = row.startDate === d;
                     return (
                       <td
