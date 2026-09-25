@@ -9,12 +9,19 @@ import { daysBetween } from "@/lib/dates";
 import UpcomingAlerts from "@/components/UpcomingAlerts";
 import { useAuth } from "@/components/AuthProvider";
 import { apiFetch } from "@/lib/apiFetch";
-import { AlertTriangle, Building2, CalendarClock, LucideIcon, Plus, Users } from "lucide-react";
+import {
+  AlertTriangle,
+  Building2,
+  CalendarClock,
+  Handshake,
+  Link2,
+  LucideIcon,
+  Plus,
+  Truck,
+  Users,
+  Wrench,
+} from "lucide-react";
 
-const STATUS_STYLE: Record<string, string> = {
-  ACTIVE: "bg-emerald-900/60 text-emerald-300",
-  INACTIVE: "bg-gray-700 text-gray-300",
-};
 const STATUS_LABEL: Record<string, string> = {
   ACTIVE: "Active",
   INACTIVE: "Inactive",
@@ -64,10 +71,14 @@ function needsAttention(p: ProjectDTO) {
   return p.status === "ACTIVE" && !!p.counts && p.counts.crew === 0;
 }
 
-function Count({ n, label }: { n: number; label: string }) {
+// Only shown when there's actually something to report - a row of five zeroes
+// on every card was the single noisiest thing about the old layout.
+function CountStat({ icon: Icon, n, label }: { icon: LucideIcon; n: number; label: string }) {
+  if (!n) return null;
   return (
-    <span className={n ? "text-gray-300" : "text-gray-600"}>
-      {n} {label}
+    <span className="inline-flex items-center gap-1 text-gray-300" title={`${n} ${label}`}>
+      <Icon size={12} className="text-gray-500" />
+      {n}
     </span>
   );
 }
@@ -229,63 +240,83 @@ export default function ProjectsPage() {
         )}
       </div>
 
-      <div className="grid gap-3.5 md:grid-cols-2 xl:grid-cols-3">
-        {visible.map((p) => (
-          <button
-            key={p.id}
-            onClick={() => canEdit && setEditing(p)}
-            className={`rounded-xl border border-edge bg-panel p-4 text-left shadow-soft hover:-translate-y-0.5 hover:shadow-soft-md ${
-              p.status !== "ACTIVE" ? "opacity-70" : ""
-            } ${needsAttention(p) ? "ring-1 ring-amber-500/40" : ""}`}
-          >
-            <div className="flex items-start justify-between gap-2">
-              <div className="min-w-0">
-                <div className="truncate text-sm font-semibold text-gray-100">{p.name}</div>
-                <div className="truncate text-[11px] text-gray-500">
-                  {p.client ?? <span className="text-gray-600">No client set</span>}
-                  {p.jobNo && ` · ${p.jobNo}`}
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+        {visible.map((p) => {
+          const allocated = p.counts
+            ? p.counts.crew + p.counts.plant + p.counts.attach + p.counts.trucks + p.counts.hire
+            : 0;
+          return (
+            <button
+              key={p.id}
+              onClick={() => canEdit && setEditing(p)}
+              className={`rounded-xl border border-edge bg-panel p-3.5 text-left shadow-soft hover:-translate-y-0.5 hover:shadow-soft-md ${
+                p.status !== "ACTIVE" ? "opacity-70" : ""
+              } ${needsAttention(p) ? "ring-1 ring-amber-500/40" : ""}`}
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    {p.status === "ACTIVE" && (
+                      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" aria-hidden />
+                    )}
+                    <span className="truncate text-sm font-semibold text-gray-100">{p.name}</span>
+                  </div>
+                  <div className="mt-0.5 truncate text-[11px] text-gray-500">
+                    {p.client ?? <span className="italic text-gray-600">No client set</span>}
+                    {p.jobNo && <span className="text-gray-400"> · {p.jobNo}</span>}
+                  </div>
                 </div>
+                {p.status !== "ACTIVE" && (
+                  <span className="shrink-0 rounded-full bg-gray-700 px-2 py-0.5 text-[10px] font-semibold uppercase text-gray-300">
+                    {STATUS_LABEL[p.status]}
+                  </span>
+                )}
               </div>
-              <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${STATUS_STYLE[p.status]}`}>
-                {STATUS_LABEL[p.status]}
-              </span>
-            </div>
-            <div className="mt-2 flex flex-wrap gap-1 text-[11px]">
-              {startsIn(p) && (
-                <span className="rounded-full bg-brand-900/70 px-2 py-0.5 font-semibold text-brand-200">
-                  ▶ {startsIn(p)}
-                </span>
-              )}
-              {p.dayStart && (
-                <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-amber-600">
-                  <span className="text-amber-500">☀</span> {p.dayStart}{p.dayEnd ? `–${p.dayEnd}` : ""}
-                </span>
-              )}
-              {p.nightStart && (
-                <span className="rounded-full bg-purple-500/15 px-2 py-0.5 text-purple-600">
-                  <span className="text-purple-500">☾</span> {p.nightStart}{p.nightEnd ? `–${p.nightEnd}` : ""}
-                </span>
-              )}
-            </div>
-            {p.counts && (
-              <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 border-t border-edge pt-2.5 text-[10px] uppercase tracking-wide">
-                <Count n={p.counts.crew} label="crew" />
-                <Count n={p.counts.plant} label="plant" />
-                <Count n={p.counts.attach} label="attach" />
-                <Count n={p.counts.trucks} label="trucks" />
-                <Count n={p.counts.hire} label="hire" />
+
+              <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-gray-500">
+                {p.dayStart && (
+                  <span className="inline-flex items-center gap-1">
+                    <span className="text-amber-500">☀</span>
+                    {p.dayStart}{p.dayEnd ? `–${p.dayEnd}` : ""}
+                  </span>
+                )}
+                {p.nightStart && (
+                  <span className="inline-flex items-center gap-1">
+                    <span className="text-purple-500">☾</span>
+                    {p.nightStart}{p.nightEnd ? `–${p.nightEnd}` : ""}
+                  </span>
+                )}
+                {startsIn(p) && (
+                  <span className="ml-auto shrink-0 rounded-full bg-brand-900/70 px-1.5 py-0.5 text-[10px] font-semibold text-brand-200">
+                    ▶ {startsIn(p)}
+                  </span>
+                )}
               </div>
-            )}
-            {!!p.costToDate && (
-              <div
-                className="mt-2 text-xs font-semibold text-gray-300"
-                title="Plant, attachments, vehicles and hire, at their daily rate, for every day worked so far"
-              >
-                {money(p.costToDate)} <span className="font-normal text-gray-500">cost to date, ex GST</span>
+
+              <div className="mt-2.5 flex items-center justify-between gap-2 border-t border-edge pt-2 text-[11px]">
+                {allocated > 0 ? (
+                  <div className="flex flex-wrap items-center gap-2.5">
+                    <CountStat icon={Users} n={p.counts!.crew} label="crew" />
+                    <CountStat icon={Wrench} n={p.counts!.plant} label="plant" />
+                    <CountStat icon={Link2} n={p.counts!.attach} label="attachments" />
+                    <CountStat icon={Truck} n={p.counts!.trucks} label="trucks" />
+                    <CountStat icon={Handshake} n={p.counts!.hire} label="hire" />
+                  </div>
+                ) : (
+                  <span className="text-gray-500">Nothing allocated today</span>
+                )}
+                {!!p.costToDate && (
+                  <span
+                    className="shrink-0 font-semibold text-gray-300"
+                    title="Plant, attachments, vehicles and hire, at their daily rate, for every day worked so far"
+                  >
+                    {money(p.costToDate)}
+                  </span>
+                )}
               </div>
-            )}
-          </button>
-        ))}
+            </button>
+          );
+        })}
         {loadError && (
           <div className="col-span-full flex flex-col items-center gap-2 py-10 text-center text-sm text-red-400">
             Couldn't load projects. Your session may have expired.
