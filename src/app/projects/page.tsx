@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import PageShell from "@/components/PageShell";
 import FormModal, { FieldDef } from "@/components/FormModal";
 import { ProjectDTO } from "@/lib/types";
@@ -9,7 +9,7 @@ import { daysBetween } from "@/lib/dates";
 import UpcomingAlerts from "@/components/UpcomingAlerts";
 import { useAuth } from "@/components/AuthProvider";
 import { apiFetch } from "@/lib/apiFetch";
-import { Plus } from "lucide-react";
+import { AlertTriangle, Building2, CalendarClock, LucideIcon, Plus, Users } from "lucide-react";
 
 const STATUS_STYLE: Record<string, string> = {
   ACTIVE: "bg-emerald-900/60 text-emerald-300",
@@ -52,6 +52,18 @@ function startsIn(p: ProjectDTO) {
   return `Starts in ${n} days`;
 }
 
+function startsWithinWeek(p: ProjectDTO) {
+  if (!p.startDate) return false;
+  const n = daysBetween(localISODate(), p.startDate);
+  return n >= 0 && n <= 7;
+}
+
+// A running site with nobody rostered on today is the one thing on this page
+// that actually needs a decision, not just information.
+function needsAttention(p: ProjectDTO) {
+  return p.status === "ACTIVE" && !!p.counts && p.counts.crew === 0;
+}
+
 function Count({ n, label }: { n: number; label: string }) {
   return (
     <span className={n ? "text-gray-300" : "text-gray-600"}>
@@ -60,10 +72,39 @@ function Count({ n, label }: { n: number; label: string }) {
   );
 }
 
+function StatTile({
+  icon: Icon,
+  value,
+  label,
+  tone = "default",
+}: {
+  icon: LucideIcon;
+  value: number;
+  label: string;
+  tone?: "default" | "warn";
+}) {
+  return (
+    <div className="flex items-center gap-3 rounded-xl border border-edge bg-panel p-3.5 shadow-soft">
+      <div
+        className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${
+          tone === "warn" && value > 0 ? "bg-amber-500/15 text-amber-600" : "bg-brand-500/10 text-brand-600"
+        }`}
+      >
+        <Icon size={18} />
+      </div>
+      <div className="min-w-0">
+        <div className="text-xl font-semibold leading-tight text-gray-100">{value}</div>
+        <div className="truncate text-[11px] text-gray-500">{label}</div>
+      </div>
+    </div>
+  );
+}
+
 export default function ProjectsPage() {
   const { canEdit } = useAuth();
   const [projects, setProjects] = useState<ProjectDTO[]>([]);
   const [showArchived, setShowArchived] = useState(false);
+  const [attentionOnly, setAttentionOnly] = useState(false);
   const [editing, setEditing] = useState<ProjectDTO | "new" | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -114,6 +155,20 @@ export default function ProjectsPage() {
     await load();
   }
 
+  // Only meaningful for the current (non-archived) list - a stat strip for
+  // "what needs a look today", not a report on the whole project history.
+  const stats = useMemo(() => {
+    if (showArchived) return null;
+    return {
+      active: projects.filter((p) => p.status === "ACTIVE").length,
+      needsAttention: projects.filter(needsAttention).length,
+      startingSoon: projects.filter(startsWithinWeek).length,
+      crewToday: projects.reduce((n, p) => n + (p.counts?.crew ?? 0), 0),
+    };
+  }, [projects, showArchived]);
+
+  const visible = attentionOnly && !showArchived ? projects.filter(needsAttention) : projects;
+
   return (
     <PageShell
       title="Projects"
@@ -130,35 +185,58 @@ export default function ProjectsPage() {
         ) : undefined
       }
     >
+      {stats && (
+        <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <StatTile icon={Building2} value={stats.active} label="Active sites" />
+          <StatTile icon={AlertTriangle} value={stats.needsAttention} label="Need crew today" tone="warn" />
+          <StatTile icon={CalendarClock} value={stats.startingSoon} label="Starting within a week" />
+          <StatTile icon={Users} value={stats.crewToday} label="Crew deployed today" />
+        </div>
+      )}
+
       <UpcomingAlerts />
 
-      <div className="mb-5 inline-flex gap-1 rounded-full bg-panel2 p-1 text-xs">
-        <button
-          onClick={() => setShowArchived(false)}
-          className={`rounded-full px-3 py-1 font-medium ${
-            !showArchived ? "bg-panel text-gray-100 shadow-sm" : "text-gray-500 hover:text-gray-300"
-          }`}
-        >
-          Current
-        </button>
-        <button
-          onClick={() => setShowArchived(true)}
-          className={`rounded-full px-3 py-1 font-medium ${
-            showArchived ? "bg-panel text-gray-100 shadow-sm" : "text-gray-500 hover:text-gray-300"
-          }`}
-        >
-          Archived
-        </button>
+      <div className="mb-5 flex flex-wrap items-center gap-2">
+        <div className="inline-flex gap-1 rounded-full bg-panel2 p-1 text-xs">
+          <button
+            onClick={() => setShowArchived(false)}
+            className={`rounded-full px-3 py-1 font-medium ${
+              !showArchived ? "bg-panel text-gray-100 shadow-sm" : "text-gray-500 hover:text-gray-300"
+            }`}
+          >
+            Current
+          </button>
+          <button
+            onClick={() => setShowArchived(true)}
+            className={`rounded-full px-3 py-1 font-medium ${
+              showArchived ? "bg-panel text-gray-100 shadow-sm" : "text-gray-500 hover:text-gray-300"
+            }`}
+          >
+            Archived
+          </button>
+        </div>
+        {!showArchived && (
+          <button
+            onClick={() => setAttentionOnly((a) => !a)}
+            className={`rounded-full border px-3 py-1.5 text-xs font-medium ${
+              attentionOnly
+                ? "border-amber-500/50 bg-amber-500/15 text-amber-600"
+                : "border-edge text-gray-500 hover:text-gray-300"
+            }`}
+          >
+            Needs attention only{stats ? ` (${stats.needsAttention})` : ""}
+          </button>
+        )}
       </div>
 
       <div className="grid gap-3.5 md:grid-cols-2 xl:grid-cols-3">
-        {projects.map((p) => (
+        {visible.map((p) => (
           <button
             key={p.id}
             onClick={() => canEdit && setEditing(p)}
             className={`rounded-xl border border-edge bg-panel p-4 text-left shadow-soft hover:-translate-y-0.5 hover:shadow-soft-md ${
               p.status !== "ACTIVE" ? "opacity-70" : ""
-            }`}
+            } ${needsAttention(p) ? "ring-1 ring-amber-500/40" : ""}`}
           >
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
@@ -222,9 +300,11 @@ export default function ProjectsPage() {
             </button>
           </div>
         )}
-        {!loadError && !loading && projects.length === 0 && (
-          <div className="col-span-full py-10 text-center text-sm text-gray-600">
-            No projects here.
+        {!loadError && !loading && visible.length === 0 && (
+          <div className="col-span-full py-10 text-center text-sm text-gray-500">
+            {attentionOnly && projects.length > 0
+              ? "Nothing needs attention right now — every active site has crew on today."
+              : "No projects here."}
           </div>
         )}
       </div>
