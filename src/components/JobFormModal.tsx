@@ -31,23 +31,33 @@ export default function JobFormModal({
   onDelete?: () => Promise<void>;
 }) {
   const isNew = editing === "new";
+  const knownProject = defaultProjectId ? projects.find((p) => p.id === defaultProjectId) : undefined;
 
   const jobFields: FieldDef[] = [
     ...(isNew
       ? ([
-          {
-            key: "projectId",
-            label: "Project",
-            type: "select",
-            full: true,
-            section: "Job details",
-            options: [
-              { value: "", label: "— pick a project (or type a one-off below) —" },
-              ...projects
-                .filter((p) => p.status === "ACTIVE" || p.id === defaultProjectId)
-                .map((p) => ({ value: p.id, label: p.client ? `${p.name} — ${p.client}` : p.name })),
-            ],
-          },
+          knownProject
+            ? {
+                key: "projectId",
+                label: "Project",
+                type: "static",
+                full: true,
+                section: "Job details",
+                staticText: knownProject.client ? `${knownProject.name} — ${knownProject.client}` : knownProject.name,
+              }
+            : {
+                key: "projectId",
+                label: "Project",
+                type: "select",
+                full: true,
+                section: "Job details",
+                options: [
+                  { value: "", label: "— pick a project (or type a one-off below) —" },
+                  ...projects
+                    .filter((p) => p.status === "ACTIVE")
+                    .map((p) => ({ value: p.id, label: p.client ? `${p.name} — ${p.client}` : p.name })),
+                ],
+              },
         ] as FieldDef[])
       : []),
     { key: "client", label: "Client", section: "Job details" },

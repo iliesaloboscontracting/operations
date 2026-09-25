@@ -6,12 +6,17 @@ import { X } from "lucide-react";
 export interface FieldDef {
   key: string;
   label: string;
-  type?: "text" | "select" | "textarea" | "date" | "password" | "number";
+  type?: "text" | "select" | "textarea" | "date" | "password" | "number" | "static";
   options?: (string | { value: string; label: string })[];
   placeholder?: string;
   required?: boolean;
   full?: boolean; // span both columns
   section?: string; // groups fields under a heading; a new value starts a new section
+  // For type "static": fixed display text, shown instead of an editable control.
+  // values[key] is left untouched and still submitted as-is - use this when the
+  // value is already decided by context (e.g. which row you clicked) and picking
+  // a different one doesn't make sense.
+  staticText?: string;
 }
 
 const input =
@@ -128,7 +133,11 @@ export default function FormModal({
                 }`}
               >
                 {f.label}
-                {f.type === "select" ? (
+                {f.type === "static" ? (
+                  <div className={`${input} cursor-default bg-panel2/60 text-gray-300`}>
+                    {f.staticText}
+                  </div>
+                ) : f.type === "select" ? (
                   <select
                     value={values[f.key] ?? ""}
                     onChange={(e) => setValues({ ...values, [f.key]: e.target.value })}
