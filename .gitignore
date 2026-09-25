@@ -9,3 +9,7 @@ node_modules
 # doesn't need to be: `npx prisma db push` rebuilds the schema from prisma/schema.prisma.
 prisma/*.db
 prisma/*.db-journal
+
+# Claude Code session-local runtime state (e.g. the scheduled-loop lock file) -
+# tied to a machine/session, meaningless in git history.
+.claude/scheduled_tasks.lock
