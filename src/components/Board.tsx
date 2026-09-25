@@ -6,6 +6,7 @@ import {
   JobDTO,
   ProjectDTO,
   ResourceDTO,
+  StartAlertDTO,
 } from "@/lib/types";
 import { columnFor, localISODate } from "@/lib/resource";
 import DateTabs from "./DateTabs";
@@ -35,6 +36,16 @@ export default function Board() {
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<JobDTO | "new" | null>(null);
   const [message, setMessage] = useState<{ text: string; error?: boolean } | null>(null);
+  // Pre-fill for "+ New job" when opened from an alert for a project with no job yet.
+  const [newJobPrefill, setNewJobPrefill] = useState<{ projectId: string; title: string } | null>(null);
+
+  function selectAlert(a: StartAlertDTO) {
+    setSelectedDate(a.startDate);
+    if (a.noJobYet) {
+      setNewJobPrefill({ projectId: a.projectId, title: a.name });
+      setEditing("new");
+    }
+  }
 
   // Only the newest jobs request may update state, so a slow response for a
   // previously selected date can't overwrite the current one.
@@ -265,7 +276,10 @@ export default function Board() {
                   Copy yesterday
                 </button>
                 <button
-                  onClick={() => setEditing("new")}
+                  onClick={() => {
+                    setNewJobPrefill(null);
+                    setEditing("new");
+                  }}
                   className="flex items-center gap-1.5 rounded-lg bg-brand-600 px-3.5 py-2 text-sm font-medium text-white shadow-sm hover:bg-brand-500 active:scale-[0.98]"
                 >
                   <Plus size={16} strokeWidth={2.5} />
@@ -290,7 +304,7 @@ export default function Board() {
           />
         </div>
         <div className="mt-3 empty:hidden">
-          <UpcomingAlerts compact onSelect={(a) => setSelectedDate(a.startDate)} />
+          <UpcomingAlerts compact onSelect={selectAlert} />
         </div>
       </header>
 
@@ -351,12 +365,17 @@ export default function Board() {
           editing={editing}
           projects={projects}
           defaultDate={selectedDate}
+          defaultProjectId={newJobPrefill?.projectId}
+          defaultTitle={newJobPrefill?.title}
           onSaved={async (saved, { moved, completed }) => {
             if (completed) setMessage({ text: "Marked complete — moved to the Completed page." });
             else if (moved) setMessage({ text: `Job moved to ${saved.date}.` });
             await refresh();
           }}
-          onClose={() => setEditing(null)}
+          onClose={() => {
+            setEditing(null);
+            setNewJobPrefill(null);
+          }}
           onDelete={editing === "new" ? undefined : deleteJob}
         />
       )}

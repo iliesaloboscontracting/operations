@@ -171,4 +171,7 @@ export interface StartAlertDTO {
   hasSupervisor: boolean;
   issues: string[];
   level: "critical" | "warn" | "ok";
+  // True when no job has been created yet for the start day - the Command Centre
+  // has nothing to show for this project until one exists.
+  noJobYet: boolean;
 }

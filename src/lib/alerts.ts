@@ -58,6 +58,7 @@ export async function upcomingStarts(
         hasSupervisor: false,
         issues: ["Nothing scheduled on the start day"],
         level: daysAway <= 2 ? "critical" : "warn",
+        noJobYet: true,
       });
       continue;
     }
@@ -101,6 +102,7 @@ export async function upcomingStarts(
       hasSupervisor,
       issues,
       level: daysAway <= 2 ? "critical" : "warn",
+      noJobYet: false,
     });
   }
 
