@@ -47,6 +47,31 @@ on an assigned chip to set their role for that job, and the × to unassign.
 Switch days with the date tabs; "+ New job" adds a job/site for the
 selected date.
 
+## Running it for real (the live app)
+
+The day-to-day app isn't started by hand with `npm run dev` - that's a dev
+server, meant for active development, and it can flake (an occasional
+transient 404 on a page it's still compiling) or die if whatever started it
+closes.
+
+Instead it runs as a Windows Scheduled Task called **Operate Server**
+(`service/start-operate.ps1`), which:
+- builds a production bundle (`npm run build`) and serves that (`npm start`)
+  - no on-demand compilation, so the dev-mode flakiness above can't happen
+- starts automatically at logon
+- restarts itself automatically if it ever crashes (up to 999 times, 1 minute apart)
+- runs independently of Claude Code, so closing a session doesn't take the site down
+
+To check on it or restart it by hand: open **Task Scheduler** (Windows search),
+find **Operate Server** in the task list. Right-click → Run / End, or check
+Last Run Result there. After a code change, it needs a rebuild to pick it up:
+
+```powershell
+npm run build   # from the project root
+# then Right-click "Operate Server" → End, then → Run in Task Scheduler
+# (or just restart Windows / log back in - it starts itself)
+```
+
 ## Project layout
 
 ```
