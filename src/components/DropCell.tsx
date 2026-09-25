@@ -42,6 +42,8 @@ export default function DropCell({
     }
   }
 
+  const empty = assignments.length === 0;
+
   return (
     <div
       onDragOver={onDragOver}
@@ -51,12 +53,18 @@ export default function DropCell({
       }}
       onDragLeave={() => setActive(false)}
       onDrop={onDropHandler}
-      className={`flex min-h-[2.75rem] flex-wrap content-start items-start gap-1.5 rounded-md p-1.5 transition-colors ${
-        active ? "drop-zone-active" : ""
+      className={`my-1.5 flex min-h-[2.75rem] flex-wrap content-start items-start gap-1.5 rounded-lg p-1.5 ${
+        active
+          ? "drop-zone-active"
+          : empty
+          ? "border border-dashed border-edge"
+          : "border border-transparent"
       }`}
     >
-      {assignments.length === 0 && (
-        <span className="px-1 py-1 text-xs text-gray-600">{emptyHint}</span>
+      {empty && (
+        <span className="flex w-full items-center justify-center px-1 py-1.5 text-center text-xs text-gray-500">
+          {emptyHint}
+        </span>
       )}
       {assignments.map((a) => (
         <AssignedChip

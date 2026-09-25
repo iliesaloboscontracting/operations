@@ -34,7 +34,7 @@ export function ShiftBadge({
   const isNight = shift === "NIGHT";
   return (
     <span
-      className={`inline-flex items-center gap-0.5 rounded px-1 font-semibold ${
+      className={`inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 font-semibold ${
         isNight ? "bg-purple-500/15 text-purple-600" : "bg-amber-500/15 text-amber-600"
       } ${className}`}
     >

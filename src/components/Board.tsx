@@ -317,24 +317,28 @@ export default function Board() {
             <div className="py-10 text-center text-sm text-gray-500">Loading...</div>
           ) : (
             <>
-              <JobGridHeader totals={totals} />
-              {running.length === 0 && (
-                <div className="py-8 text-center text-sm text-gray-600">
-                  No jobs for this date yet. Add one, or copy yesterday's plan.
-                </div>
-              )}
-              {running.map((job) => (
-                <JobRow key={job.id} job={job} conflicts={conflictsFor(job)} {...rowProps} />
-              ))}
+              <div className="overflow-hidden rounded-xl border border-edge shadow-soft">
+                <JobGridHeader totals={totals} />
+                {running.length === 0 && (
+                  <div className="py-8 text-center text-sm text-gray-500">
+                    No jobs for this date yet. Add one, or copy yesterday's plan.
+                  </div>
+                )}
+                {running.map((job) => (
+                  <JobRow key={job.id} job={job} conflicts={conflictsFor(job)} {...rowProps} />
+                ))}
+              </div>
 
               {notRunning.length > 0 && (
                 <div className="mt-6">
-                  <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-600">
+                  <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
                     Inactive / stood down &middot; {notRunning.length}
                   </div>
-                  {notRunning.map((job) => (
-                    <JobRow key={job.id} job={job} conflicts={{}} {...rowProps} />
-                  ))}
+                  <div className="overflow-hidden rounded-xl border border-edge shadow-soft">
+                    {notRunning.map((job) => (
+                      <JobRow key={job.id} job={job} conflicts={{}} {...rowProps} />
+                    ))}
+                  </div>
                 </div>
               )}
             </>

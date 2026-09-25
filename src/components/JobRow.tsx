@@ -1,5 +1,6 @@
 "use client";
 
+import { TriangleAlert } from "lucide-react";
 import { DragResourcePayload, JobDTO } from "@/lib/types";
 import { columnFor, money } from "@/lib/resource";
 import DropCell from "./DropCell";
@@ -37,14 +38,18 @@ export default function JobRow({
   const dailyCost = job.assignments.reduce((n, a) => n + (a.resource.dailyRateExGst ?? 0), 0);
 
   return (
-    <div className={`grid ${GRID_COLS} gap-2 border-b border-edge ${job.notRunning ? "opacity-60" : ""}`}>
+    <div
+      className={`grid ${GRID_COLS} gap-2 border-b border-edge/70 last:border-b-0 ${
+        job.notRunning ? "opacity-60" : ""
+      }`}
+    >
       {/* Site */}
       <button
         onClick={() => onEdit(job)}
-        className="flex gap-2 py-2 pl-1 text-left hover:bg-panel2/40"
+        className="flex gap-2.5 py-3 pl-3 text-left hover:bg-panel2/50"
         title="Edit job"
       >
-        <div className="w-1 shrink-0 rounded bg-brand" />
+        <div className="w-1 shrink-0 rounded-full bg-brand-600" />
         <div className="min-w-0">
           <div className="truncate text-sm font-semibold text-gray-100">
             {job.title}
@@ -52,8 +57,8 @@ export default function JobRow({
           {job.client && (
             <div className="truncate text-[11px] text-gray-500">{job.client}</div>
           )}
-          <div className="flex flex-wrap items-center gap-1 text-[11px] text-gray-500">
-            {job.siteCode && <span>{job.siteCode}</span>}
+          <div className="mt-1 flex flex-wrap items-center gap-1 text-[11px] text-gray-500">
+            {job.siteCode && <span className="text-gray-400">{job.siteCode}</span>}
             <ShiftBadge shift={job.shift} />
             <JobStatusBadge status={job.status} />
             {(job.startTime || job.endTime) && (
@@ -63,24 +68,25 @@ export default function JobRow({
             )}
           </div>
           {needsSupervisor && (
-            <div className="mt-0.5 text-[11px] font-medium text-red-400">
-              no supervisor
+            <div className="mt-1 flex items-center gap-1 text-[11px] font-medium text-red-400">
+              <TriangleAlert size={11} className="shrink-0" />
+              No supervisor
             </div>
           )}
           {dailyCost > 0 && (
             <div
-              className="mt-0.5 text-[11px] text-gray-500"
+              className="mt-1 text-[11px] text-gray-500"
               title="Plant, attachments, vehicles and hire allocated to this shift, at their daily rate"
             >
-              {money(dailyCost)}<span className="text-gray-600">/day ex GST</span>
+              {money(dailyCost)}<span className="text-gray-400">/day ex GST</span>
             </div>
           )}
         </div>
       </button>
 
       {/* Day brief */}
-      <div className="py-2 pr-2 text-sm text-gray-300">
-        {job.dayBrief || <span className="text-gray-600">-</span>}
+      <div className="py-3 pr-2 text-sm text-gray-300">
+        {job.dayBrief || <span className="text-gray-500">—</span>}
       </div>
 
       <DropCell

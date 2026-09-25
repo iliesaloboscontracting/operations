@@ -9,8 +9,8 @@ export interface ColumnTotals {
 
 function Count({ v }: { v: [number, number] }) {
   return (
-    <span className="ml-1 font-normal normal-case text-gray-600">
-      {v[0]} / {v[1]}
+    <span className="ml-1 font-normal normal-case text-gray-500">
+      {v[0]} <span className="text-gray-400">/</span> {v[1]}
     </span>
   );
 }
@@ -18,9 +18,9 @@ function Count({ v }: { v: [number, number] }) {
 export default function JobGridHeader({ totals }: { totals: ColumnTotals }) {
   return (
     <div
-      className={`grid ${GRID_COLS} gap-2 border-b border-edge pb-2 text-xs font-semibold uppercase tracking-wide text-gray-500`}
+      className={`grid ${GRID_COLS} gap-2 border-b border-edge bg-panel px-1 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-gray-500`}
     >
-      <div className="pl-1">Site</div>
+      <div className="pl-3">Site</div>
       <div>Day Brief</div>
       <div>
         Crew
