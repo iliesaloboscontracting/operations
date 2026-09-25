@@ -113,10 +113,12 @@ function StatTile({
   );
 }
 
+type Tab = "current" | "inactive" | "archived";
+
 export default function ProjectsPage() {
   const { canEdit } = useAuth();
   const [projects, setProjects] = useState<ProjectDTO[]>([]);
-  const [showArchived, setShowArchived] = useState(false);
+  const [tab, setTab] = useState<Tab>("current");
   const [attentionOnly, setAttentionOnly] = useState(false);
   const [editing, setEditing] = useState<ProjectDTO | "new" | null>(null);
   const [loadError, setLoadError] = useState(false);
@@ -126,7 +128,7 @@ export default function ProjectsPage() {
   const load = useCallback(async () => {
     try {
       const res = await apiFetch(
-        `/api/projects?date=${localISODate()}${showArchived ? "&archived=1" : ""}`
+        `/api/projects?date=${localISODate()}${tab === "archived" ? "&archived=1" : ""}`
       );
       if (res.ok) {
         setProjects(await res.json());
@@ -139,7 +141,7 @@ export default function ProjectsPage() {
     } finally {
       setLoading(false);
     }
-  }, [showArchived]);
+  }, [tab]);
 
   useEffect(() => {
     load();
@@ -181,19 +183,28 @@ export default function ProjectsPage() {
   // job leaving the Command Centre board - and lives on the Completed page instead.
   const notCompleted = useMemo(() => projects.filter((p) => p.status !== "COMPLETED"), [projects]);
 
-  // Only meaningful for the current (non-archived) list - a stat strip for
-  // "what needs a look today", not a report on the whole project history.
-  const stats = useMemo(() => {
-    if (showArchived) return null;
-    return {
-      active: notCompleted.filter((p) => p.status === "ACTIVE").length,
-      needsAttention: notCompleted.filter(needsAttention).length,
-      startingSoon: notCompleted.filter(startsWithinWeek).length,
-      crewToday: notCompleted.reduce((n, p) => n + (p.counts?.crew ?? 0), 0),
-    };
-  }, [notCompleted, showArchived]);
+  // The dashboard (Current tab) is Active sites only now - Inactive ones get their
+  // own tab so they're still reachable (to reactivate, or just to check on), rather
+  // than cluttering the main view or becoming a dead end with nowhere to find them.
+  const byTab = useMemo(() => {
+    if (tab === "archived") return notCompleted;
+    if (tab === "inactive") return notCompleted.filter((p) => p.status === "INACTIVE");
+    return notCompleted.filter((p) => p.status === "ACTIVE");
+  }, [notCompleted, tab]);
 
-  const visible = attentionOnly && !showArchived ? notCompleted.filter(needsAttention) : notCompleted;
+  // Only meaningful for the current tab - a stat strip for "what needs a look
+  // today", not a report on the whole project history.
+  const stats = useMemo(() => {
+    if (tab !== "current") return null;
+    return {
+      active: byTab.length,
+      needsAttention: byTab.filter(needsAttention).length,
+      startingSoon: byTab.filter(startsWithinWeek).length,
+      crewToday: byTab.reduce((n, p) => n + (p.counts?.crew ?? 0), 0),
+    };
+  }, [byTab, tab]);
+
+  const visible = attentionOnly && tab === "current" ? byTab.filter(needsAttention) : byTab;
 
   return (
     <PageShell
@@ -228,24 +239,23 @@ export default function ProjectsPage() {
 
       <div className="mb-5 flex flex-wrap items-center gap-2">
         <div className="inline-flex gap-1 rounded-full bg-panel2 p-1 text-xs">
-          <button
-            onClick={() => setShowArchived(false)}
-            className={`rounded-full px-3 py-1 font-medium ${
-              !showArchived ? "bg-panel text-gray-100 shadow-sm" : "text-gray-500 hover:text-gray-300"
-            }`}
-          >
-            Current
-          </button>
-          <button
-            onClick={() => setShowArchived(true)}
-            className={`rounded-full px-3 py-1 font-medium ${
-              showArchived ? "bg-panel text-gray-100 shadow-sm" : "text-gray-500 hover:text-gray-300"
-            }`}
-          >
-            Archived
-          </button>
+          {([
+            ["current", "Current"],
+            ["inactive", "Inactive"],
+            ["archived", "Archived"],
+          ] as [Tab, string][]).map(([t, label]) => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className={`rounded-full px-3 py-1 font-medium ${
+                tab === t ? "bg-panel text-gray-100 shadow-sm" : "text-gray-500 hover:text-gray-300"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
         </div>
-        {!showArchived && (
+        {tab === "current" && (
           <button
             onClick={() => setAttentionOnly((a) => !a)}
             className={`rounded-full border px-3 py-1.5 text-xs font-medium ${
