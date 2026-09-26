@@ -12,6 +12,7 @@ export default function DropCell({
   onRoleChange,
   onRemove,
   emptyHint,
+  compact,
 }: {
   accepts: BoardColumn;
   assignments: AssignmentDTO[];
@@ -20,6 +21,9 @@ export default function DropCell({
   onRoleChange: (assignmentId: string, role: string) => void;
   onRemove: (assignmentId: string) => void;
   emptyHint: string;
+  // Shrinks the empty state (job has nothing on it yet) so a row of empty
+  // jobs takes far less space than one that's actually been allocated.
+  compact?: boolean;
 }) {
   const [active, setActive] = useState(false);
 
@@ -53,7 +57,9 @@ export default function DropCell({
       }}
       onDragLeave={() => setActive(false)}
       onDrop={onDropHandler}
-      className={`my-1.5 flex min-h-[2.75rem] flex-wrap content-start items-start gap-1.5 rounded-lg p-1.5 ${
+      className={`flex flex-wrap content-start items-start gap-1.5 rounded-lg p-1.5 ${
+        empty && compact ? "my-0.5 min-h-[1.5rem]" : "my-1.5 min-h-[2.75rem]"
+      } ${
         active
           ? "drop-zone-active"
           : empty
@@ -62,7 +68,11 @@ export default function DropCell({
       }`}
     >
       {empty && (
-        <span className="flex w-full items-center justify-center px-1 py-1.5 text-center text-xs text-gray-500">
+        <span
+          className={`flex w-full items-center justify-center text-center text-gray-500 ${
+            compact ? "px-1 py-0 text-[10px]" : "px-1 py-1.5 text-xs"
+          }`}
+        >
           {emptyHint}
         </span>
       )}

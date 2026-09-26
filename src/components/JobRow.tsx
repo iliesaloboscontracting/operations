@@ -32,7 +32,11 @@ export default function JobRow({
   const hasSupervisor = crew.some(
     (a) => a.role === "Supervisor" || a.role === "Lead"
   );
-  const needsSupervisor = !job.notRunning && !job.virtual && !hasSupervisor;
+  // Nothing to warn about on a job that has nothing on it at all yet - the
+  // warning earns its place once there's at least someone here to be missing
+  // a supervisor.
+  const allocated = job.assignments.length > 0;
+  const needsSupervisor = !job.notRunning && !job.virtual && allocated && !hasSupervisor;
 
   // What today's allocation costs, from each item's daily rate (cost code).
   const dailyCost = job.assignments.reduce((n, a) => n + (a.resource.dailyRateExGst ?? 0), 0);
@@ -46,7 +50,7 @@ export default function JobRow({
       {/* Site */}
       <button
         onClick={() => onEdit(job)}
-        className="flex gap-2.5 py-3 pl-3 text-left hover:bg-panel2/50"
+        className={`flex gap-2.5 pl-3 text-left hover:bg-panel2/50 ${allocated ? "py-3" : "py-1.5"}`}
         title={job.virtual ? "Not scheduled yet - click to add today's job" : "Edit job"}
       >
         <div className="w-1 shrink-0 rounded-full bg-brand-600" />
@@ -88,7 +92,7 @@ export default function JobRow({
       </button>
 
       {/* Day brief */}
-      <div className="py-3 pr-2 text-sm text-gray-300">
+      <div className={`pr-2 text-sm text-gray-300 ${allocated ? "py-3" : "truncate py-1.5"}`}>
         {job.dayBrief || <span className="text-gray-500">—</span>}
       </div>
 
@@ -100,6 +104,7 @@ export default function JobRow({
         onRoleChange={onRoleChange}
         onRemove={onRemove}
         emptyHint="Drag crew here"
+        compact={!allocated}
       />
       <DropCell
         accepts="plant"
@@ -109,6 +114,7 @@ export default function JobRow({
         onRoleChange={onRoleChange}
         onRemove={onRemove}
         emptyHint="Drag plant, attachments, vehicles"
+        compact={!allocated}
       />
       <DropCell
         accepts="hire"
@@ -118,6 +124,7 @@ export default function JobRow({
         onRoleChange={onRoleChange}
         onRemove={onRemove}
         emptyHint="Drag hire here"
+        compact={!allocated}
       />
     </div>
   );
