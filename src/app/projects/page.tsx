@@ -278,7 +278,7 @@ export default function ProjectsPage() {
             <button
               key={p.id}
               onClick={() => canEdit && setEditing(p)}
-              className={`rounded-xl border border-edge bg-panel p-3.5 text-left shadow-soft hover:-translate-y-0.5 hover:shadow-soft-md ${
+              className={`rounded-xl border-2 border-brand-500 bg-brand-950/10 p-3.5 text-left shadow-soft hover:-translate-y-0.5 hover:shadow-soft-md ${
                 p.status !== "ACTIVE" ? "opacity-70" : ""
               } ${needsAttention(p) ? "ring-1 ring-amber-500/40" : ""}`}
             >
