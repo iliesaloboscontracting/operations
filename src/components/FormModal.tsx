@@ -10,7 +10,8 @@ export interface FieldDef {
   options?: (string | { value: string; label: string })[];
   placeholder?: string;
   required?: boolean;
-  full?: boolean; // span both columns
+  full?: boolean; // span every column
+  span?: 2 | 3; // span this many columns (ignored if `full` is set) - for a grid wider than 2 columns
   section?: string; // groups fields under a heading; a new value starts a new section
   // For type "static": fixed display text, shown instead of an editable control.
   // values[key] is left untouched and still submitted as-is - use this when the
@@ -18,6 +19,9 @@ export interface FieldDef {
   // a different one doesn't make sense.
   staticText?: string;
 }
+
+const COLS_CLASS: Record<number, string> = { 2: "grid-cols-2", 3: "grid-cols-3", 4: "grid-cols-4" };
+const SPAN_CLASS: Record<number, string> = { 2: "col-span-2", 3: "col-span-3" };
 
 const input =
   "w-full rounded-lg border border-edge bg-panel2 px-3 py-2 text-sm text-gray-200 placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500";
@@ -32,6 +36,7 @@ export default function FormModal({
   deleteLabel = "Delete",
   extra,
   wide,
+  cols = 2,
   submitLabel = "Save",
   savingLabel,
 }: {
@@ -43,7 +48,8 @@ export default function FormModal({
   onDelete?: () => Promise<void>;
   deleteLabel?: string;
   extra?: React.ReactNode; // extra content below the fields (e.g. a related-records panel)
-  wide?: boolean; // use a wider modal, for when `extra` needs the room
+  wide?: boolean; // use a wider modal, for when `extra` needs the room, or a wider field grid
+  cols?: 2 | 3 | 4; // grid columns for the fields - more columns fits a wider modal without every field going full-width
   submitLabel?: string;
   savingLabel?: string;
 }) {
@@ -114,13 +120,13 @@ export default function FormModal({
             <X size={18} />
           </button>
         </div>
-        <div className="grid grid-cols-2 gap-3">
+        <div className={`grid ${COLS_CLASS[cols]} gap-3`}>
           {fields.map((f, i) => (
             <Fragment key={f.key}>
               {f.section && f.section !== fields[i - 1]?.section && (
                 <div
                   key={`section-${f.section}`}
-                  className={`col-span-2 text-xs font-semibold uppercase tracking-wide text-gray-400 ${
+                  className={`col-span-full text-xs font-semibold uppercase tracking-wide text-gray-400 ${
                     i === 0 ? "" : "mt-3 border-t border-edge pt-3"
                   }`}
                 >
@@ -129,7 +135,7 @@ export default function FormModal({
               )}
               <label
                 className={`flex flex-col gap-1.5 text-[11px] font-medium uppercase tracking-wide text-gray-500 ${
-                  f.full || f.type === "textarea" ? "col-span-2" : ""
+                  f.full || f.type === "textarea" ? "col-span-full" : f.span ? SPAN_CLASS[f.span] : ""
                 }`}
               >
                 {f.label}

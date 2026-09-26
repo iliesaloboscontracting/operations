@@ -63,7 +63,7 @@ export default function JobFormModal({
     { key: "title", label: "Job / site name", full: true, section: "Job details" },
     { key: "client", label: "Client" },
     { key: "siteCode", label: "Job number" },
-    { key: "siteAddress", label: "Address", full: true },
+    { key: "siteAddress", label: "Address", span: 2 },
     { key: "date", label: "Date", type: "date", section: "Shift details" },
     {
       key: "shift",
@@ -152,6 +152,8 @@ export default function JobFormModal({
     <FormModal
       title={isNew ? "New job" : "Edit job"}
       fields={jobFields}
+      wide
+      cols={4}
       initial={
         isNew
           ? {
