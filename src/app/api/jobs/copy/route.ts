@@ -37,7 +37,9 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
       data: {
         projectId: j.projectId,
         title: j.title,
+        client: j.client,
         siteCode: j.siteCode,
+        siteAddress: j.siteAddress,
         date: toStart,
         shift: j.shift,
         startTime: j.startTime,

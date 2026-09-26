@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { guard } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
+import { liveJobFields } from "@/lib/jobs";
 
 // PATCH /api/jobs/:id -> update job fields
 export const PATCH = withErrorHandling(async (
@@ -34,10 +35,17 @@ export const PATCH = withErrorHandling(async (
   const job = await prisma.job.update({
     where: { id: params.id },
     data,
-    include: { assignments: { include: { resource: true } } },
+    include: {
+      project: { select: { client: true, jobNo: true, address: true } },
+      assignments: { include: { resource: true } },
+    },
   });
+  const { project, ...rest } = job;
 
-  return NextResponse.json(job);
+  return NextResponse.json({
+    ...rest,
+    ...liveJobFields({ client: job.client, siteCode: job.siteCode, siteAddress: job.siteAddress, project }),
+  });
 });
 
 // DELETE /api/jobs/:id

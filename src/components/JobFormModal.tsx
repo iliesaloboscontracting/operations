@@ -31,7 +31,21 @@ export default function JobFormModal({
   onDelete?: () => Promise<void>;
 }) {
   const isNew = editing === "new";
-  const knownProject = defaultProjectId ? projects.find((p) => p.id === defaultProjectId) : undefined;
+  // Once a job is linked to a project, its Client / Job number / Site address
+  // aren't its own copy - they always show the project's current value (see
+  // src/lib/jobs.ts), so there's nothing to edit per job here.
+  const linkedProjectId = isNew ? defaultProjectId : (editing as JobDTO).projectId ?? undefined;
+  const knownProject = linkedProjectId ? projects.find((p) => p.id === linkedProjectId) : undefined;
+
+  const clientField: FieldDef = knownProject
+    ? { key: "client", label: "Client", section: "Job details", type: "static", staticText: knownProject.client || "—" }
+    : { key: "client", label: "Client", section: "Job details" };
+  const siteCodeField: FieldDef = knownProject
+    ? { key: "siteCode", label: "Job number", type: "static", staticText: knownProject.jobNo || "—" }
+    : { key: "siteCode", label: "Job number" };
+  const siteAddressField: FieldDef = knownProject
+    ? { key: "siteAddress", label: "Site address", full: true, type: "static", staticText: knownProject.address || "—" }
+    : { key: "siteAddress", label: "Site address", full: true };
 
   const jobFields: FieldDef[] = [
     ...(isNew
@@ -60,10 +74,10 @@ export default function JobFormModal({
               },
         ] as FieldDef[])
       : []),
-    { key: "client", label: "Client", section: "Job details" },
-    { key: "siteCode", label: "Job number" },
+    clientField,
+    siteCodeField,
     { key: "title", label: "Job / site name", full: true },
-    { key: "siteAddress", label: "Site address", full: true },
+    siteAddressField,
     { key: "date", label: "Date", type: "date", section: "Shift details" },
     {
       key: "shift",
@@ -110,7 +124,7 @@ export default function JobFormModal({
       // Left blank, a job takes its client from the project - same as its hours do.
       client: v.client || project?.client || null,
       siteCode: v.siteCode || project?.jobNo || null,
-      siteAddress: v.siteAddress || null,
+      siteAddress: v.siteAddress || project?.address || null,
       date,
       shift,
       startTime: v.startTime || dflt(project?.dayStart, project?.nightStart),

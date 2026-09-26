@@ -11,36 +11,52 @@ import { localISODate } from "@/lib/resource";
 import { useAuth } from "@/components/AuthProvider";
 import { apiFetch } from "@/lib/apiFetch";
 
-const JOB_FIELDS: FieldDef[] = [
-  { key: "client", label: "Client", section: "Job details" },
-  { key: "siteCode", label: "Job number" },
-  { key: "title", label: "Job / site name", full: true },
-  { key: "siteAddress", label: "Site address", full: true },
-  { key: "date", label: "Date", type: "date", section: "Shift details" },
-  {
-    key: "shift",
-    label: "Shift",
-    type: "select",
-    options: [
-      { value: "DAY", label: "☀ Day" },
-      { value: "NIGHT", label: "☾ Night" },
-    ],
-  },
-  { key: "startTime", label: "Start time", placeholder: "7am" },
-  { key: "endTime", label: "Finish time", placeholder: "3:30pm" },
-  {
-    key: "status",
-    label: "Status",
-    type: "select",
-    full: true,
-    options: [
-      { value: "COMPLETED", label: "Completed" },
-      { value: "ACTIVE", label: "Active (moves back onto the Command Centre board)" },
-      { value: "INACTIVE", label: "Inactive" },
-    ],
-  },
-  { key: "dayBrief", label: "Scope of works / day brief", type: "textarea", full: true, section: "Work instructions" },
-];
+// A job linked to a project shows that project's current Client / Job number /
+// Site address as fixed text, not editable here - same as the Command Centre's
+// job form. See src/lib/jobs.ts for why.
+function jobFieldsFor(job: JobDTO, projects: ProjectDTO[]): FieldDef[] {
+  const project = job.projectId ? projects.find((p) => p.id === job.projectId) : undefined;
+  const clientField: FieldDef = project
+    ? { key: "client", label: "Client", section: "Job details", type: "static", staticText: project.client || "—" }
+    : { key: "client", label: "Client", section: "Job details" };
+  const siteCodeField: FieldDef = project
+    ? { key: "siteCode", label: "Job number", type: "static", staticText: project.jobNo || "—" }
+    : { key: "siteCode", label: "Job number" };
+  const siteAddressField: FieldDef = project
+    ? { key: "siteAddress", label: "Site address", full: true, type: "static", staticText: project.address || "—" }
+    : { key: "siteAddress", label: "Site address", full: true };
+
+  return [
+    clientField,
+    siteCodeField,
+    { key: "title", label: "Job / site name", full: true },
+    siteAddressField,
+    { key: "date", label: "Date", type: "date", section: "Shift details" },
+    {
+      key: "shift",
+      label: "Shift",
+      type: "select",
+      options: [
+        { value: "DAY", label: "☀ Day" },
+        { value: "NIGHT", label: "☾ Night" },
+      ],
+    },
+    { key: "startTime", label: "Start time", placeholder: "7am" },
+    { key: "endTime", label: "Finish time", placeholder: "3:30pm" },
+    {
+      key: "status",
+      label: "Status",
+      type: "select",
+      full: true,
+      options: [
+        { value: "COMPLETED", label: "Completed" },
+        { value: "ACTIVE", label: "Active (moves back onto the Command Centre board)" },
+        { value: "INACTIVE", label: "Inactive" },
+      ],
+    },
+    { key: "dayBrief", label: "Scope of works / day brief", type: "textarea", full: true, section: "Work instructions" },
+  ];
+}
 
 const PROJECT_FIELDS: FieldDef[] = [
   { key: "name", label: "Job / site name", required: true, full: true },
@@ -230,7 +246,7 @@ export default function CompletedPage() {
       {editingJob && (
         <FormModal
           title={`Edit ${editingJob.title}`}
-          fields={JOB_FIELDS}
+          fields={jobFieldsFor(editingJob, allProjects)}
           initial={editingJob}
           onSave={saveJob}
           onClose={() => setEditingJob(null)}

@@ -24,7 +24,10 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
       status: { not: "COMPLETED" },
     },
     orderBy: [{ date: "asc" }, { sortOrder: "asc" }],
-    include: { assignments: { include: { resource: true } } },
+    include: {
+      project: { select: { jobNo: true } },
+      assignments: { include: { resource: true } },
+    },
   });
 
   const out: CalendarJobDTO[] = jobs.map((j) => {
@@ -53,7 +56,7 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
       id: j.id,
       projectId: j.projectId,
       title: j.title,
-      siteCode: j.siteCode,
+      siteCode: j.project?.jobNo ?? j.siteCode,
       date: j.date.toISOString().slice(0, 10),
       shift: j.shift as "DAY" | "NIGHT",
       startTime: j.startTime,
