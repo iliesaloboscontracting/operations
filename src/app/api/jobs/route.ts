@@ -20,7 +20,7 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
     where: { date: { gte: date, lt: nextDay }, status: { not: "COMPLETED" } },
     orderBy: [{ notRunning: "asc" }, { sortOrder: "asc" }, { createdAt: "asc" }],
     include: {
-      project: { select: { client: true, jobNo: true, address: true } },
+      project: { select: { name: true, client: true, jobNo: true, address: true } },
       assignments: {
         include: { resource: true },
         orderBy: { createdAt: "asc" },
@@ -31,7 +31,7 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
   // JobDTO.date is documented (and used, e.g. in a <input type="date">) as YYYY-MM-DD.
   const out = jobs.map(({ project, ...j }) => ({
     ...j,
-    ...liveJobFields({ client: j.client, siteCode: j.siteCode, siteAddress: j.siteAddress, project }),
+    ...liveJobFields({ title: j.title, client: j.client, siteCode: j.siteCode, siteAddress: j.siteAddress, project }),
     date: j.date.toISOString().slice(0, 10),
   }));
   return NextResponse.json(out);

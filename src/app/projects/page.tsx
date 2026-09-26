@@ -32,6 +32,7 @@ const FIELDS: FieldDef[] = [
   { key: "name", label: "Job / site name", required: true, full: true },
   { key: "client", label: "Client", placeholder: "e.g. CD Constructions" },
   { key: "jobNo", label: "Job number" },
+  { key: "address", label: "Address", full: true },
   {
     key: "status",
     label: "Status",
@@ -43,7 +44,6 @@ const FIELDS: FieldDef[] = [
     ],
   },
   { key: "startDate", label: "Start date", type: "date" },
-  { key: "address", label: "Address" },
   { key: "dayStart", label: "Day start", placeholder: "7am" },
   { key: "dayEnd", label: "Day end", placeholder: "3:30pm" },
   { key: "nightStart", label: "Night start", placeholder: "10pm" },

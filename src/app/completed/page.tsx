@@ -11,26 +11,16 @@ import { localISODate } from "@/lib/resource";
 import { useAuth } from "@/components/AuthProvider";
 import { apiFetch } from "@/lib/apiFetch";
 
-// A job linked to a project shows that project's current Client / Job number /
-// Site address as fixed text, not editable here - same as the Command Centre's
-// job form. See src/lib/jobs.ts for why.
-function jobFieldsFor(job: JobDTO, projects: ProjectDTO[]): FieldDef[] {
-  const project = job.projectId ? projects.find((p) => p.id === job.projectId) : undefined;
-  const clientField: FieldDef = project
-    ? { key: "client", label: "Client", section: "Job details", type: "static", staticText: project.client || "—" }
-    : { key: "client", label: "Client", section: "Job details" };
-  const siteCodeField: FieldDef = project
-    ? { key: "siteCode", label: "Job number", type: "static", staticText: project.jobNo || "—" }
-    : { key: "siteCode", label: "Job number" };
-  const siteAddressField: FieldDef = project
-    ? { key: "siteAddress", label: "Site address", full: true, type: "static", staticText: project.address || "—" }
-    : { key: "siteAddress", label: "Site address", full: true };
-
+// Job / site name, Client, Job number and Address are site identity - once
+// this job is linked to a project they're the project's own fields (same
+// layout as the Projects page), and saveJob() below writes them there instead
+// of onto the job. See src/lib/jobs.ts for why.
+function jobFieldsFor(job: JobDTO): FieldDef[] {
   return [
-    clientField,
-    siteCodeField,
-    { key: "title", label: "Job / site name", full: true },
-    siteAddressField,
+    { key: "title", label: "Job / site name", full: true, section: "Job details" },
+    { key: "client", label: "Client" },
+    { key: "siteCode", label: "Job number" },
+    { key: "siteAddress", label: "Address", full: true },
     { key: "date", label: "Date", type: "date", section: "Shift details" },
     {
       key: "shift",
@@ -113,6 +103,20 @@ export default function CompletedPage() {
 
   async function saveJob(v: Record<string, any>) {
     if (!editingJob) return;
+    const project = editingJob.projectId ? allProjects.find((p) => p.id === editingJob.projectId) : undefined;
+    if (project) {
+      const siteRes = await fetch(`/api/projects/${project.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: v.title || project.name,
+          client: v.client || null,
+          jobNo: v.siteCode || null,
+          address: v.siteAddress || null,
+        }),
+      });
+      if (!siteRes.ok) throw new Error("Couldn't save the site details");
+    }
     const res = await fetch(`/api/jobs/${editingJob.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -246,7 +250,7 @@ export default function CompletedPage() {
       {editingJob && (
         <FormModal
           title={`Edit ${editingJob.title}`}
-          fields={jobFieldsFor(editingJob, allProjects)}
+          fields={jobFieldsFor(editingJob)}
           initial={editingJob}
           onSave={saveJob}
           onClose={() => setEditingJob(null)}

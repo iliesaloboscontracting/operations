@@ -31,53 +31,39 @@ export default function JobFormModal({
   onDelete?: () => Promise<void>;
 }) {
   const isNew = editing === "new";
-  // Once a job is linked to a project, its Client / Job number / Site address
-  // aren't its own copy - they always show the project's current value (see
-  // src/lib/jobs.ts), so there's nothing to edit per job here.
+  // Job / site name, Client, Job number and Address are site identity, not a
+  // per-job detail - once a job is linked to a project they're the project's
+  // own fields (same as the Projects page edits), so editing them here saves
+  // straight to the project and shows the same everywhere immediately. A
+  // one-off job with no project keeps its own copy, same as before.
   const linkedProjectId = isNew ? defaultProjectId : (editing as JobDTO).projectId ?? undefined;
   const knownProject = linkedProjectId ? projects.find((p) => p.id === linkedProjectId) : undefined;
 
-  const clientField: FieldDef = knownProject
-    ? { key: "client", label: "Client", section: "Job details", type: "static", staticText: knownProject.client || "—" }
-    : { key: "client", label: "Client", section: "Job details" };
-  const siteCodeField: FieldDef = knownProject
-    ? { key: "siteCode", label: "Job number", type: "static", staticText: knownProject.jobNo || "—" }
-    : { key: "siteCode", label: "Job number" };
-  const siteAddressField: FieldDef = knownProject
-    ? { key: "siteAddress", label: "Site address", full: true, type: "static", staticText: knownProject.address || "—" }
-    : { key: "siteAddress", label: "Site address", full: true };
-
   const jobFields: FieldDef[] = [
-    ...(isNew
+    // Only ask which project when one isn't already known - once it is, the
+    // fields below (starting with the name) *are* that project's own details,
+    // so a separate "Project" line would just repeat the same thing twice.
+    ...(isNew && !knownProject
       ? ([
-          knownProject
-            ? {
-                key: "projectId",
-                label: "Project",
-                type: "static",
-                full: true,
-                section: "Job details",
-                staticText: knownProject.client ? `${knownProject.name} — ${knownProject.client}` : knownProject.name,
-              }
-            : {
-                key: "projectId",
-                label: "Project",
-                type: "select",
-                full: true,
-                section: "Job details",
-                options: [
-                  { value: "", label: "— pick a project (or type a one-off below) —" },
-                  ...projects
-                    .filter((p) => p.status === "ACTIVE")
-                    .map((p) => ({ value: p.id, label: p.client ? `${p.name} — ${p.client}` : p.name })),
-                ],
-              },
+          {
+            key: "projectId",
+            label: "Project",
+            type: "select",
+            full: true,
+            section: "Job details",
+            options: [
+              { value: "", label: "— pick a project (or type a one-off below) —" },
+              ...projects
+                .filter((p) => p.status === "ACTIVE")
+                .map((p) => ({ value: p.id, label: p.client ? `${p.name} — ${p.client}` : p.name })),
+            ],
+          },
         ] as FieldDef[])
       : []),
-    clientField,
-    siteCodeField,
-    { key: "title", label: "Job / site name", full: true },
-    siteAddressField,
+    { key: "title", label: "Job / site name", full: true, section: "Job details" },
+    { key: "client", label: "Client" },
+    { key: "siteCode", label: "Job number" },
+    { key: "siteAddress", label: "Address", full: true },
     { key: "date", label: "Date", type: "date", section: "Shift details" },
     {
       key: "shift",
@@ -119,6 +105,23 @@ export default function JobFormModal({
       (shift === "NIGHT" ? night : day) || null;
     const status = v.status || "ACTIVE";
     const date = v.date || defaultDate;
+
+    if (project) {
+      // These are the project's own fields once it's linked - save them there,
+      // not on the job, so every job for this project shows the same thing.
+      const siteRes = await fetch(`/api/projects/${project.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: title,
+          client: v.client || null,
+          jobNo: v.siteCode || null,
+          address: v.siteAddress || null,
+        }),
+      });
+      if (!siteRes.ok) throw new Error("Couldn't save the site details");
+    }
+
     const body = {
       title,
       // Left blank, a job takes its client from the project - same as its hours do.
@@ -151,7 +154,16 @@ export default function JobFormModal({
       fields={jobFields}
       initial={
         isNew
-          ? { shift: "DAY", status: "ACTIVE", projectId: defaultProjectId ?? "", date: defaultDate, title: defaultTitle ?? "" }
+          ? {
+              shift: "DAY",
+              status: "ACTIVE",
+              projectId: defaultProjectId ?? "",
+              date: defaultDate,
+              title: knownProject?.name ?? defaultTitle ?? "",
+              client: knownProject?.client ?? "",
+              siteCode: knownProject?.jobNo ?? "",
+              siteAddress: knownProject?.address ?? "",
+            }
           : editing
       }
       onSave={handleSave}

@@ -36,7 +36,7 @@ export const PATCH = withErrorHandling(async (
     where: { id: params.id },
     data,
     include: {
-      project: { select: { client: true, jobNo: true, address: true } },
+      project: { select: { name: true, client: true, jobNo: true, address: true } },
       assignments: { include: { resource: true } },
     },
   });
@@ -44,7 +44,7 @@ export const PATCH = withErrorHandling(async (
 
   return NextResponse.json({
     ...rest,
-    ...liveJobFields({ client: job.client, siteCode: job.siteCode, siteAddress: job.siteAddress, project }),
+    ...liveJobFields({ title: job.title, client: job.client, siteCode: job.siteCode, siteAddress: job.siteAddress, project }),
   });
 });
 

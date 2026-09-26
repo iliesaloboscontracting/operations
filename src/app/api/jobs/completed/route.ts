@@ -16,14 +16,14 @@ export const GET = withErrorHandling(async () => {
     where: { status: "COMPLETED" },
     orderBy: { date: "desc" },
     include: {
-      project: { select: { client: true, jobNo: true, address: true } },
+      project: { select: { name: true, client: true, jobNo: true, address: true } },
       assignments: { include: { resource: true }, orderBy: { createdAt: "asc" } },
     },
   });
 
   const out = jobs.map(({ project, ...j }) => ({
     ...j,
-    ...liveJobFields({ client: j.client, siteCode: j.siteCode, siteAddress: j.siteAddress, project }),
+    ...liveJobFields({ title: j.title, client: j.client, siteCode: j.siteCode, siteAddress: j.siteAddress, project }),
     date: j.date.toISOString().slice(0, 10),
   }));
   return NextResponse.json(out);
