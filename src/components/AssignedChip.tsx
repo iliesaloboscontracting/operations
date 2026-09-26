@@ -38,7 +38,7 @@ export default function AssignedChip({
     ? "border border-orange-500/60 bg-orange-950/60 text-orange-200"
     : column === "hire"
     ? "border border-teal-500/60 bg-teal-950/60 text-teal-200"
-    : "border border-edge bg-panel2 text-gray-200";
+    : "border border-brand-500/40 bg-brand-950/20 text-gray-200";
 
   return (
     <div
