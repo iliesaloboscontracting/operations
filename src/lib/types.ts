@@ -178,3 +178,33 @@ export interface StartAlertDTO {
   // has nothing to show for this project until one exists.
   noJobYet: boolean;
 }
+
+// A cost code split: plant (owned equipment), attach (attachments), trucks
+// (owned vehicles), hire (anything hired in). Crew never appears here - a
+// daily rate only ever applies to gear, never to labour.
+export interface CostByCode {
+  plant: number;
+  attach: number;
+  trucks: number;
+  hire: number;
+}
+
+export interface JobCostDTO {
+  id: string;
+  date: string; // YYYY-MM-DD
+  shift: ShiftType;
+  title: string;
+  cost: number;
+  byCode: CostByCode;
+}
+
+export interface ProjectCostDTO {
+  id: string;
+  name: string;
+  client: string | null;
+  jobNo: string | null;
+  status: "ACTIVE" | "INACTIVE" | "COMPLETED";
+  totalCost: number;
+  byCode: CostByCode;
+  jobs: JobCostDTO[]; // only jobs that actually cost something, oldest first
+}
