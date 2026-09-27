@@ -198,13 +198,28 @@ export interface JobCostDTO {
   byCode: CostByCode;
 }
 
+// A real invoice line that doesn't fit the assignment/dailyRateExGst model -
+// e.g. an agency labour-hire bill, a different $ amount every week. See
+// prisma/schema.prisma's InvoicedCost model for why this exists separately.
+export interface InvoicedCostDTO {
+  id: string;
+  vendor: string;
+  category: string;
+  invoiceNo: string | null;
+  weekEnding: string; // YYYY-MM-DD
+  shift: ShiftType | null;
+  amountExGst: number;
+}
+
 export interface ProjectCostDTO {
   id: string;
   name: string;
   client: string | null;
   jobNo: string | null;
   status: "ACTIVE" | "INACTIVE" | "COMPLETED";
-  totalCost: number;
+  totalCost: number; // byCode + invoicedTotal
   byCode: CostByCode;
+  invoicedTotal: number;
+  invoiced: InvoicedCostDTO[]; // oldest first
   jobs: JobCostDTO[]; // only jobs that actually cost something, oldest first
 }

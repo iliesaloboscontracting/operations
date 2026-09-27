@@ -31,6 +31,7 @@ export const GET = withErrorHandling(async () => {
           },
         },
       },
+      invoicedCosts: { orderBy: { weekEnding: "asc" } },
     },
   });
 
@@ -74,7 +75,17 @@ export const GET = withErrorHandling(async () => {
       },
       { plant: 0, attach: 0, trucks: 0, hire: 0 }
     );
-    const totalCost = byCode.plant + byCode.attach + byCode.trucks + byCode.hire;
+    const invoiced = p.invoicedCosts.map((i) => ({
+      id: i.id,
+      vendor: i.vendor,
+      category: i.category,
+      invoiceNo: i.invoiceNo,
+      weekEnding: i.weekEnding,
+      shift: i.shift as "DAY" | "NIGHT" | null,
+      amountExGst: i.amountExGst,
+    }));
+    const invoicedTotal = invoiced.reduce((n, i) => n + i.amountExGst, 0);
+    const totalCost = byCode.plant + byCode.attach + byCode.trucks + byCode.hire + invoicedTotal;
 
     return {
       id: p.id,
@@ -84,6 +95,8 @@ export const GET = withErrorHandling(async () => {
       status: p.status,
       totalCost,
       byCode,
+      invoicedTotal,
+      invoiced,
       jobs,
     };
   });
