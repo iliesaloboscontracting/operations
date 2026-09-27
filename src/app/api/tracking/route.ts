@@ -145,6 +145,8 @@ export const GET = withErrorHandling(async () => {
       client: p.client,
       jobNo: p.jobNo,
       status: p.status,
+      contractValue: p.contractValue,
+      contractValueNotes: p.contractValueNotes,
       totalCost,
       byCode,
       invoicedTotal,

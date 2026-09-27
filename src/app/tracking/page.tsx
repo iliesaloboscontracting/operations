@@ -23,6 +23,17 @@ function Amount({ n, muted }: { n: number; muted?: boolean }) {
   return <span className={muted ? "text-gray-400" : "text-gray-100"}>{money(n)}</span>;
 }
 
+// A one-line "$X under/over budget" hint under the Total figure - only shown
+// once a real contract value is on file, never guessed at.
+function BudgetHint({ p }: { p: ProjectCostDTO }) {
+  if (p.contractValue == null) return null;
+  const variance = p.totalCost - p.contractValue;
+  if (variance <= 0) {
+    return <div className="text-[10px] text-green-500">{money(-variance)} under budget</div>;
+  }
+  return <div className="text-[10px] text-red-400">{money(variance)} over budget</div>;
+}
+
 // One row per person, aggregated across every date - the raw ledger can have
 // dozens of daily rows per person on a long-running site, which isn't useful
 // to page through one day at a time.
@@ -173,7 +184,9 @@ export default function TrackingPage() {
               </div>
               {projects.map((p) => {
                 const isOpen = open.has(p.id);
-                const hasDetail = p.jobs.length > 0 || p.invoiced.length > 0 || p.labour.length > 0;
+                const hasDetail =
+                  p.jobs.length > 0 || p.invoiced.length > 0 || p.labour.length > 0 ||
+                  p.contractValue != null || !!p.contractValueNotes;
                 return (
                   <div key={p.id} className="border-b border-edge/70 last:border-b-0">
                     <button
@@ -215,11 +228,36 @@ export default function TrackingPage() {
                       </div>
                       <div className="text-right text-sm font-semibold">
                         <Amount n={p.totalCost} />
+                        <BudgetHint p={p} />
                       </div>
                     </button>
 
                     {isOpen && hasDetail && (
                       <div className="border-t border-edge/70 bg-panel2/40 px-3 py-2">
+                        {(p.contractValue != null || p.contractValueNotes) && (
+                          <div className="mb-3 rounded-lg border border-edge/70 bg-panel px-3 py-2 text-xs">
+                            {p.contractValue != null ? (
+                              <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                                <span className="text-gray-400">
+                                  Contract value <span className="font-medium text-gray-200">{money(p.contractValue)}</span>
+                                </span>
+                                <span className="text-gray-400">
+                                  Cost to date <span className="font-medium text-gray-200">{money(p.totalCost)}</span>
+                                </span>
+                                <span className={p.totalCost > p.contractValue ? "text-red-400" : "text-green-500"}>
+                                  {p.totalCost > p.contractValue
+                                    ? `${money(p.totalCost - p.contractValue)} over budget`
+                                    : `${money(p.contractValue - p.totalCost)} remaining`}
+                                </span>
+                              </div>
+                            ) : (
+                              <div className="text-gray-500">No single contract value - {p.contractValueNotes}</div>
+                            )}
+                            {p.contractValue != null && p.contractValueNotes && (
+                              <div className="mt-1 text-[11px] text-gray-500">{p.contractValueNotes}</div>
+                            )}
+                          </div>
+                        )}
                         {p.jobs.length > 0 && (
                           <>
                             <div className="grid grid-cols-[1fr_repeat(4,0.8fr)_0.9fr] gap-2 pb-1.5 text-[10px] font-semibold uppercase tracking-wide text-gray-500">

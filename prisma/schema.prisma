@@ -27,6 +27,13 @@ model Project {
   nightStart String?
   nightEnd  String?
   notes     String?
+  // Agreed job value ex GST, from the signed quote/contract - the "budget"
+  // side of budget-vs-actual. Null when the job is do-and-charge/schedule-of-
+  // rates (no single value to compare against) or simply not yet researched -
+  // contractValueNotes records which, and cites the source, so a null is
+  // never mistaken for "confirmed to be zero."
+  contractValue      Float?
+  contractValueNotes String?
   archived  Boolean  @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

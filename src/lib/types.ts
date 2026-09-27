@@ -100,6 +100,12 @@ export interface ProjectDTO {
   nightEnd: string | null;
   notes: string | null;
   archived: boolean;
+  // Agreed job value ex GST (the signed quote/contract), and where it came
+  // from - null contractValue means either do-and-charge/schedule-of-rates
+  // (no single value exists) or not yet researched; contractValueNotes says
+  // which.
+  contractValue?: number | null;
+  contractValueNotes?: string | null;
   counts?: { crew: number; plant: number; attach: number; trucks: number; hire: number };
   costToDate?: number; // sum of daily rates (ex GST) across every elapsed day worked
 }
@@ -270,6 +276,12 @@ export interface ProjectCostDTO {
   client: string | null;
   jobNo: string | null;
   status: "ACTIVE" | "INACTIVE" | "COMPLETED";
+  // The agreed job value ex GST (from the signed quote/contract) and where it
+  // came from. Null contractValue means either do-and-charge/schedule-of-
+  // rates (no single value exists to compare against) or not yet researched -
+  // contractValueNotes says which; never treat a null as "confirmed zero."
+  contractValue: number | null;
+  contractValueNotes: string | null;
   totalCost: number; // byCode + invoicedTotal + labourTotal
   byCode: CostByCode;
   invoicedTotal: number;
