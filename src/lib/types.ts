@@ -241,6 +241,29 @@ export interface LabourCostDTO {
   notes: string | null;
 }
 
+// A hired-in item (type = HIRE) sitting on hire that isn't earning its keep -
+// on-hire days (since hireStart) minus days it actually appeared on a job.
+// Not attributed to any project, since idle time doesn't belong to a site;
+// shown as its own company-wide figure.
+export interface IdleHireItemDTO {
+  id: string;
+  name: string;
+  agency: string | null;
+  hireStart: string | null;
+  hireEnd: string | null;
+  overdue: boolean; // hireEnd has passed and it's still on the register
+  onHireDays: number;
+  workedDays: number;
+  idleDays: number;
+  dailyRateExGst: number | null;
+  idleCost: number | null; // null when no dailyRateExGst is set to estimate from
+}
+
+export interface IdleHireDTO {
+  totalIdleCost: number; // sum of idleCost across items where it's known
+  items: IdleHireItemDTO[]; // idleDays > 0 or overdue only, worst first
+}
+
 export interface ProjectCostDTO {
   id: string;
   name: string;

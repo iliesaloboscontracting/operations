@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { guard } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { tierFor, rateAndCost, hoursBetween } from "@/lib/labourCost";
+import { parseLooseDate } from "@/lib/dates";
 
 // The historical labour-cost backfill (from the daily allocation PDFs) covers
 // every real work-date up to and including this one. Jobs on or before this
@@ -155,5 +156,46 @@ export const GET = withErrorHandling(async () => {
   });
 
   out.sort((a, b) => b.totalCost - a.totalCost);
-  return NextResponse.json(out);
+
+  // Idle hire: on-hire days (since hireStart) that never landed on a job at
+  // all - not attributed to any project, since idle time doesn't belong to a
+  // site. hireStart/hireEnd are free text (e.g. "22 Sept"), so parsing is
+  // best-effort; an unparseable hireStart just means that item can't be
+  // scored and is skipped, not guessed at.
+  const hireResources = await prisma.resource.findMany({
+    where: { type: "HIRE", active: true, hireStart: { not: null } },
+    select: {
+      id: true, name: true, agency: true, hireStart: true, hireEnd: true, dailyRateExGst: true,
+      assignments: { select: { job: { select: { date: true } } } },
+    },
+  });
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const referenceYear = today.getFullYear();
+
+  const idleHireItems = hireResources
+    .map((r) => {
+      const start = parseLooseDate(r.hireStart, referenceYear);
+      if (!start) return null;
+      const end = parseLooseDate(r.hireEnd, referenceYear);
+      const overdue = end != null && end < today;
+      const onHireDays = Math.max(0, Math.round((today.getTime() - start.getTime()) / 86400000));
+      const workedDays = new Set(r.assignments.map((a) => a.job.date.toISOString().slice(0, 10))).size;
+      const idleDays = Math.max(0, onHireDays - workedDays);
+      const idleCost = r.dailyRateExGst != null ? Math.round(idleDays * r.dailyRateExGst * 100) / 100 : null;
+      return {
+        id: r.id, name: r.name, agency: r.agency, hireStart: r.hireStart, hireEnd: r.hireEnd,
+        overdue, onHireDays, workedDays, idleDays, dailyRateExGst: r.dailyRateExGst, idleCost,
+      };
+    })
+    .filter((r): r is NonNullable<typeof r> => r != null && (r.idleDays > 0 || r.overdue))
+    .sort((a, b) => (b.idleCost ?? -1) - (a.idleCost ?? -1) || b.idleDays - a.idleDays);
+
+  const idleHire = {
+    totalIdleCost: idleHireItems.reduce((n, r) => n + (r.idleCost ?? 0), 0),
+    items: idleHireItems,
+  };
+
+  return NextResponse.json({ projects: out, idleHire });
 });

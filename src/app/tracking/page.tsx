@@ -2,12 +2,12 @@
 
 import { useEffect, useState } from "react";
 import PageShell from "@/components/PageShell";
-import { ProjectCostDTO } from "@/lib/types";
+import { IdleHireDTO, ProjectCostDTO } from "@/lib/types";
 import { money } from "@/lib/resource";
 import { fmtDay } from "@/lib/dates";
 import { ShiftBadge } from "@/components/ShiftBadge";
 import { apiFetch } from "@/lib/apiFetch";
-import { ChevronDown, ChevronRight, FileText, Handshake, Link2, Truck, Users, Wrench } from "lucide-react";
+import { ChevronDown, ChevronRight, FileText, Handshake, Link2, Truck, TriangleAlert, Users, Wrench } from "lucide-react";
 
 const CODE_COLS: { key: keyof ProjectCostDTO["byCode"]; label: string; icon: typeof Wrench }[] = [
   { key: "plant", label: "Plant", icon: Wrench },
@@ -41,13 +41,18 @@ function labourByPerson(labour: ProjectCostDTO["labour"]) {
 
 export default function TrackingPage() {
   const [projects, setProjects] = useState<ProjectCostDTO[]>([]);
+  const [idleHire, setIdleHire] = useState<IdleHireDTO | null>(null);
+  const [idleHireOpen, setIdleHireOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     apiFetch("/api/tracking")
-      .then((r) => (r.ok ? r.json() : []))
-      .then(setProjects)
+      .then((r) => (r.ok ? r.json() : { projects: [], idleHire: null }))
+      .then((data) => {
+        setProjects(data.projects);
+        setIdleHire(data.idleHire);
+      })
       .finally(() => setLoading(false));
   }, []);
 
@@ -80,6 +85,67 @@ export default function TrackingPage() {
               <div className="text-xs text-gray-500">Total cost to date, ex GST, across every project</div>
             </div>
           </div>
+
+          {idleHire && idleHire.items.length > 0 && (
+            <div className="mb-5 overflow-hidden rounded-xl border border-amber-800/50 bg-amber-950/20 shadow-soft">
+              <button
+                onClick={() => setIdleHireOpen((v) => !v)}
+                className="flex w-full items-center gap-3 p-3.5 text-left"
+              >
+                {idleHireOpen ? (
+                  <ChevronDown size={14} className="shrink-0 text-amber-500" />
+                ) : (
+                  <ChevronRight size={14} className="shrink-0 text-amber-500" />
+                )}
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-500/10 text-amber-500">
+                  <TriangleAlert size={18} />
+                </div>
+                <div>
+                  <div className="text-xl font-semibold leading-tight text-gray-100">
+                    {idleHire.totalIdleCost > 0 ? money(idleHire.totalIdleCost) : "Idle hire"}
+                    {idleHire.totalIdleCost > 0 && <span className="ml-1.5 text-xs font-normal text-gray-500">estimated</span>}
+                  </div>
+                  <div className="text-xs text-gray-500">
+                    {idleHire.items.length} hired item{idleHire.items.length === 1 ? "" : "s"} sitting idle or overdue for off-hire - not attributed to any project
+                  </div>
+                </div>
+              </button>
+
+              {idleHireOpen && (
+                <div className="border-t border-amber-800/40 px-3 py-2">
+                  <div className="grid grid-cols-[1.4fr_0.8fr_0.6fr_0.6fr_0.6fr_0.8fr] gap-2 pb-1.5 text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+                    <div>Item</div>
+                    <div>On hire since</div>
+                    <div>Finish</div>
+                    <div>On hire</div>
+                    <div>Idle</div>
+                    <div className="text-right">Est. cost</div>
+                  </div>
+                  {idleHire.items.map((i) => (
+                    <div
+                      key={i.id}
+                      className="grid grid-cols-[1.4fr_0.8fr_0.6fr_0.6fr_0.6fr_0.8fr] items-center gap-2 border-t border-amber-800/30 py-1.5 text-xs first:border-t-0"
+                    >
+                      <div className="min-w-0">
+                        <div className="truncate text-gray-200">{i.name}</div>
+                        {i.agency && <div className="truncate text-[10px] text-gray-500">{i.agency}</div>}
+                      </div>
+                      <div className="text-gray-400">{i.hireStart}</div>
+                      <div className={i.overdue ? "font-medium text-red-400" : "text-gray-400"}>
+                        {i.hireEnd ?? "—"}
+                        {i.overdue && " ⚠"}
+                      </div>
+                      <div className="text-gray-400">{i.onHireDays}d</div>
+                      <div className="text-gray-400">{i.idleDays}d</div>
+                      <div className="text-right font-medium text-gray-200">
+                        {i.idleCost != null ? money(i.idleCost) : <span className="text-amber-400">TBC</span>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           {projects.length === 0 ? (
             <div className="rounded-lg border border-dashed border-edge py-10 text-center text-sm text-gray-500">

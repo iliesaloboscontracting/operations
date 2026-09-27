@@ -1,9 +1,27 @@
 "use client";
 
 import { useState } from "react";
+import { TriangleAlert } from "lucide-react";
 import RegisterPage from "@/components/RegisterPage";
 import { ResourceDTO } from "@/lib/types";
 import { whereToday } from "@/lib/resource";
+import { fmtDay, parseLooseDate } from "@/lib/dates";
+
+// Last date this item actually appeared on a job, from its own assignment
+// history - not filtered to today, so it reads "still idle" correctly even
+// weeks after its last shift.
+function lastWorked(r: ResourceDTO): string | null {
+  const dates = (r.assignments ?? []).map((a) => a.job.date.slice(0, 10));
+  return dates.length ? dates.sort().at(-1)! : null;
+}
+
+function isOverdue(r: ResourceDTO): boolean {
+  const end = parseLooseDate(r.hireEnd, new Date().getFullYear());
+  if (!end) return false;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return end < today;
+}
 
 const TABS = [
   { key: "PLANT", label: "Plant" },
@@ -49,7 +67,25 @@ export default function HirePage() {
           { label: "Role", render: (r) => r.role },
           { label: "Where today", render: (r) => whereToday(r) },
           { label: "Start", render: (r) => r.hireStart },
-          { label: "Expected finish", render: (r) => r.hireEnd },
+          {
+            label: "Expected finish",
+            render: (r) =>
+              isOverdue(r) ? (
+                <span className="inline-flex items-center gap-1 text-red-400">
+                  <TriangleAlert size={12} className="shrink-0" />
+                  {r.hireEnd}
+                </span>
+              ) : (
+                r.hireEnd
+              ),
+          },
+          {
+            label: "Last worked",
+            render: (r) => {
+              const d = lastWorked(r);
+              return d ? fmtDay(d, { day: "numeric", month: "short" }) : <span className="text-gray-500">Never</span>;
+            },
+          },
           { label: "Rate", render: (r) => r.rate },
         ],
         fields: [
