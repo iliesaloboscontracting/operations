@@ -32,6 +32,7 @@ export const GET = withErrorHandling(async () => {
         },
       },
       invoicedCosts: { orderBy: { weekEnding: "asc" } },
+      labourCosts: { orderBy: { date: "asc" } },
     },
   });
 
@@ -85,7 +86,19 @@ export const GET = withErrorHandling(async () => {
       amountExGst: i.amountExGst,
     }));
     const invoicedTotal = invoiced.reduce((n, i) => n + i.amountExGst, 0);
-    const totalCost = byCode.plant + byCode.attach + byCode.trucks + byCode.hire + invoicedTotal;
+    const labour = p.labourCosts.map((l) => ({
+      id: l.id,
+      personName: l.personName,
+      date: l.date,
+      shift: l.shift as "DAY" | "NIGHT",
+      hours: l.hours,
+      rateTier: l.rateTier,
+      rateUsed: l.rateUsed,
+      cost: l.cost,
+      notes: l.notes,
+    }));
+    const labourTotal = labour.reduce((n, l) => n + (l.cost ?? 0), 0);
+    const totalCost = byCode.plant + byCode.attach + byCode.trucks + byCode.hire + invoicedTotal + labourTotal;
 
     return {
       id: p.id,
@@ -97,6 +110,8 @@ export const GET = withErrorHandling(async () => {
       byCode,
       invoicedTotal,
       invoiced,
+      labourTotal,
+      labour,
       jobs,
     };
   });

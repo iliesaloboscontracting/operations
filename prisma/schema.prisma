@@ -32,6 +32,7 @@ model Project {
   updatedAt DateTime @updatedAt
   jobs      Job[]
   invoicedCosts InvoicedCost[]
+  labourCosts   LabourCost[]
 }
 
 // A real invoiced cost that doesn't fit the Job/Resource/dailyRateExGst model
@@ -57,6 +58,34 @@ model InvoicedCost {
   createdAt   DateTime @default(now())
 
   @@index([projectId])
+}
+
+// Own-crew labour cost, backfilled from the daily allocation sheets (issued
+// separately from Command Centre and not always reflected in Job/Assignment
+// for historical dates). Kept as its own ledger for the same reason as
+// InvoicedCost - hours x a person's pay rate is a different shape of cost
+// to a flat dailyRateExGst, and real Jobs already exist for some of these
+// dates so writing into Job/Assignment risks duplicating them.
+model LabourCost {
+  id          String    @id @default(cuid())
+  projectId   String
+  project     Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  resourceId  String?
+  resource    Resource? @relation(fields: [resourceId], references: [id], onDelete: SetNull)
+  personName  String // snapshot at import time - survives resourceId being null (unresolved person) or a later rename
+  date        String // YYYY-MM-DD, the allocation's real work-date (from the sheet's own header, not the filename)
+  shift       String // DAY | NIGHT
+  hours       Float? // null when the source sheet gave no parseable end time
+  rateTier    String? // ORDINARY | NIGHT | SATURDAY | SUNDAY - which of the resource's rates was applied
+  rateUsed    Float? // the $/hr actually applied; null when the rate is still TBC
+  cost        Float? // hours * rateUsed; null when rateUsed is null
+  source      String    @default("allocation-pdf") // where this row came from
+  notes       String? // e.g. "identified from sheet as 'John' - uncertain match"
+  createdAt   DateTime  @default(now())
+
+  @@index([projectId])
+  @@index([resourceId])
+  @@index([date])
 }
 
 model Job {
@@ -131,6 +160,7 @@ model Resource {
   updatedAt   DateTime     @updatedAt
   assignments Assignment[]
   serviceRecords ServiceRecord[]
+  labourCosts LabourCost[]
 
   @@index([type])
 }

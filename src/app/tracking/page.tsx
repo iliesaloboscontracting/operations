@@ -7,7 +7,7 @@ import { money } from "@/lib/resource";
 import { fmtDay } from "@/lib/dates";
 import { ShiftBadge } from "@/components/ShiftBadge";
 import { apiFetch } from "@/lib/apiFetch";
-import { ChevronDown, ChevronRight, FileText, Handshake, Link2, Truck, Wrench } from "lucide-react";
+import { ChevronDown, ChevronRight, FileText, Handshake, Link2, Truck, Users, Wrench } from "lucide-react";
 
 const CODE_COLS: { key: keyof ProjectCostDTO["byCode"]; label: string; icon: typeof Wrench }[] = [
   { key: "plant", label: "Plant", icon: Wrench },
@@ -16,11 +16,27 @@ const CODE_COLS: { key: keyof ProjectCostDTO["byCode"]; label: string; icon: typ
   { key: "hire", label: "Hire", icon: Handshake },
 ];
 
-const ROW_COLS = "grid-cols-[1.4fr_repeat(4,0.7fr)_0.8fr_0.9fr]";
+const ROW_COLS = "grid-cols-[1.25fr_repeat(4,0.62fr)_0.72fr_0.72fr_0.85fr]";
 
 function Amount({ n, muted }: { n: number; muted?: boolean }) {
   if (!n) return <span className="text-gray-600">—</span>;
   return <span className={muted ? "text-gray-400" : "text-gray-100"}>{money(n)}</span>;
+}
+
+// One row per person, aggregated across every date - the raw ledger can have
+// dozens of daily rows per person on a long-running site, which isn't useful
+// to page through one day at a time.
+function labourByPerson(labour: ProjectCostDTO["labour"]) {
+  const map = new Map<string, { hours: number; cost: number; shifts: number; hasTBC: boolean }>();
+  for (const l of labour) {
+    const row = map.get(l.personName) ?? { hours: 0, cost: 0, shifts: 0, hasTBC: false };
+    row.hours += l.hours ?? 0;
+    row.cost += l.cost ?? 0;
+    row.shifts += 1;
+    if (l.cost == null) row.hasTBC = true;
+    map.set(l.personName, row);
+  }
+  return [...map.entries()].sort((a, b) => b[1].cost - a[1].cost);
 }
 
 export default function TrackingPage() {
@@ -49,7 +65,7 @@ export default function TrackingPage() {
   return (
     <PageShell
       title="Project Tracking"
-      subtitle="What each project has cost so far: plant, attachments, trucks and hire allocated to its jobs, plus any labour-hire invoices entered directly. Crew never carries a daily rate, so wages aren't in this total."
+      subtitle="What each project has cost so far: plant, attachments, trucks and hire allocated to its jobs, labour-hire invoices entered directly, and own-crew wages backfilled from daily allocation records."
     >
       {loading ? (
         <div className="py-10 text-center text-sm text-gray-500">Loading...</div>
@@ -83,11 +99,15 @@ export default function TrackingPage() {
                   <FileText size={12} />
                   Labour hire
                 </div>
+                <div className="flex items-center gap-1">
+                  <Users size={12} />
+                  Labour
+                </div>
                 <div className="text-right">Total</div>
               </div>
               {projects.map((p) => {
                 const isOpen = open.has(p.id);
-                const hasDetail = p.jobs.length > 0 || p.invoiced.length > 0;
+                const hasDetail = p.jobs.length > 0 || p.invoiced.length > 0 || p.labour.length > 0;
                 return (
                   <div key={p.id} className="border-b border-edge/70 last:border-b-0">
                     <button
@@ -120,6 +140,12 @@ export default function TrackingPage() {
                       ))}
                       <div className="text-sm">
                         <Amount n={p.invoicedTotal} muted />
+                      </div>
+                      <div className="text-sm">
+                        <Amount n={p.labourTotal} muted />
+                        {p.labour.some((l) => l.cost == null) && (
+                          <span className="ml-1 text-[9px] font-semibold uppercase text-amber-400">+TBC</span>
+                        )}
                       </div>
                       <div className="text-right text-sm font-semibold">
                         <Amount n={p.totalCost} />
@@ -182,6 +208,30 @@ export default function TrackingPage() {
                                 <div className="truncate text-gray-400">{i.vendor}</div>
                                 <div>{i.shift ? <ShiftBadge shift={i.shift} /> : <span className="text-gray-600">—</span>}</div>
                                 <div className="text-right font-medium text-gray-200">{money(i.amountExGst)}</div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {p.labour.length > 0 && (
+                          <div className={p.jobs.length > 0 || p.invoiced.length > 0 ? "mt-3 border-t border-edge/70 pt-2" : ""}>
+                            <div className="grid grid-cols-[1.4fr_0.6fr_0.6fr_0.8fr] gap-2 pb-1.5 text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+                              <div>Crew (own labour)</div>
+                              <div>Shifts</div>
+                              <div>Hours</div>
+                              <div className="text-right">Cost</div>
+                            </div>
+                            {labourByPerson(p.labour).map(([name, row]) => (
+                              <div
+                                key={name}
+                                className="grid grid-cols-[1.4fr_0.6fr_0.6fr_0.8fr] items-center gap-2 border-t border-edge/50 py-1.5 text-xs first:border-t-0"
+                              >
+                                <div className="truncate text-gray-300">{name}</div>
+                                <div className="text-gray-400">{row.shifts}</div>
+                                <div className="text-gray-400">{row.hours ? row.hours.toFixed(1) : "—"}</div>
+                                <div className="text-right font-medium text-gray-200">
+                                  {row.cost > 0 ? money(row.cost) : <span className="text-amber-400">TBC</span>}
+                                </div>
                               </div>
                             ))}
                           </div>

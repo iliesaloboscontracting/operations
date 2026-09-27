@@ -225,15 +225,33 @@ export interface InvoicedCostDTO {
   amountExGst: number;
 }
 
+// Own-crew labour hours/cost, backfilled from the daily allocation PDFs (see
+// prisma/schema.prisma's LabourCost model). rateUsed/cost are null when the
+// person's pay rate is still TBC or excluded pending confirmation - hours are
+// still recorded so the work itself isn't lost.
+export interface LabourCostDTO {
+  id: string;
+  personName: string;
+  date: string; // YYYY-MM-DD
+  shift: ShiftType;
+  hours: number | null;
+  rateTier: string | null;
+  rateUsed: number | null;
+  cost: number | null;
+  notes: string | null;
+}
+
 export interface ProjectCostDTO {
   id: string;
   name: string;
   client: string | null;
   jobNo: string | null;
   status: "ACTIVE" | "INACTIVE" | "COMPLETED";
-  totalCost: number; // byCode + invoicedTotal
+  totalCost: number; // byCode + invoicedTotal + labourTotal
   byCode: CostByCode;
   invoicedTotal: number;
   invoiced: InvoicedCostDTO[]; // oldest first
+  labourTotal: number; // sum of labour.cost, excluding null (TBC) rows
+  labour: LabourCostDTO[]; // oldest first
   jobs: JobCostDTO[]; // only jobs that actually cost something, oldest first
 }
