@@ -106,6 +106,26 @@ model Resource {
   hireEnd     String? // hire expected finish
   rate        String? // hire
   dailyRateExGst Float? // cost code: $/day (ex GST) while allocated to a job
+
+  // Pay rate (personnel only) - what Lobos actually pays this person. Kept
+  // separate from dailyRateExGst (that's for plant/vehicles/hire, never set
+  // on a person). Structure mirrors the "Lobos Pay Rates" working-draft
+  // spreadsheet: most people are on an hourly ordinary rate with optional
+  // loadings; a few staff are salaried instead; a few historical/invoiced
+  // arrangements are a flat day rate. payRateConfirmed=false means the figure
+  // is a TBC/draft value pending confirmation, not settled payroll.
+  payRateBasis      String? // HOURLY | SALARY | DAY_RATE - which fields below apply
+  annualSalary      Float? // for basis = SALARY
+  ordinaryRate      Float? // hourly ordinary rate, or the amount if basis = DAY_RATE
+  nightRate         Float?
+  travelRate        Float? // "Driving/Tools/Tipping/Travel" loading
+  regionalDayRate   Float? // "Out of Sydney" / regional, day
+  regionalNightRate Float? // "Out of Sydney" / regional, night
+  saturdayRate      Float?
+  sundayRate        Float?
+  payRateConfirmed  Boolean  @default(false) // false = TBC, not yet confirmed
+  payRateNotes      String? // source, discrepancies, caveats
+
   active      Boolean      @default(true)
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt

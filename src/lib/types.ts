@@ -36,6 +36,20 @@ export interface ResourceDTO {
   hireEnd: string | null;
   rate: string | null;
   dailyRateExGst: number | null;
+  // Pay rate (personnel only) - sensitive; the API omits these entirely for
+  // a non-Admin caller, so they come through as undefined, not null, for
+  // anyone who isn't an Admin.
+  payRateBasis?: "HOURLY" | "SALARY" | "DAY_RATE" | null;
+  annualSalary?: number | null;
+  ordinaryRate?: number | null;
+  nightRate?: number | null;
+  travelRate?: number | null;
+  regionalDayRate?: number | null;
+  regionalNightRate?: number | null;
+  saturdayRate?: number | null;
+  sundayRate?: number | null;
+  payRateConfirmed?: boolean;
+  payRateNotes?: string | null;
   active: boolean;
   assignments?: { id: string; job: AssignmentJobRef }[];
 }

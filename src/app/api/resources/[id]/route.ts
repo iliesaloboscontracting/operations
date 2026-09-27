@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { guard } from "@/lib/auth";
-import { pickResourceData } from "@/lib/resourceFields";
+import { guard, getCurrentUser } from "@/lib/auth";
+import { pickResourceData, PAY_RATE_FIELDS } from "@/lib/resourceFields";
 import { withErrorHandling } from "@/lib/apiHandler";
 
 // PATCH /api/resources/:id
@@ -12,6 +12,14 @@ export const PATCH = withErrorHandling(async (
   const denied = await guard("MANAGER");
   if (denied) return denied;
   const body = await req.json();
+
+  if (PAY_RATE_FIELDS.some((f) => f in body)) {
+    const user = await getCurrentUser();
+    if (user?.role !== "ADMIN") {
+      return NextResponse.json({ error: "Only an admin can change pay rate details" }, { status: 403 });
+    }
+  }
+
   const resource = await prisma.resource.update({
     where: { id: params.id },
     data: pickResourceData(body) as any,
