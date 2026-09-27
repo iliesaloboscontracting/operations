@@ -30,6 +30,7 @@ const HIRE_FIELDS: FieldDef[] = [
   { key: "agency", label: "Agency / supplier" },
   { key: "role", label: "Role" },
   { key: "hireStart", label: "Start", placeholder: "e.g. 22 Sept" },
+  { key: "hireEnd", label: "Expected finish", placeholder: "e.g. 6 Oct" },
   { key: "rate", label: "Rate" },
   { key: "notes", label: "Notes", type: "textarea", full: true },
 ];
@@ -115,6 +116,7 @@ export default function ResourceSidebar({
         agency: v.agency || null,
         role: v.role || null,
         hireStart: v.hireStart || null,
+        hireEnd: v.hireEnd || null,
         rate: v.rate || null,
         notes: v.notes || null,
       }),
