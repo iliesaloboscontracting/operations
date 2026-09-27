@@ -2,7 +2,7 @@
 
 import { TriangleAlert } from "lucide-react";
 import { DragResourcePayload, JobDTO } from "@/lib/types";
-import { columnFor, money } from "@/lib/resource";
+import { columnFor } from "@/lib/resource";
 import DropCell from "./DropCell";
 import { GRID_COLS } from "./JobGridHeader";
 import { ShiftBadge } from "./ShiftBadge";
@@ -37,9 +37,6 @@ export default function JobRow({
   // a supervisor.
   const allocated = job.assignments.length > 0;
   const needsSupervisor = !job.notRunning && !job.virtual && allocated && !hasSupervisor;
-
-  // What today's allocation costs, from each item's daily rate (cost code).
-  const dailyCost = job.assignments.reduce((n, a) => n + (a.resource.dailyRateExGst ?? 0), 0);
 
   return (
     <div
@@ -78,14 +75,6 @@ export default function JobRow({
             <div className="mt-1 flex items-center gap-1 text-[11px] font-medium text-red-400">
               <TriangleAlert size={11} className="shrink-0" />
               No supervisor
-            </div>
-          )}
-          {dailyCost > 0 && (
-            <div
-              className="mt-1 text-[11px] text-gray-500"
-              title="Plant, attachments, vehicles and hire allocated to this shift, at their daily rate"
-            >
-              {money(dailyCost)}<span className="text-gray-400">/day ex GST</span>
             </div>
           )}
         </div>
