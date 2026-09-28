@@ -2,7 +2,7 @@
 
 import { TriangleAlert } from "lucide-react";
 import { DragResourcePayload, JobDTO } from "@/lib/types";
-import { columnFor } from "@/lib/resource";
+import { columnFor, roleRank } from "@/lib/resource";
 import DropCell from "./DropCell";
 import { GRID_COLS } from "./JobGridHeader";
 import { ShiftBadge } from "./ShiftBadge";
@@ -25,7 +25,10 @@ export default function JobRow({
 }) {
   const by = (c: "crew" | "plant" | "hire") =>
     job.assignments.filter((a) => columnFor(a.resource) === c);
-  const crew = by("crew");
+  // Crew is shown top tier to bottom (Supervisor first) once assigned, rather
+  // than in drag order - stable sort keeps same-tier people in the order they
+  // were added.
+  const crew = by("crew").slice().sort((a, b) => roleRank(a.role) - roleRank(b.role));
   const plant = by("plant");
   const hire = by("hire");
 

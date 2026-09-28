@@ -48,7 +48,8 @@ export const STATUS_LABEL: Record<string, string> = {
 };
 
 // A crew member's default role/trade - shown as an inline dropdown on their Yard
-// card, and editable from their full profile on the Labour register too.
+// card, and editable from their full profile on the Labour register too. Order
+// is also the on-site hierarchy, top tier first - see roleRank below.
 export const CREW_ROLE_OPTIONS = [
   "Supervisor",
   "Lead",
@@ -60,3 +61,12 @@ export const CREW_ROLE_OPTIONS = [
   "General labour",
   "Other",
 ];
+
+// Where a crew role sits in the on-site hierarchy - lower number is more senior.
+// Used to order a job's crew top tier to bottom once they're assigned. A role
+// with no rank (not set, or not one of CREW_ROLE_OPTIONS) sorts last.
+export function roleRank(role: string | null | undefined): number {
+  if (!role) return CREW_ROLE_OPTIONS.length + 1;
+  const i = CREW_ROLE_OPTIONS.indexOf(role);
+  return i === -1 ? CREW_ROLE_OPTIONS.length : i;
+}
