@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Check, Copy, Mail, X } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Check, Copy, Mail, TriangleAlert, X } from "lucide-react";
+import { assertNoMoney } from "@/lib/daySheet";
 
 // Preview of the generated day sheet before it goes out. Editable, since truck/driver
 // movements aren't tracked in the app yet and a supervisor may want to tweak wording -
@@ -17,6 +18,9 @@ export default function DaySheetModal({
 }) {
   const [text, setText] = useState(body);
   const [copied, setCopied] = useState(false);
+  // This goes straight to the whole crew - re-checked on every edit, since a
+  // supervisor is free to paste something in before it goes out (Phase 6).
+  const clean = useMemo(() => assertNoMoney(text), [text]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -78,17 +82,26 @@ export default function DaySheetModal({
           />
         </div>
 
+        {!clean && (
+          <div className="flex items-center gap-2 border-t border-edge bg-red-950/20 px-5 py-2.5 text-xs text-red-400">
+            <TriangleAlert size={14} className="shrink-0" />
+            This looks like it contains a dollar amount - remove it before sending this to the crew.
+          </div>
+        )}
+
         <div className="flex items-center justify-end gap-2 border-t border-edge px-5 py-4">
           <button
             onClick={copy}
-            className="flex items-center gap-1.5 rounded-lg border border-edge px-3.5 py-2 text-sm font-medium text-gray-300 hover:bg-panel2"
+            disabled={!clean}
+            className="flex items-center gap-1.5 rounded-lg border border-edge px-3.5 py-2 text-sm font-medium text-gray-300 hover:bg-panel2 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
           >
             {copied ? <Check size={15} className="text-emerald-500" /> : <Copy size={15} />}
             {copied ? "Copied!" : "Copy to clipboard"}
           </button>
           <button
             onClick={emailIt}
-            className="flex items-center gap-1.5 rounded-lg bg-brand-600 px-3.5 py-2 text-sm font-medium text-white shadow-sm hover:bg-brand-500 active:scale-[0.98]"
+            disabled={!clean}
+            className="flex items-center gap-1.5 rounded-lg bg-brand-600 px-3.5 py-2 text-sm font-medium text-white shadow-sm hover:bg-brand-500 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40 disabled:active:scale-100"
           >
             <Mail size={15} />
             Open in email

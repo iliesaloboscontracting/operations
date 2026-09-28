@@ -1,4 +1,3 @@
-import { AssignmentDTO, JobDTO } from "./types";
 import { fmtDay } from "./dates";
 import { quoteOfDay } from "./stoicQuotes";
 
@@ -7,6 +6,47 @@ import { quoteOfDay } from "./stoicQuotes";
 // (WhatsApp-style *bold* + emoji section headers). Truck/driver movements aren't
 // tracked anywhere in the app, so that section is left as a blank for a supervisor
 // to fill in before it goes out.
+//
+// This goes straight to the whole crew, so it must never carry a pay rate or
+// cost figure (Phase 6 money-guard). DaySheetJob/DaySheetAssignment only
+// expose the fields this file actually needs - a caller can't accidentally
+// pass dailyRateExGst/hireRate/payRate through even by widening a type,
+// because the resource shape here simply doesn't have them. assertNoMoney
+// is the second, independent check: a scan of the rendered text itself,
+// since a supervisor can freely edit the draft before it's sent.
+
+export interface DaySheetResource {
+  name: string;
+  type: string;
+  category: string | null;
+  identifier: string | null;
+  agency: string | null;
+}
+
+export interface DaySheetAssignment {
+  role: string | null;
+  resource: DaySheetResource;
+}
+
+export interface DaySheetJob {
+  title: string;
+  client: string | null;
+  siteAddress: string | null;
+  startTime: string | null;
+  endTime: string | null;
+  shift: string;
+  notRunning: boolean;
+  dayBrief: string | null;
+  assignments: DaySheetAssignment[];
+}
+
+// True when the text looks clean of any dollar figure - money() always
+// renders as "$" + digits (en-AU currency formatting), so a bare "$\d" is a
+// reliable enough signal without false-positiving on job numbers, phone
+// numbers or times.
+export function assertNoMoney(text: string): boolean {
+  return !/\$\s?\d/.test(text);
+}
 
 const RULE = "━".repeat(20); // ━━━━━━━━━━━━━━━━━━━━
 
@@ -36,11 +76,11 @@ function briefBullets(brief: string | null) {
   return brief.split(/(?<=[.!?])\s+/).map((s) => s.trim()).filter(Boolean);
 }
 
-function hiredTag(a: AssignmentDTO) {
+function hiredTag(a: DaySheetAssignment) {
   return a.resource.type === "HIRE" ? ` (${a.resource.agency || "hired"})` : "";
 }
 
-function jobBlock(job: JobDTO, n: number) {
+function jobBlock(job: DaySheetJob, n: number) {
   const lines: string[] = [];
   const header = job.client ? `${job.title} — ${job.client}` : job.title;
   lines.push(`*${n}. ${header}*`);
@@ -78,7 +118,7 @@ function jobBlock(job: JobDTO, n: number) {
   return lines.join("\n");
 }
 
-export function buildDaySheet(jobs: JobDTO[], date: string) {
+export function buildDaySheet(jobs: DaySheetJob[], date: string) {
   const running = jobs.filter((j) => !j.notRunning);
   const day = running.filter((j) => j.shift === "DAY");
   const night = running.filter((j) => j.shift === "NIGHT");

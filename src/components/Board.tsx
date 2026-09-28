@@ -17,7 +17,7 @@ import JobFormModal from "./JobFormModal";
 import UpcomingAlerts from "./UpcomingAlerts";
 import { useAuth } from "./AuthProvider";
 import { addDays } from "@/lib/dates";
-import { buildDaySheet } from "@/lib/daySheet";
+import { buildDaySheet, DaySheetJob } from "@/lib/daySheet";
 import DaySheetModal from "./DaySheetModal";
 import { apiFetch } from "@/lib/apiFetch";
 import { CalendarClock, Download, Eraser, Plus } from "lucide-react";
@@ -290,7 +290,30 @@ export default function Board() {
 
   const [daySheet, setDaySheet] = useState<{ subject: string; body: string } | null>(null);
   function openDaySheet() {
-    setDaySheet(buildDaySheet(jobs, selectedDate));
+    // Narrow to only the fields the day sheet is allowed to use - this goes
+    // straight to the whole crew, so a pay rate/cost field simply isn't
+    // reachable here even if JobDTO/ResourceDTO carry one for this viewer.
+    const safeJobs: DaySheetJob[] = jobs.map((j) => ({
+      title: j.title,
+      client: j.client,
+      siteAddress: j.siteAddress,
+      startTime: j.startTime,
+      endTime: j.endTime,
+      shift: j.shift,
+      notRunning: j.notRunning,
+      dayBrief: j.dayBrief,
+      assignments: j.assignments.map((a) => ({
+        role: a.role,
+        resource: {
+          name: a.resource.name,
+          type: a.resource.type,
+          category: a.resource.category,
+          identifier: a.resource.identifier,
+          agency: a.resource.agency,
+        },
+      })),
+    }));
+    setDaySheet(buildDaySheet(safeJobs, selectedDate));
   }
 
   async function deleteJob() {
