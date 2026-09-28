@@ -85,6 +85,14 @@ export default function Board() {
     setMessage({ text, error: true });
   }
 
+  // Surfaces the server's actual reason (e.g. "this day is closed") instead
+  // of a generic message, so a deliberate block - like the day-close lock -
+  // doesn't just look like a broken drag/drop.
+  async function serverError(res: Response, fallback: string) {
+    const body = await res.json().catch(() => null);
+    return typeof body?.error === "string" ? body.error : fallback;
+  }
+
   // Viewers can look but not change anything (the server enforces this too).
   const { canEdit } = useAuth();
   function viewOnly() {
@@ -118,7 +126,7 @@ export default function Board() {
       }),
     });
     if (!res.ok) {
-      fail("Couldn't create today's job for that project.");
+      fail(await serverError(res, "Couldn't create today's job for that project."));
       return null;
     }
     const created = await res.json();
@@ -145,7 +153,7 @@ export default function Board() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ jobId: realJobId, resourceId: payload.resourceId }),
         });
-    if (!res.ok) return fail("Couldn't assign that resource. Try again.");
+    if (!res.ok) return fail(await serverError(res, "Couldn't assign that resource. Try again."));
     await refresh();
   }
 
@@ -157,7 +165,7 @@ export default function Board() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ role: role || null }),
     });
-    if (!res.ok) return fail("Couldn't update role. Try again.");
+    if (!res.ok) return fail(await serverError(res, "Couldn't update role. Try again."));
     await loadJobs();
   }
 
@@ -165,7 +173,7 @@ export default function Board() {
     if (viewOnly()) return;
     setMessage(null);
     const res = await fetch(`/api/assignments/${assignmentId}`, { method: "DELETE" });
-    if (!res.ok) return fail("Couldn't remove that assignment. Try again.");
+    if (!res.ok) return fail(await serverError(res, "Couldn't remove that assignment. Try again."));
     await refresh();
   }
 
@@ -176,7 +184,7 @@ export default function Board() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ from: addDays(selectedDate, -1), to: selectedDate }),
     });
-    if (!res.ok) return fail("Couldn't copy yesterday's plan.");
+    if (!res.ok) return fail(await serverError(res, "Couldn't copy yesterday's plan."));
     const { copied, merged } = await res.json();
     const parts = [];
     if (copied) parts.push(`copied ${copied} job${copied > 1 ? "s" : ""}`);
@@ -209,7 +217,7 @@ export default function Board() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ date: selectedDate }),
     });
-    if (!res.ok) return fail("Couldn't clear the board. Try again.");
+    if (!res.ok) return fail(await serverError(res, "Couldn't clear the board. Try again."));
     const { cleared, briefsCleared } = await res.json();
     setMessage({
       text: `Cleared ${cleared} allocation${cleared === 1 ? "" : "s"} and ${briefsCleared} day brief${
