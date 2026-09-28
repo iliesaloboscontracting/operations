@@ -30,6 +30,16 @@ const RATE_FIELD: Record<RateTier, HourlyRateField> = {
 // until the real figure is confirmed. Remove this once his rate is fixed.
 const RATE_EXCLUDED_NAMES = new Set(["Chris"]);
 
+// One of these per costed allocation, alongside rateUsed/cost - so an
+// uncosted allocation is never silently shown as $0 (Phase 2.3, 2026-09-28).
+// COSTED: a confirmed rate was applied. RATE_MISSING: no rate on file for
+// this basis/tier. RATE_UNCONFIRMED: a rate exists but payRateConfirmed is
+// false - still used (matches the original pay-rates import instruction to
+// use whatever figure exists, labelled TBC), just flagged. EXCLUDED: a known
+// unresolved outlier, salaried staff (D5), or a hired-labour item explicitly
+// not costed this way. HOURS_UNKNOWN: the shift's time range didn't parse.
+export type CostStatus = "COSTED" | "RATE_MISSING" | "RATE_UNCONFIRMED" | "EXCLUDED" | "HOURS_UNKNOWN";
+
 export function tierFor(dateStr: string, shift: "DAY" | "NIGHT"): RateTier {
   const dow = new Date(dateStr + "T00:00:00").getDay();
   if (dow === 0) return "SUNDAY";
@@ -38,21 +48,49 @@ export function tierFor(dateStr: string, shift: "DAY" | "NIGHT"): RateTier {
 }
 
 export function rateAndCost(
-  resource: Pick<Resource, "name" | "payRateBasis" | "ordinaryRate" | "nightRate" | "saturdayRate" | "sundayRate">,
+  resource: Pick<Resource, "name" | "payRateBasis" | "ordinaryRate" | "nightRate" | "saturdayRate" | "sundayRate" | "payRateConfirmed">,
   tier: RateTier,
   hours: number | null
-): { rateUsed: number | null; cost: number | null } {
-  if (RATE_EXCLUDED_NAMES.has(resource.name)) return { rateUsed: null, cost: null };
+): { rateUsed: number | null; cost: number | null; status: CostStatus } {
+  if (RATE_EXCLUDED_NAMES.has(resource.name)) return { rateUsed: null, cost: null, status: "EXCLUDED" };
   if (resource.payRateBasis === "HOURLY") {
+    if (hours == null) return { rateUsed: null, cost: null, status: "HOURS_UNKNOWN" };
     const rate = resource[RATE_FIELD[tier]];
-    if (rate == null) return { rateUsed: null, cost: null };
-    return { rateUsed: rate, cost: hours != null ? Math.round(rate * hours * 100) / 100 : null };
+    if (rate == null) return { rateUsed: null, cost: null, status: "RATE_MISSING" };
+    const cost = Math.round(rate * hours * 100) / 100;
+    return { rateUsed: rate, cost, status: resource.payRateConfirmed ? "COSTED" : "RATE_UNCONFIRMED" };
   }
   if (resource.payRateBasis === "DAY_RATE") {
-    if (resource.ordinaryRate == null) return { rateUsed: null, cost: null };
-    return { rateUsed: resource.ordinaryRate, cost: resource.ordinaryRate };
+    if (resource.ordinaryRate == null) return { rateUsed: null, cost: null, status: "RATE_MISSING" };
+    return { rateUsed: resource.ordinaryRate, cost: resource.ordinaryRate, status: resource.payRateConfirmed ? "COSTED" : "RATE_UNCONFIRMED" };
   }
-  return { rateUsed: null, cost: null };
+  if (resource.payRateBasis === "SALARY") return { rateUsed: null, cost: null, status: "EXCLUDED" }; // D5
+  return { rateUsed: null, cost: null, status: "RATE_MISSING" };
+}
+
+// Hired labour/plant/vehicles costed live from a numeric hireRate (Phase 2.1,
+// D3) - a rate on the item, estimated per allocation the same way owned
+// plant is, kept separate from (and never summed with) the agency's actual
+// InvoicedCost so the two can be compared, not double-counted.
+export function hireCost(
+  resource: Pick<Resource, "hireRate" | "hireRateUnit">,
+  hours: number | null
+): { rateUsed: number | null; cost: number | null; status: CostStatus } {
+  if (resource.hireRate == null || !resource.hireRateUnit) return { rateUsed: null, cost: null, status: "RATE_MISSING" };
+  if (resource.hireRateUnit === "DAY") {
+    return { rateUsed: resource.hireRate, cost: Math.round(resource.hireRate * 100) / 100, status: "COSTED" };
+  }
+  if (resource.hireRateUnit === "HOUR") {
+    if (hours == null) return { rateUsed: resource.hireRate, cost: null, status: "HOURS_UNKNOWN" };
+    return { rateUsed: resource.hireRate, cost: Math.round(resource.hireRate * hours * 100) / 100, status: "COSTED" };
+  }
+  if (resource.hireRateUnit === "WEEK") {
+    // Divisor (5 allocated weekdays) isn't confirmed - the brief flags this
+    // explicitly rather than assuming it silently, so it's costed but marked
+    // unconfirmed until LEZA settles the actual divisor.
+    return { rateUsed: resource.hireRate, cost: Math.round((resource.hireRate / 5) * 100) / 100, status: "RATE_UNCONFIRMED" };
+  }
+  return { rateUsed: null, cost: null, status: "RATE_MISSING" };
 }
 
 function toMinutes(token: string): number | null {

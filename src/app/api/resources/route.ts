@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { guard, getCurrentUser } from "@/lib/auth";
 import { pickResourceData, PAY_RATE_FIELDS } from "@/lib/resourceFields";
 import { withErrorHandling } from "@/lib/apiHandler";
+import { toPublicResource } from "@/lib/serializeResource";
 
 // GET /api/resources?type=PERSONNEL,EQUIPMENT&category=LABOUR
 // Includes assignments (+ job) so the UI can show "where is it today".
@@ -29,15 +30,8 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
     },
   });
 
-  // Individual pay rate is sensitive personal compensation data - only an
-  // Admin gets it in the response at all, regardless of who can otherwise
-  // view this register.
   const user = await getCurrentUser();
-  if (user?.role !== "ADMIN") {
-    for (const r of resources) {
-      for (const f of PAY_RATE_FIELDS) delete (r as Record<string, unknown>)[f];
-    }
-  }
+  for (const r of resources) toPublicResource(r, user?.role ?? null);
 
   return NextResponse.json(resources);
 });

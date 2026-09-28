@@ -48,6 +48,7 @@ const FIELDS: FieldDef[] = [
   { key: "dayEnd", label: "Day end", placeholder: "3:30pm" },
   { key: "nightStart", label: "Night start", placeholder: "10pm" },
   { key: "nightEnd", label: "Night end", placeholder: "6am" },
+  { key: "unpaidBreakMinutes", label: "Unpaid meal break (minutes)", type: "number", placeholder: "30" },
   { key: "notes", label: "Notes", type: "textarea" },
 ];
 
@@ -373,7 +374,7 @@ export default function ProjectsPage() {
         <FormModal
           title={editing === "new" ? "Add project" : "Edit project"}
           fields={FIELDS}
-          initial={editing === "new" ? { status: "ACTIVE", dayStart: "7am", dayEnd: "3:30pm" } : (editing as any)}
+          initial={editing === "new" ? { status: "ACTIVE", dayStart: "7am", dayEnd: "3:30pm", unpaidBreakMinutes: 30 } : (editing as any)}
           onSave={save}
           onClose={() => setEditing(null)}
           onDelete={editing === "new" ? undefined : toggleArchive}

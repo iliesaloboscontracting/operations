@@ -23,6 +23,13 @@ function isOverdue(r: ResourceDTO): boolean {
   return end < today;
 }
 
+const UNIT_SUFFIX: Record<string, string> = { HOUR: "/hr", DAY: "/day", WEEK: "/wk" };
+
+function hireRateSummary(r: ResourceDTO): string {
+  if (r.hireRate == null || !r.hireRateUnit) return "—";
+  return `$${r.hireRate}${UNIT_SUFFIX[r.hireRateUnit] ?? ""}`;
+}
+
 const TABS = [
   { key: "PLANT", label: "Plant" },
   { key: "LABOUR", label: "Labour" },
@@ -86,7 +93,7 @@ export default function HirePage() {
               return d ? fmtDay(d, { day: "numeric", month: "short" }) : <span className="text-gray-500">Never</span>;
             },
           },
-          { label: "Rate", render: (r) => r.rate },
+          { label: "Rate", render: (r) => hireRateSummary(r) },
         ],
         fields: [
           { key: "name", label: isLabour ? "Worker" : "Item", required: true, full: true },
@@ -94,7 +101,19 @@ export default function HirePage() {
           { key: "role", label: "Role" },
           { key: "hireStart", label: "Start" },
           { key: "hireEnd", label: "Expected finish" },
-          { key: "rate", label: "Rate" },
+          { key: "hireRate", label: "Rate", type: "number", placeholder: "e.g. 45" },
+          {
+            key: "hireRateUnit",
+            label: "Per",
+            type: "select",
+            options: [
+              { value: "", label: "— not set —" },
+              { value: "HOUR", label: "Hour" },
+              { value: "DAY", label: "Day" },
+              { value: "WEEK", label: "Week" },
+            ],
+          },
+          { key: "rate", label: "Legacy rate note (free text, being phased out)", full: true },
           { key: "notes", label: "Notes", type: "textarea" },
         ],
       }}

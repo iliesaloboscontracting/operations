@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { guard, getCurrentUser } from "@/lib/auth";
 import { pickResourceData, PAY_RATE_FIELDS } from "@/lib/resourceFields";
 import { withErrorHandling } from "@/lib/apiHandler";
+import { toPublicResource } from "@/lib/serializeResource";
 
 // PATCH /api/resources/:id
 export const PATCH = withErrorHandling(async (
@@ -11,10 +12,10 @@ export const PATCH = withErrorHandling(async (
 ) => {
   const denied = await guard("MANAGER");
   if (denied) return denied;
+  const user = await getCurrentUser();
   const body = await req.json();
 
   if (PAY_RATE_FIELDS.some((f) => f in body)) {
-    const user = await getCurrentUser();
     if (user?.role !== "ADMIN") {
       return NextResponse.json({ error: "Only an admin can change pay rate details" }, { status: 403 });
     }
@@ -24,6 +25,7 @@ export const PATCH = withErrorHandling(async (
     where: { id: params.id },
     data: pickResourceData(body) as any,
   });
+  toPublicResource(resource, user?.role ?? null);
   return NextResponse.json(resource);
 });
 

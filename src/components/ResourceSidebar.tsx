@@ -31,7 +31,18 @@ const HIRE_FIELDS: FieldDef[] = [
   { key: "role", label: "Role" },
   { key: "hireStart", label: "Start", placeholder: "e.g. 22 Sept" },
   { key: "hireEnd", label: "Expected finish", placeholder: "e.g. 6 Oct" },
-  { key: "rate", label: "Rate" },
+  { key: "hireRate", label: "Rate", type: "number", placeholder: "e.g. 45" },
+  {
+    key: "hireRateUnit",
+    label: "Per",
+    type: "select",
+    options: [
+      { value: "", label: "— not set —" },
+      { value: "HOUR", label: "Hour" },
+      { value: "DAY", label: "Day" },
+      { value: "WEEK", label: "Week" },
+    ],
+  },
   { key: "notes", label: "Notes", type: "textarea", full: true },
 ];
 
@@ -117,7 +128,8 @@ export default function ResourceSidebar({
         role: v.role || null,
         hireStart: v.hireStart || null,
         hireEnd: v.hireEnd || null,
-        rate: v.rate || null,
+        hireRate: v.hireRate || null,
+        hireRateUnit: v.hireRateUnit || null,
         notes: v.notes || null,
       }),
     });

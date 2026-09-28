@@ -19,6 +19,8 @@ export function toPublicResource<T extends Record<string, unknown>>(resource: T,
   if (rank < RANK.MANAGER) {
     delete resource.dailyRateExGst;
     delete resource.rate;
+    delete resource.hireRate;
+    delete resource.hireRateUnit;
   }
   return resource;
 }

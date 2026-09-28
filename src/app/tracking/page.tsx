@@ -37,9 +37,9 @@ function BudgetHint({ p }: { p: ProjectCostDTO }) {
 // One row per person, aggregated across every date - the raw ledger can have
 // dozens of daily rows per person on a long-running site, which isn't useful
 // to page through one day at a time.
-function labourByPerson(labour: ProjectCostDTO["labour"]) {
+function byPerson(rows: { personName: string; hours: number | null; cost: number | null }[]) {
   const map = new Map<string, { hours: number; cost: number; shifts: number; hasTBC: boolean }>();
-  for (const l of labour) {
+  for (const l of rows) {
     const row = map.get(l.personName) ?? { hours: 0, cost: 0, shifts: 0, hasTBC: false };
     row.hours += l.hours ?? 0;
     row.cost += l.cost ?? 0;
@@ -186,6 +186,7 @@ export default function TrackingPage() {
                 const isOpen = open.has(p.id);
                 const hasDetail =
                   p.jobs.length > 0 || p.invoiced.length > 0 || p.labour.length > 0 ||
+                  p.hireLabourEstimate.length > 0 || p.uncostedCount > 0 || p.unconfirmedCount > 0 ||
                   p.contractValue != null || !!p.contractValueNotes;
                 return (
                   <div key={p.id} className="border-b border-edge/70 last:border-b-0">
@@ -258,6 +259,34 @@ export default function TrackingPage() {
                             )}
                           </div>
                         )}
+
+                        {(p.uncostedCount > 0 || p.unconfirmedCount > 0) && (
+                          <div className="mb-3 flex flex-wrap gap-x-4 gap-y-1 text-[11px]">
+                            {p.uncostedCount > 0 && (
+                              <span className="text-red-400">{p.uncostedCount} allocation{p.uncostedCount === 1 ? "" : "s"} not costed (rate or hours missing)</span>
+                            )}
+                            {p.unconfirmedCount > 0 && (
+                              <span className="text-amber-400">{p.unconfirmedCount} on an unconfirmed rate</span>
+                            )}
+                          </div>
+                        )}
+
+                        {(p.hireLabourEstimateTotal > 0 || p.invoicedTotal > 0) && (
+                          <div className="mb-3 rounded-lg border border-edge/70 bg-panel px-3 py-2 text-xs">
+                            <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                              <span className="text-gray-400">
+                                Estimated from allocations <span className="font-medium text-gray-200">{money(p.hireLabourEstimateTotal)}</span>
+                              </span>
+                              <span className="text-gray-400">
+                                Invoiced <span className="font-medium text-gray-200">{money(p.invoicedTotal)}</span>
+                              </span>
+                              <span className={p.hireLabourEstimateTotal === p.invoicedTotal ? "text-gray-500" : "text-amber-400"}>
+                                {money(Math.abs(p.hireLabourEstimateTotal - p.invoicedTotal))} difference - for review, not added into the total
+                              </span>
+                            </div>
+                          </div>
+                        )}
+
                         {p.jobs.length > 0 && (
                           <>
                             <div className="grid grid-cols-[1fr_repeat(4,0.8fr)_0.9fr] gap-2 pb-1.5 text-[10px] font-semibold uppercase tracking-wide text-gray-500">
@@ -325,7 +354,31 @@ export default function TrackingPage() {
                               <div>Hours</div>
                               <div className="text-right">Cost</div>
                             </div>
-                            {labourByPerson(p.labour).map(([name, row]) => (
+                            {byPerson(p.labour).map(([name, row]) => (
+                              <div
+                                key={name}
+                                className="grid grid-cols-[1.4fr_0.6fr_0.6fr_0.8fr] items-center gap-2 border-t border-edge/50 py-1.5 text-xs first:border-t-0"
+                              >
+                                <div className="truncate text-gray-300">{name}</div>
+                                <div className="text-gray-400">{row.shifts}</div>
+                                <div className="text-gray-400">{row.hours ? row.hours.toFixed(1) : "—"}</div>
+                                <div className="text-right font-medium text-gray-200">
+                                  {row.cost > 0 ? money(row.cost) : <span className="text-amber-400">TBC</span>}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {p.hireLabourEstimate.length > 0 && (
+                          <div className="mt-3 border-t border-edge/70 pt-2">
+                            <div className="grid grid-cols-[1.4fr_0.6fr_0.6fr_0.8fr] gap-2 pb-1.5 text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+                              <div>Hired labour (estimate)</div>
+                              <div>Shifts</div>
+                              <div>Hours</div>
+                              <div className="text-right">Cost</div>
+                            </div>
+                            {byPerson(p.hireLabourEstimate).map(([name, row]) => (
                               <div
                                 key={name}
                                 className="grid grid-cols-[1.4fr_0.6fr_0.6fr_0.8fr] items-center gap-2 border-t border-edge/50 py-1.5 text-xs first:border-t-0"

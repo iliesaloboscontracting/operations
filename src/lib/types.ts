@@ -34,8 +34,12 @@ export interface ResourceDTO {
   agency: string | null;
   hireStart: string | null;
   hireEnd: string | null;
-  rate: string | null;
-  dailyRateExGst: number | null;
+  // Cost fields - the API omits these entirely for a Viewer, so they come
+  // through as undefined, not null, for anyone below Manager.
+  rate?: string | null;
+  dailyRateExGst?: number | null;
+  hireRate?: number | null;
+  hireRateUnit?: "HOUR" | "DAY" | "WEEK" | null;
   // Pay rate (personnel only) - sensitive; the API omits these entirely for
   // a non-Admin caller, so they come through as undefined, not null, for
   // anyone who isn't an Admin.
@@ -98,6 +102,7 @@ export interface ProjectDTO {
   dayEnd: string | null;
   nightStart: string | null;
   nightEnd: string | null;
+  unpaidBreakMinutes?: number | null; // D1: deducted from gross shift hours before costing labour, default 30
   notes: string | null;
   archived: boolean;
   // Agreed job value ex GST (the signed quote/contract), and where it came
@@ -231,6 +236,11 @@ export interface InvoicedCostDTO {
   amountExGst: number;
 }
 
+// One of these per costed allocation - so an uncosted one is never silently
+// shown as $0. Null on rows from before this concept existed (the historical
+// backfill isn't retrofitted). See src/lib/labourCost.ts for what each means.
+export type CostStatus = "COSTED" | "RATE_MISSING" | "RATE_UNCONFIRMED" | "EXCLUDED" | "HOURS_UNKNOWN";
+
 // Own-crew labour hours/cost, backfilled from the daily allocation PDFs (see
 // prisma/schema.prisma's LabourCost model). rateUsed/cost are null when the
 // person's pay rate is still TBC or excluded pending confirmation - hours are
@@ -244,7 +254,24 @@ export interface LabourCostDTO {
   rateTier: string | null;
   rateUsed: number | null;
   cost: number | null;
+  status: CostStatus | null;
   notes: string | null;
+}
+
+// Hired labour (a named agency worker registered as a HIRE/LABOUR resource),
+// costed live from a numeric hireRate the same way own crew is - an estimate
+// for day-to-day visibility, never summed into totalCost. Compared against
+// invoicedTotal (the agency's real bill) for review, not reconciled
+// automatically either way (D3).
+export interface HireLabourEstimateDTO {
+  id: string;
+  personName: string;
+  date: string;
+  shift: ShiftType;
+  hours: number | null;
+  rateUsed: number | null;
+  cost: number | null;
+  status: CostStatus;
 }
 
 // A hired-in item (type = HIRE) sitting on hire that isn't earning its keep -
@@ -287,6 +314,13 @@ export interface ProjectCostDTO {
   invoicedTotal: number;
   invoiced: InvoicedCostDTO[]; // oldest first
   labourTotal: number; // sum of labour.cost, excluding null (TBC) rows
-  labour: LabourCostDTO[]; // oldest first
+  labour: LabourCostDTO[]; // oldest first - empty for Manager, full detail Admin-only
+  // D3: an allocation-based estimate for hired labour, shown next to
+  // invoicedTotal for review - never added into totalCost (that stays
+  // invoicedTotal, the agency's real bill).
+  hireLabourEstimateTotal: number;
+  hireLabourEstimate: HireLabourEstimateDTO[]; // empty for Manager, full detail Admin-only
+  uncostedCount: number; // allocations with RATE_MISSING or HOURS_UNKNOWN
+  unconfirmedCount: number; // allocations with RATE_UNCONFIRMED
   jobs: JobCostDTO[]; // only jobs that actually cost something, oldest first
 }

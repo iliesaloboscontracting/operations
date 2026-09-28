@@ -26,6 +26,11 @@ model Project {
   dayEnd    String?
   nightStart String?
   nightEnd  String?
+  // Unpaid meal break deducted from gross shift hours before costing labour
+  // (D1, 2026-09-28) - defaults to 30 min but adjustable per project in case a
+  // site's award/agreement differs. Applied to live costing only; never
+  // rewrites the historical LabourCost backfill.
+  unpaidBreakMinutes Int? @default(30)
   notes     String?
   // Agreed job value ex GST, from the signed quote/contract - the "budget"
   // side of budget-vs-actual. Null when the job is do-and-charge/schedule-of-
@@ -138,10 +143,16 @@ model Resource {
   tickets     String?
   notes       String?
   agency      String? // hire
-  hireStart   String? // hire
-  hireEnd     String? // hire expected finish
-  rate        String? // hire
+  hireStart   String? // hire - legacy free text, kept read-only until re-entered as onHireDate
+  hireEnd     String? // hire expected finish - legacy free text, kept read-only until re-entered as offHireDate
+  rate        String? // hire - legacy free text, kept read-only until re-entered as hireRate/hireRateUnit
   dailyRateExGst Float? // cost code: $/day (ex GST) while allocated to a job
+  // Numeric hire rate (D3, Phase 2, 2026-09-28) - lets hired labour/plant/
+  // vehicles be costed live per allocation the same way owned plant is,
+  // instead of only via the legacy free-text `rate`. Deliberately separate
+  // from `rate`/hireStart/hireEnd, which stay untouched until re-entered here.
+  hireRate     Float?
+  hireRateUnit String? // HOUR | DAY | WEEK
 
   // Pay rate (personnel only) - what Lobos actually pays this person. Kept
   // separate from dailyRateExGst (that's for plant/vehicles/hire, never set

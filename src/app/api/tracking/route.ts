@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { guard, getCurrentUser } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
-import { tierFor, rateAndCost, hoursBetween } from "@/lib/labourCost";
+import { tierFor, rateAndCost, hireCost, hoursBetween, type CostStatus } from "@/lib/labourCost";
 import { parseLooseDate, addDays } from "@/lib/dates";
 import { todaySydney } from "@/lib/today";
 
@@ -46,8 +46,9 @@ export const GET = withErrorHandling(async () => {
             include: {
               resource: {
                 select: {
-                  type: true, name: true, dailyRateExGst: true,
+                  type: true, category: true, name: true, dailyRateExGst: true,
                   payRateBasis: true, ordinaryRate: true, nightRate: true, saturdayRate: true, sundayRate: true,
+                  payRateConfirmed: true, hireRate: true, hireRateUnit: true,
                 },
               },
             },
@@ -68,30 +69,61 @@ export const GET = withErrorHandling(async () => {
   };
 
   const out = projects.map((p) => {
+    const breakHours = (p.unpaidBreakMinutes ?? 0) / 60; // D1: deducted from gross hours, live costing only
     const liveLabour: {
       id: string; personName: string; date: string; shift: "DAY" | "NIGHT";
-      hours: number | null; rateTier: string | null; rateUsed: number | null; cost: number | null; notes: string | null;
+      hours: number | null; rateTier: string | null; rateUsed: number | null; cost: number | null;
+      status: CostStatus; notes: string | null;
     }[] = [];
+    const hireLabourEstimate: {
+      id: string; personName: string; date: string; shift: "DAY" | "NIGHT";
+      hours: number | null; rateUsed: number | null; cost: number | null; status: CostStatus;
+    }[] = [];
+    let uncostedCount = 0;
+    let unconfirmedCount = 0;
 
     const jobs = p.jobs
       .map((j) => {
         const byCode = { plant: 0, attach: 0, trucks: 0, hire: 0 };
         const dateStr = j.date.toISOString().slice(0, 10);
         for (const a of j.assignments) {
+          const isLive = dateStr > LABOUR_BACKFILL_CUTOFF;
+          const shift = j.shift as "DAY" | "NIGHT";
+          const grossHours = hoursBetween(j.startTime, j.endTime)
+            ?? hoursBetween(shift === "NIGHT" ? p.nightStart : p.dayStart, shift === "NIGHT" ? p.nightEnd : p.dayEnd);
+          const hours = grossHours != null ? Math.max(0, Math.round((grossHours - breakHours) * 100) / 100) : null;
+
           if (a.resource.type === "PERSONNEL") {
-            if (dateStr > LABOUR_BACKFILL_CUTOFF) {
-              const shift = j.shift as "DAY" | "NIGHT";
-              const hours = hoursBetween(j.startTime, j.endTime)
-                ?? hoursBetween(shift === "NIGHT" ? p.nightStart : p.dayStart, shift === "NIGHT" ? p.nightEnd : p.dayEnd);
+            if (isLive) {
               const tier = tierFor(dateStr, shift);
-              const { rateUsed, cost } = rateAndCost(a.resource, tier, hours);
+              const { rateUsed, cost, status } = rateAndCost(a.resource, tier, hours);
               liveLabour.push({
                 id: `live-${a.id}`, personName: a.resource.name, date: dateStr, shift,
-                hours, rateTier: tier, rateUsed, cost, notes: null,
+                hours, rateTier: tier, rateUsed, cost, status, notes: null,
               });
+              if (status === "RATE_MISSING" || status === "HOURS_UNKNOWN") uncostedCount++;
+              if (status === "RATE_UNCONFIRMED") unconfirmedCount++;
             }
             continue;
           }
+
+          // Hired labour (a named agency worker registered as a HIRE/LABOUR
+          // resource): costed live from hireRate, like own crew, and kept out
+          // of the dailyRateExGst "hire" cost-code bucket below so it's never
+          // double-counted against the agency's actual InvoicedCost (D3) -
+          // the two are reconciled, not summed.
+          if (a.resource.type === "HIRE" && a.resource.category === "LABOUR") {
+            if (isLive) {
+              const { rateUsed, cost, status } = hireCost(a.resource, hours);
+              hireLabourEstimate.push({
+                id: `hire-${a.id}`, personName: a.resource.name, date: dateStr, shift, hours, rateUsed, cost, status,
+              });
+              if (status === "RATE_MISSING" || status === "HOURS_UNKNOWN") uncostedCount++;
+              if (status === "RATE_UNCONFIRMED") unconfirmedCount++;
+            }
+            continue;
+          }
+
           const rate = a.resource.dailyRateExGst;
           if (!rate) continue;
           const bucket = bucketOf(a.resource.type);
@@ -139,11 +171,13 @@ export const GET = withErrorHandling(async () => {
         rateTier: l.rateTier,
         rateUsed: l.rateUsed,
         cost: l.cost,
+        status: null as CostStatus | null, // predates the status concept - not retrofitted onto history
         notes: l.notes,
       })),
       ...liveLabour,
     ].sort((a, b) => a.date.localeCompare(b.date));
     const labourTotal = labour.reduce((n, l) => n + (l.cost ?? 0), 0);
+    const hireLabourEstimateTotal = hireLabourEstimate.reduce((n, l) => n + (l.cost ?? 0), 0);
     const totalCost = byCode.plant + byCode.attach + byCode.trucks + byCode.hire + invoicedTotal + labourTotal;
 
     return {
@@ -160,6 +194,14 @@ export const GET = withErrorHandling(async () => {
       invoiced,
       labourTotal,
       labour: isAdmin ? labour : [],
+      // D3: an estimate from allocations, never summed into totalCost -
+      // shown alongside invoicedTotal so a gap between what the board says
+      // and what the agency billed is visible for review, not silently
+      // resolved either way.
+      hireLabourEstimateTotal,
+      hireLabourEstimate: isAdmin ? hireLabourEstimate : [],
+      uncostedCount,
+      unconfirmedCount,
       jobs,
     };
   });
