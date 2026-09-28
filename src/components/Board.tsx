@@ -177,11 +177,12 @@ export default function Board() {
       body: JSON.stringify({ from: addDays(selectedDate, -1), to: selectedDate }),
     });
     if (!res.ok) return fail("Couldn't copy yesterday's plan.");
-    const { copied } = await res.json();
+    const { copied, merged } = await res.json();
+    const parts = [];
+    if (copied) parts.push(`copied ${copied} job${copied > 1 ? "s" : ""}`);
+    if (merged) parts.push(`filled in crew on ${merged} existing job${merged > 1 ? "s" : ""}`);
     setMessage({
-      text: copied
-        ? `Copied ${copied} job${copied > 1 ? "s" : ""} from yesterday.`
-        : "Nothing new to copy from yesterday.",
+      text: parts.length ? `Yesterday: ${parts.join(", ")}.` : "Nothing new to copy from yesterday.",
     });
     await refresh();
   }
