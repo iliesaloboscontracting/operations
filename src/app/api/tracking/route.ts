@@ -35,6 +35,20 @@ export const GET = withErrorHandling(async () => {
   // stays a plain Date comparison once built from the Sydney date string.
   const todayEnd = new Date(addDays(todaySydney(), 1) + "T00:00:00.000Z");
 
+  // Phase 5: a closed date's cost comes from the frozen ledger, not a fresh
+  // recompute - that's the point of closing it. Only assignmentId is used to
+  // look a row up; hours/rateTier are still derived live from the job/
+  // resource for display (they don't change after the fact, only pay rates
+  // and hire rates can), so only the dollar amount and status are ledger-
+  // sourced.
+  const closedDateRows = await prisma.dayClose.findMany({ where: { status: "CLOSED" }, select: { date: true } });
+  const closedDates = new Set(closedDateRows.map((r) => r.date));
+  const frozenRows = closedDates.size
+    ? await prisma.allocationCost.findMany({ where: { date: { in: [...closedDates] } } })
+    : [];
+  const frozenByAssignment = new Map<string, (typeof frozenRows)[number]>();
+  for (const r of frozenRows) frozenByAssignment.set(r.assignmentId, r);
+
   const projects = await prisma.project.findMany({
     where: { archived: false },
     orderBy: { name: "asc" },
@@ -73,33 +87,48 @@ export const GET = withErrorHandling(async () => {
     const liveLabour: {
       id: string; personName: string; date: string; shift: "DAY" | "NIGHT";
       hours: number | null; rateTier: string | null; rateUsed: number | null; cost: number | null;
-      status: CostStatus; notes: string | null;
+      status: CostStatus; notes: string | null; source: "recorded" | "estimated";
     }[] = [];
     const hireLabourEstimate: {
       id: string; personName: string; date: string; shift: "DAY" | "NIGHT";
       hours: number | null; rateUsed: number | null; cost: number | null; status: CostStatus;
+      source: "recorded" | "estimated";
     }[] = [];
     let uncostedCount = 0;
     let unconfirmedCount = 0;
+    // Phase 5: how much of totalCost's live-costed portion (post-backfill-
+    // cutoff) is locked in from a closed day's frozen ledger vs still being
+    // recomputed live because the day's open. Pre-cutoff historical rows
+    // (labourCosts below) aren't part of this split - they predate the
+    // whole close/re-open concept and never move either way.
+    let recordedCost = 0;
+    let estimatedCost = 0;
 
     const jobs = p.jobs
       .map((j) => {
         const byCode = { plant: 0, attach: 0, trucks: 0, hire: 0 };
         const dateStr = j.date.toISOString().slice(0, 10);
+        const isLive = dateStr > LABOUR_BACKFILL_CUTOFF;
+        const isClosed = isLive && closedDates.has(dateStr);
+        let jobLabourCost = 0;
         for (const a of j.assignments) {
-          const isLive = dateStr > LABOUR_BACKFILL_CUTOFF;
           const shift = j.shift as "DAY" | "NIGHT";
           const result = costAllocation(dateStr, shift, j.startTime, j.endTime, p, a.resource);
+          const frozen = isClosed ? frozenByAssignment.get(a.id) : undefined;
+          const cost = frozen ? frozen.amount : result.amount;
+          const status = (frozen ? frozen.status : result.status) as CostStatus | null;
+          const source: "recorded" | "estimated" = isClosed ? "recorded" : "estimated";
 
           if (result.costType === "LABOUR") {
             if (isLive) {
               liveLabour.push({
                 id: `live-${a.id}`, personName: a.resource.name, date: dateStr, shift,
-                hours: result.hours, rateTier: tierFor(dateStr, shift), rateUsed: result.rateUsed, cost: result.amount,
-                status: result.status!, notes: null,
+                hours: result.hours, rateTier: tierFor(dateStr, shift), rateUsed: result.rateUsed, cost,
+                status: status!, notes: null, source,
               });
-              if (result.status === "RATE_MISSING" || result.status === "HOURS_UNKNOWN") uncostedCount++;
-              if (result.status === "RATE_UNCONFIRMED") unconfirmedCount++;
+              jobLabourCost += cost ?? 0;
+              if (status === "RATE_MISSING" || status === "HOURS_UNKNOWN") uncostedCount++;
+              if (status === "RATE_UNCONFIRMED") unconfirmedCount++;
             }
             continue;
           }
@@ -113,19 +142,23 @@ export const GET = withErrorHandling(async () => {
             if (isLive) {
               hireLabourEstimate.push({
                 id: `hire-${a.id}`, personName: a.resource.name, date: dateStr, shift,
-                hours: result.hours, rateUsed: result.rateUsed, cost: result.amount, status: result.status!,
+                hours: result.hours, rateUsed: result.rateUsed, cost, status: status!, source,
               });
-              if (result.status === "RATE_MISSING" || result.status === "HOURS_UNKNOWN") uncostedCount++;
-              if (result.status === "RATE_UNCONFIRMED") unconfirmedCount++;
+              if (status === "RATE_MISSING" || status === "HOURS_UNKNOWN") uncostedCount++;
+              if (status === "RATE_UNCONFIRMED") unconfirmedCount++;
             }
             continue;
           }
 
-          if (result.amount == null) continue;
+          if (cost == null) continue;
           const bucket = bucketOf(a.resource.type);
-          if (bucket) byCode[bucket] += result.amount;
+          if (bucket) byCode[bucket] += cost;
         }
         const cost = byCode.plant + byCode.attach + byCode.trucks + byCode.hire;
+        if (isLive) {
+          if (isClosed) recordedCost += cost + jobLabourCost;
+          else estimatedCost += cost + jobLabourCost;
+        }
         return {
           id: j.id,
           date: dateStr,
@@ -169,6 +202,7 @@ export const GET = withErrorHandling(async () => {
         cost: l.cost,
         status: null as CostStatus | null, // predates the status concept - not retrofitted onto history
         notes: l.notes,
+        source: null as "recorded" | "estimated" | null, // predates the close/re-open concept
       })),
       ...liveLabour,
     ].sort((a, b) => a.date.localeCompare(b.date));
@@ -186,6 +220,11 @@ export const GET = withErrorHandling(async () => {
       contractValueNotes: p.contractValueNotes,
       totalCost,
       byCode,
+      // Phase 5: how much of totalCost is locked in (closed day, from the
+      // frozen ledger) vs still live (open day, recomputed on every call).
+      // Doesn't include the pre-cutoff historical backfill - see above.
+      recordedCost,
+      estimatedCost,
       invoicedTotal,
       invoiced,
       labourTotal,

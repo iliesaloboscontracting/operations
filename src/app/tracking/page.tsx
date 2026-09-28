@@ -7,7 +7,7 @@ import { money } from "@/lib/resource";
 import { fmtDay } from "@/lib/dates";
 import { ShiftBadge } from "@/components/ShiftBadge";
 import { apiFetch } from "@/lib/apiFetch";
-import { ChevronDown, ChevronRight, FileText, Handshake, Link2, Truck, TriangleAlert, Users, Wrench } from "lucide-react";
+import { ChevronDown, ChevronRight, FileText, Handshake, Link2, Lock, Truck, TriangleAlert, Unlock, Users, Wrench } from "lucide-react";
 
 const CODE_COLS: { key: keyof ProjectCostDTO["byCode"]; label: string; icon: typeof Wrench }[] = [
   { key: "plant", label: "Plant", icon: Wrench },
@@ -257,6 +257,19 @@ export default function TrackingPage() {
                             {p.contractValue != null && p.contractValueNotes && (
                               <div className="mt-1 text-[11px] text-gray-500">{p.contractValueNotes}</div>
                             )}
+                          </div>
+                        )}
+
+                        {(p.recordedCost > 0 || p.estimatedCost > 0) && (
+                          <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-gray-500">
+                            <span>
+                              <Lock size={10} className="mr-1 inline" />
+                              {money(p.recordedCost)} recorded - locked in from closed days
+                            </span>
+                            <span>
+                              <Unlock size={10} className="mr-1 inline" />
+                              {money(p.estimatedCost)} estimated - still live, open days
+                            </span>
                           </div>
                         )}
 

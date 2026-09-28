@@ -256,6 +256,11 @@ export interface LabourCostDTO {
   cost: number | null;
   status: CostStatus | null;
   notes: string | null;
+  // Phase 5: null for a pre-close-and-reopen-concept historical backfill
+  // row; "recorded" once its date was closed (from the frozen
+  // AllocationCost ledger); "estimated" while the date's still open
+  // (recomputed live on every call).
+  source: "recorded" | "estimated" | null;
 }
 
 // Hired labour (a named agency worker registered as a HIRE/LABOUR resource),
@@ -272,6 +277,7 @@ export interface HireLabourEstimateDTO {
   rateUsed: number | null;
   cost: number | null;
   status: CostStatus;
+  source: "recorded" | "estimated"; // Phase 5 - see LabourCostDTO.source
 }
 
 // A hired-in item (type = HIRE) sitting on hire that isn't earning its keep -
@@ -361,6 +367,13 @@ export interface ProjectCostDTO {
   contractValueNotes: string | null;
   totalCost: number; // byCode + invoicedTotal + labourTotal
   byCode: CostByCode;
+  // Phase 5: how much of totalCost is locked in (closed days, from the
+  // frozen AllocationCost ledger) vs still live (open days, recomputed on
+  // every call) - recordedCost + estimatedCost is less than totalCost by
+  // whatever's in the pre-cutoff historical labour backfill, which predates
+  // this split and never moves either way.
+  recordedCost: number;
+  estimatedCost: number;
   invoicedTotal: number;
   invoiced: InvoicedCostDTO[]; // oldest first
   labourTotal: number; // sum of labour.cost, excluding null (TBC) rows
