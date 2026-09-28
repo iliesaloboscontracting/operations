@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { guard } from "@/lib/auth";
+import { guard, getCurrentUser } from "@/lib/auth";
 import { pickProject } from "@/lib/pickProject";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { addDays } from "@/lib/dates";
@@ -11,6 +11,11 @@ import { todaySydney } from "@/lib/today";
 export const GET = withErrorHandling(async (req: NextRequest) => {
   const denied = await guard("VIEWER");
   if (denied) return denied;
+  // Cost-to-date and the contract value are financial figures - Phase 2b:
+  // this route was Viewer-accessible and returning both unfiltered, the
+  // same class of leak Phase 1 closed on every other route.
+  const user = await getCurrentUser();
+  const canSeeMoney = user?.role === "ADMIN" || user?.role === "MANAGER";
   const dateParam = req.nextUrl.searchParams.get("date");
   const archived = req.nextUrl.searchParams.get("archived") === "1";
   const start = dateParam ? new Date(dateParam) : new Date();
@@ -50,7 +55,7 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
         }
 
       let costToDate: number | undefined;
-      if (_count.jobs > 0) {
+      if (canSeeMoney && _count.jobs > 0) {
         const elapsed = await prisma.job.findMany({
           where: { projectId: p.id, notRunning: false, date: { lt: todayEnd } },
           include: { assignments: { include: { resource: { select: { dailyRateExGst: true } } } } },
@@ -62,7 +67,12 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
         if (spend > 0) costToDate = spend;
       }
 
-      return { ...p, counts, costToDate };
+      const out: Record<string, unknown> = { ...p, counts, costToDate };
+      if (!canSeeMoney) {
+        delete out.contractValue;
+        delete out.contractValueNotes;
+      }
+      return out;
     })
   );
   return NextResponse.json(out);

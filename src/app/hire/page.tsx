@@ -5,7 +5,7 @@ import { TriangleAlert } from "lucide-react";
 import RegisterPage from "@/components/RegisterPage";
 import { ResourceDTO } from "@/lib/types";
 import { whereToday } from "@/lib/resource";
-import { fmtDay, parseLooseDate } from "@/lib/dates";
+import { fmtDay, parseISO, parseLooseDate } from "@/lib/dates";
 
 // Last date this item actually appeared on a job, from its own assignment
 // history - not filtered to today, so it reads "still idle" correctly even
@@ -15,8 +15,15 @@ function lastWorked(r: ResourceDTO): string | null {
   return dates.length ? dates.sort().at(-1)! : null;
 }
 
+// Prefers the typed offHireDate (Phase 2b) over hireEnd's legacy free text,
+// which stays best-effort parsed until re-entered.
+function endDate(r: ResourceDTO): Date | null {
+  if (r.offHireDate) return parseISO(r.offHireDate);
+  return parseLooseDate(r.hireEnd, new Date().getFullYear());
+}
+
 function isOverdue(r: ResourceDTO): boolean {
-  const end = parseLooseDate(r.hireEnd, new Date().getFullYear());
+  const end = endDate(r);
   if (!end) return false;
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -73,18 +80,23 @@ export default function HirePage() {
           { label: "Agency / supplier", render: (r) => r.agency },
           { label: "Role", render: (r) => r.role },
           { label: "Where today", render: (r) => whereToday(r) },
-          { label: "Start", render: (r) => r.hireStart },
+          {
+            label: "Start",
+            render: (r) => (r.onHireDate ? fmtDay(r.onHireDate, { day: "numeric", month: "short" }) : r.hireStart),
+          },
           {
             label: "Expected finish",
-            render: (r) =>
-              isOverdue(r) ? (
+            render: (r) => {
+              const label = r.offHireDate ? fmtDay(r.offHireDate, { day: "numeric", month: "short" }) : r.hireEnd;
+              return isOverdue(r) ? (
                 <span className="inline-flex items-center gap-1 text-red-400">
                   <TriangleAlert size={12} className="shrink-0" />
-                  {r.hireEnd}
+                  {label}
                 </span>
               ) : (
-                r.hireEnd
-              ),
+                label
+              );
+            },
           },
           {
             label: "Last worked",
@@ -99,8 +111,10 @@ export default function HirePage() {
           { key: "name", label: isLabour ? "Worker" : "Item", required: true, full: true },
           { key: "agency", label: "Agency / supplier" },
           { key: "role", label: "Role" },
-          { key: "hireStart", label: "Start" },
-          { key: "hireEnd", label: "Expected finish" },
+          { key: "onHireDate", label: "Start", type: "date" },
+          { key: "offHireDate", label: "Expected finish", type: "date" },
+          { key: "hireStart", label: "Legacy start note (free text, being phased out)" },
+          { key: "hireEnd", label: "Legacy finish note (free text, being phased out)" },
           { key: "hireRate", label: "Rate", type: "number", placeholder: "e.g. 45" },
           {
             key: "hireRateUnit",

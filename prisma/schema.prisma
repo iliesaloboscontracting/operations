@@ -148,6 +148,12 @@ model Resource {
   agency      String? // hire
   hireStart   String? // hire - legacy free text, kept read-only until re-entered as onHireDate
   hireEnd     String? // hire expected finish - legacy free text, kept read-only until re-entered as offHireDate
+  // Typed on/off-hire dates (Phase 2b, 2026-09-28) - replace hireStart/
+  // hireEnd's free text ("22 Sept") once re-entered here; idle-hire and the
+  // overdue check prefer these when set, falling back to the legacy free
+  // text (best-effort parsed) until they are.
+  onHireDate  String? // YYYY-MM-DD
+  offHireDate String? // YYYY-MM-DD, expected finish
   rate        String? // hire - legacy free text, kept read-only until re-entered as hireRate/hireRateUnit
   dailyRateExGst Float? // cost code: $/day (ex GST) while allocated to a job
   // Numeric hire rate (D3, Phase 2, 2026-09-28) - lets hired labour/plant/

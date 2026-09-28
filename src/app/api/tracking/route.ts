@@ -4,7 +4,7 @@ import { guard, getCurrentUser } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { tierFor, type CostStatus } from "@/lib/labourCost";
 import { costAllocation } from "@/lib/costAllocation";
-import { parseLooseDate, addDays } from "@/lib/dates";
+import { fmtDay, parseISO, parseLooseDate, addDays } from "@/lib/dates";
 import { todaySydney } from "@/lib/today";
 
 // The historical labour-cost backfill (from the daily allocation PDFs) covers
@@ -150,6 +150,11 @@ export const GET = withErrorHandling(async () => {
             continue;
           }
 
+          // Plant / attachments / vehicles / hired plant-or-vehicles (Phase
+          // 2b): flagged the same way labour is, instead of a silent $0 -
+          // previously nothing here ever counted toward uncostedCount.
+          if (status === "RATE_MISSING" || status === "HOURS_UNKNOWN") uncostedCount++;
+          if (status === "RATE_UNCONFIRMED") unconfirmedCount++;
           if (cost == null) continue;
           const bucket = bucketOf(a.resource.type);
           if (bucket) byCode[bucket] += cost;
@@ -243,18 +248,31 @@ export const GET = withErrorHandling(async () => {
 
   out.sort((a, b) => b.totalCost - a.totalCost);
 
-  // Idle hire: on-hire days (since hireStart) that never landed on a job at
-  // all - not attributed to any project, since idle time doesn't belong to a
-  // site. hireStart/hireEnd are free text (e.g. "22 Sept"), so parsing is
-  // best-effort; an unparseable hireStart just means that item can't be
-  // scored and is skipped, not guessed at.
+  // Idle hire: on-hire days (since onHireDate/hireStart) that never landed
+  // on a job at all - not attributed to any project, since idle time
+  // doesn't belong to a site. Prefers the typed onHireDate/offHireDate
+  // (Phase 2b) over hireStart/hireEnd's legacy free text (e.g. "22 Sept"),
+  // which stays best-effort parsed until re-entered; an unparseable/unset
+  // start just means that item can't be scored and is skipped, not guessed at.
   const hireResources = await prisma.resource.findMany({
-    where: { type: "HIRE", active: true, hireStart: { not: null } },
+    where: { type: "HIRE", active: true, OR: [{ hireStart: { not: null } }, { onHireDate: { not: null } }] },
     select: {
-      id: true, name: true, agency: true, hireStart: true, hireEnd: true, dailyRateExGst: true,
+      id: true, name: true, agency: true, hireStart: true, hireEnd: true, onHireDate: true, offHireDate: true,
+      dailyRateExGst: true, hireRate: true, hireRateUnit: true,
       assignments: { select: { job: { select: { date: true } } } },
     },
   });
+
+  // Phase 2b: an idle day is estimated from hireRate the same way a worked
+  // day now is - DAY as-is, WEEK/5 (confirmed divisor) - taking priority
+  // over the legacy dailyRateExGst. An HOUR rate has no day-length to apply
+  // to an idle (unworked) day, so it falls back to dailyRateExGst instead
+  // of guessing hours that were never allocated.
+  function idleDailyRate(r: { hireRate: number | null; hireRateUnit: string | null; dailyRateExGst: number | null }): number | null {
+    if (r.hireRate != null && r.hireRateUnit === "DAY") return r.hireRate;
+    if (r.hireRate != null && r.hireRateUnit === "WEEK") return Math.round((r.hireRate / 5) * 100) / 100;
+    return r.dailyRateExGst;
+  }
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -262,17 +280,21 @@ export const GET = withErrorHandling(async () => {
 
   const idleHireItems = hireResources
     .map((r) => {
-      const start = parseLooseDate(r.hireStart, referenceYear);
+      const start = r.onHireDate ? parseISO(r.onHireDate) : parseLooseDate(r.hireStart, referenceYear);
       if (!start) return null;
-      const end = parseLooseDate(r.hireEnd, referenceYear);
+      const end = r.offHireDate ? parseISO(r.offHireDate) : parseLooseDate(r.hireEnd, referenceYear);
       const overdue = end != null && end < today;
       const onHireDays = Math.max(0, Math.round((today.getTime() - start.getTime()) / 86400000));
       const workedDays = new Set(r.assignments.map((a) => a.job.date.toISOString().slice(0, 10))).size;
       const idleDays = Math.max(0, onHireDays - workedDays);
-      const idleCost = r.dailyRateExGst != null ? Math.round(idleDays * r.dailyRateExGst * 100) / 100 : null;
+      const rateUsed = idleDailyRate(r);
+      const idleCost = rateUsed != null ? Math.round(idleDays * rateUsed * 100) / 100 : null;
+      const dayLabel = { day: "numeric" as const, month: "short" as const };
       return {
-        id: r.id, name: r.name, agency: r.agency, hireStart: r.hireStart, hireEnd: r.hireEnd,
-        overdue, onHireDays, workedDays, idleDays, dailyRateExGst: r.dailyRateExGst, idleCost,
+        id: r.id, name: r.name, agency: r.agency,
+        hireStart: r.onHireDate ? fmtDay(r.onHireDate, dayLabel) : r.hireStart,
+        hireEnd: r.offHireDate ? fmtDay(r.offHireDate, dayLabel) : r.hireEnd,
+        overdue, onHireDays, workedDays, idleDays, rateUsed, idleCost,
       };
     })
     .filter((r): r is NonNullable<typeof r> => r != null && (r.idleDays > 0 || r.overdue))

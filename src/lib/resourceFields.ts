@@ -36,6 +36,8 @@ export const RESOURCE_FIELDS = [
   "agency",
   "hireStart",
   "hireEnd",
+  "onHireDate",
+  "offHireDate",
   "rate",
   "dailyRateExGst",
   "hireRate",

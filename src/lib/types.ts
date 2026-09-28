@@ -34,6 +34,8 @@ export interface ResourceDTO {
   agency: string | null;
   hireStart: string | null;
   hireEnd: string | null;
+  onHireDate: string | null; // YYYY-MM-DD, replaces hireStart's free text once re-entered
+  offHireDate: string | null; // YYYY-MM-DD, replaces hireEnd's free text once re-entered
   // Cost fields - the API omits these entirely for a Viewer, so they come
   // through as undefined, not null, for anyone below Manager.
   rate?: string | null;
@@ -294,8 +296,10 @@ export interface IdleHireItemDTO {
   onHireDays: number;
   workedDays: number;
   idleDays: number;
-  dailyRateExGst: number | null;
-  idleCost: number | null; // null when no dailyRateExGst is set to estimate from
+  // The per-day rate idleCost was estimated from - hireRate (DAY, or WEEK/5)
+  // when one's set (Phase 2b), else the legacy dailyRateExGst.
+  rateUsed: number | null;
+  idleCost: number | null; // null when no rate is on file to estimate from
 }
 
 export interface IdleHireDTO {

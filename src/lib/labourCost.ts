@@ -85,10 +85,8 @@ export function hireCost(
     return { rateUsed: resource.hireRate, cost: Math.round(resource.hireRate * hours * 100) / 100, status: "COSTED" };
   }
   if (resource.hireRateUnit === "WEEK") {
-    // Divisor (5 allocated weekdays) isn't confirmed - the brief flags this
-    // explicitly rather than assuming it silently, so it's costed but marked
-    // unconfirmed until LEZA settles the actual divisor.
-    return { rateUsed: resource.hireRate, cost: Math.round((resource.hireRate / 5) * 100) / 100, status: "RATE_UNCONFIRMED" };
+    // Divisor confirmed with Ilies (2026-09-28, Phase 2b): 5 weekdays.
+    return { rateUsed: resource.hireRate, cost: Math.round((resource.hireRate / 5) * 100) / 100, status: "COSTED" };
   }
   return { rateUsed: null, cost: null, status: "RATE_MISSING" };
 }

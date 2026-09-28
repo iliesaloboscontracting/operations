@@ -8,7 +8,7 @@ import { tierFor, rateAndCost, hireCost, hoursBetween, type CostStatus } from ".
 export type CostType = "LABOUR" | "HIRE_LABOUR" | "PLANT" | "ATTACHMENT" | "VEHICLE" | "HIRE";
 
 export interface AllocationCostResult {
-  costType: CostType | null; // null = this resource type never carries a cost (e.g. a non-hire vehicle/plant with no dailyRateExGst set)
+  costType: CostType | null; // null only for a resource type that never carries a cost at all (there is none today - kept for a future one)
   amount: number | null;
   status: CostStatus | null;
   rateUsed: number | null;
@@ -58,8 +58,17 @@ export function costAllocation(
     return { costType: "HIRE_LABOUR", amount: cost, status, rateUsed, hours };
   }
 
-  const rate = resource.dailyRateExGst;
-  if (!rate) return { costType: null, amount: null, status: null, rateUsed: null, hours };
+  // Hired plant/vehicles (Phase 2b, 2026-09-28): also costed from the
+  // numeric hireRate once one's entered, the same way hired labour is -
+  // previously this fell straight to the legacy dailyRateExGst below and
+  // ignored hireRate entirely. Takes priority over dailyRateExGst when
+  // both are set, since hireRate is the newer, more specific figure; falls
+  // through below only while hireRate hasn't been entered yet.
+  if (resource.type === "HIRE" && resource.hireRate != null) {
+    const { rateUsed, cost, status } = hireCost(resource, hours);
+    return { costType: "HIRE", amount: cost, status, rateUsed, hours };
+  }
+
   const costType: CostType | null =
     resource.type === "EQUIPMENT" ? "PLANT" :
     resource.type === "ATTACHMENT" ? "ATTACHMENT" :
@@ -67,5 +76,10 @@ export function costAllocation(
     resource.type === "HIRE" ? "HIRE" :
     null;
   if (!costType) return { costType: null, amount: null, status: null, rateUsed: null, hours };
+  // Phase 2b: a missing rate is RATE_MISSING, not a silent null/$0 - plant,
+  // attachments, vehicles and hired items with no rate on file were
+  // previously invisible to Tracking's uncosted count.
+  const rate = resource.dailyRateExGst;
+  if (!rate) return { costType, amount: null, status: "RATE_MISSING", rateUsed: null, hours };
   return { costType, amount: rate, status: "COSTED", rateUsed: rate, hours };
 }
