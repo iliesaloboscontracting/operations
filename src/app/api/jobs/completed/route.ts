@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { guard } from "@/lib/auth";
+import { guard, getCurrentUser } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { liveJobFields } from "@/lib/jobs";
+import { sanitizeJobs } from "@/lib/serializeResource";
 
 // GET /api/jobs/completed -> every job marked Completed, newest first.
 // This is the "Completed" folder: jobs land here once their status is set to
@@ -11,6 +12,7 @@ import { liveJobFields } from "@/lib/jobs";
 export const GET = withErrorHandling(async () => {
   const denied = await guard("VIEWER");
   if (denied) return denied;
+  const user = await getCurrentUser();
 
   const jobs = await prisma.job.findMany({
     where: { status: "COMPLETED" },
@@ -20,6 +22,8 @@ export const GET = withErrorHandling(async () => {
       assignments: { include: { resource: true }, orderBy: { createdAt: "asc" } },
     },
   });
+
+  sanitizeJobs(jobs, user?.role ?? null);
 
   const out = jobs.map(({ project, ...j }) => ({
     ...j,

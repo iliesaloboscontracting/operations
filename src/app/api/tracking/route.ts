@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { guard } from "@/lib/auth";
+import { guard, getCurrentUser } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { tierFor, rateAndCost, hoursBetween } from "@/lib/labourCost";
-import { parseLooseDate } from "@/lib/dates";
+import { parseLooseDate, addDays } from "@/lib/dates";
+import { todaySydney } from "@/lib/today";
 
 // The historical labour-cost backfill (from the daily allocation PDFs) covers
 // every real work-date up to and including this one. Jobs on or before this
@@ -20,12 +21,18 @@ const LABOUR_BACKFILL_CUTOFF = "2026-09-26";
 // "To date" means every running (not stood-down) job up to and including
 // today - a job scheduled for next week hasn't cost anything yet.
 export const GET = withErrorHandling(async () => {
-  const denied = await guard("VIEWER");
+  // Individual pay rate and per-person labour cost are sensitive - this whole
+  // page is Manager+ only, and even a Manager only gets project-level labour
+  // totals (see the ADMIN-only labour[] detail below), not per-person lines.
+  const denied = await guard("MANAGER");
   if (denied) return denied;
+  const user = await getCurrentUser();
+  const isAdmin = user?.role === "ADMIN";
 
-  const todayEnd = new Date();
-  todayEnd.setUTCHours(0, 0, 0, 0);
-  todayEnd.setUTCDate(todayEnd.getUTCDate() + 1);
+  // "Up to and including today" means Sydney's today, not the server's UTC
+  // day - Job.date is stored as UTC midnight of the calendar day, so this
+  // stays a plain Date comparison once built from the Sydney date string.
+  const todayEnd = new Date(addDays(todaySydney(), 1) + "T00:00:00.000Z");
 
   const projects = await prisma.project.findMany({
     where: { archived: false },
@@ -152,7 +159,7 @@ export const GET = withErrorHandling(async () => {
       invoicedTotal,
       invoiced,
       labourTotal,
-      labour,
+      labour: isAdmin ? labour : [],
       jobs,
     };
   });

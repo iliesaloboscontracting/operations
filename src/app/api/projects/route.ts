@@ -3,6 +3,8 @@ import { prisma } from "@/lib/prisma";
 import { guard } from "@/lib/auth";
 import { pickProject } from "@/lib/pickProject";
 import { withErrorHandling } from "@/lib/apiHandler";
+import { addDays } from "@/lib/dates";
+import { todaySydney } from "@/lib/today";
 
 // GET /api/projects?date=YYYY-MM-DD&archived=1
 // Each project comes with today's assigned counts (crew / plant / attachments / trucks / hire).
@@ -17,11 +19,10 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
   end.setUTCDate(end.getUTCDate() + 1);
 
   // "Cost to date" is a running total, so it's worked out against the real
-  // calendar day, independent of whichever date the caller is browsing.
-  const todayStart = new Date();
-  todayStart.setUTCHours(0, 0, 0, 0);
-  const todayEnd = new Date(todayStart);
-  todayEnd.setUTCDate(todayEnd.getUTCDate() + 1);
+  // calendar day (Sydney's, not the server's UTC day), independent of
+  // whichever date the caller is browsing.
+  const todaySyd = todaySydney();
+  const todayEnd = new Date(addDays(todaySyd, 1) + "T00:00:00.000Z");
 
   const projects = await prisma.project.findMany({
     where: { archived },
@@ -29,7 +30,7 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
     include: {
       jobs: {
         where: { date: { gte: start, lt: end }, notRunning: false },
-        include: { assignments: { include: { resource: true } } },
+        include: { assignments: { include: { resource: { select: { type: true, category: true } } } } },
       },
       _count: { select: { jobs: true } },
     },

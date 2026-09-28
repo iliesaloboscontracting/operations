@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { guard } from "@/lib/auth";
+import { guard, getCurrentUser } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { liveJobFields } from "@/lib/jobs";
+import { sanitizeJobs } from "@/lib/serializeResource";
 
 // PATCH /api/jobs/:id -> update job fields
 export const PATCH = withErrorHandling(async (
@@ -11,6 +12,7 @@ export const PATCH = withErrorHandling(async (
 ) => {
   const denied = await guard("MANAGER");
   if (denied) return denied;
+  const user = await getCurrentUser();
   const body = await req.json();
 
   const data: Record<string, unknown> = {};
@@ -41,6 +43,7 @@ export const PATCH = withErrorHandling(async (
     },
   });
   const { project, ...rest } = job;
+  sanitizeJobs([rest], user?.role ?? null);
 
   return NextResponse.json({
     ...rest,

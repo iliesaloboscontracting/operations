@@ -66,7 +66,7 @@ const Divider = () => <span className="mx-1.5 h-5 w-px shrink-0 self-center bg-w
 
 export default function TopNav() {
   const path = usePathname() ?? "";
-  const { user, isAdmin, signOut } = useAuth();
+  const { user, canEdit, isAdmin, signOut } = useAuth();
   const [changingPw, setChangingPw] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [startingSoon, setStartingSoon] = useState(0);
@@ -92,7 +92,7 @@ export default function TopNav() {
       </Link>
 
       <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto py-1.5">
-        {OPERATIONS.map((i) => (
+        {OPERATIONS.filter((i) => i.href !== "/tracking" || canEdit).map((i) => (
           <NavTab
             key={i.href}
             href={i.href}
