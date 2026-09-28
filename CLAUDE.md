@@ -67,10 +67,23 @@ data-import change: copy `dev.db` to a throwaway `.db` file *inside*
 file's directory, not the process's cwd), point `DATABASE_URL` at that
 absolute path, run the change there first, reset a throwaway admin password,
 verify with `next dev -p 3001` and the browser. Only once verified, repeat
-against the real `dev.db`, then `npm run build`, restart the "Operate
-Server" Scheduled Task, commit to git, and delete the throwaway artifacts.
-This is real business/financial/personal data (pay rates, project costs,
-contract values) with no automated tests protecting it — treat it that way.
+against the real `dev.db`, then `npm run build`, redeploy (`Stop-Service
+OperateServer` → build → `Start-Service OperateServer`, elevated), commit
+to git, and delete the throwaway artifacts. This is real business/
+financial/personal data (pay rates, project costs, contract values) with no
+automated tests protecting it — treat it that way.
+
+**Don't run `next dev` against this checkout while `OperateServer` is
+running.** `next.config.js` sets no `distDir`, so `next dev` (throwaway
+testing on port 3001) and the live `next start` service (port 3000) both
+read/write the same `.next/` folder. A dev server left running against this
+same checkout while the service is live will rewrite `.next/` out from
+under it, and the live service starts throwing `Cannot find module
+.next/server/...` for real users until the next clean rebuild (confirmed
+2026-09-28: this happened, self-healed by the next stop→build→start cycle,
+but should be avoided rather than relied on to self-heal). Either stop the
+service first, or don't leave a throwaway `next dev` preview server running
+longer than the verification actually needs.
 
 **OneDrive / SharePoint.** This PC has the Lobos work OneDrive account
 (`iliesa@loboscontracting.com.au`) synced locally at
