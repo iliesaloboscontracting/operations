@@ -14,9 +14,18 @@ business, without becoming unnecessarily complicated.
 
 - **Stack:** Next.js 14 (App Router), TypeScript, Tailwind CSS, Prisma ORM
   over SQLite (`prisma/dev.db`), React 18.
-- **Hosting:** runs on this Windows machine via the "Operate Server" Windows
-  Scheduled Task (`npm start` against a production build), port 3000. There
-  is no separate staging environment — this *is* production.
+- **Hosting:** runs on this Windows machine as the **`OperateServer` Windows
+  service** (installed via NSSM, `service/install-service.ps1`; wraps `next
+  start` directly against a production build), port 3000, LocalSystem, set
+  to auto-restart on crash. There is no separate staging environment — this
+  *is* production. After any build (`npm run build`), redeploy with
+  `Stop-Service OperateServer` → build → `Start-Service OperateServer` —
+  both commands need an elevated PowerShell, since the service isn't tied to
+  any interactive logon (that's the point: it survives sleep, lock and
+  logoff, unlike the old setup). The previous "Operate Server" Scheduled
+  Task (interactive-logon-only, which is why the site used to go down
+  whenever the PC slept) is disabled but left in place for rollback —
+  don't delete it without asking.
 - **Auth:** custom cookie-session auth (`src/lib/auth.ts`), scrypt password
   hashing, roles `ADMIN | MANAGER | VIEWER` via a `guard(minRole)` pattern.
 - **Structure:** `src/app/` — page routes (`command`, `calendar`, `tracking`,
