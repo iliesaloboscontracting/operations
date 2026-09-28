@@ -4,6 +4,7 @@ import { guard, getCurrentUser } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { liveJobFields } from "@/lib/jobs";
 import { sanitizeJobs } from "@/lib/serializeResource";
+import { assertDateOpen } from "@/lib/dayLock";
 
 // PATCH /api/jobs/:id -> update job fields
 export const PATCH = withErrorHandling(async (
@@ -14,6 +15,15 @@ export const PATCH = withErrorHandling(async (
   if (denied) return denied;
   const user = await getCurrentUser();
   const body = await req.json();
+
+  const current = await prisma.job.findUnique({ where: { id: params.id }, select: { date: true } });
+  if (!current) return NextResponse.json({ error: "not found" }, { status: 404 });
+  const currentLocked = await assertDateOpen(current.date.toISOString().slice(0, 10));
+  if (currentLocked) return currentLocked;
+  if ("date" in body) {
+    const targetLocked = await assertDateOpen(body.date);
+    if (targetLocked) return targetLocked;
+  }
 
   const data: Record<string, unknown> = {};
   for (const key of [
@@ -58,6 +68,10 @@ export const DELETE = withErrorHandling(async (
 ) => {
   const denied = await guard("MANAGER");
   if (denied) return denied;
+  const current = await prisma.job.findUnique({ where: { id: params.id }, select: { date: true } });
+  if (!current) return NextResponse.json({ error: "not found" }, { status: 404 });
+  const locked = await assertDateOpen(current.date.toISOString().slice(0, 10));
+  if (locked) return locked;
   await prisma.job.delete({ where: { id: params.id } });
   return NextResponse.json({ ok: true });
 });

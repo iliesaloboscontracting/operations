@@ -45,6 +45,7 @@ model Project {
   jobs      Job[]
   invoicedCosts InvoicedCost[]
   labourCosts   LabourCost[]
+  allocationCosts AllocationCost[]
 }
 
 // A real invoiced cost that doesn't fit the Job/Resource/dailyRateExGst model
@@ -120,6 +121,7 @@ model Job {
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
   assignments Assignment[]
+  allocationCosts AllocationCost[]
 
   @@index([date])
   @@index([projectId])
@@ -179,6 +181,7 @@ model Resource {
   assignments Assignment[]
   serviceRecords ServiceRecord[]
   labourCosts LabourCost[]
+  allocationCosts AllocationCost[]
 
   @@index([type])
 }
@@ -242,6 +245,51 @@ model BugReport {
   notes       String? // resolution notes
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+// One row per costed allocation on a given date - the permanent, frozen
+// record a day-close (Phase 3/D2) leaves behind, so a closed date's cost
+// stops moving even as pay rates or hire rates change later. Wholesale
+// replaced (delete + recreate for the date) each time that date is closed,
+// so closing again after a correction never leaves stale rows behind. Not
+// written for open dates - those still cost live, the same way Tracking
+// always has. assignmentId is a plain snapshot (no FK): the Assignment row
+// itself can later be deleted (e.g. after a re-open) without touching this
+// historical record.
+model AllocationCost {
+  id           String    @id @default(cuid())
+  assignmentId String
+  jobId        String?
+  job          Job?      @relation(fields: [jobId], references: [id], onDelete: SetNull)
+  resourceId   String?
+  resource     Resource? @relation(fields: [resourceId], references: [id], onDelete: SetNull)
+  projectId    String
+  project      Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  date         String // YYYY-MM-DD
+  costType     String // LABOUR | HIRE_LABOUR | PLANT | ATTACHMENT | VEHICLE | HIRE
+  amount       Float?
+  status       String? // CostStatus at freeze time - never silently $0
+  createdAt    DateTime  @default(now())
+
+  @@index([projectId])
+  @@index([date])
+}
+
+// Whether a calendar date's allocations are locked against further edits
+// (D2, 2026-09-28). Close: Manager+. Re-open: Admin only, with a reason -
+// so unlocking a closed day always leaves an audit trail, never a silent
+// edit. No row for a date means it's open (the default).
+model DayClose {
+  id           String    @id @default(cuid())
+  date         String    @unique // YYYY-MM-DD
+  status       String    @default("OPEN") // OPEN | CLOSED
+  closedBy     String?
+  closedAt     DateTime?
+  reopenedBy   String?
+  reopenedAt   DateTime?
+  reopenReason String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 }
 
 model Tool {

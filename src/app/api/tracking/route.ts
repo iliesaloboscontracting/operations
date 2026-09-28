@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { guard, getCurrentUser } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
-import { tierFor, rateAndCost, hireCost, hoursBetween, type CostStatus } from "@/lib/labourCost";
+import { tierFor, type CostStatus } from "@/lib/labourCost";
+import { costAllocation } from "@/lib/costAllocation";
 import { parseLooseDate, addDays } from "@/lib/dates";
 import { todaySydney } from "@/lib/today";
 
@@ -69,7 +70,6 @@ export const GET = withErrorHandling(async () => {
   };
 
   const out = projects.map((p) => {
-    const breakHours = (p.unpaidBreakMinutes ?? 0) / 60; // D1: deducted from gross hours, live costing only
     const liveLabour: {
       id: string; personName: string; date: string; shift: "DAY" | "NIGHT";
       hours: number | null; rateTier: string | null; rateUsed: number | null; cost: number | null;
@@ -89,20 +89,17 @@ export const GET = withErrorHandling(async () => {
         for (const a of j.assignments) {
           const isLive = dateStr > LABOUR_BACKFILL_CUTOFF;
           const shift = j.shift as "DAY" | "NIGHT";
-          const grossHours = hoursBetween(j.startTime, j.endTime)
-            ?? hoursBetween(shift === "NIGHT" ? p.nightStart : p.dayStart, shift === "NIGHT" ? p.nightEnd : p.dayEnd);
-          const hours = grossHours != null ? Math.max(0, Math.round((grossHours - breakHours) * 100) / 100) : null;
+          const result = costAllocation(dateStr, shift, j.startTime, j.endTime, p, a.resource);
 
-          if (a.resource.type === "PERSONNEL") {
+          if (result.costType === "LABOUR") {
             if (isLive) {
-              const tier = tierFor(dateStr, shift);
-              const { rateUsed, cost, status } = rateAndCost(a.resource, tier, hours);
               liveLabour.push({
                 id: `live-${a.id}`, personName: a.resource.name, date: dateStr, shift,
-                hours, rateTier: tier, rateUsed, cost, status, notes: null,
+                hours: result.hours, rateTier: tierFor(dateStr, shift), rateUsed: result.rateUsed, cost: result.amount,
+                status: result.status!, notes: null,
               });
-              if (status === "RATE_MISSING" || status === "HOURS_UNKNOWN") uncostedCount++;
-              if (status === "RATE_UNCONFIRMED") unconfirmedCount++;
+              if (result.status === "RATE_MISSING" || result.status === "HOURS_UNKNOWN") uncostedCount++;
+              if (result.status === "RATE_UNCONFIRMED") unconfirmedCount++;
             }
             continue;
           }
@@ -112,22 +109,21 @@ export const GET = withErrorHandling(async () => {
           // of the dailyRateExGst "hire" cost-code bucket below so it's never
           // double-counted against the agency's actual InvoicedCost (D3) -
           // the two are reconciled, not summed.
-          if (a.resource.type === "HIRE" && a.resource.category === "LABOUR") {
+          if (result.costType === "HIRE_LABOUR") {
             if (isLive) {
-              const { rateUsed, cost, status } = hireCost(a.resource, hours);
               hireLabourEstimate.push({
-                id: `hire-${a.id}`, personName: a.resource.name, date: dateStr, shift, hours, rateUsed, cost, status,
+                id: `hire-${a.id}`, personName: a.resource.name, date: dateStr, shift,
+                hours: result.hours, rateUsed: result.rateUsed, cost: result.amount, status: result.status!,
               });
-              if (status === "RATE_MISSING" || status === "HOURS_UNKNOWN") uncostedCount++;
-              if (status === "RATE_UNCONFIRMED") unconfirmedCount++;
+              if (result.status === "RATE_MISSING" || result.status === "HOURS_UNKNOWN") uncostedCount++;
+              if (result.status === "RATE_UNCONFIRMED") unconfirmedCount++;
             }
             continue;
           }
 
-          const rate = a.resource.dailyRateExGst;
-          if (!rate) continue;
+          if (result.amount == null) continue;
           const bucket = bucketOf(a.resource.type);
-          if (bucket) byCode[bucket] += rate;
+          if (bucket) byCode[bucket] += result.amount;
         }
         const cost = byCode.plant + byCode.attach + byCode.trucks + byCode.hire;
         return {

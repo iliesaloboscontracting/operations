@@ -4,6 +4,7 @@ import { guard, getCurrentUser } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { liveJobFields } from "@/lib/jobs";
 import { sanitizeJobs } from "@/lib/serializeResource";
+import { assertDateOpen } from "@/lib/dayLock";
 
 // GET /api/jobs?date=YYYY-MM-DD  -> jobs for that date, with assignments+resource included
 export const GET = withErrorHandling(async (req: NextRequest) => {
@@ -54,6 +55,9 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
       { status: 400 }
     );
   }
+
+  const dateLocked = await assertDateOpen(body.date);
+  if (dateLocked) return dateLocked;
 
   const job = await prisma.job.create({
     data: {
