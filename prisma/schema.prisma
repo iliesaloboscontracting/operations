@@ -122,6 +122,7 @@ model Job {
   updatedAt   DateTime     @updatedAt
   assignments Assignment[]
   allocationCosts AllocationCost[]
+  jobActuals  JobActual[]
 
   @@index([date])
   @@index([projectId])
@@ -182,6 +183,7 @@ model Resource {
   serviceRecords ServiceRecord[]
   labourCosts LabourCost[]
   allocationCosts AllocationCost[]
+  jobActuals  JobActual[]
 
   @@index([type])
 }
@@ -290,6 +292,27 @@ model DayClose {
   reopenReason String?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
+}
+
+// A site supervisor's actual record for one resource on one job/day (Phase
+// 4, Day Review) - separate from Assignment (the plan) so "who was actually
+// there, for how long" can differ from "who was rostered on" without
+// touching the roster itself. A row with no matching Assignment is an
+// unplanned addition: someone/something on site that wasn't in the plan.
+model JobActual {
+  id          String   @id @default(cuid())
+  jobId       String
+  job         Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  resourceId  String
+  resource    Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  attended    Boolean  @default(true)
+  actualHours Float?
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([jobId, resourceId])
+  @@index([jobId])
 }
 
 model Tool {

@@ -297,6 +297,56 @@ export interface IdleHireDTO {
   items: IdleHireItemDTO[]; // idleDays > 0 or overdue only, worst first
 }
 
+// Day-close status for one calendar date (Phase 3/D2). No row for a date
+// means it's open (the default) - see prisma/schema.prisma's DayClose.
+export interface DayCloseDTO {
+  date: string; // YYYY-MM-DD
+  status: "OPEN" | "CLOSED";
+  closedBy: string | null;
+  closedAt: string | null;
+  reopenedBy: string | null;
+  reopenedAt: string | null;
+  reopenReason: string | null;
+}
+
+// One person/item on a Day Review job card - a planned Assignment, an actual
+// (JobActual) record, or both merged into one row. planned=false means it
+// wasn't on the roster (an unplanned addition); attended/actualHours/notes
+// are null until a supervisor records them. Never carries a dollar figure -
+// Day Review is an operational record, not a cost view (see Project
+// Tracking for money).
+export interface DayReviewRowDTO {
+  resourceId: string;
+  name: string;
+  role: string | null;
+  type: ResourceType;
+  planned: boolean;
+  attended: boolean | null;
+  actualHours: number | null;
+  notes: string | null;
+  costStatus: CostStatus | null; // from the same live costing Tracking uses - a data-quality signal, not a $ figure
+}
+
+export interface DayReviewJobDTO {
+  id: string;
+  title: string;
+  client: string | null;
+  siteCode: string | null;
+  shift: ShiftType;
+  startTime: string | null;
+  endTime: string | null;
+  dayBrief: string | null;
+  rows: DayReviewRowDTO[];
+}
+
+export interface DayReviewDTO {
+  date: string;
+  dayClose: DayCloseDTO;
+  jobs: DayReviewJobDTO[];
+  uncostedCount: number;
+  unconfirmedCount: number;
+}
+
 export interface ProjectCostDTO {
   id: string;
   name: string;
