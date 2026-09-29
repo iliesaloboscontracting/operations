@@ -28,6 +28,20 @@ business, without becoming unnecessarily complicated.
   don't delete it without asking.
 - **Auth:** custom cookie-session auth (`src/lib/auth.ts`), scrypt password
   hashing, roles `ADMIN | MANAGER | VIEWER` via a `guard(minRole)` pattern.
+- **AI assistant** (`/assistant`, Manager+ only, added 2026-09-29): a
+  read-only Q&A chat over live operational data, via the Anthropic API
+  (`ANTHROPIC_API_KEY` in `.env`, unset by default — the route 503s with a
+  clear message rather than failing if it's missing). This is the only part
+  of the app that makes an outbound network call; nothing else does. Its
+  "tools" (`src/lib/assistantTools.ts`) are thin wrappers that call this
+  app's own existing API routes (`/api/jobs`, `/api/tracking`, `/api/projects`,
+  `/api/resources`) with the caller's session cookie forwarded, rather than
+  querying Prisma directly — so it always sees exactly what a Manager sees in
+  the UI, with the same role gating and money-guard rules, and there's no
+  separate copy of business logic to drift out of sync. Deliberately no
+  write tools — it can look, not touch. Keep it that way unless Ilies
+  explicitly asks for action-taking capability; that's a much bigger risk
+  and needs its own permission-gate conversation.
 - **Structure:** `src/app/` — page routes (`command`, `calendar`, `tracking`,
   `day-review`, `hire`, `plant`, `vehicles`, `labour`, `projects`, `users`,
   `bugs`, `notes`, `tools`, `completed`, `setup`, `login`) each generally
