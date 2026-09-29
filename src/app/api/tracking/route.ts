@@ -195,6 +195,9 @@ export const GET = withErrorHandling(async () => {
       amountExGst: i.amountExGst,
     }));
     const invoicedTotal = invoiced.reduce((n, i) => n + i.amountExGst, 0);
+    const labourHireInvoicedTotal = invoiced
+      .filter((i) => i.category === "LABOUR_HIRE")
+      .reduce((n, i) => n + i.amountExGst, 0);
     const labour = [
       ...p.labourCosts.map((l) => ({
         id: l.id,
@@ -231,6 +234,7 @@ export const GET = withErrorHandling(async () => {
       recordedCost,
       estimatedCost,
       invoicedTotal,
+      labourHireInvoicedTotal,
       invoiced,
       labourTotal,
       labour: isAdmin ? labour : [],

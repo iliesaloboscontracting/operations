@@ -16,6 +16,17 @@ const CODE_COLS: { key: keyof ProjectCostDTO["byCode"]; label: string; icon: typ
   { key: "hire", label: "Hire", icon: Handshake },
 ];
 
+// Human label for an InvoicedCost's category - covers whatever's actually in
+// use plus a sensible fallback, so a new category never just shows as a raw
+// enum-ish string.
+const INVOICED_CATEGORY_LABEL: Record<string, string> = {
+  LABOUR_HIRE: "Labour hire",
+  PLANT_HIRE: "Plant hire",
+};
+function invoicedCategoryLabel(category: string) {
+  return INVOICED_CATEGORY_LABEL[category] ?? category.replace(/_/g, " ").toLowerCase();
+}
+
 const ROW_COLS = "grid-cols-[1.25fr_repeat(4,0.62fr)_0.72fr_0.72fr_0.85fr]";
 
 function Amount({ n, muted }: { n: number; muted?: boolean }) {
@@ -81,7 +92,7 @@ export default function TrackingPage() {
   return (
     <PageShell
       title="Project Tracking"
-      subtitle="What each project has cost so far: plant, attachments, trucks and hire allocated to its jobs, labour-hire invoices entered directly, and own-crew wages backfilled from daily allocation records."
+      subtitle="What each project has cost so far: plant, attachments, trucks and hire allocated to its jobs, hire/subcontractor invoices entered directly (labour hire, plant hire), and own-crew wages backfilled from daily allocation records."
     >
       {loading ? (
         <div className="py-10 text-center text-sm text-gray-500">Loading...</div>
@@ -174,7 +185,7 @@ export default function TrackingPage() {
                 ))}
                 <div className="flex items-center gap-1">
                   <FileText size={12} />
-                  Labour hire
+                  Invoiced
                 </div>
                 <div className="flex items-center gap-1">
                   <Users size={12} />
@@ -284,17 +295,17 @@ export default function TrackingPage() {
                           </div>
                         )}
 
-                        {(p.hireLabourEstimateTotal > 0 || p.invoicedTotal > 0) && (
+                        {(p.hireLabourEstimateTotal > 0 || p.labourHireInvoicedTotal > 0) && (
                           <div className="mb-3 rounded-lg border border-edge/70 bg-panel px-3 py-2 text-xs">
                             <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
                               <span className="text-gray-400">
-                                Estimated from allocations <span className="font-medium text-gray-200">{money(p.hireLabourEstimateTotal)}</span>
+                                Labour hire estimated from allocations <span className="font-medium text-gray-200">{money(p.hireLabourEstimateTotal)}</span>
                               </span>
                               <span className="text-gray-400">
-                                Invoiced <span className="font-medium text-gray-200">{money(p.invoicedTotal)}</span>
+                                Labour hire invoiced <span className="font-medium text-gray-200">{money(p.labourHireInvoicedTotal)}</span>
                               </span>
-                              <span className={p.hireLabourEstimateTotal === p.invoicedTotal ? "text-gray-500" : "text-amber-400"}>
-                                {money(Math.abs(p.hireLabourEstimateTotal - p.invoicedTotal))} difference - for review, not added into the total
+                              <span className={p.hireLabourEstimateTotal === p.labourHireInvoicedTotal ? "text-gray-500" : "text-amber-400"}>
+                                {money(Math.abs(p.hireLabourEstimateTotal - p.labourHireInvoicedTotal))} difference - for review, not added into the total
                               </span>
                             </div>
                           </div>
@@ -351,7 +362,12 @@ export default function TrackingPage() {
                                   </span>
                                   <span className="truncate">{i.invoiceNo ?? "—"}</span>
                                 </div>
-                                <div className="truncate text-gray-400">{i.vendor}</div>
+                                <div className="min-w-0 truncate text-gray-400">
+                                  {i.vendor}
+                                  <span className="ml-1.5 text-[10px] uppercase tracking-wide text-gray-600">
+                                    {invoicedCategoryLabel(i.category)}
+                                  </span>
+                                </div>
                                 <div>{i.shift ? <ShiftBadge shift={i.shift} /> : <span className="text-gray-600">—</span>}</div>
                                 <div className="text-right font-medium text-gray-200">{money(i.amountExGst)}</div>
                               </div>

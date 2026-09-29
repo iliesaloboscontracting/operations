@@ -378,7 +378,12 @@ export interface ProjectCostDTO {
   // this split and never moves either way.
   recordedCost: number;
   estimatedCost: number;
-  invoicedTotal: number;
+  invoicedTotal: number; // every InvoicedCost row, any category - this is what feeds totalCost
+  // Just the LABOUR_HIRE slice of invoicedTotal, for the "estimated from
+  // allocations vs invoiced" reconciliation below - that comparison is
+  // inherently labour-only (hireLabourEstimateTotal has no plant-hire
+  // equivalent), so it must not be diluted by a plant-hire invoice.
+  labourHireInvoicedTotal: number;
   invoiced: InvoicedCostDTO[]; // oldest first
   labourTotal: number; // sum of labour.cost, excluding null (TBC) rows
   labour: LabourCostDTO[]; // oldest first - empty for Manager, full detail Admin-only
