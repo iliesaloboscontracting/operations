@@ -13,6 +13,7 @@ import {
   AlertTriangle,
   Building2,
   CalendarClock,
+  FileText,
   Handshake,
   Link2,
   LucideIcon,
@@ -50,6 +51,13 @@ const FIELDS: FieldDef[] = [
   { key: "nightEnd", label: "Night end", placeholder: "6am" },
   { key: "unpaidBreakMinutes", label: "Unpaid meal break (minutes)", type: "number", placeholder: "30" },
   { key: "notes", label: "Notes", type: "textarea" },
+  {
+    key: "scopeOfWorks",
+    label: "Scope of works",
+    type: "textarea",
+    placeholder:
+      "Room-by-room / task-by-task scope, one point per line. Never include a dollar figure here - this text goes into the PDF attached to the crew allocation email.",
+  },
 ];
 
 // "Starts in 3 days" for a project whose start date is today or in the future.
@@ -379,6 +387,19 @@ export default function ProjectsPage() {
           onClose={() => setEditing(null)}
           onDelete={editing === "new" ? undefined : toggleArchive}
           deleteLabel={editing !== "new" && (editing as ProjectDTO).archived ? "Unarchive" : "Archive"}
+          extra={
+            editing !== "new" ? (
+              <a
+                href={`/api/projects/${(editing as ProjectDTO).id}/scope-pdf`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-1 flex items-center gap-1.5 text-xs font-medium text-brand-500 hover:text-brand-400"
+              >
+                <FileText size={13} />
+                View scope-of-works PDF
+              </a>
+            ) : undefined
+          }
         />
       )}
     </PageShell>

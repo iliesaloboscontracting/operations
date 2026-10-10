@@ -106,6 +106,10 @@ export interface ProjectDTO {
   nightEnd: string | null;
   unpaidBreakMinutes?: number | null; // D1: deducted from gross shift hours before costing labour, default 30
   notes: string | null;
+  // The money-guard-safe scope-of-works text the scope PDF is built from -
+  // kept separate from `notes` (which sometimes carries $ figures from
+  // research) so the PDF source is never accidentally mixed with money.
+  scopeOfWorks: string | null;
   archived: boolean;
   // Agreed job value ex GST (the signed quote/contract), and where it came
   // from - null contractValue means either do-and-charge/schedule-of-rates

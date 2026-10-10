@@ -1,7 +1,7 @@
 const FIELDS = [
   "name", "client", "jobNo", "address", "status", "startDate", "dayStart", "dayEnd",
   "nightStart", "nightEnd", "unpaidBreakMinutes", "notes", "archived",
-  "contractValue", "contractValueNotes",
+  "contractValue", "contractValueNotes", "scopeOfWorks",
 ] as const;
 
 const NUMERIC_FIELDS = new Set(["unpaidBreakMinutes", "contractValue"]);

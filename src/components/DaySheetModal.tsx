@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Check, Copy, Mail, TriangleAlert, X } from "lucide-react";
+import { Check, Copy, FileText, Mail, TriangleAlert, X } from "lucide-react";
 import { assertNoMoney } from "@/lib/daySheet";
 
 // Preview of the generated day sheet before it goes out. Editable, since truck/driver
@@ -10,10 +10,12 @@ import { assertNoMoney } from "@/lib/daySheet";
 export default function DaySheetModal({
   subject,
   body,
+  scopeJobs,
   onClose,
 }: {
   subject: string;
   body: string;
+  scopeJobs: { id: string; title: string; projectId: string }[];
   onClose: () => void;
 }) {
   const [text, setText] = useState(body);
@@ -81,6 +83,31 @@ export default function DaySheetModal({
             className="w-full resize-y rounded-lg border border-edge bg-panel2 p-3 font-mono text-xs leading-relaxed text-gray-200 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500"
           />
         </div>
+
+        {scopeJobs.length > 0 && (
+          <div className="border-t border-edge px-5 py-3.5">
+            <div className="text-xs font-medium text-gray-300">
+              Scope-of-works PDFs for today's jobs
+            </div>
+            <div className="mt-1 text-[11px] text-gray-500">
+              Outlook's "mailto" link can't carry attachments - download the ones you need below, then drag them
+              into the email window once it opens.
+            </div>
+            <div className="mt-2.5 flex flex-wrap gap-2">
+              {scopeJobs.map((j) => (
+                <a
+                  key={j.id}
+                  href={`/api/projects/${j.projectId}/scope-pdf?download=1`}
+                  download
+                  className="flex items-center gap-1.5 rounded-lg border border-edge px-2.5 py-1.5 text-xs font-medium text-gray-300 hover:bg-panel2"
+                >
+                  <FileText size={13} className="text-brand-500" />
+                  {j.title}
+                </a>
+              ))}
+            </div>
+          </div>
+        )}
 
         {!clean && (
           <div className="flex items-center gap-2 border-t border-edge bg-red-950/20 px-5 py-2.5 text-xs text-red-400">

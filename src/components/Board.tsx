@@ -14,6 +14,7 @@ import ResourceSidebar from "./ResourceSidebar";
 import JobGridHeader from "./JobGridHeader";
 import JobRow from "./JobRow";
 import JobFormModal from "./JobFormModal";
+import CommandAssistant from "./CommandAssistant";
 import UpcomingAlerts from "./UpcomingAlerts";
 import { useAuth } from "./AuthProvider";
 import { addDays } from "@/lib/dates";
@@ -38,11 +39,16 @@ export default function Board() {
   const [message, setMessage] = useState<{ text: string; error?: boolean } | null>(null);
   // Pre-fill for "+ New job" when opened from an alert for a project with no job yet.
   const [newJobPrefill, setNewJobPrefill] = useState<{ projectId: string; title: string } | null>(null);
+  // True only when "new job" was opened by clicking a project's own row in the
+  // Inactive/stood-down section (a placeholder standing in for the project
+  // itself, not a real job) - see the onEdit handler below and JobFormModal.
+  const [fromInactiveProject, setFromInactiveProject] = useState(false);
 
   function selectAlert(a: StartAlertDTO) {
     setSelectedDate(a.startDate);
     if (a.noJobYet) {
       setNewJobPrefill({ projectId: a.projectId, title: a.name });
+      setFromInactiveProject(false);
       setEditing("new");
     }
   }
@@ -297,7 +303,9 @@ export default function Board() {
     return t;
   }, [resources, running]);
 
-  const [daySheet, setDaySheet] = useState<{ subject: string; body: string } | null>(null);
+  const [daySheet, setDaySheet] = useState<
+    { subject: string; body: string; scopeJobs: { id: string; title: string; projectId: string }[] } | null
+  >(null);
   function openDaySheet() {
     // Narrow to only the fields the day sheet is allowed to use - this goes
     // straight to the whole crew, so a pay rate/cost field simply isn't
@@ -322,7 +330,13 @@ export default function Board() {
         },
       })),
     }));
-    setDaySheet(buildDaySheet(safeJobs, selectedDate));
+    // One scope-of-works PDF per running job, offered alongside the draft so
+    // they can be pulled into Downloads and dragged into the Outlook window
+    // "Open in email" hands off to - mailto: links can't carry attachments.
+    const scopeJobs = jobs
+      .filter((j) => !j.notRunning && j.projectId)
+      .map((j) => ({ id: j.id, title: j.title, projectId: j.projectId as string }));
+    setDaySheet({ ...buildDaySheet(safeJobs, selectedDate), scopeJobs });
   }
 
   async function deleteJob() {
@@ -339,8 +353,10 @@ export default function Board() {
       if (!canEdit) return;
       if (j.virtual) {
         setNewJobPrefill({ projectId: j.projectId!, title: j.title });
+        setFromInactiveProject(true);
         setEditing("new");
       } else {
+        setFromInactiveProject(false);
         setEditing(j);
       }
     },
@@ -385,6 +401,7 @@ export default function Board() {
                 <button
                   onClick={() => {
                     setNewJobPrefill(null);
+                    setFromInactiveProject(false);
                     setEditing("new");
                   }}
                   className="flex items-center gap-1.5 rounded-lg bg-brand-600 px-3.5 py-2 text-sm font-medium text-white shadow-sm hover:bg-brand-500 active:scale-[0.98]"
@@ -474,22 +491,31 @@ export default function Board() {
           defaultDate={selectedDate}
           defaultProjectId={newJobPrefill?.projectId}
           defaultTitle={newJobPrefill?.title}
+          fromInactiveProject={fromInactiveProject}
           onSaved={async (saved, { moved, completed }) => {
             if (completed) setMessage({ text: "Marked complete — moved to the Completed page." });
-            else if (moved) setMessage({ text: `Job moved to ${saved.date}.` });
+            else if (moved && saved) setMessage({ text: `Job moved to ${saved.date}.` });
             await refresh();
           }}
           onClose={() => {
             setEditing(null);
             setNewJobPrefill(null);
+            setFromInactiveProject(false);
           }}
           onDelete={editing === "new" ? undefined : deleteJob}
         />
       )}
 
       {daySheet && (
-        <DaySheetModal subject={daySheet.subject} body={daySheet.body} onClose={() => setDaySheet(null)} />
+        <DaySheetModal
+          subject={daySheet.subject}
+          body={daySheet.body}
+          scopeJobs={daySheet.scopeJobs}
+          onClose={() => setDaySheet(null)}
+        />
       )}
+
+      {canEdit && <CommandAssistant resources={resources} boardRows={boardRows} onAssign={handleAssign} />}
     </div>
   );
 }
