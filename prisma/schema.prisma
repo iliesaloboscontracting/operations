@@ -131,6 +131,18 @@ model Job {
   allocationCosts AllocationCost[]
   jobActuals  JobActual[]
 
+  // A project has at most one Job per date+shift - this is the invariant the
+  // Command Centre board relies on (one row per project per day). SQLite
+  // treats NULL as distinct from any other value in a unique index, so
+  // projectId-less ad-hoc jobs are untouched by this and can still repeat
+  // freely. Added 2026-10-10 after a real duplicate-job bug: completed jobs
+  // are hidden from the board for their date (by design - see notRunning
+  // above), which left the board showing an empty placeholder for a project
+  // that already had a completed job that day, inviting a second one to be
+  // created on top of it. POST /api/jobs now checks for this up front with a
+  // clear error; this constraint is the backstop that makes it impossible
+  // regardless of which code path creates the job.
+  @@unique([projectId, date, shift])
   @@index([date])
   @@index([projectId])
 }

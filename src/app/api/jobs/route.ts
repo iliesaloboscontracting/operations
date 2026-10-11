@@ -59,6 +59,28 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   const dateLocked = await assertDateOpen(body.date);
   if (dateLocked) return dateLocked;
 
+  // One job per project per date+shift (see the @@unique on Job in
+  // schema.prisma for why) - checked explicitly here so the error actually
+  // explains what happened, rather than falling through to the constraint
+  // itself and a generic "That already exists".
+  if (body.projectId) {
+    const existing = await prisma.job.findFirst({
+      where: { projectId: body.projectId, date: new Date(body.date), shift: body.shift ?? "DAY" },
+      select: { id: true, status: true },
+    });
+    if (existing) {
+      return NextResponse.json(
+        {
+          error:
+            existing.status === "COMPLETED"
+              ? "This project already has a completed job for that date and shift - reopen it from the Completed page instead of creating a new one."
+              : "This project already has a job for that date and shift.",
+        },
+        { status: 409 }
+      );
+    }
+  }
+
   const job = await prisma.job.create({
     data: {
       projectId: body.projectId ?? null,

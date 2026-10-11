@@ -13,3 +13,11 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
   }
   return res;
 }
+
+// Pulls the server's own { error: "..." } message out of a failed response,
+// so the UI can show what actually went wrong (e.g. "This project already
+// has a job for that date and shift") instead of a generic fallback.
+export async function serverErrorMessage(res: Response, fallback: string): Promise<string> {
+  const body = await res.json().catch(() => null);
+  return typeof body?.error === "string" ? body.error : fallback;
+}

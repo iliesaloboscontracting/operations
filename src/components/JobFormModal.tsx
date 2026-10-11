@@ -1,6 +1,7 @@
 "use client";
 
 import { JobDTO, ProjectDTO } from "@/lib/types";
+import { serverErrorMessage } from "@/lib/apiFetch";
 import FormModal, { FieldDef } from "./FormModal";
 
 export interface SavedJobInfo {
@@ -17,6 +18,7 @@ export default function JobFormModal({
   defaultDate,
   defaultProjectId,
   defaultTitle,
+  fromInactiveProject,
   onSaved,
   onClose,
   onDelete,
@@ -26,7 +28,15 @@ export default function JobFormModal({
   defaultDate: string; // used when creating
   defaultProjectId?: string; // preselect a project when creating (e.g. from a Calendar row)
   defaultTitle?: string; // prefill the name when creating with no project picked
-  onSaved: (job: JobDTO, info: SavedJobInfo) => void | Promise<void>;
+  // True only when this "new job" was opened by clicking a project's own
+  // placeholder row in the Command Centre's Inactive/stood-down section (see
+  // Board.tsx). There's no real job to create there - the row *is* the
+  // project - so picking Completed must complete the project itself rather
+  // than silently creating an orphaned already-completed job that leaves the
+  // project (and its placeholder row) untouched. Not set for an ordinary "+
+  // New job" / Calendar add, where creating a genuinely new job is the point.
+  fromInactiveProject?: boolean;
+  onSaved: (job: JobDTO | null, info: SavedJobInfo) => void | Promise<void>;
   onClose: () => void;
   onDelete?: () => Promise<void>;
 }) {
@@ -106,6 +116,23 @@ export default function JobFormModal({
     const status = v.status || "ACTIVE";
     const date = v.date || defaultDate;
 
+    if (isNew && fromInactiveProject && project && status === "COMPLETED") {
+      const siteRes = await fetch(`/api/projects/${project.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: title,
+          client: v.client || null,
+          jobNo: v.siteCode || null,
+          address: v.siteAddress || null,
+          status: "COMPLETED",
+        }),
+      });
+      if (!siteRes.ok) throw new Error("Couldn't mark the project complete");
+      await onSaved(null, { isNew: true, moved: false, completed: true });
+      return;
+    }
+
     if (project) {
       // These are the project's own fields once it's linked - save them there,
       // not on the job, so every job for this project shows the same thing.
@@ -143,7 +170,7 @@ export default function JobFormModal({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(isNew ? { ...body, projectId: project?.id ?? null } : body),
     });
-    if (!res.ok) throw new Error("Couldn't save job");
+    if (!res.ok) throw new Error(await serverErrorMessage(res, "Couldn't save job"));
     const saved: JobDTO = await res.json();
     await onSaved(saved, { isNew, moved, completed });
   }
