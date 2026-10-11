@@ -157,9 +157,11 @@ Operate-System-Overview rulebook.)
   specifications, project dates, costs, site conditions, safety controls,
   inspection results, completion status. If a value has no source, leave it
   blank and list it as missing.
-- **Credentials.** The Building Agent's password is kept only on this PC, in
-  an environment variable. Never write it into a file, commit, log, prompt
-  or message.
+- **Credentials.** Claude never handles the Building Agent's password. To
+  apply approved data changes, Ilies signs in to Operations as Building
+  Agent (`iliesa+agent@loboscontracting.com.au`) in the browser pane, and
+  Claude works through that signed-in session. The password is never
+  written into a file, commit, log, prompt or message.
 
 ## Permission gate for large changes
 
