@@ -6,10 +6,10 @@
 // regression is caught here instead of in someone's dev tools.
 //
 // Usage (PowerShell), against the real app running on port 3000:
-//   $env:DATABASE_URL = "file:C:/Users/ilies/Documents/job-board/prisma/dev.db"
+//   $env:DATABASE_URL = "file:C:/Users/ilies/Documents/operations/prisma/dev.db"
 //   npx tsx scripts/check-viewer-safety.ts
 // Or against a throwaway copy on another port:
-//   $env:DATABASE_URL = "file:C:/Users/ilies/Documents/job-board/prisma/dev.verify.db"
+//   $env:DATABASE_URL = "file:C:/Users/ilies/Documents/operations/prisma/dev.verify.db"
 //   $env:BASE_URL = "http://localhost:3001"
 //   npx tsx scripts/check-viewer-safety.ts
 //

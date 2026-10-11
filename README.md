@@ -1,76 +1,42 @@
-# Job Board — Command Centre
+# Operations
 
-A drag-and-drop ops board: jobs/sites as rows, with a segregated resource
-pool (Crew / Plant / Hire) in the sidebar that you drag onto a job's Crew,
-Plant or Hire column. Built with Next.js (App Router), Prisma, and
-PostgreSQL. Drag-and-drop uses native HTML5 DnD — no extra libraries.
+Operations-management platform for Lobos Contracting: projects, daily jobs,
+crew / plant / vehicle / hire allocation, cost tracking and day close.
+Built with Next.js 14 (App Router), TypeScript, Tailwind and Prisma over
+SQLite. See `CLAUDE.md` for architecture and working rules.
 
 ## 1. Prerequisites
 
 - Node.js 18.18+ (20 LTS recommended)
-- PostgreSQL running locally (or a connection string to any Postgres instance)
 
-## 2. Setup
+## 2. Setup (fresh checkout only)
 
 ```bash
-cd job-board
+cd operations
 npm install
 cp .env.example .env
-# edit .env if your DATABASE_URL differs
-```
-
-Create the database (skip if it already exists):
-
-```bash
-# Windows (psql on PATH) / macOS / Linux
-psql -U postgres -c "CREATE USER jobboard WITH PASSWORD 'jobboard';"
-psql -U postgres -c "CREATE DATABASE jobboard OWNER jobboard;"
-```
-
-Push the schema and seed sample data:
-
-```bash
+# set AUTH_SECRET (and ANTHROPIC_API_KEY if you want /assistant)
 npm run db:push
 npm run db:seed
 ```
 
-## 3. Run it
+## 3. The live app
 
-```bash
-npm run dev
-```
+The live app runs as the **OperationsServer** Windows service (NSSM, set up
+once with `service/install-service.ps1`), serving a production build on
+http://localhost:3000. It starts with Windows, survives sleep/lock/logoff and
+restarts itself if it crashes. Don't use `npm run dev` for day-to-day use.
 
-Open http://localhost:3000 — you'll see today's jobs as rows, with a
-resource sidebar on the left. Drag a crew/plant/hire card from the sidebar
-onto the matching column of a job row to assign it; use the small dropdown
-on an assigned chip to set their role for that job, and the × to unassign.
-Switch days with the date tabs; "+ New job" adds a job/site for the
-selected date.
-
-## Running it for real (the live app)
-
-The day-to-day app isn't started by hand with `npm run dev` - that's a dev
-server, meant for active development, and it can flake (an occasional
-transient 404 on a page it's still compiling) or die if whatever started it
-closes.
-
-Instead it runs as a Windows Scheduled Task called **Operate Server**
-(`service/start-operate.ps1`), which:
-- builds a production bundle (`npm run build`) and serves that (`npm start`)
-  - no on-demand compilation, so the dev-mode flakiness above can't happen
-- starts automatically at logon
-- restarts itself automatically if it ever crashes (up to 999 times, 1 minute apart)
-- runs independently of Claude Code, so closing a session doesn't take the site down
-
-To check on it or restart it by hand: open **Task Scheduler** (Windows search),
-find **Operate Server** in the task list. Right-click → Run / End, or check
-Last Run Result there. After a code change, it needs a rebuild to pick it up:
+After a code change, redeploy from an elevated PowerShell:
 
 ```powershell
-npm run build   # from the project root
-# then Right-click "Operate Server" → End, then → Run in Task Scheduler
-# (or just restart Windows / log back in - it starts itself)
+Stop-Service OperationsServer
+npm run build
+Start-Service OperationsServer
 ```
+
+The live database (`prisma/dev.db`) is backed up nightly by the
+**Operations DB Backup** Scheduled Task (`scripts/register-backup-task.ps1`).
 
 ## Project layout
 

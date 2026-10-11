@@ -1,13 +1,7 @@
 # One-time setup: installs Operations as a real Windows Service
 # ("OperationsServer") using NSSM, so it survives sleep/lock/logoff and
-# auto-restarts on crash - unlike the old "Operate Server" Scheduled Task,
-# which only ran inside your interactive logon session and died whenever the
-# PC went to sleep.
-#
-# Renamed from OperateServer on 2026-10-11 (app renamed Operate -> Operations)
-# - this re-run removes the differently-named old service explicitly first
-# (the usual re-run safety below only removes a service under the SAME name),
-# then installs fresh under the new name/path.
+# auto-restarts on crash - unlike a Scheduled Task, which only runs inside
+# your interactive logon session and dies whenever the PC goes to sleep.
 #
 # Run this ONCE from an elevated PowerShell (right-click PowerShell -> Run as
 # Administrator), then paste:
@@ -21,10 +15,6 @@ if (-not (New-Object Security.Principal.WindowsPrincipal([Security.Principal.Win
     Write-Error "Not running elevated. Right-click PowerShell -> Run as Administrator, then run this script again."
     exit 1
 }
-
-# Remove the old, differently-named service if it's still registered.
-& $nssm stop OperateServer *>$null
-& $nssm remove OperateServer confirm *>$null
 
 # Remove any previous attempt so this script is safe to re-run. It's normal
 # for these two to report "Can't open service!" on a fresh install - that
@@ -47,12 +37,6 @@ if ($LASTEXITCODE -ne 0) {
 & $nssm set $svc AppStderr "$proj\service\service-stderr.log"
 & $nssm set $svc AppRotateFiles 1
 & $nssm set $svc AppRotateBytes 5242880
-
-# Stop the old "Operate Server" Scheduled Task and disable it so the two
-# don't fight over port 3000. It's left in place (not deleted) in case
-# something needs rolling back.
-schtasks /end /tn "Operate Server" 2>$null
-schtasks /change /tn "Operate Server" /disable 2>$null
 
 Start-Service $svc
 Start-Sleep -Seconds 6

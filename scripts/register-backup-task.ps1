@@ -1,8 +1,5 @@
 # Registers "Operations DB Backup" correctly - wake-from-sleep, runs whether
-# logged on or not, survives being on battery. Originally set up as decision
-# D1 (Brief 09, item 1) under the name "Operate DB Backup"; renamed here on
-# 2026-10-11 to match the app's rename from Operate to Operations - same
-# task, new name/paths, re-registered from scratch.
+# logged on or not, survives being on battery. Decision D1 (Brief 09, item 1).
 #
 # Run this ONCE from an elevated PowerShell (right-click PowerShell -> Run as
 # Administrator), then paste:
@@ -18,8 +15,6 @@ if (-not (New-Object Security.Principal.WindowsPrincipal([Security.Principal.Win
     exit 1
 }
 
-# Remove the old, differently-named task if it's still registered.
-Unregister-ScheduledTask -TaskName "Operate DB Backup" -Confirm:$false -ErrorAction SilentlyContinue
 Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
 
 $action = New-ScheduledTaskAction -Execute "powershell.exe" `

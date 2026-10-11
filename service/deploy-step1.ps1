@@ -1,8 +1,8 @@
 # One elevated pass covering Brief 09's remaining admin-only steps:
-#   1. Register the "Operate DB Backup" task correctly (D1) and self-test it.
-#   2. Stop OperateServer so the Next.js patch upgrade (D2) can be built
+#   1. Register the "Operations DB Backup" task correctly (D1) and self-test it.
+#   2. Stop OperationsServer so the Next.js patch upgrade (D2) can be built
 #      (the running service locks the Prisma engine file otherwise).
-# After this, Claude will build and ask you to run Start-Service OperateServer
+# After this, Claude will build and ask you to run Start-Service OperationsServer
 # in this same window to finish the deploy.
 
 $ErrorActionPreference = "Stop"
@@ -12,8 +12,8 @@ if (-not (New-Object Security.Principal.WindowsPrincipal([Security.Principal.Win
 }
 
 Write-Host "=== Step 1: registering the backup task ==="
-& "C:\Users\ilies\Documents\job-board\scripts\register-backup-task.ps1"
+& "C:\Users\ilies\Documents\operations\scripts\register-backup-task.ps1"
 
-Write-Host "`n=== Step 2: stopping OperateServer for the build ==="
-Stop-Service OperateServer
-Get-Service OperateServer | Select-Object Name, Status
+Write-Host "`n=== Step 2: stopping OperationsServer for the build ==="
+Stop-Service OperationsServer
+Get-Service OperationsServer | Select-Object Name, Status

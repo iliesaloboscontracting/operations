@@ -14,18 +14,20 @@ business, without becoming unnecessarily complicated.
 
 - **Stack:** Next.js 14 (App Router), TypeScript, Tailwind CSS, Prisma ORM
   over SQLite (`prisma/dev.db`), React 18.
-- **Hosting:** runs on this Windows machine as the **`OperateServer` Windows
-  service** (installed via NSSM, `service/install-service.ps1`; wraps `next
-  start` directly against a production build), port 3000, LocalSystem, set
-  to auto-restart on crash. There is no separate staging environment — this
-  *is* production. After any build (`npm run build`), redeploy with
-  `Stop-Service OperateServer` → build → `Start-Service OperateServer` —
+- **Name and location:** the app is called **Operations** — that is its only
+  name. It lives at `C:\Users\ilies\Documents\operations`. Older names and
+  folders have been retired and removed; don't reintroduce them.
+- **Hosting:** runs on this Windows machine as the **`OperationsServer`
+  Windows service** (installed via NSSM, `service/install-service.ps1`; wraps
+  `next start` directly against a production build), port 3000, LocalSystem,
+  set to auto-restart on crash. There is no separate staging environment —
+  this *is* production. After any build (`npm run build`), redeploy with
+  `Stop-Service OperationsServer` → build → `Start-Service OperationsServer` —
   both commands need an elevated PowerShell, since the service isn't tied to
   any interactive logon (that's the point: it survives sleep, lock and
-  logoff, unlike the old setup). The previous "Operate Server" Scheduled
-  Task (interactive-logon-only, which is why the site used to go down
-  whenever the PC slept) is disabled but left in place for rollback —
-  don't delete it without asking.
+  logoff). The nightly database backup is the "Operations DB Backup"
+  Scheduled Task (`scripts/register-backup-task.ps1`) writing to
+  `OneDrive\Operations-Backups`; it's only visible from an elevated shell.
 - **Auth:** custom cookie-session auth (`src/lib/auth.ts`), scrypt password
   hashing, roles `ADMIN | MANAGER | VIEWER` via a `guard(minRole)` pattern.
 - **AI assistant** (`/assistant`, Manager+ only, added 2026-09-29): a
@@ -82,12 +84,12 @@ file's directory, not the process's cwd), point `DATABASE_URL` at that
 absolute path, run the change there first, reset a throwaway admin password,
 verify with `next dev -p 3001` and the browser. Only once verified, repeat
 against the real `dev.db`, then `npm run build`, redeploy (`Stop-Service
-OperateServer` → build → `Start-Service OperateServer`, elevated), commit
+OperationsServer` → build → `Start-Service OperationsServer`, elevated), commit
 to git, and delete the throwaway artifacts. This is real business/
 financial/personal data (pay rates, project costs, contract values) with no
 automated tests protecting it — treat it that way.
 
-**Don't run `next dev` against this checkout while `OperateServer` is
+**Don't run `next dev` against this checkout while `OperationsServer` is
 running.** `next.config.js` sets no `distDir`, so `next dev` (throwaway
 testing on port 3001) and the live `next start` service (port 3000) both
 read/write the same `.next/` folder. A dev server left running against this
