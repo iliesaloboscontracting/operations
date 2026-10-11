@@ -16,13 +16,41 @@ export const PATCH = withErrorHandling(async (
   const user = await getCurrentUser();
   const body = await req.json();
 
-  const current = await prisma.job.findUnique({ where: { id: params.id }, select: { date: true } });
+  const current = await prisma.job.findUnique({
+    where: { id: params.id },
+    select: { date: true, projectId: true, shift: true },
+  });
   if (!current) return NextResponse.json({ error: "not found" }, { status: 404 });
   const currentLocked = await assertDateOpen(current.date.toISOString().slice(0, 10));
   if (currentLocked) return currentLocked;
   if ("date" in body) {
     const targetLocked = await assertDateOpen(body.date);
     if (targetLocked) return targetLocked;
+  }
+
+  // Moving a job's date/shift can collide with an existing job for the same
+  // project the same way creating a brand new one can (see POST /api/jobs
+  // and the @@unique on Job in schema.prisma) - checked explicitly here too,
+  // so the error explains what happened instead of falling through to a
+  // generic "That already exists".
+  if (current.projectId && ("date" in body || "shift" in body)) {
+    const targetDate = "date" in body ? new Date(body.date) : current.date;
+    const targetShift = "shift" in body ? body.shift : current.shift;
+    const conflict = await prisma.job.findFirst({
+      where: { projectId: current.projectId, date: targetDate, shift: targetShift, id: { not: params.id } },
+      select: { status: true },
+    });
+    if (conflict) {
+      return NextResponse.json(
+        {
+          error:
+            conflict.status === "COMPLETED"
+              ? "This project already has a completed job for that date and shift - reopen it from the Completed page instead."
+              : "This project already has a job for that date and shift - edit that one instead, or change this job's project first.",
+        },
+        { status: 409 }
+      );
+    }
   }
 
   const data: Record<string, unknown> = {};
