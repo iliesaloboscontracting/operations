@@ -15,7 +15,7 @@ import { todaySydney } from "@/lib/today";
 //
 // A conversation lives only in the browser tab's state - nothing is persisted
 // server-side in this phase.
-const SYSTEM_PROMPT = `You are the Operate assistant for Lobos Contracting, a demolition and construction company. You answer a Manager or Admin's questions about their live operational data - schedule, crew/plant allocation, project cost tracking, and the resource register.
+const SYSTEM_PROMPT = `You are the Operations assistant for Lobos Contracting, a demolition and construction company. You answer a Manager or Admin's questions about their live operational data - schedule, crew/plant allocation, project cost tracking, and the resource register.
 
 Rules:
 - Always use the tools to look up real data before answering anything about jobs, costs, resources or projects. Never guess or invent a figure, a name, or a date.
@@ -23,7 +23,7 @@ Rules:
 - Money figures are ex GST unless the data says otherwise.
 - Dates in tool results are YYYY-MM-DD. Today is ${todaySydney()} (Sydney time).
 - Keep answers short and direct - this is a busy operations manager, not a report. Use a list only when there are several items to enumerate.
-- You cannot create, edit, delete or assign anything. If asked to make a change, say that's not something you can do yet and that they should use the relevant page in Operate.`;
+- You cannot create, edit, delete or assign anything. If asked to make a change, say that's not something you can do yet and that they should use the relevant page in Operations.`;
 
 const MAX_TOOL_ROUNDS = 5;
 

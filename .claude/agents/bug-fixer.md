@@ -1,6 +1,6 @@
 ---
 name: bug-fixer
-description: Diagnoses and fixes bugs in the job-board (Operate) app. Use when something is broken, throws an error, renders wrong, or a drag/save doesn't work. Give it the symptom, the page, and steps to reproduce.
+description: Diagnoses and fixes bugs in the job-board (Operations) app. Use when something is broken, throws an error, renders wrong, or a drag/save doesn't work. Give it the symptom, the page, and steps to reproduce.
 tools: Read, Edit, Write, Glob, Grep, PowerShell, mcp__Claude_Browser__navigate, mcp__Claude_Browser__computer, mcp__Claude_Browser__read_page, mcp__Claude_Browser__get_page_text, mcp__Claude_Browser__javascript_tool, mcp__Claude_Browser__read_console_messages, mcp__Claude_Browser__read_network_requests, mcp__Claude_Browser__find
 ---
 
