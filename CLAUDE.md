@@ -126,6 +126,41 @@ work around a block on this, just ask.
 this is a git repo — re-export PATH from the machine/user environment
 variables before any `git`/`npm`/`npx` command.
 
+## Changing live data (records, not code)
+
+Changing Operations' **data** (projects, jobs, assignments, resources,
+service records, tools) is a different activity from changing its **code**,
+and has its own rules. (Carried over on 2026-10-11 from the retired
+Operate-System-Overview rulebook.)
+
+- **Through the app's API only.** Data changes go through Operations' own
+  API (`http://localhost:3000/api/...`), signed in as the dedicated
+  **"Building Agent"** user (MANAGER role). Never use Ilies's own account or
+  any ADMIN account for this. Never edit `prisma/dev.db` directly — no
+  Prisma Studio, SQL, or scripts against the live database — unless Ilies
+  approves a one-off script in writing for that specific job; that script
+  runs on a copy first, and a fresh backup is taken before it runs.
+- **Propose, then apply.** Before writing anything, list every change as:
+  record → field → current value → proposed value → source (document name
+  and revision, or Ilies's instruction). Apply only the lines Ilies
+  approves, then re-read each record to confirm the change took.
+- **Log every change.** Until Operations records changes itself, append
+  each applied change to
+  `C:\Users\ilies\Documents\operations-agent-log\change-log.csv` (outside
+  the code folder and outside OneDrive): date/time, record type and ID,
+  field, before, after, source, approved by, API result. The log is
+  append-only — never edit or delete a row.
+- **Never delete records.** Propose archiving or a status change instead.
+  Deleting a record needs Ilies's written approval for that specific record.
+- **Never invent critical information** — engineering approval, structural
+  capacity, worker qualifications or licences, client approval, plant
+  specifications, project dates, costs, site conditions, safety controls,
+  inspection results, completion status. If a value has no source, leave it
+  blank and list it as missing.
+- **Credentials.** The Building Agent's password is kept only on this PC, in
+  an environment variable. Never write it into a file, commit, log, prompt
+  or message.
+
 ## Permission gate for large changes
 
 Do not perform major builds, major architectural changes, large migrations,
