@@ -1,5 +1,5 @@
-// Nightly backup of the live Operate database (Brief 09, item 1). Run by the
-// "Operate DB Backup" Windows Scheduled Task via scripts/backup-db.ps1.
+// Nightly backup of the live Operations database (Brief 09, item 1). Run by
+// the "Operations DB Backup" Windows Scheduled Task via scripts/backup-db.ps1.
 //
 // Uses SQLite's own VACUUM INTO rather than a plain file copy: a plain copy
 // of a live database file can capture a half-written (torn) snapshot if it
@@ -21,7 +21,7 @@ import { DatabaseSync } from "node:sqlite";
 import fs from "node:fs";
 import path from "node:path";
 
-const BACKUP_DIR = "C:\\Users\\ilies\\OneDrive\\Operate-Backups";
+const BACKUP_DIR = "C:\\Users\\ilies\\OneDrive\\Operations-Backups";
 const RETENTION_DAYS = 30;
 const LOG_FILE = path.join(BACKUP_DIR, "backup-log.txt");
 
