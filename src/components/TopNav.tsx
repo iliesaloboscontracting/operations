@@ -86,7 +86,7 @@ export default function TopNav() {
   const isActive = (href: string) => path === href || path.startsWith(href + "/");
 
   return (
-    <nav className="relative z-10 flex h-14 w-full shrink-0 items-center border-b border-black/20 bg-sidebar px-3 shadow-soft">
+    <nav className="relative z-10 flex h-14 w-full shrink-0 items-center border-b-[3px] border-brand-500 bg-sidebar px-3 shadow-soft">
       <Link href="/projects" className="mr-3 flex shrink-0 items-center">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/logo-dark.png" alt="Lobos Contracting" width={400} height={96} className="h-8 w-auto" />

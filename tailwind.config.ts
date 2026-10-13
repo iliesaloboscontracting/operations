@@ -6,7 +6,7 @@ import colors from "tailwindcss/colors";
 // touching every component: dark shades (700-950) become light tints, light
 // shades (50-300) become dark text. Mid tones (400-600) - buttons, badges,
 // accents - stay as they are. Set LIGHT = false to go back to the dark theme.
-const LIGHT = true;
+const LIGHT = false;
 
 const TINT_SWAP: Record<number, number> = {
   50: 950, 100: 900, 200: 800, 300: 700, 400: 400, 500: 500,
@@ -38,7 +38,7 @@ function hslToHex(h: number, s: number, l: number): string {
   const toHex = (x: number) => Math.round(x * 255).toString(16).padStart(2, "0");
   return `#${toHex(f(0))}${toHex(f(8))}${toHex(f(4))}`;
 }
-const BRAND_HUE = 197;
+const BRAND_HUE = 211;
 const brandBase: Record<number, string> = {
   50: hslToHex(BRAND_HUE, 70, 97),
   100: hslToHex(BRAND_HUE, 75, 93),
@@ -46,8 +46,8 @@ const brandBase: Record<number, string> = {
   300: hslToHex(BRAND_HUE, 85, 74),
   400: hslToHex(BRAND_HUE, 92, 60),
   500: hslToHex(BRAND_HUE, 96, 47),
-  600: "#0184B8", // the logo colour itself - TINT_SWAP leaves 600 unmoved, so this
-  //                 stays the literal logo colour whichever way LIGHT is set.
+  600: "#4F8FD1", // steel blue (matches the Lobos Estimating app) - TINT_SWAP leaves 600 unmoved, so this
+  //                 stays this exact colour whichever way LIGHT is set.
   700: hslToHex(BRAND_HUE, 95, 29),
   800: hslToHex(BRAND_HUE, 90, 24),
   900: hslToHex(BRAND_HUE, 85, 20),
@@ -64,17 +64,17 @@ const flipped: Record<string, Record<string, string>> = LIGHT
       emerald: flip(colors.emerald, TINT_SWAP),
       orange: flip(colors.orange, TINT_SWAP),
       teal: flip(colors.teal, TINT_SWAP),
-      brand: { ...flip(brandBase, TINT_SWAP), DEFAULT: "#0184B8" },
+      brand: { ...flip(brandBase, TINT_SWAP), DEFAULT: "#4F8FD1" },
     }
-  : { brand: { ...brandBase, DEFAULT: "#0184B8" } };
+  : { brand: { ...brandBase, DEFAULT: "#4F8FD1" } };
 
 const surface = LIGHT
   ? { canvas: "#f3f6fb", panel: "#ffffff", panel2: "#eef2f8", edge: "#d9e0ec" }
-  : { canvas: "#0b0f19", panel: "#111827", panel2: "#1f2937", edge: "#2d3748" };
+  : { canvas: "#0E1115", panel: "#181B20", panel2: "#20242A", edge: "#2A2F36" };
 
 // The sidebar is a fixed dark navy regardless of the light/dark theme toggle above,
 // so it gets its own token rather than riding the flipped `panel`/`gray` scales.
-const sidebar = "#0B1B33";
+const sidebar = "#090B0E";
 
 const config: Config = {
   content: ["./src/**/*.{js,ts,jsx,tsx,mdx}"],
