@@ -22,7 +22,7 @@ business, without becoming unnecessarily complicated.
   `next start` directly against a production build), port 3000, LocalSystem,
   set to auto-restart on crash. There is no separate staging environment —
   this *is* production. After any build (`npm run build`), redeploy with
-  `Stop-Service OperationsServer` → build → `Start-Service OperationsServer` —
+  `Stop-Service OperationsServer` → `npm.cmd run build` → `Start-Service OperationsServer` —
   both commands need an elevated PowerShell, since the service isn't tied to
   any interactive logon (that's the point: it survives sleep, lock and
   logoff). The nightly database backup is the "Operations DB Backup"

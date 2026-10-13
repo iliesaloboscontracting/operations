@@ -31,7 +31,7 @@ After a code change, redeploy from an elevated PowerShell:
 
 ```powershell
 Stop-Service OperationsServer
-npm run build
+npm.cmd run build   # plain `npm` is blocked by the PowerShell execution policy
 Start-Service OperationsServer
 ```
 
