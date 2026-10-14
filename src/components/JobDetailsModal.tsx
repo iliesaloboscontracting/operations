@@ -181,7 +181,7 @@ export default function JobDetailsModal({
             href={`/command?date=${date}`}
             className="text-sm font-medium text-brand-500 hover:text-brand-400"
           >
-            {canEdit ? "Edit in Command Centre →" : "View in Command Centre →"}
+            {canEdit ? "Edit in Allocations →" : "View in Allocations →"}
           </Link>
           <div className="flex gap-2">
             {canEdit && onAddJob && ordered.length > 0 && (

@@ -359,7 +359,7 @@ export default function Board() {
       <header className="border-b border-edge px-4 py-4 lg:px-6">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight text-gray-100">Command Centre</h1>
+            <h1 className="text-2xl font-semibold tracking-tight text-gray-100">Allocations</h1>
             <p className="mt-0.5 text-xs text-gray-500">
               Every active site, one to a row. Drag to assign or move; it saves on drop.
             </p>

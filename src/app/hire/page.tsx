@@ -53,7 +53,7 @@ export default function HirePage() {
       key={tab}
       config={{
         title: "Hire",
-        subtitle: "Everything bought in. Make the hire here with its details; place it from the Command Centre like anything we own.",
+        subtitle: "Everything bought in. Make the hire here with its details; place it from Allocations like anything we own.",
         addLabel: `Add ${noun} hire`,
         itemNoun: `${noun} hire`,
         api: "/api/resources",

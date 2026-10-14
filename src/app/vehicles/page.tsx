@@ -12,7 +12,7 @@ export default function VehiclesPage() {
     <RegisterPage<ResourceDTO>
       config={{
         title: "Vehicles",
-        subtitle: "The fleet by type and load size. Allocate them to sites in the Command Centre. Open a vehicle to see its service history.",
+        subtitle: "The fleet by type and load size. Allocate them to sites in Allocations. Open a vehicle to see its service history.",
         addLabel: "Add vehicle",
         itemNoun: "vehicle",
         detail: (r) => <ServiceHistory resourceId={r.id} />,

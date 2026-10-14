@@ -13,7 +13,7 @@ import FormModal from "./FormModal";
 const OPERATIONS = [
   { href: "/projects", label: "Projects" },
   { href: "/calendar", label: "Calendar" },
-  { href: "/command", label: "Command Centre" },
+  { href: "/command", label: "Allocations" },
   { href: "/completed", label: "Completed" },
   { href: "/day-review", label: "Day Review" },
   { href: "/tracking", label: "Project Tracking" },

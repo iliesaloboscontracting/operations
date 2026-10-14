@@ -4,7 +4,7 @@ export default function Page() {
   return (
     <ComingSoon
       title="Notes"
-      blurb="Notes on a day that reach the Command Centre once the day is inside its 14-day window."
+      blurb="Notes on a day that reach Allocations once the day is inside its 14-day window."
     />
   );
 }

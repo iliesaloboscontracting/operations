@@ -40,7 +40,7 @@ function jobFieldsFor(job: JobDTO): FieldDef[] {
       full: true,
       options: [
         { value: "COMPLETED", label: "Completed" },
-        { value: "ACTIVE", label: "Active (moves back onto the Command Centre board)" },
+        { value: "ACTIVE", label: "Active (moves back onto the Allocations board)" },
         { value: "INACTIVE", label: "Inactive" },
       ],
     },
@@ -129,7 +129,7 @@ export default function CompletedPage() {
     if (v.status !== "COMPLETED") {
       setMessage(
         v.status === "ACTIVE"
-          ? `Moved back to Active — find it on the Command Centre on ${v.date}.`
+          ? `Moved back to Active — find it in Allocations on ${v.date}.`
           : "Moved off the Completed list."
       );
     }
