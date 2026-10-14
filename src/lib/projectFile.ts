@@ -40,6 +40,12 @@ export const PROJECT_FILE_FIELDS: ProjectFileField[] = [
 
 export const PROJECT_FILE_KEYS = PROJECT_FILE_FIELDS.map((f) => f.key);
 
+// Expected completion is a YYYY-MM-DD date, or "TBC" when the project has no
+// end date yet (Ilies, 14 Oct 2026). TBC is a deliberate answer, so it counts
+// as filled in; blank still means nobody has looked.
+export const COMPLETION_TBC = "TBC";
+export const isCompletionValue = (v: string) => v === COMPLETION_TBC || /^\d{4}-\d{2}-\d{2}$/.test(v);
+
 // Text that can go out to crew or clients, so it must never carry a dollar
 // figure (the brief's part D). scopeOfWorks is an existing field but goes
 // out the same way, so it's checked here too.

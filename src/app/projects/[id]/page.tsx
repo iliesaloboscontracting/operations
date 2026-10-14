@@ -11,6 +11,7 @@ import { PROJECT_FORM_FIELDS } from "@/lib/projectFormFields";
 import { fmtDay } from "@/lib/dates";
 import { isOfficeStaff } from "@/lib/resource";
 import {
+  COMPLETION_TBC,
   parseSources,
   PROJECT_FILE_FIELDS,
   ProjectFileField,
@@ -670,7 +671,9 @@ function OverviewFields({
     return (
       <>
         <Row label="Expected completion">
-          {project.expectedCompletion
+          {project.expectedCompletion === COMPLETION_TBC
+            ? "TBC"
+            : project.expectedCompletion
             ? fmtDay(project.expectedCompletion, { weekday: "short", day: "numeric", month: "short", year: "numeric" })
             : <Unknown />}
         </Row>
@@ -696,12 +699,23 @@ function OverviewFields({
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
           <label className="mb-1 block text-xs font-medium text-gray-400">Expected completion</label>
-          <input
-            type="date"
-            className={input}
-            value={v.expectedCompletion}
-            onChange={(e) => setV((x) => ({ ...x, expectedCompletion: e.target.value }))}
-          />
+          <div className="flex items-center gap-3">
+            <input
+              type="date"
+              className={input}
+              disabled={v.expectedCompletion === COMPLETION_TBC}
+              value={v.expectedCompletion === COMPLETION_TBC ? "" : v.expectedCompletion}
+              onChange={(e) => setV((x) => ({ ...x, expectedCompletion: e.target.value }))}
+            />
+            <label className="flex shrink-0 items-center gap-1.5 text-xs text-gray-400">
+              <input
+                type="checkbox"
+                checked={v.expectedCompletion === COMPLETION_TBC}
+                onChange={(e) => setV((x) => ({ ...x, expectedCompletion: e.target.checked ? COMPLETION_TBC : "" }))}
+              />
+              TBC
+            </label>
+          </div>
           <input
             className={srcInput}
             placeholder="Source (document and revision) — optional"

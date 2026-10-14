@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "./prisma";
 import { addDays } from "./dates";
 import { todaySydney } from "./today";
-import { isSupervisorRole, moneyError, moneyProblems, MONEY_GUARDED_KEYS } from "./projectFile";
+import { isCompletionValue, isSupervisorRole, moneyError, moneyProblems, MONEY_GUARDED_KEYS } from "./projectFile";
 import { OFFICE_ROLE } from "./resource";
 
 // Server-side Project File rules (see lib/projectFile.ts for the shared ones).
@@ -14,6 +14,10 @@ import { OFFICE_ROLE } from "./resource";
 export async function validateProjectFile(data: Record<string, unknown>) {
   const problems = moneyProblems(data, MONEY_GUARDED_KEYS);
   if (problems.length) return NextResponse.json({ error: moneyError(problems) }, { status: 422 });
+
+  if (typeof data.expectedCompletion === "string" && data.expectedCompletion && !isCompletionValue(data.expectedCompletion)) {
+    return NextResponse.json({ error: "Expected completion must be a date or TBC." }, { status: 400 });
+  }
 
   if (typeof data.officeContactId === "string") {
     const r = await prisma.resource.findUnique({
