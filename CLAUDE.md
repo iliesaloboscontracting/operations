@@ -104,16 +104,17 @@ longer than the verification actually needs.
 **OneDrive / SharePoint.** This PC has the Lobos work OneDrive account
 (`iliesa@loboscontracting.com.au`) synced locally at
 `C:\Users\ilies\OneDrive - Lobos Demolition\`. Treat it as **read-only**.
-Claude may **only read and extract information** from exactly two folders:
-`OneDrive - Lobos Demolition\Shortcuts\Management - Hand over (Operations
-ready)` and `OneDrive - Lobos Demolition\Shortcuts\Management - Business
-plan (For operations)`. Copying a file *out* of those two folders into this
-project's scratchpad or `prisma/` for local processing is allowed. Nothing
-else in OneDrive is in scope — not `Attachments`, `Scans`, or any other
-folder — and never create, edit, overwrite, rename, move, or delete anything
-inside OneDrive. If a task seems to need anything outside those two folders,
-or writing back into OneDrive, stop and ask Ilies first. (Tightened
-2026-10-11 on Ilies's instruction.)
+Claude may **read and extract information** from any document in OneDrive
+(both `C:\Users\ilies\OneDrive - Lobos Demolition\` and
+`C:\Users\ilies\OneDrive\`, which holds the per-job folders) in order to
+collect information about jobs that are in Operations. (Widened 2026-10-14
+on Ilies's instruction; previously limited to the two Shortcuts folders.)
+This is **read-only**: never create, edit, overwrite, rename, move, or
+delete anything inside OneDrive. Copying a file *out* into this project's
+scratchpad or `prisma/` for local processing is allowed. Anything found
+still goes into Operations only through "propose, then apply" below, citing
+the document (and revision) as the source. If a task seems to call for
+writing back into OneDrive, stop and ask Ilies first.
 
 **Outlook (work mailbox).** Read-only, and only when Ilies asks: search and
 read email/calendar items for information relevant to a job, then report or
