@@ -46,6 +46,32 @@ model Project {
   // never mistaken for "confirmed to be zero."
   contractValue      Float?
   contractValueNotes String?
+
+  // Project File (brief 11, Phase 1, 2026-10-14). Every field below is
+  // optional with no default: blank means "not known yet", never "none".
+  // The Site/Scope fields can go out to crew and clients, so the money guard
+  // (lib/moneyGuard.ts) runs on them when saved - see lib/projectFile.ts.
+  expectedCompletion String? // YYYY-MM-DD, same format as startDate
+  // Lobos office contact - a Personnel-register entry with role "Office",
+  // linked rather than retyped. The current supervisor is NOT stored here: it
+  // is read from the latest allocation (see lib/projectFile.ts).
+  officeContactId    String?
+  officeContact      Resource? @relation("ProjectOfficeContact", fields: [officeContactId], references: [id], onDelete: SetNull)
+  siteEntry          String? // entry point / gate
+  siteParking        String?
+  inductionBy        String? // who runs the induction
+  inductionBooking   String? // how to book it
+  siteLoadingAccess  String? // loading and truck access
+  siteRestrictions   String? // noise / dust restrictions
+  siteAmenities      String?
+  emergencyAssembly  String? // emergency assembly point
+  nearestHospital    String?
+  sitePpe            String? // task-specific PPE beyond the standard kit
+  scopeExclusions    String? // goes with scopeOfWorks above
+  // Optional source note per field above (document and revision), stored as
+  // JSON text: {"siteParking": "Induction pack Rev B"}.
+  fieldSources       String?
+
   archived  Boolean  @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -53,6 +79,31 @@ model Project {
   invoicedCosts InvoicedCost[]
   labourCosts   LabourCost[]
   allocationCosts AllocationCost[]
+  contacts  ProjectContact[]
+
+  @@index([officeContactId])
+}
+
+// External people on a project (client, builder, consultants). Lobos staff
+// are never retyped here - they come from the Personnel register. visibleTo
+// controls who a contact can be shared with; it starts as INTERNAL so a
+// contact only reaches crew or the client when someone deliberately says so.
+model ProjectContact {
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name      String
+  company   String?
+  role      String?
+  phone     String?
+  email     String?
+  visibleTo String   @default("INTERNAL") // CREW | CLIENT | INTERNAL
+  source    String? // document and revision this came from
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([projectId])
 }
 
 // A real invoiced cost that doesn't fit the Job/Resource/dailyRateExGst model
@@ -209,6 +260,7 @@ model Resource {
   labourCosts LabourCost[]
   allocationCosts AllocationCost[]
   jobActuals  JobActual[]
+  officeContactFor Project[] @relation("ProjectOfficeContact")
 
   @@index([type])
 }

@@ -12,8 +12,9 @@ import { quoteOfDay } from "./stoicQuotes";
 // expose the fields this file actually needs - a caller can't accidentally
 // pass dailyRateExGst/hireRate/payRate through even by widening a type,
 // because the resource shape here simply doesn't have them. assertNoMoney
-// is the second, independent check: a scan of the rendered text itself,
-// since a supervisor can freely edit the draft before it's sent.
+// (lib/moneyGuard.ts) is the second, independent check: a scan of the
+// rendered text itself, since a supervisor can freely edit the draft before
+// it's sent.
 
 export interface DaySheetResource {
   name: string;
@@ -38,14 +39,6 @@ export interface DaySheetJob {
   notRunning: boolean;
   dayBrief: string | null;
   assignments: DaySheetAssignment[];
-}
-
-// True when the text looks clean of any dollar figure - money() always
-// renders as "$" + digits (en-AU currency formatting), so a bare "$\d" is a
-// reliable enough signal without false-positiving on job numbers, phone
-// numbers or times.
-export function assertNoMoney(text: string): boolean {
-  return !/\$\s?\d/.test(text);
 }
 
 const RULE = "━".repeat(20); // ━━━━━━━━━━━━━━━━━━━━

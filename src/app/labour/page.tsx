@@ -4,7 +4,7 @@ import RegisterPage, { StatusPill } from "@/components/RegisterPage";
 import { FieldDef } from "@/components/FormModal";
 import { RegColumn } from "@/components/RegisterPage";
 import { ResourceDTO } from "@/lib/types";
-import { CREW_ROLE_OPTIONS, effectiveStatus, money, STATUS_LABEL, STATUS_OPTIONS, whereToday } from "@/lib/resource";
+import { effectiveStatus, money, REGISTER_ROLE_OPTIONS, STATUS_LABEL, STATUS_OPTIONS, whereToday } from "@/lib/resource";
 import { useAuth } from "@/components/AuthProvider";
 
 const CATEGORIES = ["Office", "Site Manager", "Truck Driver", "Labourer"];
@@ -111,7 +111,7 @@ export default function LabourPage() {
         fields: [
           { key: "name", label: "Name", required: true },
           { key: "category", label: "Group", type: "select", options: CATEGORIES },
-          { key: "role", label: "Role", type: "select", options: CREW_ROLE_OPTIONS },
+          { key: "role", label: "Role", type: "select", options: REGISTER_ROLE_OPTIONS },
           { key: "payClass", label: "Pay class" },
           { key: "phone", label: "Phone" },
           { key: "email", label: "Email" },

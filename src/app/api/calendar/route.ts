@@ -4,6 +4,7 @@ import { guard } from "@/lib/auth";
 import { addDays } from "@/lib/dates";
 import { CalendarJobDTO } from "@/lib/types";
 import { withErrorHandling } from "@/lib/apiHandler";
+import { liveJobFields } from "@/lib/jobs";
 
 // GET /api/calendar?from=YYYY-MM-DD&to=YYYY-MM-DD -> every job in the range, with staffing summary
 export const GET = withErrorHandling(async (req: NextRequest) => {
@@ -25,7 +26,7 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
     },
     orderBy: [{ date: "asc" }, { sortOrder: "asc" }],
     include: {
-      project: { select: { jobNo: true } },
+      project: { select: { name: true, client: true, jobNo: true, address: true } },
       assignments: { include: { resource: true } },
     },
   });
@@ -52,11 +53,14 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
         plantList.push({ name: r.name, type: r.type });
       }
     }
+    // A project-linked job shows its project's current name and job no, not
+    // its own stored copy (lib/jobs.ts).
+    const live = liveJobFields(j);
     return {
       id: j.id,
       projectId: j.projectId,
-      title: j.title,
-      siteCode: j.project?.jobNo ?? j.siteCode,
+      title: live.title,
+      siteCode: live.siteCode,
       date: j.date.toISOString().slice(0, 10),
       shift: j.shift as "DAY" | "NIGHT",
       startTime: j.startTime,

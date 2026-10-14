@@ -5,9 +5,12 @@ import { pickProject } from "@/lib/pickProject";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { addDays } from "@/lib/dates";
 import { todaySydney } from "@/lib/today";
+import { completeness } from "@/lib/projectFile";
+import { validateProjectFile } from "@/lib/projectFileServer";
 
 // GET /api/projects?date=YYYY-MM-DD&archived=1
-// Each project comes with today's assigned counts (crew / plant / attachments / trucks / hire).
+// Each project comes with today's assigned counts (crew / plant / attachments / trucks / hire),
+// and how much of its Project File is filled in (lib/projectFile.ts).
 export const GET = withErrorHandling(async (req: NextRequest) => {
   const denied = await guard("VIEWER");
   if (denied) return denied;
@@ -37,7 +40,7 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
         where: { date: { gte: start, lt: end }, notRunning: false },
         include: { assignments: { include: { resource: { select: { type: true, category: true } } } } },
       },
-      _count: { select: { jobs: true } },
+      _count: { select: { jobs: true, contacts: { where: { visibleTo: "CREW" } } } },
     },
   });
 
@@ -67,7 +70,12 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
         if (spend > 0) costToDate = spend;
       }
 
-      const out: Record<string, unknown> = { ...p, counts, costToDate };
+      const out: Record<string, unknown> = {
+        ...p,
+        counts,
+        costToDate,
+        completeness: completeness(p, _count.contacts),
+      };
       if (!canSeeMoney) {
         delete out.contractValue;
         delete out.contractValueNotes;
@@ -85,6 +93,9 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   if (!body.name) {
     return NextResponse.json({ error: "name is required" }, { status: 400 });
   }
-  const project = await prisma.project.create({ data: pickProject(body) as any });
+  const data = pickProject(body);
+  const invalid = await validateProjectFile(data);
+  if (invalid) return invalid;
+  const project = await prisma.project.create({ data: data as any });
   return NextResponse.json(project, { status: 201 });
 });

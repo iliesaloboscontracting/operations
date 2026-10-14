@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Check, Copy, FileText, Mail, TriangleAlert, X } from "lucide-react";
-import { assertNoMoney } from "@/lib/daySheet";
+import { assertNoMoney } from "@/lib/moneyGuard";
 
 // Preview of the generated day sheet before it goes out. Editable, since truck/driver
 // movements aren't tracked in the app yet and a supervisor may want to tweak wording -

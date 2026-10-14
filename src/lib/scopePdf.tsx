@@ -17,13 +17,7 @@ export interface ScopePdfProject {
   nightStart: string | null;
   nightEnd: string | null;
   scopeOfWorks: string | null;
-}
-
-// Mirrors daySheet.ts's assertNoMoney - same signal ("$" immediately before a
-// digit), applied here to the one field an editor could put a price into
-// before it reaches this document.
-export function assertNoMoney(text: string): boolean {
-  return !/\$\s?\d/.test(text);
+  scopeExclusions: string | null;
 }
 
 function paragraphs(text: string) {
@@ -86,6 +80,7 @@ export function ScopeDocument({ project, generatedAt }: { project: ScopePdfProje
   const day = shiftWindow("Day shift", project.dayStart, project.dayEnd);
   const night = shiftWindow("Night shift", project.nightStart, project.nightEnd);
   const scopeParas = project.scopeOfWorks ? paragraphs(project.scopeOfWorks) : [];
+  const exclusionParas = project.scopeExclusions ? paragraphs(project.scopeExclusions) : [];
 
   return (
     <Document title={`${project.name} - Scope of Works`}>
@@ -117,6 +112,17 @@ export function ScopeDocument({ project, generatedAt }: { project: ScopePdfProje
             No fixed scope-of-works document is on file for this site - work proceeds as instructed by the
             builder/client supervisor on site.
           </Text>
+        )}
+
+        {exclusionParas.length > 0 && (
+          <>
+            <Text style={styles.sectionTitle}>Exclusions</Text>
+            {exclusionParas.map((p, i) => (
+              <Text key={i} style={styles.paragraph}>
+                {p}
+              </Text>
+            ))}
+          </>
         )}
 
         <View style={styles.footer} fixed>

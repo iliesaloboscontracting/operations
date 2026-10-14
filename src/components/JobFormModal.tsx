@@ -99,7 +99,7 @@ export default function JobFormModal({
     },
     {
       key: "dayBrief",
-      label: "Scope of works / day brief",
+      label: "Day brief (today only)",
       type: "textarea",
       full: true,
       section: "Work instructions",

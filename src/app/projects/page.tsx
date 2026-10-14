@@ -1,19 +1,21 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import PageShell from "@/components/PageShell";
-import FormModal, { FieldDef } from "@/components/FormModal";
+import FormModal from "@/components/FormModal";
 import { ProjectDTO } from "@/lib/types";
+import { PROJECT_FORM_FIELDS } from "@/lib/projectFormFields";
 import { localISODate, money } from "@/lib/resource";
 import { daysBetween } from "@/lib/dates";
 import UpcomingAlerts from "@/components/UpcomingAlerts";
 import { useAuth } from "@/components/AuthProvider";
-import { apiFetch } from "@/lib/apiFetch";
+import { apiFetch, serverErrorMessage } from "@/lib/apiFetch";
 import {
   AlertTriangle,
   Building2,
   CalendarClock,
-  FileText,
+  ClipboardList,
   Handshake,
   Link2,
   LucideIcon,
@@ -28,37 +30,6 @@ const STATUS_LABEL: Record<string, string> = {
   INACTIVE: "Inactive",
   COMPLETED: "Completed",
 };
-
-const FIELDS: FieldDef[] = [
-  { key: "name", label: "Job / site name", required: true, full: true },
-  { key: "client", label: "Client", placeholder: "e.g. CD Constructions" },
-  { key: "jobNo", label: "Job number" },
-  { key: "address", label: "Address", full: true },
-  {
-    key: "status",
-    label: "Status",
-    type: "select",
-    options: [
-      { value: "ACTIVE", label: "Active" },
-      { value: "INACTIVE", label: "Inactive" },
-      { value: "COMPLETED", label: "Completed (moves to the Completed page)" },
-    ],
-  },
-  { key: "startDate", label: "Start date", type: "date" },
-  { key: "dayStart", label: "Day start", placeholder: "7am" },
-  { key: "dayEnd", label: "Day end", placeholder: "3:30pm" },
-  { key: "nightStart", label: "Night start", placeholder: "10pm" },
-  { key: "nightEnd", label: "Night end", placeholder: "6am" },
-  { key: "unpaidBreakMinutes", label: "Unpaid meal break (minutes)", type: "number", placeholder: "30" },
-  { key: "notes", label: "Notes", type: "textarea" },
-  {
-    key: "scopeOfWorks",
-    label: "Scope of works",
-    type: "textarea",
-    placeholder:
-      "Room-by-room / task-by-task scope, one point per line. Never include a dollar figure here - this text goes into the PDF attached to the crew allocation email.",
-  },
-];
 
 // "Starts in 3 days" for a project whose start date is today or in the future.
 function startsIn(p: ProjectDTO) {
@@ -76,10 +47,27 @@ function startsWithinWeek(p: ProjectDTO) {
   return n >= 0 && n <= 7;
 }
 
-// A running site with nobody rostered on today is the one thing on this page
-// that actually needs a decision, not just information.
-function needsAttention(p: ProjectDTO) {
+// A running site with nobody rostered on today needs a decision today.
+function noCrewToday(p: ProjectDTO) {
   return p.status === "ACTIVE" && !!p.counts && p.counts.crew === 0;
+}
+
+// An active site whose Project File still has blanks (lib/projectFile.ts).
+function missingInfo(p: ProjectDTO) {
+  return p.status === "ACTIVE" && !!p.completeness && p.completeness.missing.length > 0;
+}
+
+// The reasons an active project needs attention - one filter, reasons shown
+// on the card. Nothing here ever marks a project READY.
+function attentionReasons(p: ProjectDTO): string[] {
+  const reasons: string[] = [];
+  if (noCrewToday(p)) reasons.push("No crew today");
+  if (missingInfo(p)) reasons.push("Missing information");
+  return reasons;
+}
+
+function needsAttention(p: ProjectDTO) {
+  return attentionReasons(p).length > 0;
 }
 
 // Only shown when there's actually something to report - a row of five zeroes
@@ -126,13 +114,15 @@ type Tab = "current" | "inactive" | "archived";
 
 export default function ProjectsPage() {
   const { canEdit } = useAuth();
+  const router = useRouter();
   const [projects, setProjects] = useState<ProjectDTO[]>([]);
   const [tab, setTab] = useState<Tab>("current");
   const [attentionOnly, setAttentionOnly] = useState(false);
-  const [editing, setEditing] = useState<ProjectDTO | "new" | null>(null);
+  // Editing an existing project happens on its own page (/projects/[id]);
+  // this page only adds new ones.
+  const [adding, setAdding] = useState(false);
   const [loadError, setLoadError] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [message, setMessage] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -156,36 +146,17 @@ export default function ProjectsPage() {
     load();
   }, [load]);
 
-  async function save(values: Record<string, any>) {
-    const isNew = editing === "new";
-    const wasCompleted = !isNew && (editing as ProjectDTO).status === "COMPLETED";
-    const res = await fetch(
-      isNew ? "/api/projects" : `/api/projects/${(editing as ProjectDTO).id}`,
-      {
-        method: isNew ? "POST" : "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(values),
-      }
-    );
-    if (!res.ok) throw new Error("Save failed");
-    setMessage(
-      !isNew && values.status === "COMPLETED" && !wasCompleted
-        ? "Marked complete — moved to the Completed page."
-        : !isNew && wasCompleted && values.status !== "COMPLETED"
-        ? "Moved back off the Completed page."
-        : null
-    );
-    await load();
-  }
-
-  async function toggleArchive() {
-    const p = editing as ProjectDTO;
-    await fetch(`/api/projects/${p.id}`, {
-      method: "PATCH",
+  // A new project opens straight on its own page, ready for the Site,
+  // Contacts and Scope information.
+  async function create(values: Record<string, any>) {
+    const res = await apiFetch("/api/projects", {
+      method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ archived: !p.archived }),
+      body: JSON.stringify(values),
     });
-    await load();
+    if (!res.ok) throw new Error(await serverErrorMessage(res, "Save failed"));
+    const created = await res.json();
+    router.push(`/projects/${created.id}`);
   }
 
   // A project marked Completed leaves this page entirely - same idea as a completed
@@ -207,6 +178,7 @@ export default function ProjectsPage() {
     if (tab !== "current") return null;
     return {
       active: byTab.length,
+      noCrew: byTab.filter(noCrewToday).length,
       needsAttention: byTab.filter(needsAttention).length,
       startingSoon: byTab.filter(startsWithinWeek).length,
       crewToday: byTab.reduce((n, p) => n + (p.counts?.crew ?? 0), 0),
@@ -222,7 +194,7 @@ export default function ProjectsPage() {
       actions={
         canEdit ? (
           <button
-            onClick={() => setEditing("new")}
+            onClick={() => setAdding(true)}
             className="flex shrink-0 items-center gap-1.5 rounded-lg bg-brand-600 px-3.5 py-2 text-sm font-medium text-white shadow-sm hover:bg-brand-500 active:scale-[0.98]"
           >
             <Plus size={16} strokeWidth={2.5} />
@@ -231,14 +203,10 @@ export default function ProjectsPage() {
         ) : undefined
       }
     >
-      {message && (
-        <div className="mb-4 rounded-md bg-emerald-900/30 px-3 py-1.5 text-xs text-emerald-300">{message}</div>
-      )}
-
       {stats && (
         <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
           <StatTile icon={Building2} value={stats.active} label="Active sites" />
-          <StatTile icon={AlertTriangle} value={stats.needsAttention} label="Need crew today" tone="warn" />
+          <StatTile icon={AlertTriangle} value={stats.noCrew} label="Need crew today" tone="warn" />
           <StatTile icon={CalendarClock} value={stats.startingSoon} label="Starting within a week" />
           <StatTile icon={Users} value={stats.crewToday} label="Crew deployed today" />
         </div>
@@ -273,7 +241,7 @@ export default function ProjectsPage() {
                 : "border-edge text-gray-500 hover:text-gray-300"
             }`}
           >
-            Needs attention only{stats ? ` (${stats.needsAttention})` : ""}
+            Needs attention{stats ? ` (${stats.needsAttention})` : ""}
           </button>
         )}
       </div>
@@ -286,7 +254,7 @@ export default function ProjectsPage() {
           return (
             <button
               key={p.id}
-              onClick={() => canEdit && setEditing(p)}
+              onClick={() => router.push(`/projects/${p.id}`)}
               className={`rounded-xl border-2 border-brand-500 bg-brand-950/10 p-3.5 text-left shadow-soft hover:-translate-y-0.5 hover:shadow-soft-md ${
                 p.status !== "ACTIVE" ? "opacity-70" : ""
               } ${needsAttention(p) ? "ring-1 ring-amber-500/40" : ""}`}
@@ -352,6 +320,29 @@ export default function ProjectsPage() {
                   </span>
                 )}
               </div>
+
+              {p.status === "ACTIVE" && (p.completeness || attentionReasons(p).length > 0) && (
+                <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px]">
+                  {attentionReasons(p).map((r) => (
+                    <span key={r} className="rounded-full bg-amber-500/15 px-1.5 py-0.5 font-semibold text-amber-600">
+                      {r}
+                    </span>
+                  ))}
+                  {p.completeness && (
+                    <span
+                      className="ml-auto inline-flex items-center gap-1 text-gray-500"
+                      title={
+                        p.completeness.missing.length
+                          ? `Not filled in yet: ${p.completeness.missing.join(", ")}`
+                          : "Every Project File field has something in it"
+                      }
+                    >
+                      <ClipboardList size={11} />
+                      Project file {p.completeness.filled}/{p.completeness.total}
+                    </span>
+                  )}
+                </div>
+              )}
             </button>
           );
         })}
@@ -372,34 +363,19 @@ export default function ProjectsPage() {
         {!loadError && !loading && visible.length === 0 && (
           <div className="col-span-full py-10 text-center text-sm text-gray-500">
             {attentionOnly && projects.length > 0
-              ? "Nothing needs attention right now — every active site has crew on today."
+              ? "Nothing needs attention right now — every active site has crew on today and a complete project file."
               : "No projects here."}
           </div>
         )}
       </div>
 
-      {editing && (
+      {adding && (
         <FormModal
-          title={editing === "new" ? "Add project" : "Edit project"}
-          fields={FIELDS}
-          initial={editing === "new" ? { status: "ACTIVE", dayStart: "7am", dayEnd: "3:30pm", unpaidBreakMinutes: 30 } : (editing as any)}
-          onSave={save}
-          onClose={() => setEditing(null)}
-          onDelete={editing === "new" ? undefined : toggleArchive}
-          deleteLabel={editing !== "new" && (editing as ProjectDTO).archived ? "Unarchive" : "Archive"}
-          extra={
-            editing !== "new" ? (
-              <a
-                href={`/api/projects/${(editing as ProjectDTO).id}/scope-pdf`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="mt-1 flex items-center gap-1.5 text-xs font-medium text-brand-500 hover:text-brand-400"
-              >
-                <FileText size={13} />
-                View scope-of-works PDF
-              </a>
-            ) : undefined
-          }
+          title="Add project"
+          fields={PROJECT_FORM_FIELDS}
+          initial={{ status: "ACTIVE", dayStart: "7am", dayEnd: "3:30pm", unpaidBreakMinutes: 30 }}
+          onSave={create}
+          onClose={() => setAdding(false)}
         />
       )}
     </PageShell>

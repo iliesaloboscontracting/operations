@@ -62,6 +62,18 @@ export const CREW_ROLE_OPTIONS = [
   "Other",
 ];
 
+// Office staff (Commercial, Operations, admin) live in the Personnel register
+// so a project can link its Lobos office contact to them instead of retyping
+// a name and number - but they're never allocated to a site, so this role is
+// kept out of the Allocations crew pool and out of CREW_ROLE_OPTIONS (which
+// is also the per-assignment role list). Added 2026-10-14 (Project File).
+export const OFFICE_ROLE = "Office";
+export const REGISTER_ROLE_OPTIONS = [...CREW_ROLE_OPTIONS, OFFICE_ROLE];
+
+export function isOfficeStaff(r: { type: string; role?: string | null }) {
+  return r.type === "PERSONNEL" && r.role === OFFICE_ROLE;
+}
+
 // Where a crew role sits in the on-site hierarchy - lower number is more senior.
 // Used to order a job's crew top tier to bottom once they're assigned. A role
 // with no rank (not set, or not one of CREW_ROLE_OPTIONS) sorts last.

@@ -8,7 +8,7 @@ import {
   ResourceDTO,
   StartAlertDTO,
 } from "@/lib/types";
-import { columnFor, localISODate } from "@/lib/resource";
+import { columnFor, isOfficeStaff, localISODate } from "@/lib/resource";
 import DateTabs from "./DateTabs";
 import ResourceSidebar from "./ResourceSidebar";
 import JobGridHeader from "./JobGridHeader";
@@ -64,9 +64,12 @@ export default function Board() {
     if (req === jobsReq.current) setJobs(data);
   }, [selectedDate]);
 
+  // Office staff are in the Personnel register only so projects can link an
+  // office contact - they're never allocated to a site, so they stay out of
+  // the pool (and out of the voice assistant's matches) entirely.
   const loadResources = useCallback(async () => {
     const res = await apiFetch(`/api/resources`);
-    if (res.ok) setResources(await res.json());
+    if (res.ok) setResources((await res.json()).filter((r: ResourceDTO) => !isOfficeStaff(r)));
   }, []);
 
   const projectsReq = useRef(0);

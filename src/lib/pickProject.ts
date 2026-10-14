@@ -1,7 +1,10 @@
+import { normaliseSources, PROJECT_FILE_KEYS } from "./projectFile";
+
 const FIELDS = [
   "name", "client", "jobNo", "address", "status", "startDate", "dayStart", "dayEnd",
   "nightStart", "nightEnd", "unpaidBreakMinutes", "notes", "archived",
   "contractValue", "contractValueNotes", "scopeOfWorks",
+  ...PROJECT_FILE_KEYS,
 ] as const;
 
 const NUMERIC_FIELDS = new Set(["unpaidBreakMinutes", "contractValue"]);
@@ -18,6 +21,7 @@ export function pickProject(body: Record<string, unknown>) {
       }
     }
   }
+  if ("fieldSources" in body) data.fieldSources = normaliseSources(body.fieldSources);
   if (data.status === null) delete data.status;
   return data;
 }

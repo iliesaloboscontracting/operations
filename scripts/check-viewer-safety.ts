@@ -117,6 +117,25 @@ async function main() {
     await checkClean("GET /api/day-review", `/api/day-review?date=${today}`);
     await checkClean("GET /api/day-close", `/api/day-close?date=${today}`);
     await checkDenied("GET /api/tracking (should be Manager+ only)", "/api/tracking");
+
+    // The Project File (brief 11): every project's page data, as a Viewer -
+    // no money keys, no internal notes, and only crew-visible contacts.
+    const projectList = await get("/api/projects");
+    const projectIds = Array.isArray(projectList.body) ? (projectList.body as { id: string }[]).map((p) => p.id) : [];
+    const fileLeaks: string[] = [];
+    for (const id of projectIds) {
+      const { status, body } = await get(`/api/projects/${id}`);
+      if (status !== 200) { fileLeaks.push(`${id}: expected 200, got ${status}`); continue; }
+      fileLeaks.push(...findForbiddenKeys(body).map((h) => `${id} ${h}`));
+      const b = body as { notes?: unknown; contacts?: { visibleTo: string }[] };
+      if ("notes" in b) fileLeaks.push(`${id} $.notes (internal notes)`);
+      for (const c of b.contacts ?? []) if (c.visibleTo !== "CREW") fileLeaks.push(`${id} contact visibleTo=${c.visibleTo}`);
+    }
+    checks.push({
+      name: `GET /api/projects/:id (all ${projectIds.length} projects)`,
+      ok: projectIds.length > 0 && fileLeaks.length === 0,
+      detail: fileLeaks.length ? `leaked: ${fileLeaks.slice(0, 10).join(", ")}` : projectIds.length ? undefined : "no projects to check",
+    });
     // /api/jobs/:id and /api/resources/:id have no GET handler (PATCH/DELETE
     // only) - a Viewer reaches a resource's full record only through the
     // list endpoints above, already covered.

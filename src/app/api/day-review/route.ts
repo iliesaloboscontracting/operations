@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { guard } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { costAllocation } from "@/lib/costAllocation";
+import { liveJobFields } from "@/lib/jobs";
 import type { ResourceType, DayReviewRowDTO } from "@/lib/types";
 
 // GET /api/day-review?date=YYYY-MM-DD -> that date's jobs with planned
@@ -22,7 +23,12 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
       where: { date: new Date(date + "T00:00:00.000Z"), status: { not: "COMPLETED" } },
       orderBy: [{ notRunning: "asc" }, { sortOrder: "asc" }, { createdAt: "asc" }],
       include: {
-        project: { select: { unpaidBreakMinutes: true, dayStart: true, dayEnd: true, nightStart: true, nightEnd: true } },
+        project: {
+          select: {
+            name: true, client: true, jobNo: true, address: true,
+            unpaidBreakMinutes: true, dayStart: true, dayEnd: true, nightStart: true, nightEnd: true,
+          },
+        },
         assignments: {
           include: {
             resource: {
@@ -85,11 +91,14 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
       }
     }
 
+    // A project-linked job shows its project's current name, client and job
+    // no, not its own stored copy (lib/jobs.ts).
+    const live = liveJobFields(j);
     return {
       id: j.id,
-      title: j.title,
-      client: j.client,
-      siteCode: j.siteCode,
+      title: live.title,
+      client: live.client,
+      siteCode: live.siteCode,
       shift,
       startTime: j.startTime,
       endTime: j.endTime,

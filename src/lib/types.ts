@@ -119,6 +119,48 @@ export interface ProjectDTO {
   contractValueNotes?: string | null;
   counts?: { crew: number; plant: number; attach: number; trucks: number; hire: number };
   costToDate?: number; // sum of daily rates (ex GST) across every elapsed day worked
+
+  // Project File (brief 11, Phase 1) - see lib/projectFile.ts. All optional,
+  // blank = not known yet.
+  expectedCompletion?: string | null;
+  officeContactId?: string | null;
+  siteEntry?: string | null;
+  siteParking?: string | null;
+  inductionBy?: string | null;
+  inductionBooking?: string | null;
+  siteLoadingAccess?: string | null;
+  siteRestrictions?: string | null;
+  siteAmenities?: string | null;
+  emergencyAssembly?: string | null;
+  nearestHospital?: string | null;
+  sitePpe?: string | null;
+  scopeExclusions?: string | null;
+  fieldSources?: string | null; // JSON text: { fieldKey: "document and revision" }
+  completeness?: { filled: number; total: number; missing: string[] };
+}
+
+export interface ProjectContactDTO {
+  id: string;
+  projectId: string;
+  name: string;
+  company: string | null;
+  role: string | null;
+  phone: string | null;
+  email: string | null;
+  visibleTo: "INTERNAL" | "CREW" | "CLIENT";
+  source: string | null;
+  sortOrder: number;
+}
+
+// GET /api/projects/:id - the project plus everything the Project File page shows.
+export interface ProjectFileDTO extends ProjectDTO {
+  contacts: ProjectContactDTO[];
+  officeContact: { id: string; name: string; phone: string | null; email: string | null } | null;
+  currentSupervisor: {
+    date: string;
+    shift: string;
+    people: { id: string; name: string; phone: string | null; role: string | null }[];
+  } | null;
 }
 
 export interface BugReportDTO {
