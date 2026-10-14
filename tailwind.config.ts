@@ -87,6 +87,8 @@ const config: Config = {
       },
       fontFamily: {
         sans: ["var(--font-inter)", "ui-sans-serif", "system-ui", "sans-serif"],
+        // Tracking page headline only - see src/app/layout.tsx.
+        headline: ["var(--font-lora)", "ui-serif", "Georgia", "serif"],
       },
       // A softer, multi-layer elevation (low-opacity, larger spread) instead of
       // Tailwind's default single-layer shadow, which reads flatter/older.

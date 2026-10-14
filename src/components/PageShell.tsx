@@ -1,11 +1,14 @@
 // Standard scrolling page wrapper for non-board pages.
+// `title` takes a ReactNode (not just string) so a page can swap in its own
+// heading markup (e.g. a different font) without every other page - which
+// just passes a plain string, still valid ReactNode - having to change.
 export default function PageShell({
   title,
   subtitle,
   actions,
   children,
 }: {
-  title: string;
+  title: React.ReactNode;
   subtitle?: string;
   actions?: React.ReactNode;
   children: React.ReactNode;
