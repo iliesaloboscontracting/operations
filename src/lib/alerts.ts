@@ -8,8 +8,9 @@ const isoOf = (d: Date) => d.toISOString().slice(0, 10);
 //
 // Only projects with an explicit startDate (set on the Projects page) can raise an alert.
 // A project is cleared - left out of the result entirely - once it no longer needs a look:
-// either the start-day job is fully staffed (crew, a supervisor, and plant/vehicles all
-// assigned), or every job on the start day has been stood down / made inactive on purpose.
+// either a Supervisor or Lead has been allocated on the start day (Ilies, 16 Oct 2026: that
+// is what clears the notification - plant/vehicles are only listed while it's still up),
+// or every job on the start day has been stood down / made inactive on purpose.
 export async function upcomingStarts(
   today: string,
   windowDays = 7
@@ -81,13 +82,13 @@ export async function upcomingStarts(
         }
       }
 
+    // Someone is in charge on the start day - clear it.
+    if (hasSupervisor) continue;
+
     const issues: string[] = [];
     if (crew === 0) issues.push("No crew assigned");
-    else if (!hasSupervisor) issues.push("No supervisor");
+    else issues.push("No supervisor");
     if (plant === 0) issues.push("No plant or vehicles assigned");
-
-    // Personnel and resources are all in place - clear it, nothing left to flag.
-    if (issues.length === 0) continue;
 
     const daysAway = daysBetween(today, start);
     out.push({
