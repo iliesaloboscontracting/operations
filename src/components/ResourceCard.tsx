@@ -44,7 +44,7 @@ export default function ResourceCard({
       onDragStart={onDragStart}
       className={`flex cursor-grab items-center justify-between gap-2 rounded-lg border px-2 py-1 text-sm active:cursor-grabbing ${
         isLabourHire(resource)
-          ? "border-yellow-500 bg-yellow-400 font-medium text-gray-900"
+          ? "border-yellow-400 bg-yellow-400/20 font-medium text-yellow-100"
           : highlighted
           ? "border-brand-500/50 bg-brand-500/10"
           : "border-edge bg-panel2"

@@ -34,7 +34,7 @@ export default function AssignedChip({
 
   const labourHire = isLabourHire(r);
   const tone = labourHire
-    ? "border border-yellow-500 bg-yellow-400 font-medium text-gray-900"
+    ? "border border-yellow-400 bg-yellow-400/20 font-medium text-yellow-100"
     : isSupervisorLike
     ? "bg-brand-600 text-white"
     : column === "plant"
@@ -63,7 +63,7 @@ export default function AssignedChip({
           value={assignment.role ?? ""}
           onChange={(e) => onRoleChange(e.target.value)}
           className={`rounded bg-transparent text-[10px] outline-none ${
-            labourHire ? "text-gray-800" : isSupervisorLike ? "text-white" : "text-gray-400"
+            labourHire ? "text-yellow-200" :isSupervisorLike ? "text-white" : "text-gray-400"
           }`}
         >
           <option value="">-</option>
