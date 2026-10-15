@@ -2,7 +2,7 @@
 
 import { X } from "lucide-react";
 import { AssignmentDTO, DragResourcePayload } from "@/lib/types";
-import { columnFor, CREW_ROLE_OPTIONS } from "@/lib/resource";
+import { columnFor, CREW_ROLE_OPTIONS, isLabourHire } from "@/lib/resource";
 
 export default function AssignedChip({
   assignment,
@@ -32,7 +32,10 @@ export default function AssignedChip({
     e.dataTransfer.effectAllowed = "move";
   }
 
-  const tone = isSupervisorLike
+  const labourHire = isLabourHire(r);
+  const tone = labourHire
+    ? "border border-yellow-500 bg-yellow-400 font-medium text-gray-900"
+    : isSupervisorLike
     ? "bg-brand-600 text-white"
     : column === "plant"
     ? "border border-orange-500/60 bg-orange-950/60 text-orange-200"
@@ -60,7 +63,7 @@ export default function AssignedChip({
           value={assignment.role ?? ""}
           onChange={(e) => onRoleChange(e.target.value)}
           className={`rounded bg-transparent text-[10px] outline-none ${
-            isSupervisorLike ? "text-white" : "text-gray-400"
+            labourHire ? "text-gray-800" : isSupervisorLike ? "text-white" : "text-gray-400"
           }`}
         >
           <option value="">-</option>

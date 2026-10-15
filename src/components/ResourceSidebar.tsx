@@ -137,6 +137,36 @@ export default function ResourceSidebar({
     await onResourcesChanged();
   }
 
+  // One click = one new labour-hire tile in the Yard, named "Labour hire N"
+  // (next free number), ready to drag onto a job. No form - details such as
+  // the agency or rate can be added later on the Hire register.
+  const [addingLabour, setAddingLabour] = useState(false);
+  async function addLabourHireTile() {
+    if (!canEdit || addingLabour) return;
+    setAddingLabour(true);
+    try {
+      const used = resources
+        .map((r) => /^Labour hire (\d+)$/i.exec(r.name)?.[1])
+        .filter(Boolean)
+        .map(Number);
+      const name = `Labour hire ${used.length ? Math.max(...used) + 1 : 1}`;
+      const res = await fetch("/api/resources", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, type: "HIRE", category: "LABOUR", ownership: "HIRED" }),
+      });
+      if (!res.ok) {
+        setMessage("Couldn't add a labour hire tile. Try again.");
+        return;
+      }
+      setMessage(null);
+      setOpen((o) => ({ ...o, hire: true }));
+      await onResourcesChanged();
+    } finally {
+      setAddingLabour(false);
+    }
+  }
+
   const [open, setOpen] = useState<Record<GroupKey, boolean>>({
     crew: true,
     plant: true,
@@ -205,6 +235,17 @@ export default function ResourceSidebar({
         placeholder="Search..."
         className="rounded-md border border-edge bg-panel2 px-2 py-1.5 text-sm text-gray-200 placeholder:text-gray-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
       />
+
+      {canEdit && (
+        <button
+          onClick={addLabourHireTile}
+          disabled={addingLabour}
+          title="Adds one labour hire tile to the Yard (Hire group) each click"
+          className="rounded-md border-2 border-dashed border-yellow-400 bg-yellow-400/10 px-2 py-1.5 text-left text-sm font-medium text-yellow-300 hover:bg-yellow-400/20 disabled:opacity-60"
+        >
+          + Labour hire
+        </button>
+      )}
 
       <div className="flex flex-1 flex-col gap-2 overflow-y-auto">
         {GROUPS.map((g) => {

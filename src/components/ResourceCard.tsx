@@ -1,7 +1,7 @@
 "use client";
 
 import { DragResourcePayload, ResourceDTO } from "@/lib/types";
-import { columnFor, CREW_ROLE_OPTIONS } from "@/lib/resource";
+import { columnFor, CREW_ROLE_OPTIONS, isLabourHire } from "@/lib/resource";
 
 // Tiles for these two roles stand out from the rest of the crew list at a
 // glance, same idea as a supervisor/lead being flagged on an assigned job chip.
@@ -43,7 +43,11 @@ export default function ResourceCard({
       draggable
       onDragStart={onDragStart}
       className={`flex cursor-grab items-center justify-between gap-2 rounded-lg border px-2 py-1 text-sm active:cursor-grabbing ${
-        highlighted ? "border-brand-500/50 bg-brand-500/10" : "border-edge bg-panel2"
+        isLabourHire(resource)
+          ? "border-yellow-500 bg-yellow-400 font-medium text-gray-900"
+          : highlighted
+          ? "border-brand-500/50 bg-brand-500/10"
+          : "border-edge bg-panel2"
       } ${down ? "opacity-50" : ""}`}
       title={resource.detail ?? resource.role ?? undefined}
     >

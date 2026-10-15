@@ -9,6 +9,12 @@ export function columnFor(r: Pick<ResourceDTO, "type" | "category">): BoardColum
   return "plant";
 }
 
+// Agency (labour-hire) personnel: shown yellow in the Yard and on the board so
+// they stand apart from Lobos's own crew at a glance.
+export function isLabourHire(r: Pick<ResourceDTO, "type" | "category">) {
+  return r.type === "HIRE" && r.category === "LABOUR";
+}
+
 export function money(n: number | null | undefined) {
   if (n === null || n === undefined) return null;
   return n.toLocaleString("en-AU", { style: "currency", currency: "AUD" });
