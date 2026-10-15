@@ -2,10 +2,10 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "operations",
+      "name": "operations-test",
       "runtimeExecutable": "C:\\Program Files\\nodejs\\npm.cmd",
-      "runtimeArgs": ["run", "dev"],
-      "port": 3000
+      "runtimeArgs": ["--prefix", "C:\\Users\\ilies\\Documents\\operations-project-file", "run", "dev", "--", "-p", "3001"],
+      "port": 3001
     }
   ]
 }
