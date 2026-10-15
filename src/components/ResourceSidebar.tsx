@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ResourceDTO } from "@/lib/types";
+import { DragResourcePayload, ResourceDTO } from "@/lib/types";
+import { isQuickLabourHire, NEW_LABOUR_HIRE } from "@/lib/resource";
 import ResourceCard from "./ResourceCard";
 import ReportBugButton from "./ReportBugButton";
 import YardBin from "./YardBin";
@@ -137,34 +138,16 @@ export default function ResourceSidebar({
     await onResourcesChanged();
   }
 
-  // One click = one new labour-hire tile in the Yard, named "Labour hire N"
-  // (next free number), ready to drag onto a job. No form - details such as
-  // the agency or rate can be added later on the Hire register.
-  const [addingLabour, setAddingLabour] = useState(false);
-  async function addLabourHireTile() {
-    if (!canEdit || addingLabour) return;
-    setAddingLabour(true);
-    try {
-      const used = resources
-        .map((r) => /^Labour hire (\d+)$/i.exec(r.name)?.[1])
-        .filter(Boolean)
-        .map(Number);
-      const name = `Labour hire ${used.length ? Math.max(...used) + 1 : 1}`;
-      const res = await fetch("/api/resources", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, type: "HIRE", category: "LABOUR", ownership: "HIRED" }),
-      });
-      if (!res.ok) {
-        setMessage("Couldn't add a labour hire tile. Try again.");
-        return;
-      }
-      setMessage(null);
-      setOpen((o) => ({ ...o, hire: true }));
-      await onResourcesChanged();
-    } finally {
-      setAddingLabour(false);
-    }
+  // The "Labour hire" box: every drag onto a job's crew cell creates a new
+  // "Labour hire N" tile on that job (Board.handleAssign does the creating).
+  function onLabourHireDragStart(e: React.DragEvent) {
+    const payload: DragResourcePayload = {
+      resourceId: NEW_LABOUR_HIRE,
+      resourceName: "Labour hire",
+      column: "crew",
+    };
+    e.dataTransfer.setData("application/json", JSON.stringify(payload));
+    e.dataTransfer.effectAllowed = "copy";
   }
 
   const [open, setOpen] = useState<Record<GroupKey, boolean>>({
@@ -186,7 +169,8 @@ export default function ResourceSidebar({
       hire: [],
     };
     for (const r of resources) {
-      if (q && !`${r.name} ${r.role ?? ""} ${r.detail ?? ""}`.toLowerCase().includes(q)) continue;
+      if (isQuickLabourHire(r)) continue; // these only live on the job they were dropped on
+      if (q &&!`${r.name} ${r.role ?? ""} ${r.detail ?? ""}`.toLowerCase().includes(q)) continue;
       // Once it's on a job today, dragging from here is a move: it leaves the Yard
       // until it's unassigned (or dragged back onto the Yard), so there's one copy
       // of it in play at a time, not a duplicate sitting in both places.
@@ -237,14 +221,14 @@ export default function ResourceSidebar({
       />
 
       {canEdit && (
-        <button
-          onClick={addLabourHireTile}
-          disabled={addingLabour}
-          title="Adds one labour hire tile to the Yard (Hire group) each click"
-          className="rounded-md border-2 border-dashed border-yellow-400 bg-yellow-400/10 px-2 py-1.5 text-left text-sm font-medium text-yellow-300 hover:bg-yellow-400/20 disabled:opacity-60"
+        <div
+          draggable
+          onDragStart={onLabourHireDragStart}
+          title="Drag onto a job's crew to add a labour hire tile - every drag adds a new one"
+          className="cursor-grab rounded-md border-2 border-dashed border-yellow-400 bg-yellow-400/10 px-2 py-1.5 text-sm font-medium text-yellow-300 hover:bg-yellow-400/20 active:cursor-grabbing"
         >
-          + Labour hire
-        </button>
+          + Labour hire <span className="text-[11px] font-normal text-yellow-300/70">(drag onto a job)</span>
+        </div>
       )}
 
       <div className="flex flex-1 flex-col gap-2 overflow-y-auto">

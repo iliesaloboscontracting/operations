@@ -15,6 +15,16 @@ export function isLabourHire(r: Pick<ResourceDTO, "type" | "category">) {
   return r.type === "HIRE" && r.category === "LABOUR";
 }
 
+// The Yard's "Labour hire" box: dragging it onto a job creates a fresh
+// "Labour hire N" tile on that job (one per drag). These quick tiles live only
+// on the job they were dropped on - they never sit in the Yard - and removing
+// one from its job (the x) retires it.
+export const NEW_LABOUR_HIRE = "new-labour-hire";
+export const QUICK_LABOUR_HIRE_NAME = /^Labour hire (\d+)$/i;
+export function isQuickLabourHire(r: Pick<ResourceDTO, "type" | "category" | "name">) {
+  return isLabourHire(r) && QUICK_LABOUR_HIRE_NAME.test(r.name);
+}
+
 export function money(n: number | null | undefined) {
   if (n === null || n === undefined) return null;
   return n.toLocaleString("en-AU", { style: "currency", currency: "AUD" });

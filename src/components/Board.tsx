@@ -8,7 +8,14 @@ import {
   ResourceDTO,
   StartAlertDTO,
 } from "@/lib/types";
-import { columnFor, isOfficeStaff, localISODate } from "@/lib/resource";
+import {
+  columnFor,
+  isOfficeStaff,
+  isQuickLabourHire,
+  localISODate,
+  NEW_LABOUR_HIRE,
+  QUICK_LABOUR_HIRE_NAME,
+} from "@/lib/resource";
 import DateTabs from "./DateTabs";
 import ResourceSidebar from "./ResourceSidebar";
 import JobGridHeader from "./JobGridHeader";
@@ -143,6 +150,26 @@ export default function Board() {
       if (!id) return;
       realJobId = id;
     }
+    // Dragged from the Yard's "Labour hire" box: make a new tile for this drop.
+    let resourceId = payload.resourceId;
+    if (resourceId === NEW_LABOUR_HIRE) {
+      const used = resources
+        .map((r) => QUICK_LABOUR_HIRE_NAME.exec(r.name)?.[1])
+        .filter(Boolean)
+        .map(Number);
+      const created = await fetch("/api/resources", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: `Labour hire ${used.length ? Math.max(...used) + 1 : 1}`,
+          type: "HIRE",
+          category: "LABOUR",
+          ownership: "HIRED",
+        }),
+      });
+      if (!created.ok) return fail(await serverErrorMessage(created, "Couldn't add a labour hire tile. Try again."));
+      resourceId = (await created.json()).id;
+    }
     const res = payload.assignmentId
       ? await fetch(`/api/assignments/${payload.assignmentId}`, {
           method: "PATCH",
@@ -152,7 +179,7 @@ export default function Board() {
       : await fetch("/api/assignments", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ jobId: realJobId, resourceId: payload.resourceId }),
+          body: JSON.stringify({ jobId: realJobId, resourceId }),
         });
     if (!res.ok) return fail(await serverErrorMessage(res, "Couldn't assign that resource. Try again."));
     await refresh();
@@ -175,6 +202,13 @@ export default function Board() {
     setMessage(null);
     const res = await fetch(`/api/assignments/${assignmentId}`, { method: "DELETE" });
     if (!res.ok) return fail(await serverErrorMessage(res, "Couldn't remove that assignment. Try again."));
+    // A quick labour hire tile only exists for the job it was dropped on, so
+    // once it's on no job at all it's retired (soft delete - history kept)
+    // rather than left sitting in the Yard.
+    const r = resources.find((x) => (x.assignments ?? []).some((a) => a.id === assignmentId));
+    if (r && isQuickLabourHire(r) && (r.assignments ?? []).every((a) => a.id === assignmentId)) {
+      await fetch(`/api/resources/${r.id}`, { method: "DELETE" });
+    }
     await refresh();
   }
 
@@ -287,13 +321,16 @@ export default function Board() {
       "crew" | "plant" | "hire",
       [number, number]
     >;
-    for (const r of resources) t[columnFor(r)][1]++;
+    // Quick labour hire tiles aren't part of the pool; they count only where
+    // they've been placed (on both sides of "placed / available").
+    for (const r of resources) if (!isQuickLabourHire(r)) t[columnFor(r)][1]++;
     const seen = new Set<string>();
     for (const j of running)
       for (const a of j.assignments) {
         if (seen.has(a.resourceId)) continue;
         seen.add(a.resourceId);
         t[columnFor(a.resource)][0]++;
+        if (isQuickLabourHire(a.resource)) t[columnFor(a.resource)][1]++;
       }
     return t;
   }, [resources, running]);
