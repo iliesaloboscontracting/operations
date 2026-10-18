@@ -32,6 +32,6 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
 
   clearFailures(key);
   await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
-  await startSession(user.id);
+  await startSession(user.id, user.email);
   return NextResponse.json({ ok: true });
 });

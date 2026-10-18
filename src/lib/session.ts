@@ -8,6 +8,17 @@
 export const SESSION_COOKIE = "operate_session";
 export const SESSION_MAX_AGE_S = 60 * 60 * 12; // 12 hours
 
+// The Building Agent (the account Claude applies approved data changes
+// through, in the browser pane on this PC) stays signed in for 30 days so it
+// isn't logged out between working sessions (Ilies, 18 Oct 2026). Everyone
+// else keeps 12 hours. Switching the user off on the Users page still ends
+// the session at once, because the account is checked on every request.
+export const BUILDING_AGENT_EMAIL = "iliesa+agent@loboscontracting.com.au";
+export const AGENT_SESSION_MAX_AGE_S = 60 * 60 * 24 * 30; // 30 days
+export function sessionMaxAgeFor(email: string | null | undefined) {
+  return email?.toLowerCase() === BUILDING_AGENT_EMAIL ? AGENT_SESSION_MAX_AGE_S : SESSION_MAX_AGE_S;
+}
+
 export interface SessionPayload {
   uid: string;
   exp: number;
@@ -45,8 +56,8 @@ async function hmacKey() {
   );
 }
 
-export async function signSession(uid: string): Promise<string> {
-  const payload: SessionPayload = { uid, exp: Date.now() + SESSION_MAX_AGE_S * 1000 };
+export async function signSession(uid: string, maxAgeS = SESSION_MAX_AGE_S): Promise<string> {
+  const payload: SessionPayload = { uid, exp: Date.now() + maxAgeS * 1000 };
   const body = b64u(enc.encode(JSON.stringify(payload)));
   const sig = await crypto.subtle.sign("HMAC", await hmacKey(), enc.encode(body));
   return `${body}.${b64u(sig)}`;

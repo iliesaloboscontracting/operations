@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { randomBytes, scrypt as scryptCb, timingSafeEqual } from "crypto";
 import { promisify } from "util";
 import { prisma } from "./prisma";
-import { SESSION_COOKIE, SESSION_MAX_AGE_S, signSession, verifySession } from "./session";
+import { SESSION_COOKIE, sessionMaxAgeFor, signSession, verifySession } from "./session";
 
 const scrypt = promisify(scryptCb) as (pw: string, salt: Buffer, len: number) => Promise<Buffer>;
 
@@ -43,14 +43,15 @@ export function dummyHash() {
 }
 
 // ---------- sessions ----------
-export async function startSession(userId: string) {
-  const token = await signSession(userId);
+export async function startSession(userId: string, email?: string | null) {
+  const maxAge = sessionMaxAgeFor(email);
+  const token = await signSession(userId, maxAge);
   cookies().set(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
     path: "/",
-    maxAge: SESSION_MAX_AGE_S,
+    maxAge,
   });
 }
 
