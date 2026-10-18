@@ -10,6 +10,7 @@ import {
 } from "@/lib/types";
 import {
   columnFor,
+  isLabourHire,
   isOfficeStaff,
   isQuickLabourHire,
   localISODate,
@@ -28,7 +29,7 @@ import { addDays } from "@/lib/dates";
 import { buildDaySheet, DaySheetJob } from "@/lib/daySheet";
 import DaySheetModal from "./DaySheetModal";
 import { apiFetch, serverErrorMessage } from "@/lib/apiFetch";
-import { AlertTriangle, Building2, CalendarClock, Download, Eraser, Plus, Users } from "lucide-react";
+import { AlertTriangle, Building2, CalendarClock, Download, Eraser, HardHat, Plus, Users } from "lucide-react";
 import StatTile from "./StatTile";
 
 export default function Board() {
@@ -358,6 +359,10 @@ export default function Board() {
         (p) => p.status === "ACTIVE" && !!p.startDate && p.startDate > selectedDate && p.startDate <= weekEnd
       ).length,
       crewDeployed: totals.crew[0],
+      // Labour hire people among those deployed (each person counted once).
+      labourHire: new Set(
+        running.flatMap((j) => j.assignments.filter((a) => isLabourHire(a.resource)).map((a) => a.resourceId))
+      ).size,
     };
   }, [running, projects, selectedDate, totals]);
 
@@ -485,11 +490,12 @@ export default function Board() {
             className="shrink-0 rounded-lg border border-edge bg-panel2 px-3 py-2 text-sm text-gray-200 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500"
           />
         </div>
-        <div className="mt-3 grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5">
           <StatTile icon={Building2} value={dayFigures.sites} label="Sites running" />
           <StatTile icon={AlertTriangle} value={dayFigures.needCrew} label="Need crew" tone="warn" />
           <StatTile icon={CalendarClock} value={dayFigures.startingSoon} label="Starting in the next 7 days" />
           <StatTile icon={Users} value={dayFigures.crewDeployed} label="Crew deployed" />
+          <StatTile icon={HardHat} value={dayFigures.labourHire} label="Labour hire onsite" tone="labourHire" />
         </div>
         <div className="mt-3 empty:hidden">
           <UpcomingAlerts compact onSelect={selectAlert} />
