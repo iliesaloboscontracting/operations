@@ -493,7 +493,7 @@ export default function Board() {
           <StatTile icon={Building2} value={dayFigures.sites} label="Sites running" />
           <StatTile icon={CalendarClock} value={dayFigures.startingSoon} label="Starting in the next 7 days" />
           <StatTile icon={Users} value={dayFigures.crewDeployed} label="Crew deployed" />
-          <StatTile icon={HardHat} value={dayFigures.labourHire} label="Labour hire onsite" tone="labourHire" />
+          <StatTile icon={HardHat} value={dayFigures.labourHire} label="Labour hire" tone="labourHire" />
         </div>
         <div className="mt-3 empty:hidden">
           <UpcomingAlerts compact onSelect={selectAlert} />
