@@ -264,11 +264,20 @@ export default function Board() {
 
   // ---- derived: every active/inactive project gets a row, even before its
   // job for the day exists - a placeholder ("virtual") row stands in until
-  // then, so a project never just vanishes off the board. -----------------
+  // then, so a project never just vanishes off the board (from its start
+  // date on). ---------------------------------------------------------------
   const boardRows = useMemo(() => {
     const hasJobToday = new Set(jobs.map((j) => j.projectId).filter((id): id is string => !!id));
     const placeholders: JobDTO[] = projects
-      .filter((p) => p.status !== "COMPLETED" && !hasJobToday.has(p.id))
+      // A project with a start date doesn't get a placeholder row on days before
+      // it starts (Ilies, 18 Oct 2026). A real job entered for one of those days
+      // still shows as normal.
+      .filter(
+        (p) =>
+          p.status !== "COMPLETED" &&
+          !hasJobToday.has(p.id) &&
+          !(p.startDate && selectedDate < p.startDate)
+      )
       .map((p) => ({
         id: `virtual:${p.id}`,
         projectId: p.id,
