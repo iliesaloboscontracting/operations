@@ -12,9 +12,6 @@ import UpcomingAlerts from "@/components/UpcomingAlerts";
 import { useAuth } from "@/components/AuthProvider";
 import { apiFetch, serverErrorMessage } from "@/lib/apiFetch";
 import {
-  AlertTriangle,
-  Building2,
-  CalendarClock,
   ClipboardList,
   Handshake,
   Link2,
@@ -39,12 +36,6 @@ function startsIn(p: ProjectDTO) {
   if (n === 0) return "Starts today";
   if (n === 1) return "Starts tomorrow";
   return `Starts in ${n} days`;
-}
-
-function startsWithinWeek(p: ProjectDTO) {
-  if (!p.startDate) return false;
-  const n = daysBetween(localISODate(), p.startDate);
-  return n >= 0 && n <= 7;
 }
 
 // A running site with nobody rostered on today needs a decision today.
@@ -82,33 +73,6 @@ function CountStat({ icon: Icon, n, label }: { icon: LucideIcon; n: number; labe
   );
 }
 
-function StatTile({
-  icon: Icon,
-  value,
-  label,
-  tone = "default",
-}: {
-  icon: LucideIcon;
-  value: number;
-  label: string;
-  tone?: "default" | "warn";
-}) {
-  return (
-    <div className="flex items-center gap-3 rounded-xl border border-edge bg-panel p-3.5 shadow-soft">
-      <div
-        className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${
-          tone === "warn" && value > 0 ? "bg-amber-500/15 text-amber-600" : "bg-brand-500/10 text-brand-600"
-        }`}
-      >
-        <Icon size={18} />
-      </div>
-      <div className="min-w-0">
-        <div className="text-xl font-semibold leading-tight text-gray-100">{value}</div>
-        <div className="truncate text-[11px] text-gray-500">{label}</div>
-      </div>
-    </div>
-  );
-}
 
 type Tab = "current" | "inactive" | "archived";
 
@@ -172,17 +136,11 @@ export default function ProjectsPage() {
     return notCompleted.filter((p) => p.status === "ACTIVE");
   }, [notCompleted, tab]);
 
-  // Only meaningful for the current tab - a stat strip for "what needs a look
-  // today", not a report on the whole project history.
+  // The daily figures bar now lives on Allocations (Ilies, 18 Oct 2026); only
+  // the "Needs attention" count is still used here.
   const stats = useMemo(() => {
     if (tab !== "current") return null;
-    return {
-      active: byTab.length,
-      noCrew: byTab.filter(noCrewToday).length,
-      needsAttention: byTab.filter(needsAttention).length,
-      startingSoon: byTab.filter(startsWithinWeek).length,
-      crewToday: byTab.reduce((n, p) => n + (p.counts?.crew ?? 0), 0),
-    };
+    return { needsAttention: byTab.filter(needsAttention).length };
   }, [byTab, tab]);
 
   const visible = attentionOnly && tab === "current" ? byTab.filter(needsAttention) : byTab;
@@ -203,14 +161,6 @@ export default function ProjectsPage() {
         ) : undefined
       }
     >
-      {stats && (
-        <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <StatTile icon={Building2} value={stats.active} label="Active sites" />
-          <StatTile icon={AlertTriangle} value={stats.noCrew} label="Need crew today" tone="warn" />
-          <StatTile icon={CalendarClock} value={stats.startingSoon} label="Starting within a week" />
-          <StatTile icon={Users} value={stats.crewToday} label="Crew deployed today" />
-        </div>
-      )}
 
       <UpcomingAlerts />
 

@@ -28,7 +28,8 @@ import { addDays } from "@/lib/dates";
 import { buildDaySheet, DaySheetJob } from "@/lib/daySheet";
 import DaySheetModal from "./DaySheetModal";
 import { apiFetch, serverErrorMessage } from "@/lib/apiFetch";
-import { CalendarClock, Download, Eraser, Plus } from "lucide-react";
+import { AlertTriangle, Building2, CalendarClock, Download, Eraser, Plus, Users } from "lucide-react";
+import StatTile from "./StatTile";
 
 export default function Board() {
   const [selectedDate, setSelectedDate] = useState(localISODate());
@@ -344,6 +345,22 @@ export default function Board() {
     return t;
   }, [resources, running]);
 
+  // ---- derived: the day's figures bar (moved here from Projects, Ilies 18 Oct
+  // 2026) - everything is for the date being viewed, not just today. The Yard
+  // isn't a site, so it's left out of the site counts.
+  const dayFigures = useMemo(() => {
+    const sites = running.filter((j) => j.title.trim().toLowerCase() !== "yard");
+    const weekEnd = addDays(selectedDate, 7);
+    return {
+      sites: sites.length,
+      needCrew: sites.filter((j) => !j.assignments.some((a) => columnFor(a.resource) === "crew")).length,
+      startingSoon: projects.filter(
+        (p) => p.status === "ACTIVE" && !!p.startDate && p.startDate > selectedDate && p.startDate <= weekEnd
+      ).length,
+      crewDeployed: totals.crew[0],
+    };
+  }, [running, projects, selectedDate, totals]);
+
   const [daySheet, setDaySheet] = useState<
     { subject: string; body: string; scopeJobs: { id: string; title: string; projectId: string }[] } | null
   >(null);
@@ -467,6 +484,12 @@ export default function Board() {
             title="Jump to any date"
             className="shrink-0 rounded-lg border border-edge bg-panel2 px-3 py-2 text-sm text-gray-200 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500"
           />
+        </div>
+        <div className="mt-3 grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <StatTile icon={Building2} value={dayFigures.sites} label="Sites running" />
+          <StatTile icon={AlertTriangle} value={dayFigures.needCrew} label="Need crew" tone="warn" />
+          <StatTile icon={CalendarClock} value={dayFigures.startingSoon} label="Starting in the next 7 days" />
+          <StatTile icon={Users} value={dayFigures.crewDeployed} label="Crew deployed" />
         </div>
         <div className="mt-3 empty:hidden">
           <UpcomingAlerts compact onSelect={selectAlert} />
