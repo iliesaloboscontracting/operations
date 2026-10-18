@@ -29,7 +29,7 @@ import { addDays } from "@/lib/dates";
 import { buildDaySheet, DaySheetJob } from "@/lib/daySheet";
 import DaySheetModal from "./DaySheetModal";
 import { apiFetch, serverErrorMessage } from "@/lib/apiFetch";
-import { AlertTriangle, Building2, CalendarClock, Download, Eraser, HardHat, Plus, Users } from "lucide-react";
+import { Building2, CalendarClock, Download, Eraser, HardHat, Plus, Users } from "lucide-react";
 import StatTile from "./StatTile";
 
 export default function Board() {
@@ -354,7 +354,6 @@ export default function Board() {
     const weekEnd = addDays(selectedDate, 7);
     return {
       sites: sites.length,
-      needCrew: sites.filter((j) => !j.assignments.some((a) => columnFor(a.resource) === "crew")).length,
       startingSoon: projects.filter(
         (p) => p.status === "ACTIVE" && !!p.startDate && p.startDate > selectedDate && p.startDate <= weekEnd
       ).length,
@@ -490,9 +489,8 @@ export default function Board() {
             className="shrink-0 rounded-lg border border-edge bg-panel2 px-3 py-2 text-sm text-gray-200 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500"
           />
         </div>
-        <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5">
+        <div className="mt-3 grid grid-cols-2 gap-3 lg:grid-cols-4">
           <StatTile icon={Building2} value={dayFigures.sites} label="Sites running" />
-          <StatTile icon={AlertTriangle} value={dayFigures.needCrew} label="Need crew" tone="warn" />
           <StatTile icon={CalendarClock} value={dayFigures.startingSoon} label="Starting in the next 7 days" />
           <StatTile icon={Users} value={dayFigures.crewDeployed} label="Crew deployed" />
           <StatTile icon={HardHat} value={dayFigures.labourHire} label="Labour hire onsite" tone="labourHire" />
