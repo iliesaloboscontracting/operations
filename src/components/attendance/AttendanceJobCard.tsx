@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDown, ChevronRight, Plus } from "lucide-react";
+import { Building2, ChevronDown, ChevronRight, Plus, Truck, Warehouse } from "lucide-react";
 import { ShiftBadge } from "@/components/ShiftBadge";
 import { apiFetch, serverErrorMessage } from "@/lib/apiFetch";
 import type { ResourceDTO } from "@/lib/types";
@@ -60,24 +60,34 @@ export default function AttendanceJobCard({
     return out;
   }
 
+  const point = job.kind === "POINT";
   const total = job.rows.filter((r) => r.status !== "REJECTED").reduce((n, r) => n + (r.hours ?? 0), 0);
   return (
     <div className="overflow-hidden rounded-xl border border-edge shadow-soft">
       <div className="flex flex-wrap items-center gap-2 border-b border-edge bg-panel px-3.5 py-2.5">
-        <ShiftBadge shift={job.shift as "DAY" | "NIGHT"} />
+        {point ? (
+          <span className="flex items-center gap-1 rounded-full bg-brand-600/20 px-2 py-0.5 text-[11px] font-semibold text-brand-300">
+            {job.place === "VEHICLE" ? <Truck size={12} /> : job.place === "YARD" ? <Warehouse size={12} /> : <Building2 size={12} />}
+            {job.place === "VEHICLE" ? "Truck" : job.place === "YARD" ? "Yard" : "Office"}
+          </span>
+        ) : (
+          <ShiftBadge shift={job.shift as "DAY" | "NIGHT"} />
+        )}
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-medium text-gray-100">{job.label}</div>
           <div className="truncate text-[11px] text-gray-500">
-            {job.times ?? "No times set"} · {job.allocated.length} allocated · {job.rows.filter((r) => r.status !== "REJECTED").length} signed in
+            {point ? "" : `${job.times ?? "No times set"} · ${job.allocated.length} allocated · `}
+            {job.rows.filter((r) => r.status !== "REJECTED").length} signed in
             {total > 0 && ` · ${total}h signed`}
             {job.breakMinutes ? ` (less ${job.breakMinutes} min break)` : ""}
           </div>
+          {job.note && <div className="text-[11px] text-gray-400">{job.note}</div>}
           {handover && <div className="text-[11px] text-brand-300">Sign-in handed to {handover.name} until {fmt(handover.expiresAt)}</div>}
         </div>
         {canEdit && (
           <div className="flex gap-1.5">
             <button className={quiet} onClick={() => setAdding((v) => !v)}><Plus size={12} className="inline" /> Missed sign-in</button>
-            <button className={quiet} onClick={() => setHanding((v) => !v)}>Hand over</button>
+            {!point && <button className={quiet} onClick={() => setHanding((v) => !v)}>Hand over</button>}
           </div>
         )}
       </div>
@@ -167,7 +177,7 @@ export default function AttendanceJobCard({
 
       {job.noShows.length > 0 && (
         <div className="border-t border-edge/70 px-3.5 py-2 text-xs text-amber-500">
-          Allocated, not signed in: {job.noShows.map((p) => p.name).join(", ")}
+          {point ? "Not signed in" : "Allocated, not signed in"}: {job.noShows.map((p) => p.name).join(", ")}
         </div>
       )}
     </div>
@@ -223,7 +233,7 @@ function AddMissed({ job, date, people, onSave }: { job: AttendanceJob; date: st
         Who
         <select className={inp} value={v.who} onChange={(e) => setV({ ...v, who: e.target.value })}>
           <option value="">Pick…</option>
-          <optgroup label="Allocated">{job.allocated.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</optgroup>
+          <optgroup label={job.kind === "POINT" ? "Listed here" : "Allocated"}>{job.allocated.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</optgroup>
           <optgroup label="Everyone else">{people.filter((p) => !allocatedIds.has(p.id)).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</optgroup>
           <option value="HIRE">Hire / subcontractor worker…</option>
         </select>
@@ -245,7 +255,7 @@ function AddMissed({ job, date, people, onSave }: { job: AttendanceJob; date: st
         disabled={!v.who || !v.in || v.reason.trim().length < 3 || (hire && (!v.hireName.trim() || !v.company.trim()))}
         onClick={() =>
           onSave({
-            jobId: job.id,
+            ...(job.kind === "POINT" ? { place: job.place, vehicleId: job.vehicleId } : { jobId: job.id }),
             ...(hire ? { hire: { name: v.hireName, company: v.company } } : { resourceId: v.who }),
             signInAt: fromLocal(v.in),
             signOutAt: fromLocal(v.out),

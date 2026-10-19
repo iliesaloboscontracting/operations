@@ -55,7 +55,9 @@ export function readRotatingCode(code: unknown, now = Date.now()) {
 export const ROTATE_SECONDS = WINDOW_MS / 1000;
 
 // --- the ticket a scan gives the phone --------------------------------------
-export type Method = "SUPERVISOR_QR" | "POSTER";
+// POINT: a fixed office / yard / truck QR - no job; the ticket's one "job id"
+// is the point's link id.
+export type Method = "SUPERVISOR_QR" | "POSTER" | "POINT";
 export type Ticket = { jobIds: string[]; method: Method; linkId: string };
 export function makeTicket(t: Ticket, now = Date.now()) {
   return sign(`T|${t.jobIds.join(",")}|${t.method}|${t.linkId}|${now + TICKET_MS}`);
@@ -64,7 +66,7 @@ export function readTicket(ticket: unknown, now = Date.now()): Ticket | null {
   const p = unsign(ticket);
   if (!p) return null;
   const [kind, jobs, method, linkId, exp] = p.split("|");
-  if (kind !== "T" || !jobs || (method !== "SUPERVISOR_QR" && method !== "POSTER") || Number(exp) < now) return null;
+  if (kind !== "T" || !jobs || (method !== "SUPERVISOR_QR" && method !== "POSTER" && method !== "POINT") || Number(exp) < now) return null;
   return { jobIds: jobs.split(","), method, linkId };
 }
 
@@ -118,13 +120,42 @@ export function openJob(jobId: string) {
   return prisma.job.findFirst({ where: { ...jobDateWhere(), id: jobId }, select: jobSelect });
 }
 
-// The poster link for a secret (not switched off).
+// The poster link for a secret (not switched off): a site poster
+// (projectId) or a fixed sign-in point (place).
 export async function resolvePoster(secret: unknown) {
   if (typeof secret !== "string" || !/^[A-Za-z0-9_-]{20,64}$/.test(secret)) return null;
-  const link = await prisma.siteLink.findUnique({ where: { tokenHash: hashSecret(secret) }, select: { id: true, kind: true, projectId: true, revokedAt: true } });
-  if (!link || link.revokedAt || link.kind !== "POSTER" || !link.projectId) return null;
-  return { id: link.id, projectId: link.projectId };
+  const link = await prisma.siteLink.findUnique({
+    where: { tokenHash: hashSecret(secret) },
+    select: { id: true, kind: true, projectId: true, place: true, revokedAt: true, resource: { select: { id: true, name: true } } },
+  });
+  if (!link || link.revokedAt || link.kind !== "POSTER") return null;
+  if (link.place) {
+    const point = pointOf(link);
+    return point ? ({ type: "POINT", id: link.id, ...point } as const) : null;
+  }
+  return link.projectId ? ({ type: "SITE", id: link.id, projectId: link.projectId } as const) : null;
 }
+
+// --- fixed sign-in points: the office, the yard, a Lobos truck (20 Oct 2026)
+export type Place = "OFFICE" | "YARD" | "VEHICLE";
+export const PLACE_LABEL: Record<Place, string> = { OFFICE: "Office", YARD: "Yard", VEHICLE: "Truck" };
+export function pointOf(link: { id: string; place: string | null; resource: { id: string; name: string } | null }) {
+  if (link.place === "OFFICE" || link.place === "YARD") return { place: link.place as Place, vehicleId: null, label: PLACE_LABEL[link.place as Place] };
+  if (link.place === "VEHICLE" && link.resource) return { place: "VEHICLE" as Place, vehicleId: link.resource.id, label: link.resource.name };
+  return null;
+}
+// Who's listed first on a point's sign-in page: the office staff at the
+// office, truck drivers at a truck. The yard lists nobody (anyone searches).
+export function pointCrew(place: Place) {
+  if (place === "YARD") return Promise.resolve([] as { id: string; name: string }[]);
+  return prisma.resource.findMany({
+    where: { type: "PERSONNEL", active: true, category: place === "OFFICE" ? "Office" : "Truck Driver" },
+    select: { id: true, name: true },
+    orderBy: { name: "asc" },
+  });
+}
+// Sign-in points have no job's break to go by - the standard 30 minutes.
+export const POINT_BREAK_MINUTES = 30;
 
 // --- hours -------------------------------------------------------------------
 // Signed-in time less the site's unpaid break (same break costing uses),
@@ -139,18 +170,6 @@ export function signedHours(signInAt: Date, signOutAt: Date | null, breakMinutes
 export const sydneyTime = (d: Date | null) =>
   d ? new Intl.DateTimeFormat("en-AU", { timeZone: "Australia/Sydney", hour: "numeric", minute: "2-digit" }).format(d) : null;
 
-// The one open (not signed out, not rejected) sign-in for a worker on a job.
-export function openAttendance(jobId: string, who: { resourceId?: string | null; workerName?: string; company?: string | null }) {
-  return prisma.siteAttendance.findFirst({
-    where: {
-      jobId,
-      signOutAt: null,
-      status: { not: "REJECTED" },
-      ...(who.resourceId ? { resourceId: who.resourceId } : { resourceId: null, workerName: who.workerName, company: who.company ?? null }),
-    },
-    orderBy: { signInAt: "desc" },
-  });
-}
 
 // --- handing sign-in over to another lead for a day -------------------------
 // A one-day link for the stand-in: it only runs sign-in for that one job and

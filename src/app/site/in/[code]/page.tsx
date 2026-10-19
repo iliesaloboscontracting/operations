@@ -12,7 +12,7 @@ import { serverErrorMessage } from "@/lib/apiFetch";
 
 type Person = { id: string; name: string };
 type Job = { id: string; label: string; times: string | null; crew: Person[] };
-type Scan = { method: "SUPERVISOR_QR" | "POSTER"; ticket: string; jobs: Job[] };
+type Scan = { method: "SUPERVISOR_QR" | "POSTER" | "POINT"; ticket: string; jobs: Job[] };
 type Me = { resourceId: string; name: string } | { hire: { name: string; company: string } };
 
 const ME_KEY = "lobos-signin-me";
@@ -163,7 +163,8 @@ function Box({ children }: { children: React.ReactNode }) {
 // First time on this phone: pick your name from the job's crew, find it in
 // the register, or say you're from a hire company / subcontractor.
 function WhoAreYou({ job, ticket, onPick }: { job: Job; ticket: string; onPick: (m: Me) => void }) {
-  const [mode, setMode] = useState<"crew" | "search" | "hire">("crew");
+  // No list (the yard): straight to typing their name.
+  const [mode, setMode] = useState<"crew" | "search" | "hire">(job.crew.length ? "crew" : "search");
   const [q, setQ] = useState("");
   const [found, setFound] = useState<Person[]>([]);
   const [hire, setHire] = useState({ name: "", company: "" });
@@ -189,7 +190,6 @@ function WhoAreYou({ job, ticket, onPick }: { job: Job; ticket: string; onPick: 
       <p className="text-sm text-gray-500">{job.label} - only the first time on this phone.</p>
       {mode === "crew" && (
         <>
-          {job.crew.length === 0 && <p className="text-sm text-gray-500">No crew listed for this job.</p>}
           {job.crew.map(person)}
           <button className="w-full py-2 text-sm text-brand-300" onClick={() => setMode("search")}>I&apos;m not on this list</button>
           <button className="w-full py-2 text-sm text-brand-300" onClick={() => setMode("hire")}>I&apos;m from a hire company / subcontractor</button>
@@ -201,7 +201,7 @@ function WhoAreYou({ job, ticket, onPick }: { job: Job; ticket: string; onPick: 
           {found.map(person)}
           {q.trim().length >= 3 && found.length === 0 && <p className="text-sm text-gray-500">No match. If you&apos;re from a hire company, use the option below.</p>}
           <button className="w-full py-2 text-sm text-brand-300" onClick={() => setMode("hire")}>I&apos;m from a hire company / subcontractor</button>
-          <button className="w-full py-2 text-sm text-gray-400" onClick={() => setMode("crew")}>← Back to the crew list</button>
+          {job.crew.length > 0 && <button className="w-full py-2 text-sm text-gray-400" onClick={() => setMode("crew")}>← Back to the list</button>}
         </>
       )}
       {mode === "hire" && (
@@ -215,7 +215,7 @@ function WhoAreYou({ job, ticket, onPick }: { job: Job; ticket: string; onPick: 
           >
             Continue
           </button>
-          <button className="w-full py-2 text-sm text-gray-400" onClick={() => setMode("crew")}>← Back to the crew list</button>
+          <button className="w-full py-2 text-sm text-gray-400" onClick={() => setMode(job.crew.length ? "crew" : "search")}>← Back</button>
         </>
       )}
     </div>

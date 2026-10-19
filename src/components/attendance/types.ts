@@ -18,8 +18,13 @@ export type AttendanceRow = {
   flags: string[];
   edits: AttendanceEditRow[];
 };
+// A job on the board, or a fixed sign-in point (office / yard / truck).
 export type AttendanceJob = {
   id: string;
+  kind: "JOB" | "POINT";
+  place: "OFFICE" | "YARD" | "VEHICLE" | null;
+  vehicleId: string | null;
+  note: string | null; // truck: the job it's on that day
   label: string;
   projectId: string | null;
   shift: string;
@@ -33,7 +38,8 @@ export type AttendanceData = {
   date: string;
   today: string;
   jobs: AttendanceJob[];
-  posters: { id: string; projectId: string | null; createdAt: string; createdBy: string | null }[];
+  points: AttendanceJob[];
+  posters: { id: string; projectId: string | null; place: string | null; resourceId: string | null; createdAt: string; createdBy: string | null }[];
   handovers: { id: string; jobId: string | null; expiresAt: string; createdBy: string | null; resource: { name: string } | null }[];
 };
 
@@ -45,6 +51,8 @@ export const FLAG_LABEL: Record<string, string> = {
   NO_SIGN_OUT: "No sign-out",
   MOVED: "Moved site",
   SHARED_PHONE: "Phone shared",
+  ODD_HOURS: "Odd hours",
+  LONG_DAY: "Over 14h",
 };
 export const METHOD_LABEL: Record<string, string> = {
   SUPERVISOR_QR: "Supervisor QR",
@@ -52,4 +60,5 @@ export const METHOD_LABEL: Record<string, string> = {
   MANUAL: "Ticked by supervisor",
   OFFICE: "Office",
   MOVED: "Moved site",
+  POINT: "QR",
 };

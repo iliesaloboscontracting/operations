@@ -10,7 +10,9 @@ import { createHandover } from "@/lib/signin";
 export const GET = withErrorHandling(async () => {
   const denied = await guard("MANAGER");
   if (denied) return denied;
+  // Phone links only - site posters and one-day hand-overs live on Sign-ins.
   const links = await prisma.siteLink.findMany({
+    where: { kind: { in: ["SUPERVISOR", "OFFICE"] } },
     orderBy: { createdAt: "desc" },
     select: {
       id: true, kind: true, label: true, createdAt: true, createdBy: true, lastUsedAt: true, revokedAt: true,

@@ -548,9 +548,12 @@ model SiteLink {
   // sign-in on their jobs. OFFICE: office / yard staff capturing tools into
   // the inventory (any toolbox or the yard). HANDOVER: a one-day link for a
   // stand-in lead to run sign-in on one job (jobId, expiresAt). POSTER: the
-  // fixed QR on a site's poster (projectId) - crew scan it to sign in.
+  // fixed QR on a site's poster (projectId) - crew scan it to sign in. A
+  // POSTER with `place` is a fixed sign-in point instead of a site (20 Oct
+  // 2026): OFFICE, YARD, or VEHICLE (resourceId = the Lobos-owned truck).
   kind       String    @default("SUPERVISOR")
-  projectId  String? // POSTER
+  projectId  String? // POSTER (site)
+  place      String? // POSTER (sign-in point): OFFICE | YARD | VEHICLE
   jobId      String? // HANDOVER
   expiresAt  DateTime? // HANDOVER - stops working at the end of that day
   resource   Resource? @relation(fields: [resourceId], references: [id], onDelete: Cascade)
@@ -592,9 +595,14 @@ model SiteSubmission {
 // AttendanceEdit. Times are stamped by the server, never the phone.
 model SiteAttendance {
   id            String    @id @default(cuid())
-  jobId         String
-  job           Job       @relation(fields: [jobId], references: [id], onDelete: Cascade)
-  date          String // YYYY-MM-DD - the job's date
+  // A site sign-in belongs to a job; an office / yard / truck sign-in (20 Oct
+  // 2026) has no job and a `place` instead.
+  jobId         String?
+  job           Job?      @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  place         String? // OFFICE | YARD | VEHICLE
+  vehicleId     String? // VEHICLE: the truck (a Resource) - not a relation, the name is kept in placeLabel
+  placeLabel    String? // e.g. "Office", "Yard", "Tipper - CN03RK"
+  date          String // YYYY-MM-DD - the job's date (sign-in points: Sydney's date at sign-in)
   resourceId    String? // a Personnel-register person; null for hire / subcontractor workers
   resource      Resource? @relation(fields: [resourceId], references: [id], onDelete: SetNull)
   workerName    String // name as signed in (hire: what they typed)
@@ -616,6 +624,7 @@ model SiteAttendance {
   @@index([jobId])
   @@index([date])
   @@index([resourceId])
+  @@index([place])
 }
 
 // Every office change to a sign-in: what, from, to, why, who.

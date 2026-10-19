@@ -37,6 +37,7 @@ export default function AttendancePage() {
   const [data, setData] = useState<AttendanceData | null>(null);
   const [people, setPeople] = useState<ResourceDTO[]>([]);
   const [projects, setProjects] = useState<{ id: string; name: string; status: string }[]>([]);
+  const [vehicles, setVehicles] = useState<ResourceDTO[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -51,6 +52,7 @@ export default function AttendancePage() {
   useEffect(() => {
     apiFetch("/api/resources?type=PERSONNEL").then(async (r) => r.ok && setPeople(((await r.json()) as ResourceDTO[]).filter((p) => p.type === "PERSONNEL")));
     apiFetch("/api/projects").then(async (r) => r.ok && setProjects(await r.json()));
+    apiFetch("/api/resources?type=VEHICLE").then(async (r) => r.ok && setVehicles(((await r.json()) as ResourceDTO[]).filter((v) => v.type === "VEHICLE")));
   }, []);
   // Today's page keeps itself current while it's open.
   useEffect(() => {
@@ -59,11 +61,12 @@ export default function AttendancePage() {
     return () => clearInterval(t);
   }, [data, date, load]);
 
-  const rows = data?.jobs.flatMap((j) => j.rows) ?? [];
+  const groups = data ? [...data.points, ...data.jobs] : [];
+  const rows = groups.flatMap((j) => j.rows);
   const has = (f: string) => rows.filter((r) => r.flags.includes(f)).length;
 
   return (
-    <PageShell title="Sign-ins" subtitle="Who signed in and out on each site, and the hours it works out to.">
+    <PageShell title="Sign-ins" subtitle="Who signed in and out - at the office, the yard, in the trucks and on each site - and the hours it works out to.">
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <button className="rounded-lg border border-edge p-1.5 text-gray-300 hover:bg-panel2" onClick={() => setDate(shiftDate(date, -1))} aria-label="Previous day"><ChevronLeft size={16} /></button>
         <input type="date" className="rounded-lg border border-edge bg-panel2 px-2.5 py-1.5 text-sm text-gray-200" value={date} onChange={(e) => e.target.value && setDate(e.target.value)} />
@@ -81,11 +84,16 @@ export default function AttendancePage() {
             <Tile label={date === data.today ? "On site now" : "Didn't sign out"} value={has(date === data.today ? "STILL_ON" : "NO_SIGN_OUT")} tone={date === data.today ? "text-emerald-400" : "text-amber-500"} />
             <Tile label="Signed in" value={rows.filter((r) => r.status !== "REJECTED").length} />
             <Tile label="Poster - to confirm" value={has("TO_CONFIRM")} tone="text-amber-500" />
-            <Tile label="Allocated, not signed in" value={data.jobs.reduce((n, j) => n + j.noShows.length, 0)} tone="text-amber-500" />
-            <Tile label="Other flags" value={has("NOT_ALLOCATED") + has("SHARED_PHONE") + has("MOVED")} tone="text-amber-500" />
+            <Tile label="Expected, not signed in" value={groups.reduce((n, j) => n + j.noShows.length, 0)} tone="text-amber-500" />
+            <Tile label="Other flags" value={has("NOT_ALLOCATED") + has("SHARED_PHONE") + has("MOVED") + has("ODD_HOURS") + has("LONG_DAY")} tone="text-amber-500" />
           </div>
           <div className="grid gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
             <div className="min-w-0 space-y-3">
+              <h2 className="text-sm font-semibold text-gray-200">Office, yard &amp; trucks</h2>
+              {data.points.map((j) => (
+                <AttendanceJobCard key={j.id} job={j} date={date} canEdit={canEdit} people={people} handover={null} onChanged={load} />
+              ))}
+              <h2 className="pt-3 text-sm font-semibold text-gray-200">Sites</h2>
               {data.jobs.length === 0 && <p className="text-sm text-gray-500">No jobs on the board for this day.</p>}
               {data.jobs.map((j) => {
                 const h = data.handovers.find((x) => x.jobId === j.id);
@@ -102,7 +110,7 @@ export default function AttendancePage() {
                 );
               })}
             </div>
-            <PosterPanel projects={projects} posters={data.posters} canEdit={canEdit} onChanged={load} />
+            <PosterPanel projects={projects} vehicles={vehicles} posters={data.posters} canEdit={canEdit} onChanged={load} />
           </div>
         </>
       )}

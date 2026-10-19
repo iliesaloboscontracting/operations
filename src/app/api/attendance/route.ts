@@ -14,19 +14,23 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
   if (denied) return denied;
   const q = req.nextUrl.searchParams.get("date");
   const date = q && isISODate(q) ? q : todaySydney();
-  const [jobs, posters, handovers] = await Promise.all([
+  const [view, posters, handovers] = await Promise.all([
     attendanceForDate(date),
-    prisma.siteLink.findMany({ where: { kind: "POSTER", revokedAt: null }, select: { id: true, projectId: true, createdAt: true, createdBy: true } }),
+    prisma.siteLink.findMany({
+      where: { kind: "POSTER", revokedAt: null },
+      select: { id: true, projectId: true, place: true, resourceId: true, createdAt: true, createdBy: true },
+    }),
     prisma.siteLink.findMany({
       where: { kind: "HANDOVER", revokedAt: null, expiresAt: { gt: new Date() } },
       select: { id: true, jobId: true, expiresAt: true, createdBy: true, resource: { select: { name: true } } },
     }),
   ]);
-  return NextResponse.json({ date, today: todaySydney(), jobs, posters, handovers });
+  return NextResponse.json({ date, today: todaySydney(), jobs: view.jobs, points: view.points, posters, handovers });
 });
 
 // POST /api/attendance - the office adds a sign-in that was missed.
-//   { jobId, resourceId | hire: { name, company }, signInAt, signOutAt?, reason }
+//   { jobId | place: "OFFICE" | "YARD" | "VEHICLE" (+ vehicleId), resourceId | hire: { name, company },
+//     signInAt, signOutAt?, reason }
 export const POST = withErrorHandling(async (req: NextRequest) => {
   const denied = await guard("MANAGER");
   if (denied) return denied;
@@ -34,11 +38,19 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   const body = await req.json().catch(() => ({}));
   const reason = typeof body.reason === "string" ? body.reason.trim() : "";
   if (reason.length < 3) return bad("Say why it's being added.");
+  const signInAt = parseTime(body.signInAt);
   const job = typeof body.jobId === "string"
     ? await prisma.job.findUnique({ where: { id: body.jobId }, select: { id: true, date: true, assignments: { select: { resourceId: true } } } })
     : null;
-  if (!job) return bad("Pick the job.");
-  const signInAt = parseTime(body.signInAt);
+  // Or an office / yard / truck sign-in.
+  let point: { place: string; vehicleId: string | null; placeLabel: string } | null = null;
+  if (!job && (body.place === "OFFICE" || body.place === "YARD")) point = { place: body.place, vehicleId: null, placeLabel: body.place === "OFFICE" ? "Office" : "Yard" };
+  if (!job && body.place === "VEHICLE") {
+    const truck = typeof body.vehicleId === "string" ? await prisma.resource.findUnique({ where: { id: body.vehicleId }, select: { id: true, name: true, type: true } }) : null;
+    if (!truck || truck.type !== "VEHICLE") return bad("Pick the truck.");
+    point = { place: "VEHICLE", vehicleId: truck.id, placeLabel: truck.name };
+  }
+  if (!job && !point) return bad("Pick the job, or the office / yard / truck.");
   const signOutAt = body.signOutAt ? parseTime(body.signOutAt) : null;
   if (!signInAt) return bad("Enter the sign-in time.");
   if (body.signOutAt && !signOutAt) return bad("The sign-out time isn't valid.");
@@ -57,10 +69,11 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   const by = user?.name ?? "Office";
   const created = await prisma.siteAttendance.create({
     data: {
-      jobId: job.id,
-      date: job.date.toISOString().slice(0, 10),
+      jobId: job?.id ?? null,
+      ...(point ?? {}),
+      date: job ? job.date.toISOString().slice(0, 10) : sydneyDate(signInAt),
       ...who,
-      allocated: !!who.resourceId && job.assignments.some((a) => a.resourceId === who.resourceId),
+      allocated: job ? !!who.resourceId && job.assignments.some((a) => a.resourceId === who.resourceId) : true,
       signInAt,
       signInMethod: "OFFICE",
       signOutAt,
@@ -75,4 +88,6 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   return NextResponse.json({ id: created.id }, { status: 201 });
 });
 
+const sydneyDate = (d: Date) =>
+  new Intl.DateTimeFormat("en-CA", { timeZone: "Australia/Sydney", year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
 const bad = (error: string) => NextResponse.json({ error }, { status: 400 });
