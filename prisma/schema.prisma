@@ -191,6 +191,7 @@ model Job {
   assignments Assignment[]
   allocationCosts AllocationCost[]
   jobActuals  JobActual[]
+  attendances SiteAttendance[]
 
   // A project has at most one Job per date+shift - this is the invariant the
   // Command Centre board relies on (one row per project per day). SQLite
@@ -212,6 +213,7 @@ model Resource {
   id          String       @id @default(cuid())
   toolboxes   Toolbox[] // toolboxes this person is in charge of
   siteLinks   SiteLink[] // their private site-photo link(s)
+  attendances SiteAttendance[] // site sign-ins / sign-outs
   name        String
   type        String // PERSONNEL | EQUIPMENT | ATTACHMENT | VEHICLE | HIRE
   category    String? // register section: Site Manager / Tipper / PLANT|LABOUR|VEHICLE (hire) ...
@@ -542,9 +544,15 @@ model SiteLink {
   // link known by its label (e.g. "Yard": anyone working in the yard).
   resourceId String?
   label      String?
-  // SUPERVISOR: their own toolbox (register, check, fault). OFFICE: office /
-  // yard staff capturing tools into the inventory (any toolbox or the yard).
+  // SUPERVISOR: their own toolbox (register, check, fault) and running crew
+  // sign-in on their jobs. OFFICE: office / yard staff capturing tools into
+  // the inventory (any toolbox or the yard). HANDOVER: a one-day link for a
+  // stand-in lead to run sign-in on one job (jobId, expiresAt). POSTER: the
+  // fixed QR on a site's poster (projectId) - crew scan it to sign in.
   kind       String    @default("SUPERVISOR")
+  projectId  String? // POSTER
+  jobId      String? // HANDOVER
+  expiresAt  DateTime? // HANDOVER - stops working at the end of that day
   resource   Resource? @relation(fields: [resourceId], references: [id], onDelete: Cascade)
   createdBy  String?
   createdAt  DateTime  @default(now())
@@ -575,4 +583,52 @@ model SiteSubmission {
 
   @@index([status])
   @@index([siteLinkId])
+}
+
+// Site sign-in / sign-out (19 Oct 2026). Crew scan the supervisor's QR (it
+// changes every 30 seconds, so it proves they were standing there) or the
+// site poster's QR. Poster sign-ins wait for the site supervisor to confirm;
+// only the office (Manager+) changes a time, and every change is kept in
+// AttendanceEdit. Times are stamped by the server, never the phone.
+model SiteAttendance {
+  id            String    @id @default(cuid())
+  jobId         String
+  job           Job       @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  date          String // YYYY-MM-DD - the job's date
+  resourceId    String? // a Personnel-register person; null for hire / subcontractor workers
+  resource      Resource? @relation(fields: [resourceId], references: [id], onDelete: SetNull)
+  workerName    String // name as signed in (hire: what they typed)
+  company       String? // hire / subcontractor company
+  allocated     Boolean   @default(true) // on that job's allocation when they signed in
+  deviceId      String? // the phone used - flags one phone signing in several people
+  signInAt      DateTime
+  signInMethod  String // SUPERVISOR_QR | POSTER | MANUAL (ticked in by the supervisor) | OFFICE
+  signOutAt     DateTime?
+  signOutMethod String? // SUPERVISOR_QR | POSTER | MANUAL | OFFICE | MOVED (signed in at another site)
+  status        String    @default("CONFIRMED") // CONFIRMED | TO_CONFIRM | REJECTED
+  confirmedBy   String?
+  confirmedAt   DateTime?
+  runBy         String? // the supervisor / lead whose QR or link was used
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  edits         AttendanceEdit[]
+
+  @@index([jobId])
+  @@index([date])
+  @@index([resourceId])
+}
+
+// Every office change to a sign-in: what, from, to, why, who.
+model AttendanceEdit {
+  id           String         @id @default(cuid())
+  attendanceId String
+  attendance   SiteAttendance @relation(fields: [attendanceId], references: [id], onDelete: Cascade)
+  field        String
+  before       String?
+  after        String?
+  reason       String
+  editedBy     String
+  editedAt     DateTime       @default(now())
+
+  @@index([attendanceId])
 }

@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { guard, getCurrentUser } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { hashSecret, newLinkSecret, siteUrl } from "@/lib/siteLinks";
+import { createHandover } from "@/lib/signin";
 
 // GET /api/site-links -> every supervisor's link (never the link itself - only
 // a hash is stored), newest first.
@@ -33,6 +34,13 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   if (denied) return denied;
   const user = await getCurrentUser();
   const body = await req.json().catch(() => ({}));
+  // { kind: "HANDOVER", resourceId, jobId }: the office hands a job's sign-in to
+  // a stand-in lead for the day (lib/signin.ts).
+  if (body.kind === "HANDOVER") {
+    const out = await createHandover(String(body.jobId ?? ""), String(body.resourceId ?? ""), user?.name ?? null);
+    if (!out.ok) return NextResponse.json({ error: out.error }, { status: 400 });
+    return NextResponse.json({ url: siteUrl(out.secret, req.nextUrl.origin), name: out.name }, { status: 201 });
+  }
   if (body.shared !== undefined) {
     if (body.shared !== "Yard") return NextResponse.json({ error: "Unknown shared link." }, { status: 400 });
     const secret = newLinkSecret();
@@ -45,13 +53,16 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   const person = typeof body.resourceId === "string"
     ? await prisma.resource.findUnique({
         where: { id: body.resourceId },
-        select: { id: true, type: true, toolboxes: { where: { active: true }, select: { id: true } } },
+        select: { id: true, type: true, category: true, role: true, toolboxes: { where: { active: true }, select: { id: true } } },
       })
     : null;
   if (!person || person.type !== "PERSONNEL") return NextResponse.json({ error: "Pick someone from the Personnel register." }, { status: 400 });
   const kind = body.kind === "OFFICE" ? "OFFICE" : "SUPERVISOR";
-  if (kind === "SUPERVISOR" && person.toolboxes.length === 0) {
-    return NextResponse.json({ error: "Site links are for supervisors - make them the supervisor of a toolbox first." }, { status: 400 });
+  // Supervisor links: anyone in charge of a toolbox, or a Site Manager /
+  // supervisor (they run crew sign-in even without a toolbox).
+  const leads = person.toolboxes.length > 0 || person.category === "Site Manager" || /supervis|leading hand|foreman/i.test(person.role ?? "");
+  if (kind === "SUPERVISOR" && !leads) {
+    return NextResponse.json({ error: "Supervisor links are for site managers and supervisors - set them as a Site Manager or give them a toolbox first." }, { status: 400 });
   }
   const secret = newLinkSecret();
   const [, link] = await prisma.$transaction([

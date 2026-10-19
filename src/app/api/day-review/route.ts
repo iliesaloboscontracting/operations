@@ -4,6 +4,7 @@ import { guard } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { costAllocation } from "@/lib/costAllocation";
 import { liveJobFields } from "@/lib/jobs";
+import { signInHoursForJobs } from "@/lib/attendanceView";
 import type { ResourceType, DayReviewRowDTO } from "@/lib/types";
 
 // GET /api/day-review?date=YYYY-MM-DD -> that date's jobs with planned
@@ -44,6 +45,14 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
       },
     }),
   ]);
+
+  const signIns = await signInHoursForJobs(jobs.map((j) => j.id));
+  // Several sign-ins for one person on a job (left and came back): add the hours.
+  const summary = (list: typeof signIns) => {
+    const first = list[0], last = list[list.length - 1];
+    const hours = list.every((x) => x.hours != null) ? list.reduce((n, x) => n + (x.hours ?? 0), 0) : null;
+    return { name: first.name, company: first.company, in: first.in, out: last.out, hours, toConfirm: list.some((x) => x.toConfirm) };
+  };
 
   const NO_WINDOW = { unpaidBreakMinutes: null, dayStart: null, dayEnd: null, nightStart: null, nightEnd: null };
   let uncostedCount = 0;
@@ -91,6 +100,15 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
       }
     }
 
+    const jobSignIns = signIns.filter((s) => s.jobId === j.id);
+    for (const row of rows.values()) {
+      const mine = jobSignIns.filter((s) => s.resourceId === row.resourceId);
+      row.signIn = mine.length ? summary(mine) : null;
+    }
+    // People who signed in but aren't a row (hire / subcontractors, or a
+    // register person not allocated or logged here).
+    const otherSignIns = jobSignIns.filter((s) => !s.resourceId || !rows.has(s.resourceId)).map((s) => summary([s]));
+
     // A project-linked job shows its project's current name, client and job
     // no, not its own stored copy (lib/jobs.ts).
     const live = liveJobFields(j);
@@ -104,6 +122,7 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
       endTime: j.endTime,
       dayBrief: j.dayBrief,
       rows: [...rows.values()],
+      otherSignIns,
     };
   });
 

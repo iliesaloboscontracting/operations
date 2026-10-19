@@ -436,6 +436,17 @@ export interface DayReviewRowDTO {
   actualHours: number | null;
   notes: string | null;
   costStatus: CostStatus | null; // from the same live costing Tracking uses - a data-quality signal, not a $ figure
+  // From site sign-in (19 Oct 2026): times and the hours they work out to.
+  signIn?: SignInSummary | null;
+}
+
+export interface SignInSummary {
+  name: string;
+  company: string | null;
+  in: string | null;
+  out: string | null;
+  hours: number | null; // signed-in time less the unpaid break, to the quarter hour; null until signed out
+  toConfirm: boolean; // poster sign-in the supervisor hasn't confirmed yet
 }
 
 export interface DayReviewJobDTO {
@@ -448,6 +459,7 @@ export interface DayReviewJobDTO {
   endTime: string | null;
   dayBrief: string | null;
   rows: DayReviewRowDTO[];
+  otherSignIns?: SignInSummary[]; // hire / subcontractor workers (and anyone not a row) who signed in
 }
 
 export interface DayReviewDTO {

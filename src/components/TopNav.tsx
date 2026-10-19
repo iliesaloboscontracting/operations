@@ -16,6 +16,7 @@ const OPERATIONS = [
   { href: "/command", label: "Allocations" },
   { href: "/completed", label: "Completed" },
   { href: "/day-review", label: "Day Review" },
+  { href: "/attendance", label: "Sign-ins" },
   { href: "/tracking", label: "Project Tracking" },
   { href: "/assistant", label: "Assistant" },
   { href: "/notes", label: "Notes" },
@@ -93,7 +94,7 @@ export default function TopNav() {
       </Link>
 
       <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto py-1.5">
-        {OPERATIONS.filter((i) => (i.href !== "/tracking" && i.href !== "/assistant") || canEdit).map((i) => (
+        {OPERATIONS.filter((i) => (i.href !== "/tracking" && i.href !== "/assistant" && i.href !== "/attendance") || canEdit).map((i) => (
           <NavTab
             key={i.href}
             href={i.href}

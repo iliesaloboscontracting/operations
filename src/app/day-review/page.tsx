@@ -7,7 +7,7 @@ import { ShiftBadge } from "@/components/ShiftBadge";
 import { useAuth } from "@/components/AuthProvider";
 import { apiFetch } from "@/lib/apiFetch";
 import { localISODate } from "@/lib/resource";
-import { DayReviewDTO, DayReviewJobDTO, DayReviewRowDTO, ResourceDTO } from "@/lib/types";
+import { DayReviewDTO, DayReviewJobDTO, DayReviewRowDTO, ResourceDTO, SignInSummary } from "@/lib/types";
 import { Lock, Plus, TriangleAlert, Unlock, X } from "lucide-react";
 
 const TYPE_LABEL: Record<string, string> = {
@@ -53,6 +53,8 @@ function JobCard({
   const disabled = !canEdit || closed;
   const rowResourceIds = new Set(job.rows.map((r) => r.resourceId));
   const pickable = resources.filter((r) => !rowResourceIds.has(r.id));
+  // Site sign-in times show once anyone has signed in on this job.
+  const usesSignIn = job.rows.some((r) => r.signIn) || (job.otherSignIns?.length ?? 0) > 0;
 
   async function saveActual(resourceId: string, patch: Record<string, unknown>) {
     setBusy(resourceId);
@@ -119,13 +121,24 @@ function JobCard({
                   {TYPE_LABEL[r.type] ?? r.type}
                   {r.role && ` · ${r.role}`}
                 </div>
+                {usesSignIn && r.type === "PERSONNEL" && <SignInLine s={r.signIn ?? null} />}
               </div>
+              {r.signIn?.hours != null && r.signIn.hours !== r.actualHours && !disabled && (
+                <button
+                  onClick={() => saveActual(r.resourceId, { attended: true, actualHours: r.signIn!.hours })}
+                  className="rounded-md border border-edge px-1.5 py-0.5 text-[10px] text-brand-300 hover:bg-panel2"
+                  title="Put the signed-in hours in the hours box"
+                >
+                  Use {r.signIn.hours}h
+                </button>
+              )}
               <CostStatusBadge status={r.costStatus} />
               <input
                 type="number"
                 step="0.25"
                 min="0"
                 placeholder="Hrs"
+                key={`${r.resourceId}-${r.actualHours}`}
                 defaultValue={r.actualHours ?? ""}
                 disabled={disabled || busy === r.resourceId}
                 onBlur={(e) => saveActual(r.resourceId, { actualHours: e.target.value === "" ? null : Number(e.target.value) })}
@@ -136,6 +149,18 @@ function JobCard({
                   <X size={14} />
                 </button>
               )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {(job.otherSignIns?.length ?? 0) > 0 && (
+        <div className="border-t border-edge/70 px-3.5 py-2 text-[11px] text-gray-400">
+          <div className="mb-1 font-semibold text-gray-300">Also signed in (hire / not allocated here)</div>
+          {job.otherSignIns!.map((s, i) => (
+            <div key={i}>
+              {s.name}
+              {s.company && ` (${s.company})`} · <SignInLine s={s} inline />
             </div>
           ))}
         </div>
@@ -172,6 +197,18 @@ function JobCard({
         </div>
       )}
     </div>
+  );
+}
+
+function SignInLine({ s, inline }: { s: SignInSummary | null; inline?: boolean }) {
+  const cls = inline ? "" : "truncate text-[11px]";
+  if (!s) return <div className={`${cls} text-amber-500`}>No sign-in</div>;
+  return (
+    <span className={`${inline ? "" : "block"} ${cls} text-gray-400`}>
+      In {s.in ?? "-"} · Out {s.out ?? <span className="text-amber-500">not yet</span>}
+      {s.hours != null && ` · ${s.hours}h`}
+      {s.toConfirm && <span className="ml-1 text-amber-500">(to confirm)</span>}
+    </span>
   );
 }
 

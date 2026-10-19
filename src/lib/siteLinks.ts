@@ -13,7 +13,8 @@ export const DAILY_PHOTO_LIMIT = 80;
 
 export type ResolvedLink = {
   id: string;
-  kind: "SUPERVISOR" | "OFFICE";
+  kind: "SUPERVISOR" | "OFFICE" | "HANDOVER";
+  jobId: string | null; // HANDOVER: the one job it runs sign-in for
   person: { id: string | null; name: string }; // shared links: id null, name = label
   shared: boolean;
   // SUPERVISOR: the toolboxes they're in charge of. OFFICE: every active
@@ -21,8 +22,10 @@ export type ResolvedLink = {
   toolboxes: { id: string; name: string }[];
 };
 
-// The live link for a secret: not switched off, and - for a supervisor's
-// link - the person still supervises at least one active toolbox.
+// The live link for a secret: not switched off, and a hand-over link not past
+// its day. (Poster links are resolved separately - lib/signin.ts.) Since site
+// sign-in (19 Oct 2026) a supervisor's link works without a toolbox - the
+// tool buttons just don't show.
 export async function resolveLink(secret: unknown): Promise<ResolvedLink | null> {
   if (typeof secret !== "string" || !/^[A-Za-z0-9_-]{20,64}$/.test(secret)) return null;
   const link = await prisma.siteLink.findUnique({
@@ -32,22 +35,28 @@ export async function resolveLink(secret: unknown): Promise<ResolvedLink | null>
       kind: true,
       revokedAt: true,
       label: true,
+      jobId: true,
+      expiresAt: true,
       resource: {
         select: { id: true, name: true, toolboxes: { where: { active: true }, select: { id: true, name: true }, orderBy: { name: "asc" } } },
       },
     },
   });
   if (!link || link.revokedAt) return null;
-  const kind = link.kind === "OFFICE" ? "OFFICE" : "SUPERVISOR";
+  if (link.kind !== "OFFICE" && link.kind !== "SUPERVISOR" && link.kind !== "HANDOVER") return null;
+  const kind = link.kind;
+  if (kind === "HANDOVER" && (!link.expiresAt || link.expiresAt < new Date() || !link.jobId)) return null;
   // A shared link (no person) can only be an office/yard link.
-  if (kind === "SUPERVISOR" && (link.resource?.toolboxes.length ?? 0) === 0) return null;
+  if (kind !== "OFFICE" && !link.resource) return null;
   const toolboxes =
     kind === "OFFICE"
       ? await prisma.toolbox.findMany({ where: { active: true }, select: { id: true, name: true }, orderBy: { name: "asc" } })
-      : link.resource!.toolboxes;
+      : kind === "HANDOVER"
+        ? []
+        : link.resource!.toolboxes;
   await prisma.siteLink.update({ where: { id: link.id }, data: { lastUsedAt: new Date() } });
   const person = link.resource ? { id: link.resource.id, name: link.resource.name } : { id: null, name: link.label ?? "Shared link" };
-  return { id: link.id, kind, person, shared: !link.resource, toolboxes };
+  return { id: link.id, kind, jobId: link.jobId, person, shared: !link.resource, toolboxes };
 }
 
 export async function photosSentToday(linkId: string) {

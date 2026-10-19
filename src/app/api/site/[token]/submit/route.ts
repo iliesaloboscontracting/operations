@@ -21,6 +21,7 @@ import { createTool, duplicateMessage, findDuplicate } from "@/lib/toolCreate";
 export const POST = withErrorHandling(async (req: NextRequest, { params }: { params: { token: string } }) => {
   const link = await resolveLink(params.token);
   if (!link) return NextResponse.json({ error: "This link isn't active. Ask the office for a new one." }, { status: 404 });
+  if (link.kind === "HANDOVER") return NextResponse.json({ error: "This link is only for crew sign-in." }, { status: 403 });
   const body = await req.json().catch(() => ({}));
   // On a shared link (e.g. Yard) the phone can say who's using it.
   const who = link.shared && typeof body.who === "string" && body.who.trim() ? ` - ${body.who.trim().slice(0, 40)}` : "";

@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { ArrowLeft, Camera, Loader2, ScanLine, Wrench } from "lucide-react";
+import { ArrowLeft, Camera, Loader2, QrCode as QrIcon, ScanLine, Wrench } from "lucide-react";
 import PhotoPicker from "@/components/tools/PhotoPicker";
+import SignInCrew from "@/components/site/SignInCrew";
 import CheckResultView from "@/components/tools/CheckResultView";
 import { serverErrorMessage } from "@/lib/apiFetch";
 import type { CheckResult } from "@/lib/toolboxCheck";
@@ -12,8 +13,8 @@ import type { CheckResult } from "@/lib/toolboxCheck";
 // check their toolbox, report a fault. No login; the link is the key.
 
 type SiteTool = { id: string; tag: string; name: string; brand: string | null; model: string | null; serialNumber: string | null; condition: string };
-type SiteInfo = { person: string; kind: "SUPERVISOR" | "OFFICE"; shared?: boolean; toolboxes: { id: string; name: string; tools: SiteTool[] }[] };
-type Mode = "home" | "register" | "check" | "fault";
+type SiteInfo = { person: string; kind: "SUPERVISOR" | "OFFICE" | "HANDOVER"; shared?: boolean; toolboxes: { id: string; name: string; tools: SiteTool[] }[] };
+type Mode = "home" | "register" | "check" | "fault" | "signin";
 
 const input =
   "w-full rounded-lg border border-edge bg-panel2 px-3 py-2.5 text-base text-gray-200 placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500";
@@ -37,6 +38,9 @@ export default function SitePhotosPage({ params }: { params: { token: string } }
     load();
   }, [load]);
 
+  // Tool features need a toolbox (or the office link); a hand-over link only runs sign-in.
+  const hasTools = !!info && info.kind === "SUPERVISOR" && info.toolboxes.length > 0;
+
   const finished = (message: string) => {
     setFlash(message);
     setMode("home");
@@ -57,8 +61,16 @@ export default function SitePhotosPage({ params }: { params: { token: string } }
         <div className="py-16 text-center text-sm text-gray-500"><Loader2 className="mx-auto animate-spin" /></div>
       ) : mode === "home" ? (
         <>
-          <h1 className="mb-1 text-xl font-semibold text-gray-100">{info.kind === "OFFICE" ? "Tools capture" : "Site photos"}</h1>
-          <p className="mb-4 text-sm text-gray-500">{info.kind === "OFFICE" ? "Add tools to the Lobos inventory." : `Tools for ${info.toolboxes.map((b) => b.name).join(", ")}.`}</p>
+          <h1 className="mb-1 text-xl font-semibold text-gray-100">{info.kind === "OFFICE" ? "Tools capture" : info.kind === "HANDOVER" ? "Crew sign-in" : "Site"}</h1>
+          <p className="mb-4 text-sm text-gray-500">
+            {info.kind === "OFFICE"
+              ? "Add tools to the Lobos inventory."
+              : info.kind === "HANDOVER"
+                ? "You're running sign-in for today - this link stops working tonight."
+                : hasTools
+                  ? `Crew sign-in, and tools for ${info.toolboxes.map((b) => b.name).join(", ")}.`
+                  : "Crew sign-in for your jobs."}
+          </p>
           {info.shared && (
             <label className="mb-4 block">
               <span className="mb-1 block text-sm text-gray-300">Your name</span>
@@ -75,11 +87,16 @@ export default function SitePhotosPage({ params }: { params: { token: string } }
           )}
           {flash && <div className="mb-4 rounded-xl bg-emerald-500/15 px-4 py-3 text-sm text-emerald-300">✓ {flash}</div>}
           <div className="space-y-3">
+            {info.kind !== "OFFICE" && (
+              <Big icon={<QrIcon size={22} />} title="Sign in crew" text="Show the QR - crew scan it to sign in or out" onClick={() => { setFlash(null); setMode("signin"); }} />
+            )}
+            {(info.kind === "OFFICE" || hasTools) && (<>
             <Big icon={<Camera size={22} />} title="Add a tool" text="Photos and/or type the details" onClick={() => { setFlash(null); setMode("register"); }} />
             <Big icon={<ScanLine size={22} />} title={info.kind === "OFFICE" ? "Check a toolbox" : "Check my toolbox"} text="Photo of the tools laid out" onClick={() => { setFlash(null); setMode("check"); }} />
             {info.kind !== "OFFICE" && (
               <Big icon={<Wrench size={22} />} title="Report a fault" text="Not working, damaged, needs a Hilti swap" onClick={() => { setFlash(null); setMode("fault"); }} />
             )}
+            </>)}
           </div>
           <p className="mt-8 text-center text-xs text-gray-600">
             Tip: add this page to your home screen (Share → Add to Home Screen) so it opens like an app. Don&apos;t share your link.
@@ -93,6 +110,7 @@ export default function SitePhotosPage({ params }: { params: { token: string } }
           {mode === "register" && <RegisterTool api={api} info={info} onDone={finished} />}
           {mode === "check" && <CheckBox api={api} info={info} />}
           {mode === "fault" && <ReportFault api={api} info={info} onDone={finished} />}
+          {mode === "signin" && <SignInCrew api={api} />}
         </>
       )}
     </div>

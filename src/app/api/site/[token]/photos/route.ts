@@ -9,6 +9,7 @@ import { PHOTO_KINDS, savePhoto } from "@/lib/toolPhotos";
 export const POST = withErrorHandling(async (req: NextRequest, { params }: { params: { token: string } }) => {
   const link = await resolveLink(params.token);
   if (!link) return NextResponse.json({ error: "This link isn't active. Ask the office for a new one." }, { status: 404 });
+  if (link.kind === "HANDOVER") return NextResponse.json({ error: "This link is only for crew sign-in." }, { status: 403 });
   if ((await photosSentToday(link.id)) >= DAILY_PHOTO_LIMIT) {
     return NextResponse.json({ error: "That's the most photos this link can send in a day - call the office." }, { status: 429 });
   }
