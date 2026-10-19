@@ -7,7 +7,8 @@ import { runToolboxCheck } from "@/lib/toolboxCheckRun";
 import { moveTool } from "@/lib/toolMoves";
 
 // POST /api/site/:token/submit
-//   { kind: "REGISTER", platePhotoId, conditionPhotoId?, note? }   -> office inbox
+//   { kind: "REGISTER", platePhotoId?, conditionPhotoId?, manual?, note? } -> office inbox
+//      (a plate photo, or at least manual.toolType typed in)
 //   { kind: "FAULT", toolId, description, photoId? }                 -> office inbox
 //   { kind: "CHECK", toolboxId, photoIds }                            -> checked now, result returned
 //   { kind: "CHECK_ACTION", action: "MINE" | "MISSING", toolId, toolboxId }
@@ -53,29 +54,55 @@ async function linkPhotos(link: ResolvedLink, ids: unknown[], kind: string) {
 
 const ownBox = (link: ResolvedLink, id: unknown) => link.toolboxes.find((b) => b.id === id) ?? null;
 
+// Fields a supervisor can type in themselves on site (any can be blank).
+const MANUAL_FIELDS = ["toolType", "brand", "model", "serialNumber"] as const;
+
 async function register(link: ResolvedLink, body: Record<string, unknown>) {
-  const plate = await linkPhotos(link, [body.platePhotoId], "PLATE");
-  if (!plate || plate.length === 0) return bad("Take the rating plate photo first.");
+  const raw = (body.manual ?? {}) as Record<string, unknown>;
+  const manual: Partial<Record<(typeof MANUAL_FIELDS)[number], string>> = {};
+  for (const k of MANUAL_FIELDS) {
+    const v = typeof raw[k] === "string" ? (raw[k] as string).trim().slice(0, 120) : "";
+    if (v) manual[k] = v;
+  }
+  const plate = body.platePhotoId ? await linkPhotos(link, [body.platePhotoId], "PLATE") : [];
+  if (!plate) return bad("The rating plate photo didn't upload - take it again.");
   const cond = body.conditionPhotoId ? await linkPhotos(link, [body.conditionPhotoId], "CONDITION") : [];
   if (!cond) return bad("The condition photo didn't upload - take it again.");
-  // Read now so the office opens it already filled in. If reading fails the
-  // photos still go through - the office fills it in by hand.
-  const reading = await readToolPhotos(plate[0].fileName, cond[0]?.fileName ?? null).catch((e) => {
-    if (e instanceof VisionNotConfigured) throw e;
-    return null;
-  });
+  if (plate.length === 0 && !manual.toolType) return bad("Take the rating plate photo, or type in what the tool is.");
+
+  // With a plate photo, read it now so the office opens it already filled
+  // in. If reading fails the photos still go through. Anything typed in on
+  // site wins over the reading, and isn't flagged "check this".
+  const reading = plate.length
+    ? await readToolPhotos(plate[0].fileName, cond[0]?.fileName ?? null).catch((e) => {
+        if (e instanceof VisionNotConfigured) throw e;
+        return null;
+      })
+    : null;
+  const typed = Object.keys(manual);
+  const combined = {
+    toolType: "", brand: "", model: "", serialNumber: "", itemNo: "", manufactured: "", specs: "",
+    conditionSuggestion: "Unclear", damage: "",
+    ...(reading ?? {}),
+    ...manual,
+    uncertainFields: (reading?.uncertainFields ?? []).filter((f) => !typed.includes(f)),
+    typedOnSite: typed,
+  };
   await prisma.siteSubmission.create({
     data: {
       siteLinkId: link.id,
       kind: "REGISTER",
-      photoIds: JSON.stringify([plate[0].id, ...(cond[0] ? [cond[0].id] : [])]),
+      photoIds: JSON.stringify([...plate.map((p) => p.id), ...cond.map((p) => p.id)]),
       toolboxId: link.toolboxes[0]?.id ?? null,
-      description: typeof body.note === "string" && body.note.trim() ? body.note.trim() : null,
-      reading: reading ? JSON.stringify(reading) : null,
+      description: typeof body.note === "string" && body.note.trim() ? body.note.trim().slice(0, 500) : null,
+      reading: reading || typed.length ? JSON.stringify(combined) : null,
     },
   });
-  const what = reading ? [reading.brand, reading.model].filter(Boolean).join(" ") || reading.toolType : "";
-  return NextResponse.json({ ok: true, message: `Sent to the office${what ? ` - read as ${what}` : ""}. They'll add it to the register.` }, { status: 201 });
+  const what = [combined.brand, combined.model].filter(Boolean).join(" ") || combined.toolType;
+  return NextResponse.json(
+    { ok: true, message: `Sent to the office${what ? ` - ${what}` : ""}. They'll add it to the register.` },
+    { status: 201 }
+  );
 }
 
 async function fault(link: ResolvedLink, body: Record<string, unknown>) {

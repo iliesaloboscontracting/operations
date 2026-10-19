@@ -20,10 +20,18 @@ export const GET = withErrorHandling(async () => {
   const toolIds = rows.map((r) => r.toolId).filter((x): x is string => !!x);
   const boxIds = rows.map((r) => r.toolboxId).filter((x): x is string => !!x);
   const checkIds = rows.map((r) => r.checkId).filter((x): x is string => !!x);
-  const [tools, boxes, checks] = await Promise.all([
+  const photoIdsAll = rows.flatMap((r) => {
+    try {
+      return JSON.parse(r.photoIds) as string[];
+    } catch {
+      return [];
+    }
+  });
+  const [tools, boxes, checks, photoKinds] = await Promise.all([
     prisma.tool.findMany({ where: { id: { in: toolIds } }, select: { id: true, tag: true, name: true, serialNumber: true, condition: true } }),
     prisma.toolbox.findMany({ where: { id: { in: boxIds } }, select: { id: true, name: true } }),
     prisma.toolboxCheck.findMany({ where: { id: { in: checkIds } }, select: { id: true, result: true } }),
+    prisma.toolPhoto.findMany({ where: { id: { in: photoIdsAll } }, select: { id: true, kind: true } }),
   ]);
   const parse = (s: string | null | undefined) => {
     try {
@@ -37,6 +45,8 @@ export const GET = withErrorHandling(async () => {
       ...r,
       from: siteLink.resource.name,
       photoIds: parse(r.photoIds) ?? [],
+      // Which photo is which - a site submission may have either, both or none.
+      photos: ((parse(r.photoIds) ?? []) as string[]).map((id) => ({ id, kind: photoKinds.find((p) => p.id === id)?.kind ?? "" })),
       reading: parse(r.reading),
       tool: tools.find((t) => t.id === r.toolId) ?? null,
       toolbox: boxes.find((b) => b.id === r.toolboxId) ?? null,

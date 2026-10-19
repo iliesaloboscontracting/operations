@@ -20,8 +20,9 @@ type Submission = {
   status: "PENDING" | "APPLIED" | "REJECTED";
   from: string;
   photoIds: string[];
+  photos: { id: string; kind: string }[];
   description: string | null;
-  reading: RegisterPrefill["reading"];
+  reading: (RegisterPrefill["reading"] & { typedOnSite?: string[] }) | null;
   tool: { id: string; tag: string; name: string; serialNumber: string | null } | null;
   toolbox: { id: string; name: string } | null;
   checkResult: CheckResult | null;
@@ -115,7 +116,13 @@ export default function FromSitePage() {
                           s.reading ? (
                             <>
                               <div>{[s.reading.brand, s.reading.model].filter(Boolean).join(" ") || s.reading.toolType || "Unread tool"}</div>
-                              <div className="text-xs text-gray-400">Serial {s.reading.serialNumber || "not readable"} · {s.reading.toolType}</div>
+                              <div className="text-xs text-gray-400">Serial {s.reading.serialNumber || "not given"} · {s.reading.toolType}</div>
+                              {(s.reading.typedOnSite?.length ?? 0) > 0 && (
+                                <div className="text-xs text-brand-300">
+                                  Typed in on site: {s.reading.typedOnSite!.map((f) => ({ toolType: "what it is", brand: "brand", model: "model", serialNumber: "serial" } as Record<string, string>)[f] ?? f).join(", ")}
+                                  {s.photos.every((p) => p.kind !== "PLATE") && " (no plate photo - check the serial on the tool)"}
+                                </div>
+                              )}
                               {s.reading.damage && <div className="text-xs text-amber-500">Damage: {s.reading.damage}</div>}
                             </>
                           ) : (
@@ -260,8 +267,8 @@ export default function FromSitePage() {
       {registering && (
         <RegisterByPhoto
           prefill={{
-            platePhotoId: registering.photoIds[0] ?? null,
-            conditionPhotoId: registering.photoIds[1] ?? null,
+            platePhotoId: registering.photos.find((p) => p.kind === "PLATE")?.id ?? null,
+            conditionPhotoId: registering.photos.find((p) => p.kind === "CONDITION")?.id ?? null,
             reading: registering.reading,
             toolboxId: registering.toolbox?.id ?? null,
             note: registering.description,

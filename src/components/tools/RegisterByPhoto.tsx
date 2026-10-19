@@ -108,6 +108,8 @@ export default function RegisterByPhoto({
       const extra: Partial<Form> = { toolboxId: prefill.toolboxId ?? "" };
       if (prefill.reading) {
         applyReading(prefill.reading, tag, { ...extra, notes: [prefill.reading.specs, fromSite].filter(Boolean).join("\n") });
+        // A serial typed on site with no plate photo hasn't been seen by anyone in the office.
+        if (!prefill.platePhotoId) setUncertain((u) => Array.from(new Set([...u, "serialNumber"])));
       } else {
         setForm({ ...BLANK, ...extra, tag, notes: fromSite });
         setUncertain(["name", "brand", "model", "serialNumber"]);

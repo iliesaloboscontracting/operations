@@ -59,7 +59,7 @@ export default function SitePhotosPage({ params }: { params: { token: string } }
           <p className="mb-4 text-sm text-gray-500">Tools for {info.toolboxes.map((b) => b.name).join(", ")}.</p>
           {flash && <div className="mb-4 rounded-xl bg-emerald-500/15 px-4 py-3 text-sm text-emerald-300">✓ {flash}</div>}
           <div className="space-y-3">
-            <Big icon={<Camera size={22} />} title="Register a tool" text="Rating plate + condition photo" onClick={() => { setFlash(null); setMode("register"); }} />
+            <Big icon={<Camera size={22} />} title="Register a tool" text="Photos and/or type the details" onClick={() => { setFlash(null); setMode("register"); }} />
             <Big icon={<ScanLine size={22} />} title="Check my toolbox" text="Photo of your tools laid out" onClick={() => { setFlash(null); setMode("check"); }} />
             <Big icon={<Wrench size={22} />} title="Report a fault" text="Not working, damaged, needs a Hilti swap" onClick={() => { setFlash(null); setMode("fault"); }} />
           </div>
@@ -102,24 +102,39 @@ async function post(api: string, body: unknown) {
 function RegisterTool({ api, onDone }: { api: string; onDone: (m: string) => void }) {
   const [plate, setPlate] = useState<string | null>(null);
   const [cond, setCond] = useState<string | null>(null);
+  const [manual, setManual] = useState({ toolType: "", brand: "", model: "", serialNumber: "" });
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const set = (k: keyof typeof manual) => (e: { target: { value: string } }) => setManual((m) => ({ ...m, [k]: e.target.value }));
+  // A plate photo, or at least what the tool is typed in.
+  const ready = !!plate || !!manual.toolType.trim();
   return (
     <div className="space-y-4">
       <h1 className="text-xl font-semibold text-gray-100">Register a tool</h1>
-      <PhotoPicker big kind="PLATE" uploadUrl={`${api}/photos`} label="1. Rating plate" hint="Close up, in focus, no glare. Take the battery off if the plate is under it." photoId={plate} onChange={setPlate} />
-      <PhotoPicker big kind="CONDITION" uploadUrl={`${api}/photos`} label="2. Whole tool" hint="Show any damage or wear." photoId={cond} onChange={setCond} />
-      <input className={input} placeholder="Anything to add? (optional)" value={note} onChange={(e) => setNote(e.target.value)} />
+      <p className="text-sm text-gray-400">Take the photos, type the details in yourself, or both.</p>
+      <PhotoPicker big kind="PLATE" uploadUrl={`${api}/photos`} label="1. Rating plate photo" hint="Close up, in focus, no glare. Take the battery off if the plate is under it." photoId={plate} onChange={setPlate} />
+      <PhotoPicker big kind="CONDITION" uploadUrl={`${api}/photos`} label="2. Whole tool photo" hint="Show any damage or wear." photoId={cond} onChange={setCond} />
+      <div className="space-y-2 rounded-xl border border-edge bg-panel p-3">
+        <div className="text-sm font-medium text-gray-200">Or enter the details yourself</div>
+        <input className={input} placeholder={plate ? "What it is (optional)" : "What it is, e.g. Hammer drill"} value={manual.toolType} onChange={set("toolType")} />
+        <div className="grid grid-cols-2 gap-2">
+          <input className={input} placeholder="Brand, e.g. Hilti" value={manual.brand} onChange={set("brand")} />
+          <input className={input} placeholder="Model, e.g. SF 6H-22" value={manual.model} onChange={set("model")} />
+        </div>
+        <input className={input} placeholder="Serial number (from the plate)" value={manual.serialNumber} onChange={set("serialNumber")} autoCapitalize="characters" />
+        <p className="text-xs text-gray-500">Anything you type here is used instead of what the photo reads.</p>
+      </div>
+      <input className={input} placeholder="Anything else to add? (optional)" value={note} onChange={(e) => setNote(e.target.value)} />
       {error && <div className="rounded-lg bg-red-900/30 px-3 py-2 text-sm text-red-300">{error}</div>}
       <button
         className={primary}
-        disabled={!plate || busy}
+        disabled={!ready || busy}
         onClick={async () => {
           setBusy(true);
           setError(null);
           try {
-            const r = await post(api, { kind: "REGISTER", platePhotoId: plate, conditionPhotoId: cond, note });
+            const r = await post(api, { kind: "REGISTER", platePhotoId: plate, conditionPhotoId: cond, manual, note });
             onDone(r.message);
           } catch (e) {
             setError((e as Error).message);
@@ -127,8 +142,9 @@ function RegisterTool({ api, onDone }: { api: string; onDone: (m: string) => voi
           }
         }}
       >
-        {busy && <Loader2 size={18} className="animate-spin" />} {busy ? "Reading and sending…" : "Send to the office"}
+        {busy && <Loader2 size={18} className="animate-spin" />} {busy ? (plate ? "Reading and sending…" : "Sending…") : "Send to the office"}
       </button>
+      {!ready && <p className="text-center text-xs text-gray-500">Add the plate photo or type what the tool is to send.</p>}
     </div>
   );
 }
