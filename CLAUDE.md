@@ -58,6 +58,18 @@ business, without becoming unnecessarily complicated.
   `api/site/.*`, `_next/.*` and `logo.png` → `http://localhost:3000`;
   everything else 404s at Cloudflare. Never add a route without a path.
   `SITE_BASE_URL` in `.env` sets the address links are made with.
+- **Site sign-in / sign-out** (added 2026-10-19, `src/lib/signin.ts`,
+  `/attendance` "Sign-ins", Manager+): crew scan the supervisor's QR on
+  their site link (changes every 30s, HMAC-signed with `AUTH_SECRET`) or a
+  printed site poster (`SiteLink` kind `POSTER`); first time they pick their
+  name, then one tap. Pages live under `/site/in/...` and `/api/site/in/...`,
+  so they ride the existing tunnel routes — no Cloudflare change. Rules set
+  by Ilies: poster sign-ins are confirmed by the **site supervisor**; only
+  the **office** changes a time (with a reason, kept in `AttendanceEdit`);
+  supervisors can hand sign-in to another lead for one day (`HANDOVER`
+  link). Hire workers give name + company. Hours = signed time less the
+  project's unpaid break, shown in Day Review with a "Use Xh" button — they
+  only reach costs when someone confirms them there (`JobActual`).
 - **Structure:** `src/app/` — page routes (`command`, `calendar`, `tracking`,
   `day-review`, `hire`, `plant`, `vehicles`, `labour`, `projects`, `users`,
   `bugs`, `notes`, `tools`, `completed`, `setup`, `login`) each generally
