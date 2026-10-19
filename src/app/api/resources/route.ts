@@ -4,6 +4,7 @@ import { guard, getCurrentUser } from "@/lib/auth";
 import { pickResourceData, PAY_RATE_FIELDS } from "@/lib/resourceFields";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { toPublicResource } from "@/lib/serializeResource";
+import { hireDateError } from "@/lib/dateRules";
 
 // GET /api/resources?type=PERSONNEL,EQUIPMENT&category=LABOUR
 // Includes assignments (+ job) so the UI can show "where is it today".
@@ -56,8 +57,12 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
     }
   }
 
+  const data = pickResourceData(body) as Record<string, unknown>;
+  const hireError = hireDateError(data as Parameters<typeof hireDateError>[0]);
+  if (hireError) return NextResponse.json({ error: hireError }, { status: 400 });
+
   const resource = await prisma.resource.create({
-    data: pickResourceData(body) as any,
+    data: data as any,
   });
 
   return NextResponse.json(resource, { status: 201 });

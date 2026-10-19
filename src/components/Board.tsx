@@ -31,15 +31,49 @@ import DaySheetModal from "./DaySheetModal";
 import { apiFetch, serverErrorMessage } from "@/lib/apiFetch";
 import { Building2, CalendarClock, Download, Eraser, HardHat, Plus, Users } from "lucide-react";
 import StatTile from "./StatTile";
+import { saveWithDateCheck } from "@/lib/dateCheckPrompt";
+
+const BOARD_DATE_KEY = "board.selectedDate";
 
 export default function Board() {
   const [selectedDate, setSelectedDate] = useState(localISODate());
+  // False until the day to open on has been read from the address bar /
+  // session storage - saving it back before then would overwrite it with today.
+  const [dateRestored, setDateRestored] = useState(false);
 
   // Deep link from the Calendar / alerts: /command?date=YYYY-MM-DD
   useEffect(() => {
+    setDateRestored(true);
     const d = new URLSearchParams(window.location.search).get("date");
-    if (d && /^\d{4}-\d{2}-\d{2}$/.test(d)) setSelectedDate(d);
+    if (d && /^\d{4}-\d{2}-\d{2}$/.test(d)) {
+      setSelectedDate(d);
+      return;
+    }
+    // Opened from the menu (no ?date): go back to the day last chosen, but
+    // only if it was chosen today - a new working day starts on today.
+    try {
+      const saved = JSON.parse(sessionStorage.getItem(BOARD_DATE_KEY) ?? "null");
+      if (saved?.chosenOn === localISODate() && /^\d{4}-\d{2}-\d{2}$/.test(saved.date)) {
+        setSelectedDate(saved.date);
+      }
+    } catch {
+      // storage unavailable - just open on today
+    }
   }, []);
+  // Keep the chosen day in the address bar (refresh / back button) and in
+  // session storage (menu link), so leaving the page doesn't jump to today.
+  useEffect(() => {
+    if (!dateRestored) return;
+    try {
+      sessionStorage.setItem(BOARD_DATE_KEY, JSON.stringify({ date: selectedDate, chosenOn: localISODate() }));
+    } catch {
+      // storage unavailable - the address bar still carries the date
+    }
+    const url = new URL(window.location.href);
+    if (url.searchParams.get("date") === selectedDate) return;
+    url.searchParams.set("date", selectedDate);
+    window.history.replaceState(window.history.state, "", url);
+  }, [selectedDate, dateRestored]);
   const [jobs, setJobs] = useState<JobDTO[]>([]);
   const [resources, setResources] = useState<ResourceDTO[]>([]);
   const [projects, setProjects] = useState<ProjectDTO[]>([]);
@@ -120,21 +154,24 @@ export default function Board() {
       fail("Couldn't find that project.");
       return null;
     }
-    const res = await fetch("/api/jobs", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        projectId: project.id,
-        title: project.name,
-        client: project.client,
-        siteCode: project.jobNo,
-        date: selectedDate,
-        shift: "DAY",
-        startTime: project.dayStart,
-        endTime: project.dayEnd,
-        status: "ACTIVE",
-      }),
-    });
+    const res = await saveWithDateCheck((dateCheckNote) =>
+      fetch("/api/jobs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          projectId: project.id,
+          title: project.name,
+          client: project.client,
+          siteCode: project.jobNo,
+          date: selectedDate,
+          shift: "DAY",
+          startTime: project.dayStart,
+          endTime: project.dayEnd,
+          status: "ACTIVE",
+          dateCheckNote,
+        }),
+      })
+    );
     if (!res.ok) {
       fail(await serverErrorMessage(res, "Couldn't create today's job for that project."));
       return null;

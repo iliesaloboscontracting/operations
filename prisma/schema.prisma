@@ -21,7 +21,13 @@ model Project {
   jobNo     String?
   address   String?
   status    String   @default("ACTIVE") // ACTIVE | STAND_DOWN | ON_HOLD
-  startDate String? // YYYY-MM-DD, when the project first mobilises (drives "starting soon" alerts)
+  startDate String? // YYYY-MM-DD, the first day on site (D12-1, 19 Oct 2026). Before any job exists it is the expected first day; once jobs exist it should equal the first running job date - a mismatch shows as a date exception.
+  // How firm the planned dates are (brief 12, 19 Oct 2026): CONFIRMED | TENTATIVE.
+  // Their source (document and revision) lives in fieldSources like other
+  // Project File fields. Blank means nobody has said.
+  startDateConfidence  String?
+  completionConfidence String?
+  completionReviewBy   String? // YYYY-MM-DD - when a TBC completion should be looked at again
   dayStart  String? // e.g. "7am"
   dayEnd    String?
   nightStart String?
@@ -173,6 +179,10 @@ model Job {
   endTime     String? // free text e.g. "3pm"
   status      String       @default("ACTIVE") // INACTIVE | ACTIVE | STOOD_DOWN | COMPLETED
   dayBrief    String? // instructions text for the day / scope of works
+  // Why this job was saved despite a date warning (before the project start,
+  // after planned completion, on an inactive project, weekend) - brief 12.
+  // Internal only; never shown to crew.
+  dateCheckNote String?
   colorTag    String       @default("blue") // left border color on the board
   notRunning  Boolean      @default(false) // derived from status = INACTIVE/STOOD_DOWN; drives the "not active" grouping. COMPLETED jobs are excluded from the board entirely (see /completed).
   sortOrder   Int          @default(0)

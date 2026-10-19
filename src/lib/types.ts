@@ -83,6 +83,7 @@ export interface JobDTO {
   endTime: string | null;
   status: JobStatus;
   dayBrief: string | null;
+  dateCheckNote?: string | null; // why it was saved despite a date warning (internal)
   colorTag: string;
   notRunning: boolean;
   sortOrder: number;
@@ -137,6 +138,18 @@ export interface ProjectDTO {
   scopeExclusions?: string | null;
   fieldSources?: string | null; // JSON text: { fieldKey: "document and revision" }
   completeness?: { filled: number; total: number; missing: string[] };
+
+  // Dates (brief 12). Confidence is CONFIRMED | TENTATIVE (blank = not said);
+  // completionReviewBy is when a TBC completion should be looked at again.
+  startDateConfidence?: string | null;
+  completionConfidence?: string | null;
+  completionReviewBy?: string | null;
+  // Worked out from the board, never typed: first and last running job.
+  firstJobDate?: string | null;
+  lastJobDate?: string | null;
+  predatesBoard?: boolean; // first job is on the board's first day - real start is earlier
+  // Dates that disagree with the board or are missing (lib/dateExceptions.ts).
+  dateExceptions?: string[];
 }
 
 export interface ProjectContactDTO {

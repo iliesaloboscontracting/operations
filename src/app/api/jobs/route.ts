@@ -5,6 +5,8 @@ import { withErrorHandling } from "@/lib/apiHandler";
 import { liveJobFields } from "@/lib/jobs";
 import { sanitizeJobs } from "@/lib/serializeResource";
 import { assertDateOpen } from "@/lib/dayLock";
+import { todaySydney } from "@/lib/today";
+import { checkJobDate } from "@/lib/dateRulesServer";
 
 // GET /api/jobs?date=YYYY-MM-DD  -> jobs for that date, with assignments+resource included
 export const GET = withErrorHandling(async (req: NextRequest) => {
@@ -13,7 +15,8 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
   const user = await getCurrentUser();
   const dateParam = req.nextUrl.searchParams.get("date");
   // Dates are calendar days stored as UTC midnight (YYYY-MM-DD).
-  const date = dateParam ? new Date(dateParam) : new Date();
+  // No date given = Sydney's today, not the server's UTC day.
+  const date = new Date(dateParam ?? todaySydney());
   date.setUTCHours(0, 0, 0, 0);
   const nextDay = new Date(date);
   nextDay.setUTCDate(nextDay.getUTCDate() + 1);
@@ -59,6 +62,15 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   const dateLocked = await assertDateOpen(body.date);
   if (dateLocked) return dateLocked;
 
+  // A stood-down placeholder isn't a working day, so only running jobs get
+  // the soft date warnings - the format check still applies to both.
+  const dateProblem = await checkJobDate(
+    body.date,
+    body.projectId,
+    body.notRunning ? "stood down" : body.dateCheckNote
+  );
+  if (dateProblem) return dateProblem;
+
   // One job per project per date+shift (see the @@unique on Job in
   // schema.prisma for why) - checked explicitly here so the error actually
   // explains what happened, rather than falling through to the constraint
@@ -94,6 +106,7 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
       endTime: body.endTime ?? null,
       status: body.status ?? "ACTIVE",
       dayBrief: body.dayBrief ?? null,
+      dateCheckNote: typeof body.dateCheckNote === "string" && body.dateCheckNote.trim() ? body.dateCheckNote.trim() : null,
       colorTag: body.colorTag ?? (body.shift === "NIGHT" ? "purple" : "orange"),
       notRunning: body.notRunning ?? false,
       sortOrder: body.sortOrder ?? 50,

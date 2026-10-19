@@ -5,6 +5,7 @@ import { withErrorHandling } from "@/lib/apiHandler";
 import { liveJobFields } from "@/lib/jobs";
 import { sanitizeJobs } from "@/lib/serializeResource";
 import { assertDateOpen } from "@/lib/dayLock";
+import { checkJobDate } from "@/lib/dateRulesServer";
 
 // PATCH /api/jobs/:id -> update job fields
 export const PATCH = withErrorHandling(async (
@@ -26,6 +27,11 @@ export const PATCH = withErrorHandling(async (
   if ("date" in body) {
     const targetLocked = await assertDateOpen(body.date);
     if (targetLocked) return targetLocked;
+    // Moving a job to a new day gets the same date checks as creating one.
+    if (body.date !== current.date.toISOString().slice(0, 10)) {
+      const dateProblem = await checkJobDate(body.date, current.projectId, body.dateCheckNote);
+      if (dateProblem) return dateProblem;
+    }
   }
 
   // Moving a job's date/shift can collide with an existing job for the same
@@ -71,6 +77,7 @@ export const PATCH = withErrorHandling(async (
     if (key in body) data[key] = body[key];
   }
   if ("date" in body) data.date = new Date(body.date);
+  if (typeof body.dateCheckNote === "string" && body.dateCheckNote.trim()) data.dateCheckNote = body.dateCheckNote.trim();
 
   const job = await prisma.job.update({
     where: { id: params.id },

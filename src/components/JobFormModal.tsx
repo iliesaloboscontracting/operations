@@ -2,6 +2,7 @@
 
 import { JobDTO, ProjectDTO } from "@/lib/types";
 import { serverErrorMessage } from "@/lib/apiFetch";
+import { saveWithDateCheck } from "@/lib/dateCheckPrompt";
 import FormModal, { FieldDef } from "./FormModal";
 
 export interface SavedJobInfo {
@@ -165,11 +166,13 @@ export default function JobFormModal({
     };
     const moved = !isNew && (editing as JobDTO).date !== date;
     const completed = !isNew && status === "COMPLETED" && (editing as JobDTO).status !== "COMPLETED";
-    const res = await fetch(isNew ? "/api/jobs" : `/api/jobs/${(editing as JobDTO).id}`, {
-      method: isNew ? "POST" : "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(isNew ? { ...body, projectId: project?.id ?? null } : body),
-    });
+    const res = await saveWithDateCheck((dateCheckNote) =>
+      fetch(isNew ? "/api/jobs" : `/api/jobs/${(editing as JobDTO).id}`, {
+        method: isNew ? "POST" : "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...(isNew ? { ...body, projectId: project?.id ?? null } : body), dateCheckNote }),
+      })
+    );
     if (!res.ok) throw new Error(await serverErrorMessage(res, "Couldn't save job"));
     const saved: JobDTO = await res.json();
     await onSaved(saved, { isNew, moved, completed });

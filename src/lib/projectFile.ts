@@ -103,7 +103,7 @@ export function parseSources(raw: string | null | undefined): Record<string, str
 // with non-blank text, and returns JSON text - or null when there are none.
 export function normaliseSources(input: unknown): string | null {
   const obj = typeof input === "string" ? parseSources(input) : (input as Record<string, unknown>) ?? {};
-  const allowed = new Set([...PROJECT_FILE_KEYS, "scopeOfWorks"]);
+  const allowed = new Set([...PROJECT_FILE_KEYS, "scopeOfWorks", "startDate"]);
   const clean: Record<string, string> = {};
   for (const [k, v] of Object.entries(obj ?? {})) {
     if (allowed.has(k) && typeof v === "string" && v.trim()) clean[k] = v.trim();

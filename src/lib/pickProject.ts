@@ -4,6 +4,7 @@ const FIELDS = [
   "name", "client", "jobNo", "address", "status", "startDate", "dayStart", "dayEnd",
   "nightStart", "nightEnd", "unpaidBreakMinutes", "notes", "archived",
   "contractValue", "contractValueNotes", "scopeOfWorks",
+  "startDateConfidence", "completionConfidence", "completionReviewBy",
   ...PROJECT_FILE_KEYS,
 ] as const;
 

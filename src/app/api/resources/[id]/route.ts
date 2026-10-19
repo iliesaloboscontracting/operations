@@ -4,6 +4,7 @@ import { guard, getCurrentUser } from "@/lib/auth";
 import { pickResourceData, PAY_RATE_FIELDS } from "@/lib/resourceFields";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { toPublicResource } from "@/lib/serializeResource";
+import { hireDateError } from "@/lib/dateRules";
 
 // PATCH /api/resources/:id
 export const PATCH = withErrorHandling(async (
@@ -21,9 +22,19 @@ export const PATCH = withErrorHandling(async (
     }
   }
 
+  const data = pickResourceData(body) as Record<string, unknown>;
+  if ("onHireDate" in data || "offHireDate" in data) {
+    const existing = await prisma.resource.findUnique({
+      where: { id: params.id },
+      select: { onHireDate: true, offHireDate: true },
+    });
+    const hireError = hireDateError({ ...(existing ?? {}), ...data } as Parameters<typeof hireDateError>[0]);
+    if (hireError) return NextResponse.json({ error: hireError }, { status: 400 });
+  }
+
   const resource = await prisma.resource.update({
     where: { id: params.id },
-    data: pickResourceData(body) as any,
+    data: data as any,
   });
   toPublicResource(resource, user?.role ?? null);
   return NextResponse.json(resource);

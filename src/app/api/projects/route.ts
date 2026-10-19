@@ -7,6 +7,7 @@ import { addDays } from "@/lib/dates";
 import { todaySydney } from "@/lib/today";
 import { completeness } from "@/lib/projectFile";
 import { validateProjectFile } from "@/lib/projectFileServer";
+import { boardDatesByProject, dateExceptions } from "@/lib/dateExceptions";
 
 // GET /api/projects?date=YYYY-MM-DD&archived=1
 // Each project comes with today's assigned counts (crew / plant / attachments / trucks / hire),
@@ -21,7 +22,8 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
   const canSeeMoney = user?.role === "ADMIN" || user?.role === "MANAGER";
   const dateParam = req.nextUrl.searchParams.get("date");
   const archived = req.nextUrl.searchParams.get("archived") === "1";
-  const start = dateParam ? new Date(dateParam) : new Date();
+  // No date given = Sydney's today, not the server's UTC day.
+  const start = new Date(dateParam ?? todaySydney());
   start.setUTCHours(0, 0, 0, 0);
   const end = new Date(start);
   end.setUTCDate(end.getUTCDate() + 1);
@@ -32,6 +34,7 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
   const todaySyd = todaySydney();
   const todayEnd = new Date(addDays(todaySyd, 1) + "T00:00:00.000Z");
 
+  const boardDates = await boardDatesByProject(todaySyd);
   const projects = await prisma.project.findMany({
     where: { archived },
     orderBy: { name: "asc" },
@@ -75,6 +78,10 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
         counts,
         costToDate,
         completeness: completeness(p, _count.contacts),
+        firstJobDate: boardDates.get(p.id)?.firstJobDate ?? null,
+        lastJobDate: boardDates.get(p.id)?.lastJobDate ?? null,
+        predatesBoard: boardDates.get(p.id)?.predatesBoard ?? false,
+        dateExceptions: dateExceptions(p, boardDates.get(p.id), todaySyd),
       };
       if (!canSeeMoney) {
         delete out.contractValue;

@@ -54,6 +54,8 @@ function attentionReasons(p: ProjectDTO): string[] {
   const reasons: string[] = [];
   if (noCrewToday(p)) reasons.push("No crew today");
   if (missingInfo(p)) reasons.push("Missing information");
+  // Date exceptions (brief 12) - each one is its own reason on the card.
+  for (const d of p.dateExceptions ?? []) reasons.push(d);
   return reasons;
 }
 
@@ -138,12 +140,22 @@ export default function ProjectsPage() {
 
   // The daily figures bar now lives on Allocations (Ilies, 18 Oct 2026); only
   // the "Needs attention" count is still used here.
+  // "Needs attention" is one list: active sites with any reason, plus an
+  // Inactive or Completed project that still has jobs booked (a date
+  // exception, brief 12) - otherwise those would hide on another tab.
+  const attentionList = useMemo(
+    () =>
+      projects.filter(
+        (p) => (p.status === "ACTIVE" && needsAttention(p)) || (p.status !== "ACTIVE" && (p.dateExceptions?.length ?? 0) > 0)
+      ),
+    [projects]
+  );
   const stats = useMemo(() => {
     if (tab !== "current") return null;
-    return { needsAttention: byTab.filter(needsAttention).length };
-  }, [byTab, tab]);
+    return { needsAttention: attentionList.length };
+  }, [attentionList, tab]);
 
-  const visible = attentionOnly && tab === "current" ? byTab.filter(needsAttention) : byTab;
+  const visible = attentionOnly && tab === "current" ? attentionList : byTab;
 
   return (
     <PageShell
@@ -271,14 +283,14 @@ export default function ProjectsPage() {
                 )}
               </div>
 
-              {p.status === "ACTIVE" && (p.completeness || attentionReasons(p).length > 0) && (
+              {((p.status === "ACTIVE" && p.completeness) || attentionReasons(p).length > 0) && (
                 <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px]">
                   {attentionReasons(p).map((r) => (
                     <span key={r} className="rounded-full bg-amber-500/15 px-1.5 py-0.5 font-semibold text-amber-600">
                       {r}
                     </span>
                   ))}
-                  {p.completeness && (
+                  {p.status === "ACTIVE" && p.completeness && (
                     <span
                       className="ml-auto inline-flex items-center gap-1 text-gray-500"
                       title={
@@ -313,7 +325,7 @@ export default function ProjectsPage() {
         {!loadError && !loading && visible.length === 0 && (
           <div className="col-span-full py-10 text-center text-sm text-gray-500">
             {attentionOnly && projects.length > 0
-              ? "Nothing needs attention right now — every active site has crew on today and a complete project file."
+              ? "Nothing needs attention right now — every active site has crew on today, a complete project file and dates that match the board."
               : "No projects here."}
           </div>
         )}

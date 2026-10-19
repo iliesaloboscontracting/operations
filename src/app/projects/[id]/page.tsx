@@ -20,6 +20,7 @@ import {
   VisibleTo,
 } from "@/lib/projectFile";
 import type { ProjectContactDTO, ProjectFileDTO, ResourceDTO } from "@/lib/types";
+import { DATE_CONFIDENCE, DATE_CONFIDENCE_LABEL } from "@/lib/dateRules";
 
 // The Project File (Operations Analyst brief 11, Phase 1): everything about a
 // site in one place, in four tabs. Blank always reads "Not known yet" - nothing
@@ -593,6 +594,16 @@ export default function ProjectFilePage({ params }: { params: { id: string } }) 
               </div>
             </Card>
 
+            {canEdit && (project.dateExceptions?.length ?? 0) > 0 && (
+              <Card title="Date exceptions">
+                <ul className="space-y-1 text-sm text-amber-600">
+                  {project.dateExceptions!.map((d) => (
+                    <li key={d}>• {d}</li>
+                  ))}
+                </ul>
+              </Card>
+            )}
+
             {c && c.missing.length > 0 && (
               <Card title="Not filled in yet">
                 <p className="text-sm text-gray-400">{c.missing.join(" · ")}</p>
@@ -634,8 +645,10 @@ export default function ProjectFilePage({ params }: { params: { id: string } }) 
   );
 }
 
-// Overview's two Project File fields: expected completion (a date) and the
-// Lobos office contact (picked from Office staff in the Personnel register).
+// Overview's dates and office contact (brief 11, extended by brief 12).
+// Start date = the first day on site (D12-1). Each planned date carries how
+// firm it is (Confirmed / Tentative) and where it came from; the board's own
+// first and last days are shown beside them, never typed.
 function OverviewFields({
   project,
   canEdit,
@@ -647,36 +660,78 @@ function OverviewFields({
   officeStaff: ResourceDTO[];
   onSave: (values: Record<string, string>, sources: Record<string, string>) => Promise<void>;
 }) {
-  const sources = parseSources(project.fieldSources);
-  const init = {
-    expectedCompletion: project.expectedCompletion ?? "",
-    officeContactId: project.officeContactId ?? "",
-    srcCompletion: sources.expectedCompletion ?? "",
-    srcOffice: sources.officeContactId ?? "",
+  const fromProject = (p: ProjectFileDTO) => {
+    const s = parseSources(p.fieldSources);
+    return {
+      startDate: p.startDate ?? "",
+      startDateConfidence: p.startDateConfidence ?? "",
+      srcStart: s.startDate ?? "",
+      expectedCompletion: p.expectedCompletion ?? "",
+      completionConfidence: p.completionConfidence ?? "",
+      completionReviewBy: p.completionReviewBy ?? "",
+      srcCompletion: s.expectedCompletion ?? "",
+      officeContactId: p.officeContactId ?? "",
+      srcOffice: s.officeContactId ?? "",
+    };
   };
+  const init = fromProject(project);
   const [v, setV] = useState(init);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
-    setV({
-      expectedCompletion: project.expectedCompletion ?? "",
-      officeContactId: project.officeContactId ?? "",
-      srcCompletion: parseSources(project.fieldSources).expectedCompletion ?? "",
-      srcOffice: parseSources(project.fieldSources).officeContactId ?? "",
-    });
+    setV(fromProject(project));
   }, [project]);
   const dirty = (Object.keys(init) as (keyof typeof init)[]).some((k) => v[k] !== init[k]);
+  const set = (k: keyof typeof init) => (e: { target: { value: string } }) => setV((x) => ({ ...x, [k]: e.target.value }));
+
+  const long = (iso: string) => fmtDay(iso, { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+  const conf = (c: string | null | undefined) => (c ? ` · ${DATE_CONFIDENCE_LABEL[c] ?? c}` : "");
+  const tbc = project.expectedCompletion === COMPLETION_TBC;
+  const completionText = tbc
+    ? `TBC${project.completionReviewBy ? ` · review by ${long(project.completionReviewBy)}` : ""}`
+    : project.expectedCompletion
+    ? `${long(project.expectedCompletion)}${conf(project.completionConfidence)}`
+    : null;
+  const startMismatch =
+    !!project.startDate &&
+    !!project.firstJobDate &&
+    project.startDate !== project.firstJobDate &&
+    !(project.predatesBoard && project.startDate < project.firstJobDate);
+
+  // What the board says actually happened - shown to everyone, never edited.
+  const boardRows = (
+    <>
+      <Row label="First job on the board">
+        {project.firstJobDate ? (
+          <>
+            {long(project.firstJobDate)}
+            {project.predatesBoard && (
+              <span className="ml-1 text-[11px] text-gray-500">(the board&apos;s first day — the project started before it)</span>
+            )}
+            {startMismatch && (
+              <span className="ml-2 rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-600">
+                Doesn&apos;t match start date
+              </span>
+            )}
+          </>
+        ) : (
+          <span className="text-gray-500">No job on the board yet</span>
+        )}
+      </Row>
+      <Row label={project.status === "COMPLETED" ? "Actual finish" : "Last day booked"}>
+        {project.lastJobDate ? long(project.lastJobDate) : <span className="text-gray-500">—</span>}
+      </Row>
+    </>
+  );
 
   if (!canEdit) {
     return (
       <>
-        <Row label="Expected completion">
-          {project.expectedCompletion === COMPLETION_TBC
-            ? "TBC"
-            : project.expectedCompletion
-            ? fmtDay(project.expectedCompletion, { weekday: "short", day: "numeric", month: "short", year: "numeric" })
-            : <Unknown />}
+        <Row label="Start date (first day on site)">
+          {project.startDate ? `${long(project.startDate)}${conf(project.startDateConfidence)}` : <Unknown />}
         </Row>
+        <Row label="Expected completion">{completionText ?? <Unknown />}</Row>
+        {boardRows}
         <Row label="Lobos office contact">
           {project.officeContact ? (
             <>
@@ -693,19 +748,53 @@ function OverviewFields({
 
   const srcInput =
     "mt-1 w-full rounded-md border border-transparent bg-transparent px-1 py-0.5 text-[11px] text-gray-400 placeholder:text-gray-600 hover:border-edge focus:border-edge focus:outline-none";
+  const confSelect = (k: "startDateConfidence" | "completionConfidence") => (
+    <select className={`${input} w-32 shrink-0`} value={v[k]} onChange={set(k)} title="How firm is this date?">
+      <option value="">Firmness?</option>
+      {DATE_CONFIDENCE.map((c) => (
+        <option key={c} value={c}>
+          {DATE_CONFIDENCE_LABEL[c]}
+        </option>
+      ))}
+    </select>
+  );
 
   return (
     <div className="space-y-4">
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
+          <label className="mb-1 block text-xs font-medium text-gray-400">Start date (first day on site)</label>
+          <div className="flex items-center gap-2">
+            <input type="date" className={input} value={v.startDate} onChange={set("startDate")} />
+            {confSelect("startDateConfidence")}
+          </div>
+          {project.firstJobDate && !project.predatesBoard && v.startDate !== project.firstJobDate && (
+            <button
+              type="button"
+              className="mt-1 text-left text-[11px] text-amber-600 hover:underline"
+              onClick={() =>
+                setV((x) => ({
+                  ...x,
+                  startDate: project.firstJobDate!,
+                  startDateConfidence: "CONFIRMED",
+                  srcStart: "Command Centre board (first job)",
+                }))
+              }
+            >
+              The board&apos;s first day is {long(project.firstJobDate)} — use that
+            </button>
+          )}
+          <input className={srcInput} placeholder="Source (document and revision) — optional" value={v.srcStart} onChange={set("srcStart")} />
+        </div>
+        <div>
           <label className="mb-1 block text-xs font-medium text-gray-400">Expected completion</label>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             <input
               type="date"
               className={input}
               disabled={v.expectedCompletion === COMPLETION_TBC}
               value={v.expectedCompletion === COMPLETION_TBC ? "" : v.expectedCompletion}
-              onChange={(e) => setV((x) => ({ ...x, expectedCompletion: e.target.value }))}
+              onChange={set("expectedCompletion")}
             />
             <label className="flex shrink-0 items-center gap-1.5 text-xs text-gray-400">
               <input
@@ -715,40 +804,34 @@ function OverviewFields({
               />
               TBC
             </label>
+            {v.expectedCompletion !== COMPLETION_TBC && confSelect("completionConfidence")}
           </div>
-          <input
-            className={srcInput}
-            placeholder="Source (document and revision) — optional"
-            value={v.srcCompletion}
-            onChange={(e) => setV((x) => ({ ...x, srcCompletion: e.target.value }))}
-          />
-        </div>
-        <div>
-          <label className="mb-1 block text-xs font-medium text-gray-400">Lobos office contact</label>
-          <select
-            className={input}
-            value={v.officeContactId}
-            onChange={(e) => setV((x) => ({ ...x, officeContactId: e.target.value }))}
-          >
-            <option value="">Not known yet</option>
-            {officeStaff.map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.name}
-              </option>
-            ))}
-          </select>
-          {officeStaff.length === 0 && (
-            <p className="mt-1 flex items-center gap-1 text-[11px] text-gray-500">
-              <UserRound size={11} /> Add office staff in Labour with the role “Office” to pick them here.
-            </p>
+          {v.expectedCompletion === COMPLETION_TBC && (
+            <div className="mt-2 flex items-center gap-2">
+              <label className="shrink-0 text-[11px] text-gray-400">Review by</label>
+              <input type="date" className={input} value={v.completionReviewBy} onChange={set("completionReviewBy")} />
+            </div>
           )}
-          <input
-            className={srcInput}
-            placeholder="Source (document and revision) — optional"
-            value={v.srcOffice}
-            onChange={(e) => setV((x) => ({ ...x, srcOffice: e.target.value }))}
-          />
+          <input className={srcInput} placeholder="Source (document and revision) — optional" value={v.srcCompletion} onChange={set("srcCompletion")} />
         </div>
+      </div>
+      <div className="rounded-md border border-edge px-3 py-2">{boardRows}</div>
+      <div className="sm:w-1/2 sm:pr-2">
+        <label className="mb-1 block text-xs font-medium text-gray-400">Lobos office contact</label>
+        <select className={input} value={v.officeContactId} onChange={set("officeContactId")}>
+          <option value="">Not known yet</option>
+          {officeStaff.map((r) => (
+            <option key={r.id} value={r.id}>
+              {r.name}
+            </option>
+          ))}
+        </select>
+        {officeStaff.length === 0 && (
+          <p className="mt-1 flex items-center gap-1 text-[11px] text-gray-500">
+            <UserRound size={11} /> Add office staff in Labour with the role “Office” to pick them here.
+          </p>
+        )}
+        <input className={srcInput} placeholder="Source (document and revision) — optional" value={v.srcOffice} onChange={set("srcOffice")} />
       </div>
       {error && <div className="rounded-md bg-red-900/30 px-3 py-2 text-xs text-red-300">{error}</div>}
       <button
@@ -758,9 +841,17 @@ function OverviewFields({
           setSaving(true);
           setError(null);
           try {
+            const isTbc = v.expectedCompletion === COMPLETION_TBC;
             await onSave(
-              { expectedCompletion: v.expectedCompletion, officeContactId: v.officeContactId },
-              { expectedCompletion: v.srcCompletion, officeContactId: v.srcOffice }
+              {
+                startDate: v.startDate,
+                startDateConfidence: v.startDate ? v.startDateConfidence : "",
+                expectedCompletion: v.expectedCompletion,
+                completionConfidence: isTbc || !v.expectedCompletion ? "" : v.completionConfidence,
+                completionReviewBy: isTbc ? v.completionReviewBy : "",
+                officeContactId: v.officeContactId,
+              },
+              { startDate: v.srcStart, expectedCompletion: v.srcCompletion, officeContactId: v.srcOffice }
             );
           } catch (e) {
             setError((e as Error).message);

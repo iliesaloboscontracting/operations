@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { guard } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
+import { assertDateOpen } from "@/lib/dayLock";
+import { isISODate } from "@/lib/dateRules";
 
 // POST /api/jobs/copy { from: "YYYY-MM-DD", to: "YYYY-MM-DD" }
 // Copies every running job from one day to another so the target day ends up
@@ -17,6 +19,12 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   if (!from || !to) {
     return NextResponse.json({ error: "from and to are required" }, { status: 400 });
   }
+  if (!isISODate(from) || !isISODate(to)) {
+    return NextResponse.json({ error: "from and to must be YYYY-MM-DD" }, { status: 400 });
+  }
+  // A closed day's allocations are frozen for costing - never copy into one.
+  const locked = await assertDateOpen(to);
+  if (locked) return locked;
   const fromStart = new Date(from);
   const fromEnd = new Date(fromStart);
   fromEnd.setUTCDate(fromEnd.getUTCDate() + 1);
@@ -25,7 +33,14 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   toEnd.setUTCDate(toEnd.getUTCDate() + 1);
 
   const source = await prisma.job.findMany({
-    where: { date: { gte: fromStart, lt: fromEnd }, notRunning: false },
+    // Only jobs for projects that are still running carry over - an INACTIVE
+    // or COMPLETED project's job shouldn't reappear on the next day. Jobs
+    // with no project (one-offs) still copy.
+    where: {
+      date: { gte: fromStart, lt: fromEnd },
+      notRunning: false,
+      OR: [{ projectId: null }, { project: { status: "ACTIVE" } }],
+    },
     include: { assignments: true },
     orderBy: { sortOrder: "asc" },
   });

@@ -278,8 +278,8 @@ export const GET = withErrorHandling(async () => {
     return r.dailyRateExGst;
   }
 
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  // Sydney's calendar day, so idle-hire days don't depend on the server's clock/zone.
+  const today = parseISO(todaySydney());
   const referenceYear = today.getFullYear();
 
   const idleHireItems = hireResources

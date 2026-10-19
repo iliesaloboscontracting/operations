@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { ServiceRecordDTO } from "@/lib/types";
 import { useAuth } from "./AuthProvider";
 import { apiFetch } from "@/lib/apiFetch";
+import { localISODate } from "@/lib/resource";
 
 const input =
   "w-full rounded-md border border-edge bg-panel2 px-2 py-1.5 text-xs text-gray-200 focus:outline-none focus:ring-1 focus:ring-brand-500";
@@ -130,7 +131,7 @@ export default function ServiceHistory({ resourceId }: { resourceId: string }) {
   function startAdd() {
     setError(null);
     setEditingId(null);
-    setDraft({ ...BLANK, date: new Date().toISOString().slice(0, 10) });
+    setDraft({ ...BLANK, date: localISODate() });
     setAdding(true);
   }
   function startEdit(r: ServiceRecordDTO) {

@@ -5,6 +5,8 @@ import { pickProject } from "@/lib/pickProject";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { completeness } from "@/lib/projectFile";
 import { currentSupervisor, validateProjectFile } from "@/lib/projectFileServer";
+import { boardDatesByProject, dateExceptions } from "@/lib/dateExceptions";
+import { todaySydney } from "@/lib/today";
 
 // GET /api/projects/:id -> the Project File: the project, its external
 // contacts, its Lobos office contact and its current supervisor (read from
@@ -32,11 +34,17 @@ export const GET = withErrorHandling(async (
   }
 
   const { contacts, ...rest } = project;
+  const today = todaySydney();
+  const board = (await boardDatesByProject(today, project.id)).get(project.id);
   const out: Record<string, unknown> = {
     ...rest,
     contacts: isManager ? contacts : contacts.filter((c) => c.visibleTo === "CREW"),
     currentSupervisor: await currentSupervisor(project.id),
     completeness: completeness(rest, contacts.filter((c) => c.visibleTo === "CREW").length),
+    firstJobDate: board?.firstJobDate ?? null,
+    lastJobDate: board?.lastJobDate ?? null,
+    predatesBoard: board?.predatesBoard ?? false,
+    dateExceptions: isManager ? dateExceptions(rest, board, today) : [],
   };
   if (!isManager) {
     delete out.contractValue;
@@ -54,7 +62,12 @@ export const PATCH = withErrorHandling(async (
   if (denied) return denied;
   const body = await req.json();
   const data = pickProject(body);
-  const invalid = await validateProjectFile(data);
+  const existing = await prisma.project.findUnique({
+    where: { id: params.id },
+    select: { startDate: true, expectedCompletion: true, completionReviewBy: true },
+  });
+  if (!existing) return NextResponse.json({ error: "That project doesn't exist anymore." }, { status: 404 });
+  const invalid = await validateProjectFile(data, existing);
   if (invalid) return invalid;
   const project = await prisma.project.update({
     where: { id: params.id },

@@ -4,6 +4,7 @@ import { addDays } from "./dates";
 import { todaySydney } from "./today";
 import { isCompletionValue, isSupervisorRole, moneyError, moneyProblems, MONEY_GUARDED_KEYS } from "./projectFile";
 import { OFFICE_ROLE } from "./resource";
+import { projectDateError } from "./dateRules";
 
 // Server-side Project File rules (see lib/projectFile.ts for the shared ones).
 
@@ -11,7 +12,10 @@ import { OFFICE_ROLE } from "./resource";
 // anything that can go out to crew or clients, and the office contact must be
 // a Personnel-register entry with the Office role. Returns an error response,
 // or null when it's fine to save.
-export async function validateProjectFile(data: Record<string, unknown>) {
+export async function validateProjectFile(data: Record<string, unknown>, existing?: Record<string, unknown> | null) {
+  const dateError = projectDateError({ ...(existing ?? {}), ...data } as Parameters<typeof projectDateError>[0]);
+  if (dateError) return NextResponse.json({ error: dateError }, { status: 400 });
+
   const problems = moneyProblems(data, MONEY_GUARDED_KEYS);
   if (problems.length) return NextResponse.json({ error: moneyError(problems) }, { status: 422 });
 
