@@ -22,5 +22,5 @@ export const GET = withErrorHandling(async (_req: NextRequest, { params }: { par
       },
     },
   });
-  return NextResponse.json({ person: link.person.name, kind: link.kind, toolboxes });
+  return NextResponse.json({ person: link.person.name, kind: link.kind, shared: link.shared, toolboxes });
 });

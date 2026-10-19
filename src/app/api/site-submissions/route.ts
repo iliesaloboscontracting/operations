@@ -14,7 +14,7 @@ export const GET = withErrorHandling(async () => {
     where: { OR: [{ status: "PENDING" }, { createdAt: { gte: since } }] },
     orderBy: { createdAt: "desc" },
     take: 200,
-    include: { siteLink: { select: { resource: { select: { name: true } } } } },
+    include: { siteLink: { select: { label: true, resource: { select: { name: true } } } } },
   });
   // Tool / toolbox / check details, looked up in one go.
   const toolIds = rows.map((r) => r.toolId).filter((x): x is string => !!x);
@@ -43,7 +43,7 @@ export const GET = withErrorHandling(async () => {
   return NextResponse.json(
     rows.map(({ siteLink, ...r }) => ({
       ...r,
-      from: siteLink.resource.name,
+      from: siteLink.resource?.name ?? siteLink.label ?? "Shared link",
       photoIds: parse(r.photoIds) ?? [],
       // Which photo is which - a site submission may have either, both or none.
       photos: ((parse(r.photoIds) ?? []) as string[]).map((id) => ({ id, kind: photoKinds.find((p) => p.id === id)?.kind ?? "" })),

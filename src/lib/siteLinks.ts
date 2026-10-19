@@ -14,7 +14,8 @@ export const DAILY_PHOTO_LIMIT = 80;
 export type ResolvedLink = {
   id: string;
   kind: "SUPERVISOR" | "OFFICE";
-  person: { id: string; name: string };
+  person: { id: string | null; name: string }; // shared links: id null, name = label
+  shared: boolean;
   // SUPERVISOR: the toolboxes they're in charge of. OFFICE: every active
   // toolbox (an office/yard person can put a tool into any of them, or the yard).
   toolboxes: { id: string; name: string }[];
@@ -30,6 +31,7 @@ export async function resolveLink(secret: unknown): Promise<ResolvedLink | null>
       id: true,
       kind: true,
       revokedAt: true,
+      label: true,
       resource: {
         select: { id: true, name: true, toolboxes: { where: { active: true }, select: { id: true, name: true }, orderBy: { name: "asc" } } },
       },
@@ -37,13 +39,15 @@ export async function resolveLink(secret: unknown): Promise<ResolvedLink | null>
   });
   if (!link || link.revokedAt) return null;
   const kind = link.kind === "OFFICE" ? "OFFICE" : "SUPERVISOR";
-  if (kind === "SUPERVISOR" && link.resource.toolboxes.length === 0) return null;
+  // A shared link (no person) can only be an office/yard link.
+  if (kind === "SUPERVISOR" && (link.resource?.toolboxes.length ?? 0) === 0) return null;
   const toolboxes =
     kind === "OFFICE"
       ? await prisma.toolbox.findMany({ where: { active: true }, select: { id: true, name: true }, orderBy: { name: "asc" } })
-      : link.resource.toolboxes;
+      : link.resource!.toolboxes;
   await prisma.siteLink.update({ where: { id: link.id }, data: { lastUsedAt: new Date() } });
-  return { id: link.id, kind, person: { id: link.resource.id, name: link.resource.name }, toolboxes };
+  const person = link.resource ? { id: link.resource.id, name: link.resource.name } : { id: null, name: link.label ?? "Shared link" };
+  return { id: link.id, kind, person, shared: !link.resource, toolboxes };
 }
 
 export async function photosSentToday(linkId: string) {

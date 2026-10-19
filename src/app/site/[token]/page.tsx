@@ -12,7 +12,7 @@ import type { CheckResult } from "@/lib/toolboxCheck";
 // check their toolbox, report a fault. No login; the link is the key.
 
 type SiteTool = { id: string; tag: string; name: string; brand: string | null; model: string | null; serialNumber: string | null; condition: string };
-type SiteInfo = { person: string; kind: "SUPERVISOR" | "OFFICE"; toolboxes: { id: string; name: string; tools: SiteTool[] }[] };
+type SiteInfo = { person: string; kind: "SUPERVISOR" | "OFFICE"; shared?: boolean; toolboxes: { id: string; name: string; tools: SiteTool[] }[] };
 type Mode = "home" | "register" | "check" | "fault";
 
 const input =
@@ -25,6 +25,8 @@ export default function SitePhotosPage({ params }: { params: { token: string } }
   const [dead, setDead] = useState<string | null>(null);
   const [mode, setMode] = useState<Mode>("home");
   const [flash, setFlash] = useState<string | null>(null);
+  const [who, setWho] = useState("");
+  useEffect(() => setWho(getWho()), []);
 
   const load = useCallback(async () => {
     const res = await fetch(api);
@@ -57,6 +59,20 @@ export default function SitePhotosPage({ params }: { params: { token: string } }
         <>
           <h1 className="mb-1 text-xl font-semibold text-gray-100">{info.kind === "OFFICE" ? "Tools capture" : "Site photos"}</h1>
           <p className="mb-4 text-sm text-gray-500">{info.kind === "OFFICE" ? "Add tools to the Lobos inventory." : `Tools for ${info.toolboxes.map((b) => b.name).join(", ")}.`}</p>
+          {info.shared && (
+            <label className="mb-4 block">
+              <span className="mb-1 block text-sm text-gray-300">Your name</span>
+              <input
+                className={input}
+                placeholder="So the office knows who added it"
+                value={who}
+                onChange={(e) => {
+                  setWho(e.target.value);
+                  saveWho(e.target.value);
+                }}
+              />
+            </label>
+          )}
           {flash && <div className="mb-4 rounded-xl bg-emerald-500/15 px-4 py-3 text-sm text-emerald-300">✓ {flash}</div>}
           <div className="space-y-3">
             <Big icon={<Camera size={22} />} title="Add a tool" text="Photos and/or type the details" onClick={() => { setFlash(null); setMode("register"); }} />
@@ -95,8 +111,24 @@ function Big({ icon, title, text, onClick }: { icon: React.ReactNode; title: str
   );
 }
 
-async function post(api: string, body: unknown) {
-  const res = await fetch(`${api}/submit`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+// On a shared link (Yard) the person's name is kept on this phone and sent
+// with everything, so the office can see who added a tool.
+const WHO_KEY = "lobos-site-who";
+function getWho() {
+  try {
+    return localStorage.getItem(WHO_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+function saveWho(v: string) {
+  try {
+    localStorage.setItem(WHO_KEY, v);
+  } catch {}
+}
+
+async function post(api: string, body: Record<string, unknown>) {
+  const res = await fetch(`${api}/submit`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...body, who: getWho() }) });
   if (!res.ok) throw new Error(await serverErrorMessage(res, "Couldn't send - check your signal and try again."));
   return res.json();
 }

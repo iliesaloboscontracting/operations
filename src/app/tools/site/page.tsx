@@ -36,7 +36,8 @@ type SiteLinkRow = {
   lastUsedAt: string | null;
   revokedAt: string | null;
   kind?: string;
-  resource: { id: string; name: string };
+  label?: string | null;
+  resource: { id: string; name: string } | null;
   _count: { submissions: number };
 };
 
@@ -54,7 +55,7 @@ export default function FromSitePage() {
   const [registering, setRegistering] = useState<Submission | null>(null);
   const [openCheck, setOpenCheck] = useState<string | null>(null);
   const [newLinkFor, setNewLinkFor] = useState("");
-  const [linkKind, setLinkKind] = useState<"SUPERVISOR" | "OFFICE">("SUPERVISOR");
+  const [linkKind, setLinkKind] = useState<"SUPERVISOR" | "OFFICE" | "YARD">("SUPERVISOR");
   const [people, setPeople] = useState<ResourceDTO[]>([]);
   const [toCheck, setToCheck] = useState<ToolDTO[]>([]);
   const [madeLink, setMadeLink] = useState<{ name: string; url: string } | null>(null);
@@ -231,25 +232,34 @@ export default function FromSitePage() {
                   className="rounded-lg border border-edge bg-panel2 px-2.5 py-1.5 text-xs text-gray-200"
                   value={linkKind}
                   onChange={(e) => {
-                    setLinkKind(e.target.value as "SUPERVISOR" | "OFFICE");
+                    setLinkKind(e.target.value as "SUPERVISOR" | "OFFICE" | "YARD");
                     setNewLinkFor("");
                   }}
                 >
                   <option value="SUPERVISOR">Supervisor link</option>
                   <option value="OFFICE">Office / yard link</option>
+                  <option value="YARD">Yard link (shared)</option>
                 </select>
+                {linkKind === "YARD" ? (
+                  <span className="min-w-0 flex-1 self-center text-xs text-gray-400">One link for anyone in the yard</span>
+                ) : (
                 <select className="min-w-0 flex-1 rounded-lg border border-edge bg-panel2 px-2.5 py-1.5 text-xs text-gray-200" value={newLinkFor} onChange={(e) => setNewLinkFor(e.target.value)}>
                   <option value="">{linkKind === "OFFICE" ? "Person…" : "Supervisor…"}</option>
                   {linkPeople.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                 </select>
+                )}
                 <button
                   className={btn}
-                  disabled={!newLinkFor}
+                  disabled={linkKind !== "YARD" && !newLinkFor}
                   onClick={async () => {
-                    const out = await act(() => json("/api/site-links", "POST", { resourceId: newLinkFor, kind: linkKind }), "Couldn't make the link.");
+                    if (linkKind === "YARD" && links.some((l) => !l.resource && !l.revokedAt) && !confirm("Make a new Yard link? The old one stops working - everyone in the yard will need the new one.")) return;
+                    const out = await act(
+                      () => json("/api/site-links", "POST", linkKind === "YARD" ? { shared: "Yard" } : { resourceId: newLinkFor, kind: linkKind }),
+                      "Couldn't make the link."
+                    );
                     if (out) {
                       const who = linkPeople.find((p) => p.id === newLinkFor)?.name ?? "";
-                      setMadeLink({ name: linkKind === "OFFICE" ? `${who} (office / yard)` : who, url: out.url });
+                      setMadeLink({ name: linkKind === "YARD" ? "the Yard" : linkKind === "OFFICE" ? `${who} (office / yard)` : who, url: out.url });
                       setCopied(false);
                       setNewLinkFor("");
                     }
@@ -273,7 +283,12 @@ export default function FromSitePage() {
                 >
                   <ClipboardCopy size={12} /> {copied ? "Copied" : "Copy link"}
                 </button>
-                <p className="mt-2 text-gray-400">Send it to {madeLink.name} directly (text or WhatsApp to them only). This is the only time it&apos;s shown.</p>
+                <p className="mt-2 text-gray-400">
+                  {madeLink.name === "the Yard"
+                    ? "Send it only to the people working in the yard (not a group with anyone else in it)."
+                    : `Send it to ${madeLink.name} directly (text or WhatsApp to them only).`}{" "}
+                  This is the only time it&apos;s shown.
+                </p>
               </div>
             )}
             <ul className="divide-y divide-edge/60 rounded-xl border border-edge bg-panel">
@@ -282,8 +297,8 @@ export default function FromSitePage() {
                 <li key={l.id} className="flex items-center gap-2 px-3 py-2 text-xs">
                   <div className="min-w-0 flex-1">
                     <div className="text-gray-200">
-                      {l.resource.name}
-                      <span className="ml-1.5 rounded-full bg-gray-700 px-1.5 py-0.5 text-[10px] text-gray-300">{l.kind === "OFFICE" ? "Office / yard" : "Supervisor"}</span>
+                      {l.resource?.name ?? l.label}
+                      <span className="ml-1.5 rounded-full bg-gray-700 px-1.5 py-0.5 text-[10px] text-gray-300">{!l.resource ? "Shared" : l.kind === "OFFICE" ? "Office / yard" : "Supervisor"}</span>
                     </div>
                     <div className="text-gray-500">
                       Made {when(l.createdAt)}{l.lastUsedAt ? ` · last used ${when(l.lastUsedAt)}` : " · not used yet"} · {l._count.submissions} sent
@@ -293,7 +308,7 @@ export default function FromSitePage() {
                     <span className="text-gray-500">Off</span>
                   ) : (
                     canEdit && (
-                      <button className={quiet} onClick={() => confirm(`Switch off ${l.resource.name}'s link? It stops working straight away.`) && act(() => json(`/api/site-links/${l.id}`, "PATCH", { revoke: true }), "Couldn't switch it off.")}>
+                      <button className={quiet} onClick={() => confirm(`Switch off ${l.resource?.name ?? l.label}'s link? It stops working straight away.`) && act(() => json(`/api/site-links/${l.id}`, "PATCH", { revoke: true }), "Couldn't switch it off.")}>
                         Switch off
                       </button>
                     )

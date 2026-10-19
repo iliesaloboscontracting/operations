@@ -14,7 +14,7 @@ export const PATCH = withErrorHandling(async (req: NextRequest, { params }: { pa
   const body = await req.json().catch(() => ({}));
   const sub = await prisma.siteSubmission.findUnique({
     where: { id: params.id },
-    include: { siteLink: { select: { resource: { select: { name: true } } } } },
+    include: { siteLink: { select: { label: true, resource: { select: { name: true } } } } },
   });
   if (!sub) return NextResponse.json({ error: "not found" }, { status: 404 });
   if (sub.status !== "PENDING") return NextResponse.json({ error: "This has already been dealt with." }, { status: 409 });
@@ -39,7 +39,7 @@ export const PATCH = withErrorHandling(async (req: NextRequest, { params }: { pa
     const photoId = (JSON.parse(sub.photoIds) as string[])[0] ?? null;
     const [issue] = await prisma.$transaction([
       prisma.toolIssue.create({
-        data: { toolId: sub.toolId, description: sub.description ?? "", photoId, reportedBy: `${sub.siteLink.resource.name} (site)` },
+        data: { toolId: sub.toolId, description: sub.description ?? "", photoId, reportedBy: `${sub.siteLink.resource?.name ?? sub.siteLink.label ?? "Shared link"} (site)` },
       }),
       ...(photoId ? [prisma.toolPhoto.update({ where: { id: photoId }, data: { toolId: sub.toolId } })] : []),
       ...(body.notWorking !== false ? [prisma.tool.update({ where: { id: sub.toolId }, data: { condition: "Needs repair" } })] : []),

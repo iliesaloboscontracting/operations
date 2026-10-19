@@ -538,11 +538,14 @@ model ToolIssue {
 model SiteLink {
   id         String    @id @default(cuid())
   tokenHash  String    @unique // sha256 of the secret in the link
-  resourceId String // the Personnel-register person it belongs to
+  // The Personnel-register person it belongs to - or none, for a shared
+  // link known by its label (e.g. "Yard": anyone working in the yard).
+  resourceId String?
+  label      String?
   // SUPERVISOR: their own toolbox (register, check, fault). OFFICE: office /
   // yard staff capturing tools into the inventory (any toolbox or the yard).
   kind       String    @default("SUPERVISOR")
-  resource   Resource  @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  resource   Resource? @relation(fields: [resourceId], references: [id], onDelete: Cascade)
   createdBy  String?
   createdAt  DateTime  @default(now())
   lastUsedAt DateTime?

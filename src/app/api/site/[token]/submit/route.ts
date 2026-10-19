@@ -22,13 +22,16 @@ export const POST = withErrorHandling(async (req: NextRequest, { params }: { par
   const link = await resolveLink(params.token);
   if (!link) return NextResponse.json({ error: "This link isn't active. Ask the office for a new one." }, { status: 404 });
   const body = await req.json().catch(() => ({}));
-  const by = `${link.person.name} (site)`;
+  // On a shared link (e.g. Yard) the phone can say who's using it.
+  const who = link.shared && typeof body.who === "string" && body.who.trim() ? ` - ${body.who.trim().slice(0, 40)}` : "";
+  const name = `${link.person.name}${who}`;
+  const by = `${name} (site)`;
   try {
     switch (body.kind) {
       case "READ":
         return await read(link, body);
       case "REGISTER":
-        return await register(link, body);
+        return await register(link, body, name);
       case "FAULT":
         if (link.kind === "OFFICE") return bad("Faults are reported from a supervisor's link.");
         return await fault(link, body);
@@ -85,7 +88,7 @@ async function read(link: ResolvedLink, body: Record<string, unknown>) {
 const SITE_TOOL_FIELDS = ["name", "brand", "model", "serialNumber", "itemNo", "manufactured", "condition", "conditionNotes", "notes"] as const;
 const SITE_CONDITIONS = ["New", "Good", "Needs repair"];
 
-async function register(link: ResolvedLink, body: Record<string, unknown>) {
+async function register(link: ResolvedLink, body: Record<string, unknown>, name: string) {
   const raw = (body.fields ?? {}) as Record<string, unknown>;
   const fields: Record<string, unknown> = {};
   for (const k of SITE_TOOL_FIELDS) if (typeof raw[k] === "string") fields[k] = (raw[k] as string).trim().slice(0, k === "notes" || k === "conditionNotes" ? 500 : 120);
@@ -119,7 +122,7 @@ async function register(link: ResolvedLink, body: Record<string, unknown>) {
     siteLinkId: link.id,
     toolboxId,
     addedFrom: link.kind === "OFFICE" ? "OFFICE_LINK" : "SITE",
-    addedBy: `${link.person.name} (${link.kind === "OFFICE" ? "office link" : "site"})`,
+    addedBy: `${name} (${link.kind === "OFFICE" ? "office link" : "site"})`,
     needsCheck: link.kind !== "OFFICE",
   });
   if (!result.ok) return NextResponse.json({ error: result.error, duplicate: !!result.duplicate }, { status: result.status });
@@ -133,7 +136,7 @@ async function register(link: ResolvedLink, body: Record<string, unknown>) {
       toolboxId,
       status: "APPLIED",
       appliedRef: result.tool.id,
-      reviewedBy: link.person.name,
+      reviewedBy: name,
       reviewedAt: new Date(),
     },
   });

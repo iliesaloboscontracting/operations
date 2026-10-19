@@ -12,7 +12,7 @@ export const GET = withErrorHandling(async () => {
   const links = await prisma.siteLink.findMany({
     orderBy: { createdAt: "desc" },
     select: {
-      id: true, kind: true, createdAt: true, createdBy: true, lastUsedAt: true, revokedAt: true,
+      id: true, kind: true, label: true, createdAt: true, createdBy: true, lastUsedAt: true, revokedAt: true,
       resource: { select: { id: true, name: true } },
       _count: { select: { submissions: true } },
     },
@@ -20,10 +20,12 @@ export const GET = withErrorHandling(async () => {
   return NextResponse.json(links);
 });
 
-// POST /api/site-links { resourceId, kind? } -> { id, url }
+// POST /api/site-links { resourceId, kind? } | { shared: "Yard" } -> { id, url }
 // kind SUPERVISOR (default): for someone in charge of a toolbox.
 // kind OFFICE: for office / yard staff capturing tools into the inventory -
 // anyone in the Personnel register.
+// shared "Yard" (19 Oct 2026): one office/yard link not tied to a person -
+// anyone working in the yard uses it and types their name on the phone.
 // The full link is returned ONCE, to be sent to them; it can't be looked up
 // again. Making a new link switches off that person's old one of the same kind.
 export const POST = withErrorHandling(async (req: NextRequest) => {
@@ -31,6 +33,15 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   if (denied) return denied;
   const user = await getCurrentUser();
   const body = await req.json().catch(() => ({}));
+  if (body.shared !== undefined) {
+    if (body.shared !== "Yard") return NextResponse.json({ error: "Unknown shared link." }, { status: 400 });
+    const secret = newLinkSecret();
+    const [, link] = await prisma.$transaction([
+      prisma.siteLink.updateMany({ where: { resourceId: null, label: "Yard", revokedAt: null }, data: { revokedAt: new Date() } }),
+      prisma.siteLink.create({ data: { tokenHash: hashSecret(secret), label: "Yard", kind: "OFFICE", createdBy: user?.name ?? null } }),
+    ]);
+    return NextResponse.json({ id: link.id, url: siteUrl(secret, req.nextUrl.origin) }, { status: 201 });
+  }
   const person = typeof body.resourceId === "string"
     ? await prisma.resource.findUnique({
         where: { id: body.resourceId },

@@ -19,7 +19,7 @@ export const POST = withErrorHandling(async (req: NextRequest, { params }: { par
   const saved = await savePhoto(body.dataUrl);
   if ("error" in saved) return NextResponse.json({ error: saved.error }, { status: 400 });
   const photo = await prisma.toolPhoto.create({
-    data: { kind: body.kind, fileName: saved.fileName, takenBy: `${link.person.name} (site)`, siteLinkId: link.id },
+    data: { kind: body.kind, fileName: saved.fileName, takenBy: `${link.person.name}${link.shared && typeof body.who === "string" && body.who.trim() ? ` - ${body.who.trim().slice(0, 40)}` : ""} (site)`, siteLinkId: link.id },
   });
   return NextResponse.json({ id: photo.id }, { status: 201 });
 });
