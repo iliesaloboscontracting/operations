@@ -3,9 +3,11 @@
 // reasons on the existing "Needs attention" filter - this is the control
 // that catches whatever the save-time checks (lib/dateRules.ts) let through.
 //
-// D12-1 (decided 19 Oct 2026): "start date" means the first day on site.
-// Once a project has a running job, its start date should equal the first
-// one; a mismatch is listed here for a person to fix, never auto-corrected.
+// D12-1 (decided 19 Oct 2026, clarified by Ilies the same day): "start date"
+// means the Lobos demo crew's first day on site - not another trade's, not a
+// walk-through or set-out, and not an empty booking. So "first day on site"
+// below only counts a running job with our own crew (staff or labour hire)
+// assigned. A mismatch is listed for a person to fix, never auto-corrected.
 
 import { prisma } from "./prisma";
 import { addDays, fmtDay } from "./dates";
@@ -16,8 +18,8 @@ const short = (iso: string) => fmtDay(iso, { weekday: "short", day: "numeric", m
 const iso = (d: Date) => d.toISOString().slice(0, 10);
 
 export interface ProjectBoardDates {
-  firstJobDate: string | null; // first running job ever (the actual first day on site)
-  lastJobDate: string | null; // last running job (the actual finish once COMPLETED)
+  firstJobDate: string | null; // first running job with our crew on it (the demo crew's first day on site)
+  lastJobDate: string | null; // last running job with our crew on it (the actual finish once COMPLETED)
   nextJobDate: string | null; // first running job today or later
   upcomingNoTimes: number; // running jobs in the next 14 days with no start or finish time
   // The first job is on the board's very first day (22 Sep 2026, when
@@ -32,9 +34,19 @@ export async function boardDatesByProject(today: string, projectId?: string): Pr
   const todayDate = new Date(today + "T00:00:00.000Z");
   const horizon = new Date(addDays(today, 14) + "T00:00:00.000Z");
   const running = { notRunning: false, projectId: projectId ?? { not: null } };
-  const [boardStart, span, next, noTimes] = await Promise.all([
+  // Our own crew on the job: staff, or labour hire working for us.
+  const crewed = {
+    assignments: {
+      some: { resource: { OR: [{ type: "PERSONNEL" }, { type: "HIRE", category: "LABOUR" }] } },
+    },
+  };
+  const [boardStart, firstAny, span, next, noTimes] = await Promise.all([
+    // The board's very first day, and each project's first booking of any
+    // kind - a project booked on day one was already running before the
+    // board existed (crew names weren't recorded on the earliest days).
     prisma.job.aggregate({ _min: { date: true } }),
-    prisma.job.groupBy({ by: ["projectId"], where: running, _min: { date: true }, _max: { date: true } }),
+    prisma.job.groupBy({ by: ["projectId"], where: { projectId: projectId ?? { not: null } }, _min: { date: true } }),
+    prisma.job.groupBy({ by: ["projectId"], where: { ...running, ...crewed }, _min: { date: true }, _max: { date: true } }),
     prisma.job.groupBy({ by: ["projectId"], where: { ...running, date: { gte: todayDate } }, _min: { date: true } }),
     prisma.job.groupBy({
       by: ["projectId"],
@@ -58,7 +70,10 @@ export async function boardDatesByProject(today: string, projectId?: string): Pr
     const v = get(r.projectId);
     v.firstJobDate = r._min.date ? iso(r._min.date) : null;
     v.lastJobDate = r._max.date ? iso(r._max.date) : null;
-    v.predatesBoard = !!boardStart._min.date && v.firstJobDate === iso(boardStart._min.date);
+  }
+  const boardDay1 = boardStart._min.date ? iso(boardStart._min.date) : null;
+  for (const r of firstAny) {
+    if (r.projectId && boardDay1 && r._min.date && iso(r._min.date) === boardDay1) get(r.projectId).predatesBoard = true;
   }
   for (const r of next) if (r.projectId && r._min.date) get(r.projectId).nextJobDate = iso(r._min.date);
   for (const r of noTimes) if (r.projectId) get(r.projectId).upcomingNoTimes = r._count._all;
@@ -92,14 +107,14 @@ export function dateExceptions(p: ProjectDates, b: ProjectBoardDates | undefined
       board.predatesBoard
         ? "No start date (started before the board - take it from the handover)"
         : board.firstJobDate
-        ? `No start date (first job on the board ${short(board.firstJobDate)})`
+        ? `No start date (our crew's first day on the board: ${short(board.firstJobDate)})`
         : "No start date"
     );
   } else if (board.firstJobDate && board.firstJobDate !== p.startDate) {
     // An earlier start than the board's first day is expected for a project
     // that was already running when the board began - not a mismatch.
     if (!(board.predatesBoard && p.startDate < board.firstJobDate)) {
-      out.push(`Start date ${short(p.startDate)} but first job on the board ${short(board.firstJobDate)}`);
+      out.push(`Start date ${short(p.startDate)} but our crew's first day on the board is ${short(board.firstJobDate)}`);
     }
   }
 

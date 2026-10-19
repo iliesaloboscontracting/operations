@@ -210,6 +210,7 @@ model Job {
 
 model Resource {
   id          String       @id @default(cuid())
+  toolboxes   Toolbox[] // toolboxes this person is in charge of
   name        String
   type        String // PERSONNEL | EQUIPMENT | ATTACHMENT | VEHICLE | HIRE
   category    String? // register section: Site Manager / Tipper / PLANT|LABOUR|VEHICLE (hire) ...
@@ -404,13 +405,113 @@ model JobActual {
 
 model Tool {
   id        String   @id @default(cuid())
-  tag       String   @unique // LOB-0001
-  name      String
-  model     String? // model / serial
+  tag       String   @unique // LOB-0001 - also printed on the tool's QR label
+  name      String // what it is, e.g. "Hammer drill driver"
+  model     String? // model (older rows may still hold "model · serial" from before serialNumber existed)
   condition String   @default("Good") // New | Good | Needs repair | Missing
-  heldBy    String   @default("Yard")
+  heldBy    String   @default("Yard") // who has it - kept in step with the toolbox's supervisor when it has a home toolbox
   lastSeen  String?
   notes     String?
+  // Tool register by photo (19 Oct 2026). Read from the rating plate photo
+  // and confirmed by a person before saving - never saved straight from AI.
+  brand          String?
+  serialNumber   String? // from the rating plate, e.g. Hilti "Serial no."
+  itemNo         String? // manufacturer item / part number, e.g. Hilti FFE
+  manufactured   String? // as printed, e.g. "06/2026"
+  conditionNotes String? // damage / wear seen on the condition photo
+  ownership      String   @default("OWNED") // OWNED | HILTI_FLEET | HIRED
+  fleetRef       String? // Hilti fleet / contract reference when on fleet
+  // The toolbox this tool should live in. Null = in the yard / unassigned.
+  toolboxId String?
+  toolbox   Toolbox? @relation(fields: [toolboxId], references: [id], onDelete: SetNull)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  photos    ToolPhoto[]
+  movements ToolMovement[]
+  issues    ToolIssue[] @relation("issueTool")
+  replacedIssues ToolIssue[] @relation("replacementTool")
+
+  @@index([serialNumber])
+  @@index([toolboxId])
+}
+
+// A supervisor's digital toolbox: the tools (by serial / LOB tag) they should have.
+model Toolbox {
+  id           String    @id @default(cuid())
+  name         String // e.g. "Sinan's toolbox"
+  supervisorId String? // Personnel-register entry in charge of it
+  supervisor   Resource? @relation(fields: [supervisorId], references: [id], onDelete: SetNull)
+  notes        String?
+  active       Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  tools        Tool[]
+  checks       ToolboxCheck[]
+}
+
+// Photos kept for a tool: the rating plate, its condition, a fault, or a
+// toolbox-check photo. Files live outside the app folder (TOOL_PHOTO_DIR).
+model ToolPhoto {
+  id        String   @id @default(cuid())
+  toolId    String? // null while uploaded but not yet attached (e.g. mid-registration or a toolbox check)
+  tool      Tool?    @relation(fields: [toolId], references: [id], onDelete: SetNull)
+  kind      String // PLATE | CONDITION | FAULT | CHECK
+  fileName  String // file inside TOOL_PHOTO_DIR
+  takenBy   String?
+  createdAt DateTime @default(now())
+
+  @@index([toolId])
+}
+
+// Every change of a tool's home toolbox - who moved it, when and why.
+model ToolMovement {
+  id            String   @id @default(cuid())
+  toolId        String
+  tool          Tool     @relation(fields: [toolId], references: [id], onDelete: Cascade)
+  fromToolboxId String?
+  toToolboxId   String?
+  fromName      String? // snapshot of the toolbox names, survives a rename
+  toName        String?
+  reason        String?
+  movedBy       String?
+  createdAt     DateTime @default(now())
+
+  @@index([toolId])
+}
+
+// A photo check of a toolbox against what should be in it. found/missing/
+// foreign/unknown are worked out in code from what the photo shows.
+model ToolboxCheck {
+  id        String   @id @default(cuid())
+  toolboxId String
+  toolbox   Toolbox  @relation(fields: [toolboxId], references: [id], onDelete: Cascade)
+  photoIds  String // JSON array of ToolPhoto ids
+  result    String // JSON: { present, presentUnconfirmed, missing, foreign, unknown }
+  checkedBy String?
+  createdAt DateTime @default(now())
+
+  @@index([toolboxId])
+}
+
+// A fault reported on a tool, e.g. "not hammering properly". Fleet tools get
+// swapped out with Hilti: REPORTED -> SWAP_REQUESTED -> SWAPPED, or FIXED /
+// CLOSED. Operations never contacts Hilti itself.
+model ToolIssue {
+  id                String    @id @default(cuid())
+  toolId            String
+  tool              Tool      @relation("issueTool", fields: [toolId], references: [id], onDelete: Cascade)
+  description       String
+  status            String    @default("REPORTED") // REPORTED | SWAP_REQUESTED | SWAPPED | FIXED | CLOSED
+  photoId           String?
+  reportedBy        String?
+  swapRef           String? // Hilti swap / repair job number once requested
+  replacementToolId String?
+  replacementTool   Tool?     @relation("replacementTool", fields: [replacementToolId], references: [id], onDelete: SetNull)
+  resolution        String?
+  resolvedAt        DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([toolId])
+  @@index([status])
 }

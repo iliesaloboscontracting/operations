@@ -29,7 +29,8 @@ export interface RegisterConfig<T> {
   header?: (rows: T[]) => React.ReactNode; // e.g. summary tiles
   tabs?: React.ReactNode;
   itemNoun?: string;
-  detail?: (row: T) => React.ReactNode; // extra panel in the edit modal (existing rows only)
+  detail?: (row: T, reload: () => Promise<void>) => React.ReactNode; // extra panel in the edit modal (existing rows only)
+  extraActions?: (reload: () => Promise<void>) => React.ReactNode; // more buttons beside "Add" (editors only)
 }
 
 const PILL: Record<string, string> = {
@@ -137,6 +138,8 @@ export default function RegisterPage<T extends { id: string }>({
       subtitle={config.subtitle}
       actions={
         canEdit ? (
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+          {config.extraActions?.(load)}
           <button
             onClick={() => setEditing("new")}
             className="flex shrink-0 items-center gap-1.5 rounded-lg bg-brand-600 px-3.5 py-2 text-sm font-medium text-white shadow-sm hover:bg-brand-500 active:scale-[0.98]"
@@ -144,6 +147,7 @@ export default function RegisterPage<T extends { id: string }>({
             <Plus size={16} strokeWidth={2.5} />
             {config.addLabel}
           </button>
+          </div>
         ) : undefined
       }
     >
@@ -230,7 +234,7 @@ export default function RegisterPage<T extends { id: string }>({
           onSave={save}
           onClose={() => setEditing(null)}
           onDelete={editing === "new" ? undefined : remove}
-          extra={editing !== "new" && config.detail ? config.detail(editing as T) : undefined}
+          extra={editing !== "new" && config.detail ? config.detail(editing as T, load) : undefined}
           wide={editing !== "new" && !!config.detail}
         />
       )}

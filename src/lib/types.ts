@@ -213,6 +213,44 @@ export interface ToolDTO {
   heldBy: string;
   lastSeen: string | null;
   notes: string | null;
+  // Register by photo (19 Oct 2026)
+  brand: string | null;
+  serialNumber: string | null;
+  itemNo: string | null;
+  manufactured: string | null;
+  conditionNotes: string | null;
+  ownership: string; // OWNED | HILTI_FLEET | HIRED
+  fleetRef: string | null;
+  toolboxId: string | null;
+  toolbox?: { id: string; name: string } | null;
+  photos?: { id: string; kind: string }[];
+  openIssues?: number;
+}
+
+export interface ToolboxDTO {
+  id: string;
+  name: string;
+  notes: string | null;
+  supervisorId: string | null;
+  supervisor: { id: string; name: string; phone: string | null } | null;
+  tools: Pick<ToolDTO, "id" | "tag" | "name" | "brand" | "model" | "serialNumber" | "condition" | "ownership">[];
+  lastCheck: { id: string; createdAt: string; checkedBy: string | null; missing?: number; foreign?: number } | null;
+}
+
+export interface ToolIssueDTO {
+  id: string;
+  toolId: string;
+  description: string;
+  status: string; // REPORTED | SWAP_REQUESTED | SWAPPED | FIXED | CLOSED
+  photoId: string | null;
+  reportedBy: string | null;
+  swapRef: string | null;
+  replacementToolId: string | null;
+  replacementTool?: { id: string; tag: string; name: string; serialNumber: string | null } | null;
+  resolution: string | null;
+  resolvedAt: string | null;
+  createdAt: string;
+  tool?: Pick<ToolDTO, "id" | "tag" | "name" | "brand" | "model" | "serialNumber" | "itemNo" | "ownership" | "fleetRef"> & { toolbox: { name: string } | null };
 }
 
 // Drag payload carried in the HTML5 DataTransfer object.

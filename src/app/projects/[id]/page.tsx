@@ -646,7 +646,7 @@ export default function ProjectFilePage({ params }: { params: { id: string } }) 
 }
 
 // Overview's dates and office contact (brief 11, extended by brief 12).
-// Start date = the first day on site (D12-1). Each planned date carries how
+// Start date = our demo crew's first day on site (D12-1). Each planned date carries how
 // firm it is (Confirmed / Tentative) and where it came from; the board's own
 // first and last days are shown beside them, never typed.
 function OverviewFields({
@@ -701,12 +701,12 @@ function OverviewFields({
   // What the board says actually happened - shown to everyone, never edited.
   const boardRows = (
     <>
-      <Row label="First job on the board">
+      <Row label="Our crew's first day (board)">
         {project.firstJobDate ? (
           <>
             {long(project.firstJobDate)}
             {project.predatesBoard && (
-              <span className="ml-1 text-[11px] text-gray-500">(the board&apos;s first day — the project started before it)</span>
+              <span className="ml-1 text-[11px] text-gray-500">(the board started then — the project began earlier)</span>
             )}
             {startMismatch && (
               <span className="ml-2 rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-600">
@@ -727,7 +727,7 @@ function OverviewFields({
   if (!canEdit) {
     return (
       <>
-        <Row label="Start date (first day on site)">
+        <Row label="Start date (our demo crew's first day on site)">
           {project.startDate ? `${long(project.startDate)}${conf(project.startDateConfidence)}` : <Unknown />}
         </Row>
         <Row label="Expected completion">{completionText ?? <Unknown />}</Row>
@@ -763,7 +763,7 @@ function OverviewFields({
     <div className="space-y-4">
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
-          <label className="mb-1 block text-xs font-medium text-gray-400">Start date (first day on site)</label>
+          <label className="mb-1 block text-xs font-medium text-gray-400">Start date (our demo crew&apos;s first day on site)</label>
           <div className="flex items-center gap-2">
             <input type="date" className={input} value={v.startDate} onChange={set("startDate")} />
             {confSelect("startDateConfidence")}
@@ -777,11 +777,11 @@ function OverviewFields({
                   ...x,
                   startDate: project.firstJobDate!,
                   startDateConfidence: "CONFIRMED",
-                  srcStart: "Command Centre board (first job)",
+                  srcStart: "Command Centre board (our crew's first day)",
                 }))
               }
             >
-              The board&apos;s first day is {long(project.firstJobDate)} — use that
+              Our crew&apos;s first day on the board is {long(project.firstJobDate)} — use that
             </button>
           )}
           <input className={srcInput} placeholder="Source (document and revision) — optional" value={v.srcStart} onChange={set("srcStart")} />
