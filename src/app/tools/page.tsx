@@ -9,6 +9,10 @@ import ToolDetail from "@/components/tools/ToolDetail";
 import { OWNERSHIP_LABEL, TOOL_CONDITIONS, TOOL_OWNERSHIP } from "@/lib/pickTool";
 import { ToolDTO } from "@/lib/types";
 
+const SECTION_TO_CHECK = "Added from site - to check";
+const SECTION_UNREADABLE = "Plate not readable";
+const SECTION_REST = "";
+
 function Tile({ label, value }: { label: string; value: number }) {
   return (
     <div className="rounded-lg border border-edge bg-panel px-4 py-2">
@@ -41,17 +45,22 @@ export default function ToolsPage() {
               <Camera size={16} /> Register by photo
             </button>
           ),
-          searchText: (t) => `${t.tag} ${t.name} ${t.brand ?? ""} ${t.model ?? ""} ${t.serialNumber ?? ""} ${t.heldBy} ${t.toolbox?.name ?? ""}`,
+          searchText: (t) => `${t.tag} ${t.name} ${t.brand ?? ""} ${t.model ?? ""} ${t.serialNumber ?? ""} ${t.heldBy} ${t.toolbox?.name ?? ""} ${t.plateUnreadable ? "plate unreadable" : ""}`,
+          // Categories (19 Oct 2026): tools added from site still to be checked
+          // by the office, tools whose plate can't be read, then the rest.
+          sectionOf: (t) => (t.needsCheck ? SECTION_TO_CHECK : t.plateUnreadable ? SECTION_UNREADABLE : SECTION_REST),
+          sectionOrder: [SECTION_TO_CHECK, SECTION_UNREADABLE, SECTION_REST],
           statusOf: (t) => t.condition,
           statusOptions: TOOL_CONDITIONS.map((c) => ({ value: c, label: c })),
           newDefaults: { condition: "Good", heldBy: "Yard", ownership: "OWNED" },
           header: (rows) => (
-            <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-5">
+            <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-6">
               <Tile label="Registered" value={rows.filter((t) => t.condition !== "Swapped out").length} />
               <Tile label="In a toolbox" value={rows.filter((t) => t.toolboxId).length} />
               <Tile label="Open faults" value={rows.reduce((n, t) => n + (t.openIssues ?? 0), 0)} />
               <Tile label="Missing" value={rows.filter((t) => t.condition === "Missing").length} />
-              <Tile label="No serial yet" value={rows.filter((t) => !t.serialNumber && t.condition !== "Swapped out").length} />
+              <Tile label="To check (from site)" value={rows.filter((t) => t.needsCheck).length} />
+              <Tile label="Plate not readable" value={rows.filter((t) => t.plateUnreadable && t.condition !== "Swapped out").length} />
             </div>
           ),
           columns: [
@@ -65,7 +74,15 @@ export default function ToolsPage() {
                 </span>
               ),
             },
-            { label: "Serial", render: (t) => (t.serialNumber ? <span className="font-mono text-xs">{t.serialNumber}</span> : null) },
+            {
+              label: "Serial",
+              render: (t) =>
+                t.serialNumber ? (
+                  <span className="font-mono text-xs">{t.serialNumber}</span>
+                ) : t.plateUnreadable ? (
+                  <span className="rounded-full bg-gray-700 px-1.5 py-0.5 text-[10px] font-semibold text-gray-300">Plate unreadable</span>
+                ) : null,
+            },
             { label: "Toolbox", render: (t) => t.toolbox?.name ?? <span className="text-gray-500">Yard</span> },
             {
               label: "Condition",
@@ -88,6 +105,7 @@ export default function ToolsPage() {
             { key: "brand", label: "Brand" },
             { key: "model", label: "Model" },
             { key: "serialNumber", label: "Serial number" },
+            { key: "plateUnreadable", label: "Rating plate", type: "select", options: [{ value: "false", label: "Readable" }, { value: "true", label: "Not readable" }] },
             { key: "itemNo", label: "Item no. (Hilti FFE)" },
             { key: "manufactured", label: "Manufactured", placeholder: "e.g. 06/2026" },
             { key: "condition", label: "Condition", type: "select", options: [...TOOL_CONDITIONS] },
@@ -96,6 +114,7 @@ export default function ToolsPage() {
             { key: "fleetRef", label: "Hilti fleet reference" },
             { key: "lastSeen", label: "Last seen", placeholder: "YYYY-MM-DD" },
             { key: "notes", label: "Notes", type: "textarea" },
+            { key: "needsCheck", label: "Checked by the office?", type: "select", options: [{ value: "false", label: "Yes - details checked" }, { value: "true", label: "No - added from site, still to check" }] },
           ],
           detail: (t, reload) => <ToolDetail toolId={t.id} reload={reload} />,
         }}

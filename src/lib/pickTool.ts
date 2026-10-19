@@ -3,7 +3,9 @@
 const FIELDS = [
   "tag", "name", "model", "condition", "heldBy", "lastSeen", "notes",
   "brand", "serialNumber", "itemNo", "manufactured", "conditionNotes", "ownership", "fleetRef",
+  "plateUnreadable", "needsCheck",
 ] as const;
+const BOOLEAN_FIELDS = new Set(["plateUnreadable", "needsCheck"]);
 const REQUIRED = new Set(["tag", "name", "condition", "heldBy", "ownership"]);
 
 export const TOOL_CONDITIONS = ["New", "Good", "Needs repair", "Missing", "Swapped out"] as const;
@@ -15,6 +17,10 @@ export function pickTool(body: Record<string, unknown>) {
   for (const k of FIELDS) {
     if (k in body) {
       const v = body[k];
+      if (BOOLEAN_FIELDS.has(k)) {
+        data[k] = v === true || v === "true" || v === "yes";
+        continue;
+      }
       data[k] = typeof v === "string" && v.trim() === "" && !REQUIRED.has(k) ? null : typeof v === "string" ? v.trim() : v;
     }
   }

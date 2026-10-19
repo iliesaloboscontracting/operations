@@ -4,6 +4,7 @@ import { guard, getCurrentUser } from "@/lib/auth";
 import { pickTool, toolFieldError } from "@/lib/pickTool";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { moveTool } from "@/lib/toolMoves";
+import { duplicateMessage, findDuplicate, serialKeyOf } from "@/lib/toolCreate";
 
 // GET /api/tools/:id -> the tool with its photos, move history and faults.
 export const GET = withErrorHandling(async (_req: NextRequest, { params }: { params: { id: string } }) => {
@@ -37,6 +38,13 @@ export const PATCH = withErrorHandling(async (
   const data = pickTool(body);
   const invalid = toolFieldError(data);
   if (invalid) return NextResponse.json({ error: invalid }, { status: 400 });
+  // Changing the serial: never onto one another tool already has.
+  if ("serialNumber" in data) {
+    const dup = await findDuplicate(data.serialNumber, params.id);
+    if (dup) return NextResponse.json({ error: duplicateMessage(dup), duplicate: dup }, { status: 409 });
+    data.serialKey = serialKeyOf(data.serialNumber);
+    if (data.serialKey) data.plateUnreadable = false;
+  }
   // A toolbox change goes through moveTool (logged, keeps "held by" in step);
   // it also sets heldBy, so a heldBy in the same request is ignored.
   if ("toolboxId" in body) {

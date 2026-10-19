@@ -221,6 +221,10 @@ export interface ToolDTO {
   conditionNotes: string | null;
   ownership: string; // OWNED | HILTI_FLEET | HIRED
   fleetRef: string | null;
+  plateUnreadable?: boolean; // the rating plate can't be read - its own category
+  needsCheck?: boolean; // added from a supervisor's link, office hasn't checked it yet
+  addedFrom?: string | null; // OFFICE | OFFICE_LINK | SITE
+  addedBy?: string | null;
   toolboxId: string | null;
   toolbox?: { id: string; name: string } | null;
   photos?: { id: string; kind: string }[];

@@ -417,6 +417,19 @@ model Tool {
   // and confirmed by a person before saving - never saved straight from AI.
   brand          String?
   serialNumber   String? // from the rating plate, e.g. Hilti "Serial no."
+  // serialNumber with spaces/dashes/dots dropped and upper-cased - unique, so
+  // the same tool can never be registered twice (19 Oct 2026). Null when no
+  // serial is recorded.
+  serialKey      String?  @unique
+  // Set when the rating plate can't be read (worn, painted over, missing) - a
+  // new tool needs a serial OR this. These have their own category.
+  plateUnreadable Boolean @default(false)
+  // Where the tool was added from: OFFICE (this app), OFFICE_LINK (office /
+  // yard person's phone link) or SITE (a supervisor's link). SITE tools go
+  // straight into the inventory with needsCheck set until the office looks.
+  addedFrom      String?
+  addedBy        String?
+  needsCheck     Boolean  @default(false)
   itemNo         String? // manufacturer item / part number, e.g. Hilti FFE
   manufactured   String? // as printed, e.g. "06/2026"
   conditionNotes String? // damage / wear seen on the condition photo
@@ -526,6 +539,9 @@ model SiteLink {
   id         String    @id @default(cuid())
   tokenHash  String    @unique // sha256 of the secret in the link
   resourceId String // the Personnel-register person it belongs to
+  // SUPERVISOR: their own toolbox (register, check, fault). OFFICE: office /
+  // yard staff capturing tools into the inventory (any toolbox or the yard).
+  kind       String    @default("SUPERVISOR")
   resource   Resource  @relation(fields: [resourceId], references: [id], onDelete: Cascade)
   createdBy  String?
   createdAt  DateTime  @default(now())

@@ -12,7 +12,7 @@ export const GET = withErrorHandling(async () => {
   const links = await prisma.siteLink.findMany({
     orderBy: { createdAt: "desc" },
     select: {
-      id: true, createdAt: true, createdBy: true, lastUsedAt: true, revokedAt: true,
+      id: true, kind: true, createdAt: true, createdBy: true, lastUsedAt: true, revokedAt: true,
       resource: { select: { id: true, name: true } },
       _count: { select: { submissions: true } },
     },
@@ -20,10 +20,12 @@ export const GET = withErrorHandling(async () => {
   return NextResponse.json(links);
 });
 
-// POST /api/site-links { resourceId } -> { id, url }
-// Makes a new link for a supervisor (someone in charge of a toolbox). The full
-// link is returned ONCE, to be sent to them; it can't be looked up again.
-// Making a new link switches off that person's old one.
+// POST /api/site-links { resourceId, kind? } -> { id, url }
+// kind SUPERVISOR (default): for someone in charge of a toolbox.
+// kind OFFICE: for office / yard staff capturing tools into the inventory -
+// anyone in the Personnel register.
+// The full link is returned ONCE, to be sent to them; it can't be looked up
+// again. Making a new link switches off that person's old one of the same kind.
 export const POST = withErrorHandling(async (req: NextRequest) => {
   const denied = await guard("MANAGER");
   if (denied) return denied;
@@ -36,13 +38,14 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
       })
     : null;
   if (!person || person.type !== "PERSONNEL") return NextResponse.json({ error: "Pick someone from the Personnel register." }, { status: 400 });
-  if (person.toolboxes.length === 0) {
+  const kind = body.kind === "OFFICE" ? "OFFICE" : "SUPERVISOR";
+  if (kind === "SUPERVISOR" && person.toolboxes.length === 0) {
     return NextResponse.json({ error: "Site links are for supervisors - make them the supervisor of a toolbox first." }, { status: 400 });
   }
   const secret = newLinkSecret();
   const [, link] = await prisma.$transaction([
-    prisma.siteLink.updateMany({ where: { resourceId: person.id, revokedAt: null }, data: { revokedAt: new Date() } }),
-    prisma.siteLink.create({ data: { tokenHash: hashSecret(secret), resourceId: person.id, createdBy: user?.name ?? null } }),
+    prisma.siteLink.updateMany({ where: { resourceId: person.id, kind, revokedAt: null }, data: { revokedAt: new Date() } }),
+    prisma.siteLink.create({ data: { tokenHash: hashSecret(secret), resourceId: person.id, kind, createdBy: user?.name ?? null } }),
   ]);
   return NextResponse.json({ id: link.id, url: siteUrl(secret, req.nextUrl.origin) }, { status: 201 });
 });

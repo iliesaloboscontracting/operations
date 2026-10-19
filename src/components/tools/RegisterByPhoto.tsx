@@ -64,6 +64,7 @@ export default function RegisterByPhoto({
   const [form, setForm] = useState<Form>(BLANK);
   const [uncertain, setUncertain] = useState<string[]>([]);
   const [duplicate, setDuplicate] = useState<{ tag: string; name: string } | null>(null);
+  const [plateUnreadable, setPlateUnreadable] = useState(false);
   const [toolboxes, setToolboxes] = useState<ToolboxDTO[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -146,13 +147,14 @@ export default function RegisterByPhoto({
 
   async function save() {
     if (!form.tag.trim() || !form.name.trim()) return setError("Tag and what the tool is are required.");
+    if (!plateUnreadable && !form.serialNumber.trim()) return setError("Enter the serial number, or tick “Plate not readable”.");
     setBusy(true);
     setError(null);
     try {
       const res = await fetch("/api/tools", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...form, photoIds: [plate, cond].filter(Boolean) }),
+        body: JSON.stringify({ ...form, serialNumber: plateUnreadable ? "" : form.serialNumber, plateUnreadable, photoIds: [plate, cond].filter(Boolean) }),
       });
       if (!res.ok) throw new Error(await serverErrorMessage(res, "Couldn't save the tool."));
       const created = await res.json();
@@ -235,7 +237,20 @@ export default function RegisterByPhoto({
               {field("name", "What it is", { placeholder: "e.g. Hammer drill driver" })}
               {field("brand", "Brand")}
               {field("model", "Model")}
-              {field("serialNumber", "Serial number")}
+              <div>
+                {plateUnreadable ? (
+                  <label className="block">
+                    <span className="mb-1 block text-xs font-medium text-gray-400">Serial number</span>
+                    <input className={`${input} border-edge`} disabled placeholder="Plate not readable" value="" />
+                  </label>
+                ) : (
+                  field("serialNumber", "Serial number")
+                )}
+                <label className="mt-1 flex items-center gap-1.5 text-[11px] text-gray-400">
+                  <input type="checkbox" checked={plateUnreadable} onChange={(e) => setPlateUnreadable(e.target.checked)} />
+                  Plate not readable
+                </label>
+              </div>
               {field("itemNo", "Item no. (Hilti FFE)")}
               {field("manufactured", "Manufactured", { placeholder: "e.g. 06/2026" })}
               <label className="block">

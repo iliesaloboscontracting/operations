@@ -5,17 +5,19 @@ import { resolveLink, type ResolvedLink } from "@/lib/siteLinks";
 import { readToolPhotos, VisionNotConfigured } from "@/lib/toolVision";
 import { runToolboxCheck } from "@/lib/toolboxCheckRun";
 import { moveTool } from "@/lib/toolMoves";
+import { createTool, duplicateMessage, findDuplicate } from "@/lib/toolCreate";
 
 // POST /api/site/:token/submit
-//   { kind: "REGISTER", platePhotoId?, conditionPhotoId?, manual?, note? } -> office inbox
-//      (a plate photo, or at least manual.toolType typed in)
-//   { kind: "FAULT", toolId, description, photoId? }                 -> office inbox
-//   { kind: "CHECK", toolboxId, photoIds }                            -> checked now, result returned
+//   { kind: "READ", platePhotoId?, conditionPhotoId? }          -> details read from the photos (nothing saved)
+//   { kind: "REGISTER", fields, plateUnreadable?, platePhotoId?, conditionPhotoId?, toolboxId?, note? }
+//                                                                -> saved straight into the inventory
+//   { kind: "FAULT", toolId, description, photoId? }             -> office inbox (supervisor links)
+//   { kind: "CHECK", toolboxId, photoIds }                        -> checked now, result returned
 //   { kind: "CHECK_ACTION", action: "MINE" | "MISSING", toolId, toolboxId }
-// Registering and faults wait for the office. Supervisors run their own
-// toolbox checks (Ilies, 19 Oct 2026): a check is recorded straight away, and
-// from its result they can take a tool from another box into theirs or mark
-// one of theirs missing - each logged as done by them through their link.
+// Supervisors run their own toolbox checks (Ilies, 19 Oct 2026): a check is
+// recorded straight away, and from its result they can take a tool from
+// another box into theirs or mark one of theirs missing - each logged as
+// done by them through their link. Faults wait for the office.
 export const POST = withErrorHandling(async (req: NextRequest, { params }: { params: { token: string } }) => {
   const link = await resolveLink(params.token);
   if (!link) return NextResponse.json({ error: "This link isn't active. Ask the office for a new one." }, { status: 404 });
@@ -23,9 +25,12 @@ export const POST = withErrorHandling(async (req: NextRequest, { params }: { par
   const by = `${link.person.name} (site)`;
   try {
     switch (body.kind) {
+      case "READ":
+        return await read(link, body);
       case "REGISTER":
         return await register(link, body);
       case "FAULT":
+        if (link.kind === "OFFICE") return bad("Faults are reported from a supervisor's link.");
         return await fault(link, body);
       case "CHECK":
         return await check(link, body, by);
@@ -54,53 +59,87 @@ async function linkPhotos(link: ResolvedLink, ids: unknown[], kind: string) {
 
 const ownBox = (link: ResolvedLink, id: unknown) => link.toolboxes.find((b) => b.id === id) ?? null;
 
-// Fields a supervisor can type in themselves on site (any can be blank).
-const MANUAL_FIELDS = ["toolType", "brand", "model", "serialNumber"] as const;
-
-async function register(link: ResolvedLink, body: Record<string, unknown>) {
-  const raw = (body.manual ?? {}) as Record<string, unknown>;
-  const manual: Partial<Record<(typeof MANUAL_FIELDS)[number], string>> = {};
-  for (const k of MANUAL_FIELDS) {
-    const v = typeof raw[k] === "string" ? (raw[k] as string).trim().slice(0, 120) : "";
-    if (v) manual[k] = v;
-  }
+// Adding a tool from a phone link is two steps (19 Oct 2026):
+//   READ     - the photos are read and the details come back to the phone to
+//              check (nothing saved yet).
+//   REGISTER - the checked details are saved straight into the inventory.
+// A supervisor's tool goes into their toolbox marked "not checked yet" for
+// the office; an office/yard person's tool goes where they choose, checked.
+// Same rules as every other way in (lib/toolCreate.ts).
+async function read(link: ResolvedLink, body: Record<string, unknown>) {
   const plate = body.platePhotoId ? await linkPhotos(link, [body.platePhotoId], "PLATE") : [];
   if (!plate) return bad("The rating plate photo didn't upload - take it again.");
   const cond = body.conditionPhotoId ? await linkPhotos(link, [body.conditionPhotoId], "CONDITION") : [];
-  if (!cond) return bad("The condition photo didn't upload - take it again.");
-  if (plate.length === 0 && !manual.toolType) return bad("Take the rating plate photo, or type in what the tool is.");
+  if (!cond) return bad("The tool photo didn't upload - take it again.");
+  if (plate.length + cond.length === 0) return bad("Take a photo first, or type the details in yourself.");
+  const reading = await readToolPhotos(plate[0]?.fileName ?? null, cond[0]?.fileName ?? null).catch((e) => {
+    if (e instanceof VisionNotConfigured) throw e;
+    return null;
+  });
+  if (!reading) return bad("The photos couldn't be read - type the details in yourself.");
+  const duplicate = await findDuplicate(reading.serialNumber);
+  return NextResponse.json({ ok: true, reading, duplicate: duplicate ? duplicateMessage(duplicate) : null });
+}
 
-  // With a plate photo, read it now so the office opens it already filled
-  // in. If reading fails the photos still go through. Anything typed in on
-  // site wins over the reading, and isn't flagged "check this".
-  const reading = plate.length
-    ? await readToolPhotos(plate[0].fileName, cond[0]?.fileName ?? null).catch((e) => {
-        if (e instanceof VisionNotConfigured) throw e;
-        return null;
-      })
-    : null;
-  const typed = Object.keys(manual);
-  const combined = {
-    toolType: "", brand: "", model: "", serialNumber: "", itemNo: "", manufactured: "", specs: "",
-    conditionSuggestion: "Unclear", damage: "",
-    ...(reading ?? {}),
-    ...manual,
-    uncertainFields: (reading?.uncertainFields ?? []).filter((f) => !typed.includes(f)),
-    typedOnSite: typed,
-  };
+// What a phone link may set on a new tool. Ownership/fleet only from the office link.
+const SITE_TOOL_FIELDS = ["name", "brand", "model", "serialNumber", "itemNo", "manufactured", "condition", "conditionNotes", "notes"] as const;
+const SITE_CONDITIONS = ["New", "Good", "Needs repair"];
+
+async function register(link: ResolvedLink, body: Record<string, unknown>) {
+  const raw = (body.fields ?? {}) as Record<string, unknown>;
+  const fields: Record<string, unknown> = {};
+  for (const k of SITE_TOOL_FIELDS) if (typeof raw[k] === "string") fields[k] = (raw[k] as string).trim().slice(0, k === "notes" || k === "conditionNotes" ? 500 : 120);
+  if (fields.condition && !SITE_CONDITIONS.includes(fields.condition as string)) fields.condition = "Good";
+  if (link.kind === "OFFICE") {
+    if (typeof raw.ownership === "string") fields.ownership = raw.ownership;
+    if (typeof raw.fleetRef === "string") fields.fleetRef = raw.fleetRef.trim().slice(0, 60);
+  }
+  fields.plateUnreadable = body.plateUnreadable === true;
+  if (typeof body.note === "string" && body.note.trim()) {
+    fields.notes = [fields.notes, `From site: ${body.note.trim().slice(0, 300)}`].filter(Boolean).join("\n");
+  }
+
+  const plate = body.platePhotoId ? await linkPhotos(link, [body.platePhotoId], "PLATE") : [];
+  const cond = body.conditionPhotoId ? await linkPhotos(link, [body.conditionPhotoId], "CONDITION") : [];
+  if (!plate || !cond) return bad("A photo didn't upload - take it again.");
+
+  // Where it goes: a supervisor's own toolbox; for the office link, the
+  // toolbox picked or the yard.
+  let toolboxId: string | null;
+  if (link.kind === "OFFICE") {
+    toolboxId = body.toolboxId ? ownBox(link, body.toolboxId)?.id ?? null : null;
+    if (body.toolboxId && !toolboxId) return bad("That toolbox doesn't exist anymore.");
+  } else {
+    toolboxId = (body.toolboxId ? ownBox(link, body.toolboxId) : link.toolboxes[0])?.id ?? null;
+    if (!toolboxId) return bad("Pick your toolbox.");
+  }
+
+  const result = await createTool(fields, {
+    photoIds: [...plate.map((p) => p.id), ...cond.map((p) => p.id)],
+    siteLinkId: link.id,
+    toolboxId,
+    addedFrom: link.kind === "OFFICE" ? "OFFICE_LINK" : "SITE",
+    addedBy: `${link.person.name} (${link.kind === "OFFICE" ? "office link" : "site"})`,
+    needsCheck: link.kind !== "OFFICE",
+  });
+  if (!result.ok) return NextResponse.json({ error: result.error, duplicate: !!result.duplicate }, { status: result.status });
+
+  // Kept as history on the office's From site page.
   await prisma.siteSubmission.create({
     data: {
       siteLinkId: link.id,
       kind: "REGISTER",
       photoIds: JSON.stringify([...plate.map((p) => p.id), ...cond.map((p) => p.id)]),
-      toolboxId: link.toolboxes[0]?.id ?? null,
-      description: typeof body.note === "string" && body.note.trim() ? body.note.trim().slice(0, 500) : null,
-      reading: reading || typed.length ? JSON.stringify(combined) : null,
+      toolboxId,
+      status: "APPLIED",
+      appliedRef: result.tool.id,
+      reviewedBy: link.person.name,
+      reviewedAt: new Date(),
     },
   });
-  const what = [combined.brand, combined.model].filter(Boolean).join(" ") || combined.toolType;
+  const box = link.toolboxes.find((b) => b.id === toolboxId)?.name ?? "the yard";
   return NextResponse.json(
-    { ok: true, message: `Sent to the office${what ? ` - ${what}` : ""}. They'll add it to the register.` },
+    { ok: true, message: `Added to the inventory as ${result.tool.tag} (${result.tool.name}), in ${box}.` },
     { status: 201 }
   );
 }

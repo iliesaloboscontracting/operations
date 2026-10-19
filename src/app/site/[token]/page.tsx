@@ -12,7 +12,7 @@ import type { CheckResult } from "@/lib/toolboxCheck";
 // check their toolbox, report a fault. No login; the link is the key.
 
 type SiteTool = { id: string; tag: string; name: string; brand: string | null; model: string | null; serialNumber: string | null; condition: string };
-type SiteInfo = { person: string; toolboxes: { id: string; name: string; tools: SiteTool[] }[] };
+type SiteInfo = { person: string; kind: "SUPERVISOR" | "OFFICE"; toolboxes: { id: string; name: string; tools: SiteTool[] }[] };
 type Mode = "home" | "register" | "check" | "fault";
 
 const input =
@@ -55,13 +55,15 @@ export default function SitePhotosPage({ params }: { params: { token: string } }
         <div className="py-16 text-center text-sm text-gray-500"><Loader2 className="mx-auto animate-spin" /></div>
       ) : mode === "home" ? (
         <>
-          <h1 className="mb-1 text-xl font-semibold text-gray-100">Site photos</h1>
-          <p className="mb-4 text-sm text-gray-500">Tools for {info.toolboxes.map((b) => b.name).join(", ")}.</p>
+          <h1 className="mb-1 text-xl font-semibold text-gray-100">{info.kind === "OFFICE" ? "Tools capture" : "Site photos"}</h1>
+          <p className="mb-4 text-sm text-gray-500">{info.kind === "OFFICE" ? "Add tools to the Lobos inventory." : `Tools for ${info.toolboxes.map((b) => b.name).join(", ")}.`}</p>
           {flash && <div className="mb-4 rounded-xl bg-emerald-500/15 px-4 py-3 text-sm text-emerald-300">✓ {flash}</div>}
           <div className="space-y-3">
-            <Big icon={<Camera size={22} />} title="Register a tool" text="Photos and/or type the details" onClick={() => { setFlash(null); setMode("register"); }} />
-            <Big icon={<ScanLine size={22} />} title="Check my toolbox" text="Photo of your tools laid out" onClick={() => { setFlash(null); setMode("check"); }} />
-            <Big icon={<Wrench size={22} />} title="Report a fault" text="Not working, damaged, needs a Hilti swap" onClick={() => { setFlash(null); setMode("fault"); }} />
+            <Big icon={<Camera size={22} />} title="Add a tool" text="Photos and/or type the details" onClick={() => { setFlash(null); setMode("register"); }} />
+            <Big icon={<ScanLine size={22} />} title={info.kind === "OFFICE" ? "Check a toolbox" : "Check my toolbox"} text="Photo of the tools laid out" onClick={() => { setFlash(null); setMode("check"); }} />
+            {info.kind !== "OFFICE" && (
+              <Big icon={<Wrench size={22} />} title="Report a fault" text="Not working, damaged, needs a Hilti swap" onClick={() => { setFlash(null); setMode("fault"); }} />
+            )}
           </div>
           <p className="mt-8 text-center text-xs text-gray-600">
             Tip: add this page to your home screen (Share → Add to Home Screen) so it opens like an app. Don&apos;t share your link.
@@ -72,7 +74,7 @@ export default function SitePhotosPage({ params }: { params: { token: string } }
           <button onClick={() => setMode("home")} className="mb-4 flex items-center gap-1 text-sm text-gray-400">
             <ArrowLeft size={16} /> Back
           </button>
-          {mode === "register" && <RegisterTool api={api} onDone={finished} />}
+          {mode === "register" && <RegisterTool api={api} info={info} onDone={finished} />}
           {mode === "check" && <CheckBox api={api} info={info} />}
           {mode === "fault" && <ReportFault api={api} info={info} onDone={finished} />}
         </>
@@ -99,52 +101,170 @@ async function post(api: string, body: unknown) {
   return res.json();
 }
 
-function RegisterTool({ api, onDone }: { api: string; onDone: (m: string) => void }) {
+type ToolForm = {
+  name: string; brand: string; model: string; serialNumber: string; itemNo: string; manufactured: string;
+  condition: string; conditionNotes: string; notes: string; ownership: string; fleetRef: string; toolboxId: string;
+};
+const BLANK_TOOL: ToolForm = {
+  name: "", brand: "", model: "", serialNumber: "", itemNo: "", manufactured: "",
+  condition: "Good", conditionNotes: "", notes: "", ownership: "OWNED", fleetRef: "", toolboxId: "",
+};
+
+// Adding a tool: 1) photos and/or typed details -> 2) check what was read,
+// fix anything, then "Add to inventory". It goes straight into the inventory.
+function RegisterTool({ api, info, onDone }: { api: string; info: SiteInfo; onDone: (m: string) => void }) {
+  const office = info.kind === "OFFICE";
+  const [step, setStep] = useState<"photos" | "details">("photos");
   const [plate, setPlate] = useState<string | null>(null);
   const [cond, setCond] = useState<string | null>(null);
-  const [manual, setManual] = useState({ toolType: "", brand: "", model: "", serialNumber: "" });
-  const [note, setNote] = useState("");
+  const [form, setForm] = useState<ToolForm>({ ...BLANK_TOOL, toolboxId: office ? "" : info.toolboxes[0]?.id ?? "" });
+  const [plateUnreadable, setPlateUnreadable] = useState(false);
+  const [unsure, setUnsure] = useState<string[]>([]);
+  const [warning, setWarning] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const set = (k: keyof typeof manual) => (e: { target: { value: string } }) => setManual((m) => ({ ...m, [k]: e.target.value }));
-  // A plate photo, or at least what the tool is typed in.
-  const ready = !!plate || !!manual.toolType.trim();
-  return (
-    <div className="space-y-4">
-      <h1 className="text-xl font-semibold text-gray-100">Register a tool</h1>
-      <p className="text-sm text-gray-400">Take the photos, type the details in yourself, or both.</p>
-      <PhotoPicker big kind="PLATE" uploadUrl={`${api}/photos`} label="1. Rating plate photo" hint="Close up, in focus, no glare. Take the battery off if the plate is under it." photoId={plate} onChange={setPlate} />
-      <PhotoPicker big kind="CONDITION" uploadUrl={`${api}/photos`} label="2. Whole tool photo" hint="Show any damage or wear." photoId={cond} onChange={setCond} />
-      <div className="space-y-2 rounded-xl border border-edge bg-panel p-3">
-        <div className="text-sm font-medium text-gray-200">Or enter the details yourself</div>
-        <input className={input} placeholder={plate ? "What it is (optional)" : "What it is, e.g. Hammer drill"} value={manual.toolType} onChange={set("toolType")} />
-        <div className="grid grid-cols-2 gap-2">
-          <input className={input} placeholder="Brand, e.g. Hilti" value={manual.brand} onChange={set("brand")} />
-          <input className={input} placeholder="Model, e.g. SF 6H-22" value={manual.model} onChange={set("model")} />
-        </div>
-        <input className={input} placeholder="Serial number (from the plate)" value={manual.serialNumber} onChange={set("serialNumber")} autoCapitalize="characters" />
-        <p className="text-xs text-gray-500">Anything you type here is used instead of what the photo reads.</p>
+  const set = (k: keyof ToolForm) => (e: { target: { value: string } }) => setForm((f) => ({ ...f, [k]: e.target.value }));
+
+  async function next() {
+    setError(null);
+    setWarning(null);
+    if (!plate && !cond) return setStep("details");
+    setBusy(true);
+    try {
+      const r = await post(api, { kind: "READ", platePhotoId: plate, conditionPhotoId: cond });
+      const x = r.reading;
+      setForm((f) => ({
+        ...f,
+        name: x.toolType || f.name,
+        brand: x.brand || f.brand,
+        model: x.model || f.model,
+        serialNumber: x.serialNumber || f.serialNumber,
+        itemNo: x.itemNo || f.itemNo,
+        manufactured: x.manufactured || f.manufactured,
+        condition: x.conditionSuggestion === "Unclear" ? f.condition : x.conditionSuggestion,
+        conditionNotes: x.damage || f.conditionNotes,
+        notes: x.specs || f.notes,
+      }));
+      setUnsure([...(x.uncertainFields ?? []), ...(plate && !x.serialNumber ? ["serialNumber"] : [])]);
+      setWarning(r.duplicate);
+      setStep("details");
+    } catch (e) {
+      // Reading failed - carry on and type it in.
+      setError((e as Error).message);
+      setStep("details");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function save() {
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await post(api, {
+        kind: "REGISTER",
+        fields: form,
+        plateUnreadable,
+        platePhotoId: plate,
+        conditionPhotoId: cond,
+        toolboxId: form.toolboxId || null,
+      });
+      onDone(r.message);
+    } catch (e) {
+      setError((e as Error).message);
+      setBusy(false);
+    }
+  }
+
+  const field = (k: keyof ToolForm, label: string, placeholder = "") => (
+    <label className="block">
+      <span className="mb-1 flex items-center gap-1 text-sm text-gray-300">
+        {label}
+        {unsure.includes(k === "name" ? "toolType" : k) && <span className="rounded bg-amber-500/15 px-1 text-[11px] font-semibold text-amber-500">check this</span>}
+      </span>
+      <input className={input} placeholder={placeholder} value={form[k]} onChange={set(k)} />
+    </label>
+  );
+
+  if (step === "photos") {
+    return (
+      <div className="space-y-4">
+        <h1 className="text-xl font-semibold text-gray-100">Add a tool</h1>
+        <p className="text-sm text-gray-400">Take the photos and the details are read for you - or skip the photos and type them in.</p>
+        <PhotoPicker big kind="PLATE" uploadUrl={`${api}/photos`} label="1. Rating plate photo" hint="Close up, in focus, no glare. Take the battery off if the plate is under it." photoId={plate} onChange={setPlate} />
+        <PhotoPicker big kind="CONDITION" uploadUrl={`${api}/photos`} label="2. Whole tool photo" hint="Show any damage or wear." photoId={cond} onChange={setCond} />
+        {error && <div className="rounded-lg bg-red-900/30 px-3 py-2 text-sm text-red-300">{error}</div>}
+        <button className={primary} disabled={busy} onClick={next}>
+          {busy && <Loader2 size={18} className="animate-spin" />} {busy ? "Reading photos…" : plate || cond ? "Read photos" : "Type the details in"}
+        </button>
       </div>
-      <input className={input} placeholder="Anything else to add? (optional)" value={note} onChange={(e) => setNote(e.target.value)} />
+    );
+  }
+
+  const canSave = !!form.name.trim() && (plateUnreadable || !!form.serialNumber.trim()) && (office || !!form.toolboxId);
+  return (
+    <div className="space-y-3">
+      <h1 className="text-xl font-semibold text-gray-100">Check the details</h1>
+      <p className="text-sm text-gray-400">{plate || cond ? "Read from your photos - fix anything that's wrong." : "Type in what's on the tool."}</p>
+      {warning && <div className="rounded-lg bg-amber-500/15 px-3 py-2 text-sm text-amber-400">{warning}</div>}
+      {field("name", "What it is *", "e.g. Hammer drill")}
+      <div className="grid grid-cols-2 gap-2">
+        {field("brand", "Brand", "e.g. Hilti")}
+        {field("model", "Model", "e.g. SF 6H-22")}
+      </div>
+      <div className="rounded-xl border border-edge bg-panel p-3">
+        <label className="block">
+          <span className="mb-1 flex items-center gap-1 text-sm text-gray-300">
+            Serial number *
+            {unsure.includes("serialNumber") && !plateUnreadable && <span className="rounded bg-amber-500/15 px-1 text-[11px] font-semibold text-amber-500">check this</span>}
+          </span>
+          <input className={input} disabled={plateUnreadable} placeholder={plateUnreadable ? "Plate not readable" : "From the rating plate"} value={plateUnreadable ? "" : form.serialNumber} onChange={set("serialNumber")} autoCapitalize="characters" />
+        </label>
+        <label className="mt-2 flex items-center gap-2 text-sm text-gray-300">
+          <input type="checkbox" className="h-5 w-5" checked={plateUnreadable} onChange={(e) => setPlateUnreadable(e.target.checked)} />
+          Plate not readable (worn, painted over or missing)
+        </label>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        {field("itemNo", "Item no. (Hilti)")}
+        {field("manufactured", "Made", "e.g. 06/2026")}
+      </div>
+      <label className="block">
+        <span className="mb-1 block text-sm text-gray-300">Condition</span>
+        <select className={input} value={form.condition} onChange={set("condition")}>
+          {["New", "Good", "Needs repair"].map((c) => <option key={c}>{c}</option>)}
+        </select>
+      </label>
+      {field("conditionNotes", "Damage / wear", "Leave blank if none")}
+      {(office || info.toolboxes.length > 1) && (
+        <label className="block">
+          <span className="mb-1 block text-sm text-gray-300">Goes in</span>
+          <select className={input} value={form.toolboxId} onChange={set("toolboxId")}>
+            {office && <option value="">The yard (no toolbox)</option>}
+            {info.toolboxes.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+          </select>
+        </label>
+      )}
+      {office && (
+        <div className="grid grid-cols-2 gap-2">
+          <label className="block">
+            <span className="mb-1 block text-sm text-gray-300">Ownership</span>
+            <select className={input} value={form.ownership} onChange={set("ownership")}>
+              <option value="OWNED">Lobos owned</option>
+              <option value="HILTI_FLEET">Hilti fleet</option>
+              <option value="HIRED">Hired</option>
+            </select>
+          </label>
+          {form.ownership === "HILTI_FLEET" ? field("fleetRef", "Fleet ref") : <div />}
+        </div>
+      )}
+      {field("notes", "Notes", "Specs or anything else")}
       {error && <div className="rounded-lg bg-red-900/30 px-3 py-2 text-sm text-red-300">{error}</div>}
-      <button
-        className={primary}
-        disabled={!ready || busy}
-        onClick={async () => {
-          setBusy(true);
-          setError(null);
-          try {
-            const r = await post(api, { kind: "REGISTER", platePhotoId: plate, conditionPhotoId: cond, manual, note });
-            onDone(r.message);
-          } catch (e) {
-            setError((e as Error).message);
-            setBusy(false);
-          }
-        }}
-      >
-        {busy && <Loader2 size={18} className="animate-spin" />} {busy ? (plate ? "Reading and sending…" : "Sending…") : "Send to the office"}
+      <button className={primary} disabled={!canSave || busy} onClick={save}>
+        {busy && <Loader2 size={18} className="animate-spin" />} {busy ? "Adding…" : "Add to inventory"}
       </button>
-      {!ready && <p className="text-center text-xs text-gray-500">Add the plate photo or type what the tool is to send.</p>}
+      {!canSave && <p className="text-center text-xs text-gray-500">Needs what it is, and a serial number or “Plate not readable”.</p>}
+      <button className="w-full py-2 text-sm text-gray-400" onClick={() => setStep("photos")}>← Back to photos</button>
     </div>
   );
 }
@@ -188,7 +308,7 @@ function CheckBox({ api, info }: { api: string; info: SiteInfo }) {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-xl font-semibold text-gray-100">Check my toolbox</h1>
+      <h1 className="text-xl font-semibold text-gray-100">{info.kind === "OFFICE" ? "Check a toolbox" : "Check my toolbox"}</h1>
       {info.toolboxes.length > 1 && (
         <select className={input} value={boxId} onChange={(e) => setBoxId(e.target.value)}>
           {info.toolboxes.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
