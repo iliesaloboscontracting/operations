@@ -44,6 +44,20 @@ business, without becoming unnecessarily complicated.
   write tools — it can look, not touch. Keep it that way unless Ilies
   explicitly asks for action-taking capability; that's a much bigger risk
   and needs its own permission-gate conversation.
+- **Tools & Site photos** (added 2026-10-19): the tool register reads
+  rating-plate / condition / toolbox photos with Claude (`src/lib/toolVision.ts`,
+  `claude-opus-5-5`) — the second outbound network call after the assistant;
+  readings are suggestions a person confirms, matching is plain code
+  (`src/lib/toolboxCheck.ts`). Photos live outside the app in
+  `TOOL_PHOTO_DIR` (`C:\Users\ilies\Documents\operations-tool-photos`) — not
+  yet in the nightly backup. Supervisors send photos from site through a
+  private link (`/site/<secret>`, `src/lib/siteLinks.ts`; only a hash is
+  stored). **This is the only part of Operations reachable from the
+  internet**: a Cloudflare Tunnel (`cloudflared` Windows service) publishes
+  `https://photos.lobostools.com.mx` with routes for exactly `site/.*`,
+  `api/site/.*`, `_next/.*` and `logo.png` → `http://localhost:3000`;
+  everything else 404s at Cloudflare. Never add a route without a path.
+  `SITE_BASE_URL` in `.env` sets the address links are made with.
 - **Structure:** `src/app/` — page routes (`command`, `calendar`, `tracking`,
   `day-review`, `hire`, `plant`, `vehicles`, `labour`, `projects`, `users`,
   `bugs`, `notes`, `tools`, `completed`, `setup`, `login`) each generally
