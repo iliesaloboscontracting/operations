@@ -7,6 +7,7 @@ const TABS = [
   { href: "/tools", label: "Register" },
   { href: "/tools/toolboxes", label: "Toolboxes" },
   { href: "/tools/faults", label: "Faults & Hilti swaps" },
+  { href: "/tools/site", label: "From site" },
 ];
 
 export default function ToolsTabs() {

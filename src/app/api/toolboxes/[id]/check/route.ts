@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { guard, getCurrentUser } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
-import { readToolboxPhotos, VisionNotConfigured } from "@/lib/toolVision";
-import { compareToolbox } from "@/lib/toolboxCheck";
+import { VisionNotConfigured } from "@/lib/toolVision";
+import { runToolboxCheck } from "@/lib/toolboxCheckRun";
 
 // POST /api/toolboxes/:id/check { photoIds } -> the saved check with its result.
 // Reads the photo(s), compares with what should be in this toolbox and
@@ -23,25 +23,12 @@ export const POST = withErrorHandling(async (req: NextRequest, { params }: { par
   const photos = await prisma.toolPhoto.findMany({ where: { id: { in: ids }, kind: "CHECK" }, select: { id: true, fileName: true } });
   if (photos.length !== ids.length) return NextResponse.json({ error: "One of the photos is missing - upload them again." }, { status: 400 });
 
-  let reading;
   try {
-    reading = await readToolboxPhotos(ids.map((id) => photos.find((p) => p.id === id)!.fileName));
+    const ordered = ids.map((id) => photos.find((p) => p.id === id)!);
+    const { check, result } = await runToolboxCheck(box.id, ordered, user?.name ?? null);
+    return NextResponse.json({ id: check.id, createdAt: check.createdAt, photoIds: ids, result }, { status: 201 });
   } catch (e) {
     if (e instanceof VisionNotConfigured) return NextResponse.json({ error: e.message }, { status: 503 });
     throw e;
   }
-
-  const tools = await prisma.tool.findMany({
-    where: { condition: { not: "Swapped out" } },
-    select: { id: true, tag: true, name: true, brand: true, model: true, serialNumber: true, toolboxId: true, toolbox: { select: { name: true } } },
-  });
-  const result = compareToolbox(
-    box.id,
-    reading,
-    tools.map(({ toolbox, ...t }) => ({ ...t, toolboxName: toolbox?.name ?? null }))
-  );
-  const check = await prisma.toolboxCheck.create({
-    data: { toolboxId: box.id, photoIds: JSON.stringify(ids), result: JSON.stringify(result), checkedBy: user?.name ?? null },
-  });
-  return NextResponse.json({ id: check.id, createdAt: check.createdAt, photoIds: ids, result }, { status: 201 });
 });

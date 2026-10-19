@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Camera, Loader2, RotateCcw } from "lucide-react";
 import { resizePhoto } from "@/lib/imageResize";
 import { serverErrorMessage } from "@/lib/apiFetch";
@@ -13,17 +13,25 @@ export default function PhotoPicker({
   hint,
   photoId,
   onChange,
+  uploadUrl = "/api/tools/photos",
+  big,
 }: {
   kind: "PLATE" | "CONDITION" | "FAULT" | "CHECK";
   label: string;
   hint?: string;
   photoId: string | null;
   onChange: (photoId: string | null) => void;
+  uploadUrl?: string; // the Site photos page uploads through the supervisor's link
+  big?: boolean; // taller target for phones on site
 }) {
   const input = useRef<HTMLInputElement>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The page cleared this slot (e.g. after sending) - drop the old preview too.
+  useEffect(() => {
+    if (!photoId) setPreview(null);
+  }, [photoId]);
 
   async function pick(file: File | undefined) {
     if (!file) return;
@@ -31,7 +39,7 @@ export default function PhotoPicker({
     setError(null);
     try {
       const dataUrl = await resizePhoto(file);
-      const res = await fetch("/api/tools/photos", {
+      const res = await fetch(uploadUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ kind, dataUrl }),
@@ -48,7 +56,8 @@ export default function PhotoPicker({
     }
   }
 
-  const src = preview ?? (photoId ? `/api/tools/photos/${photoId}` : null);
+  // Site uploads can't load photos back (no login) - they show the local preview only.
+  const src = preview ?? (photoId && uploadUrl === "/api/tools/photos" ? `/api/tools/photos/${photoId}` : null);
   return (
     <div>
       <div className="mb-1 text-xs font-medium text-gray-400">{label}</div>
@@ -56,7 +65,7 @@ export default function PhotoPicker({
         type="button"
         onClick={() => input.current?.click()}
         disabled={busy}
-        className="relative flex h-40 w-full items-center justify-center overflow-hidden rounded-lg border border-dashed border-edge bg-panel2 text-gray-400 hover:border-brand-500 hover:text-gray-200"
+        className={`relative flex ${big ? "h-52" : "h-40"} w-full items-center justify-center overflow-hidden rounded-lg border border-dashed border-edge bg-panel2 text-gray-400 hover:border-brand-500 hover:text-gray-200`}
       >
         {src ? (
           // eslint-disable-next-line @next/next/no-img-element

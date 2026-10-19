@@ -9,6 +9,10 @@ const PUBLIC = ["/login", "/setup", "/api/auth/login", "/api/auth/setup"];
 export async function middleware(req: NextRequest) {
   const { pathname, search } = req.nextUrl;
   if (PUBLIC.some((p) => pathname === p)) return NextResponse.next();
+  // The Site photos page and its upload API (supervisors' private links). No
+  // session here - every handler under them checks the link's own secret
+  // (lib/siteLinks.ts) and can only upload photos; it can't read the app.
+  if (pathname.startsWith("/site/") || pathname.startsWith("/api/site/")) return NextResponse.next();
 
   const session = await verifySession(req.cookies.get(SESSION_COOKIE)?.value);
   if (session) return NextResponse.next();

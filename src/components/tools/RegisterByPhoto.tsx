@@ -20,14 +20,47 @@ const BLANK: Form = {
   condition: "Good", conditionNotes: "", ownership: "OWNED", fleetRef: "", toolboxId: "", notes: "",
 };
 
+type PlateReadingLike = {
+  toolType: string; brand: string; model: string; serialNumber: string; itemNo: string; manufactured: string;
+  specs: string; uncertainFields: string[]; conditionSuggestion: string; damage: string;
+};
+
+// `prefill` opens straight on the form with photos already taken - used for a
+// tool sent in from site (its photos were read when it arrived).
+export type RegisterPrefill = {
+  platePhotoId: string | null;
+  conditionPhotoId: string | null;
+  reading: PlateReadingLike | null;
+  toolboxId: string | null;
+  note: string | null;
+};
+
+// Next free LOB-#### after the highest tag on the register.
+async function nextTag() {
+  const res = await apiFetch("/api/tools");
+  const tools: { tag: string }[] = res.ok ? await res.json() : [];
+  const max = tools.reduce((n, t) => Math.max(n, Number(t.tag.match(/LOB-(\d+)/)?.[1] ?? 0)), 0);
+  return `LOB-${String(max + 1).padStart(4, "0")}`;
+}
+
 // Register a tool from two photos: the rating plate and the whole tool
 // (condition / damage). The photos are read into a form that the person
 // checks - fields the reading wasn't sure of are flagged - and nothing is
 // saved until they press Save.
-export default function RegisterByPhoto({ onClose, onSaved }: { onClose: () => void; onSaved: () => Promise<void> }) {
-  const [plate, setPlate] = useState<string | null>(null);
-  const [cond, setCond] = useState<string | null>(null);
-  const [step, setStep] = useState<"photos" | "form">("photos");
+export default function RegisterByPhoto({
+  onClose,
+  onSaved,
+  prefill,
+  onCreated,
+}: {
+  onClose: () => void;
+  onSaved: () => Promise<void>;
+  prefill?: RegisterPrefill;
+  onCreated?: (toolId: string) => Promise<void>;
+}) {
+  const [plate, setPlate] = useState<string | null>(prefill?.platePhotoId ?? null);
+  const [cond, setCond] = useState<string | null>(prefill?.conditionPhotoId ?? null);
+  const [step, setStep] = useState<"photos" | "form">(prefill ? "form" : "photos");
   const [form, setForm] = useState<Form>(BLANK);
   const [uncertain, setUncertain] = useState<string[]>([]);
   const [duplicate, setDuplicate] = useState<{ tag: string; name: string } | null>(null);
@@ -37,6 +70,50 @@ export default function RegisterByPhoto({ onClose, onSaved }: { onClose: () => v
 
   useEffect(() => {
     apiFetch("/api/toolboxes").then((r) => (r.ok ? r.json() : [])).then(setToolboxes);
+  }, []);
+
+  // Fill the form from a reading (fresh, or the one made when it came in from site).
+  function applyReading(reading: PlateReadingLike, tag: string, extra: Partial<Form> = {}) {
+    setForm({
+      ...BLANK,
+      tag,
+      name: reading.toolType,
+      brand: reading.brand,
+      model: reading.model,
+      serialNumber: reading.serialNumber,
+      itemNo: reading.itemNo,
+      manufactured: reading.manufactured,
+      condition: reading.conditionSuggestion === "Unclear" ? "Good" : reading.conditionSuggestion,
+      conditionNotes: reading.damage,
+      notes: reading.specs,
+      ...extra,
+    });
+    setUncertain([...reading.uncertainFields, ...(reading.serialNumber ? [] : ["serialNumber"])]);
+  }
+
+  useEffect(() => {
+    if (!prefill) return;
+    // Same duplicate-serial warning as reading photos in the office.
+    const serial = (prefill.reading?.serialNumber ?? "").replace(/[\s\-./]/g, "").toUpperCase();
+    if (serial) {
+      apiFetch("/api/tools")
+        .then((r) => (r.ok ? r.json() : []))
+        .then((tools: { tag: string; name: string; serialNumber: string | null }[]) => {
+          const dup = tools.find((t) => (t.serialNumber ?? "").replace(/[\s\-./]/g, "").toUpperCase() === serial);
+          if (dup) setDuplicate({ tag: dup.tag, name: dup.name });
+        });
+    }
+    nextTag().then((tag) => {
+      const fromSite = prefill.note ? `From site: ${prefill.note}` : "";
+      const extra: Partial<Form> = { toolboxId: prefill.toolboxId ?? "" };
+      if (prefill.reading) {
+        applyReading(prefill.reading, tag, { ...extra, notes: [prefill.reading.specs, fromSite].filter(Boolean).join("\n") });
+      } else {
+        setForm({ ...BLANK, ...extra, tag, notes: fromSite });
+        setUncertain(["name", "brand", "model", "serialNumber"]);
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function read() {
@@ -50,20 +127,7 @@ export default function RegisterByPhoto({ onClose, onSaved }: { onClose: () => v
       });
       if (!res.ok) throw new Error(await serverErrorMessage(res, "Couldn't read the photos."));
       const { reading, suggestedTag, duplicate } = await res.json();
-      setForm({
-        ...BLANK,
-        tag: suggestedTag,
-        name: reading.toolType,
-        brand: reading.brand,
-        model: reading.model,
-        serialNumber: reading.serialNumber,
-        itemNo: reading.itemNo,
-        manufactured: reading.manufactured,
-        condition: reading.conditionSuggestion === "Unclear" ? "Good" : reading.conditionSuggestion,
-        conditionNotes: reading.damage,
-        notes: reading.specs,
-      });
-      setUncertain([...reading.uncertainFields, ...(reading.serialNumber ? [] : ["serialNumber"])]);
+      applyReading(reading, suggestedTag);
       setDuplicate(duplicate);
       setStep("form");
     } catch (e) {
@@ -74,10 +138,7 @@ export default function RegisterByPhoto({ onClose, onSaved }: { onClose: () => v
   }
 
   async function fillByHand() {
-    const res = await apiFetch("/api/tools");
-    const tools: { tag: string }[] = res.ok ? await res.json() : [];
-    const max = tools.reduce((n, t) => Math.max(n, Number(t.tag.match(/LOB-(\d+)/)?.[1] ?? 0)), 0);
-    setForm({ ...BLANK, tag: `LOB-${String(max + 1).padStart(4, "0")}` });
+    setForm({ ...BLANK, tag: await nextTag() });
     setStep("form");
   }
 
@@ -92,6 +153,8 @@ export default function RegisterByPhoto({ onClose, onSaved }: { onClose: () => v
         body: JSON.stringify({ ...form, photoIds: [plate, cond].filter(Boolean) }),
       });
       if (!res.ok) throw new Error(await serverErrorMessage(res, "Couldn't save the tool."));
+      const created = await res.json();
+      if (onCreated) await onCreated(created.id);
       await onSaved();
       onClose();
     } catch (e) {
@@ -118,7 +181,7 @@ export default function RegisterByPhoto({ onClose, onSaved }: { onClose: () => v
     <div className="animate-overlay-in fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-[2px]" onClick={onClose}>
       <div onClick={(e) => e.stopPropagation()} className="animate-modal-in max-h-full w-full max-w-2xl overflow-y-auto rounded-2xl border border-edge bg-panel p-5 shadow-soft-lg">
         <div className="mb-4 flex items-start justify-between gap-3">
-          <h2 className="text-base font-semibold text-gray-100">Register a tool by photo</h2>
+          <h2 className="text-base font-semibold text-gray-100">{prefill ? "Register a tool sent from site" : "Register a tool by photo"}</h2>
           <button type="button" onClick={onClose} className="-mr-1 -mt-1 rounded-md p-1 text-gray-500 hover:bg-panel2 hover:text-gray-200" aria-label="Close">
             <X size={18} />
           </button>
@@ -148,6 +211,16 @@ export default function RegisterByPhoto({ onClose, onSaved }: { onClose: () => v
           </>
         ) : (
           <>
+            {prefill && (
+              <div className="mb-3 flex gap-2">
+                {[plate, cond].filter(Boolean).map((id) => (
+                  <a key={id} href={`/api/tools/photos/${id}`} target="_blank" rel="noreferrer">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={`/api/tools/photos/${id}`} alt="Sent from site" className="h-24 w-24 rounded-md border border-edge object-cover" />
+                  </a>
+                ))}
+              </div>
+            )}
             {duplicate && (
               <div className="mb-3 flex items-start gap-2 rounded-md bg-amber-500/10 px-3 py-2 text-xs text-amber-500">
                 <AlertTriangle size={14} className="mt-0.5 shrink-0" />
@@ -188,9 +261,13 @@ export default function RegisterByPhoto({ onClose, onSaved }: { onClose: () => v
             </div>
             {error && <div className="mt-3 rounded-md bg-red-900/30 px-3 py-2 text-xs text-red-300">{error}</div>}
             <div className="mt-4 flex justify-between gap-2">
-              <button type="button" onClick={() => setStep("photos")} className="text-xs text-gray-400 hover:text-gray-200 hover:underline">
-                ← Back to photos
-              </button>
+              {prefill ? (
+                <span />
+              ) : (
+                <button type="button" onClick={() => setStep("photos")} className="text-xs text-gray-400 hover:text-gray-200 hover:underline">
+                  ← Back to photos
+                </button>
+              )}
               <button type="button" onClick={save} disabled={busy} className="rounded-lg bg-brand-600 px-3.5 py-2 text-sm font-medium text-white hover:bg-brand-500 disabled:opacity-50">
                 {busy ? "Saving…" : "Save tool"}
               </button>

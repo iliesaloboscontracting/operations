@@ -11,7 +11,10 @@ const BARE_PAGES = ["/login", "/setup"];
 // import back to "./Sidebar" and this to a flex-row layout to revert.)
 export default function AppFrame({ children }: { children: React.ReactNode }) {
   const path = usePathname() ?? "";
-  const bare = BARE_PAGES.includes(path);
+  // The Site photos page (supervisors' links) is its own phone page - no app
+  // nav and no sign-in check (it has no session; its link is the key).
+  const site = path.startsWith("/site/");
+  const bare = BARE_PAGES.includes(path) || site;
 
   return (
     <AuthProvider enabled={!bare}>

@@ -211,6 +211,7 @@ model Job {
 model Resource {
   id          String       @id @default(cuid())
   toolboxes   Toolbox[] // toolboxes this person is in charge of
+  siteLinks   SiteLink[] // their private site-photo link(s)
   name        String
   type        String // PERSONNEL | EQUIPMENT | ATTACHMENT | VEHICLE | HIRE
   category    String? // register section: Site Manager / Tipper / PLANT|LABOUR|VEHICLE (hire) ...
@@ -457,6 +458,7 @@ model ToolPhoto {
   tool      Tool?    @relation(fields: [toolId], references: [id], onDelete: SetNull)
   kind      String // PLATE | CONDITION | FAULT | CHECK
   fileName  String // file inside TOOL_PHOTO_DIR
+  siteLinkId String? // set when uploaded from site through a supervisor's link
   takenBy   String?
   createdAt DateTime @default(now())
 
@@ -514,4 +516,44 @@ model ToolIssue {
 
   @@index([toolId])
   @@index([status])
+}
+
+// A supervisor's private link to the Site photos page (19 Oct 2026). The page
+// is the only part of Operations reachable from outside (through the tunnel)
+// and it can only upload photos. Only a hash of the link's secret is stored -
+// the full link is shown once when made; a lost link is replaced, not resent.
+model SiteLink {
+  id         String    @id @default(cuid())
+  tokenHash  String    @unique // sha256 of the secret in the link
+  resourceId String // the Personnel-register person it belongs to
+  resource   Resource  @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  createdBy  String?
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime?
+  revokedAt  DateTime? // set = switched off; the link stops working
+  submissions SiteSubmission[]
+}
+
+// Something sent from site: a tool to register, a toolbox check, or a fault.
+// It waits here until the office applies or rejects it - nothing from site
+// changes the register by itself.
+model SiteSubmission {
+  id          String    @id @default(cuid())
+  siteLinkId  String
+  siteLink    SiteLink  @relation(fields: [siteLinkId], references: [id], onDelete: Cascade)
+  kind        String // REGISTER | CHECK | FAULT
+  photoIds    String // JSON array of ToolPhoto ids
+  toolId      String? // FAULT: the tool it's about
+  toolboxId   String? // CHECK: the toolbox checked
+  description String? // FAULT: what's wrong / any note from site
+  reading     String? // REGISTER: JSON of what the plate photo read as
+  checkId     String? // CHECK: the ToolboxCheck it produced
+  status      String    @default("PENDING") // PENDING | APPLIED | REJECTED
+  appliedRef  String? // e.g. the tool or fault created from it
+  reviewedBy  String?
+  reviewedAt  DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([status])
+  @@index([siteLinkId])
 }

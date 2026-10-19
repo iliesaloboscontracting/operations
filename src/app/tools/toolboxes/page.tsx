@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { CheckCircle2, HelpCircle, Loader2, Plus, ScanLine, ShieldAlert, XCircle } from "lucide-react";
+import { Loader2, Plus, ScanLine } from "lucide-react";
 import PageShell from "@/components/PageShell";
 import ToolsTabs from "@/components/tools/ToolsTabs";
 import PhotoPicker from "@/components/tools/PhotoPicker";
+import CheckResultView from "@/components/tools/CheckResultView";
 import { useAuth } from "@/components/AuthProvider";
 import { apiFetch, serverErrorMessage } from "@/lib/apiFetch";
 import type { CheckResult } from "@/lib/toolboxCheck";
@@ -253,12 +254,6 @@ function CheckToolbox({ box, onClose, onChanged }: { box: ToolboxDTO; onClose: (
     await onChanged();
   }
 
-  const Row = ({ icon, tone, children }: { icon: React.ReactNode; tone: string; children: React.ReactNode }) => (
-    <li className={`flex items-start gap-2 rounded-md px-2 py-1.5 text-xs ${tone}`}>
-      <span className="mt-0.5 shrink-0">{icon}</span>
-      <div className="min-w-0 flex-1">{children}</div>
-    </li>
-  );
 
   return (
     <Modal title={`Check ${box.name}`} onClose={onClose} wide>
@@ -289,89 +284,14 @@ function CheckToolbox({ box, onClose, onChanged }: { box: ToolboxDTO; onClose: (
       ) : (
         <div className="space-y-4">
           {error && <div className="rounded-md bg-red-900/30 px-3 py-2 text-xs text-red-300">{error}</div>}
-          {result.foreign.length > 0 && (
-            <section>
-              <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-amber-500">From another toolbox ({result.foreign.length})</h3>
-              <ul className="space-y-1">
-                {result.foreign.map((t) => (
-                  <Row key={t.toolId} icon={<ShieldAlert size={14} className="text-amber-500" />} tone="bg-amber-500/10">
-                    <div className="text-gray-100">
-                      {t.tag} · {t.name} {t.serialNumber && <span className="font-mono text-gray-400">({t.serialNumber})</span>}
-                    </div>
-                    <div className="text-amber-500">Belongs in {t.belongsTo ?? "the yard"} (identified by {t.how === "tag" ? "LOB tag" : "serial number"})</div>
-                    {done[t.toolId] ? (
-                      <div className="mt-1 text-gray-400">✓ {done[t.toolId]}</div>
-                    ) : (
-                      <div className="mt-1 flex flex-wrap gap-2">
-                        <button className={quiet} onClick={() => setDone((d) => ({ ...d, [t.toolId]: `Leave it - return it to ${t.belongsTo ?? "the yard"}` }))}>
-                          Send it back
-                        </button>
-                        <button className={btn} onClick={() => act(t.toolId, { toolboxId: box.id, moveReason: `Found in ${box.name} on a photo check` }, `Now belongs in ${box.name}`)}>
-                          Move it to {box.name}
-                        </button>
-                      </div>
-                    )}
-                  </Row>
-                ))}
-              </ul>
-            </section>
-          )}
-          {result.missing.length > 0 && (
-            <section>
-              <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-red-400">Not seen ({result.missing.length})</h3>
-              <ul className="space-y-1">
-                {result.missing.map((t) => (
-                  <Row key={t.toolId} icon={<XCircle size={14} className="text-red-400" />} tone="bg-red-900/20">
-                    <div className="text-gray-100">
-                      {t.tag} · {t.name} {t.serialNumber && <span className="font-mono text-gray-400">({t.serialNumber})</span>}
-                    </div>
-                    {done[t.toolId] ? (
-                      <div className="mt-1 text-gray-400">✓ {done[t.toolId]}</div>
-                    ) : (
-                      <div className="mt-1 flex flex-wrap gap-2">
-                        <span className="text-gray-400">Not in the photo - could be out on the job or its label was hidden.</span>
-                        <button className={quiet} onClick={() => act(t.toolId, { condition: "Missing" }, "Marked missing")}>Mark missing</button>
-                      </div>
-                    )}
-                  </Row>
-                ))}
-              </ul>
-            </section>
-          )}
-          <section>
-            <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-emerald-400">
-              In the right toolbox ({result.present.length + result.presentUnconfirmed.length})
-            </h3>
-            <ul className="space-y-1">
-              {result.present.map((t) => (
-                <Row key={t.toolId} icon={<CheckCircle2 size={14} className="text-emerald-400" />} tone="">
-                  {t.tag} · {t.name} <span className="text-gray-500">— by {t.how === "tag" ? "LOB tag" : "serial number"}</span>
-                </Row>
-              ))}
-              {result.presentUnconfirmed.map((t) => (
-                <Row key={t.toolId} icon={<CheckCircle2 size={14} className="text-gray-400" />} tone="">
-                  {t.tag} · {t.name} <span className="text-amber-500">— probably (same model seen, but no tag or serial readable)</span>
-                </Row>
-              ))}
-              {result.present.length + result.presentUnconfirmed.length === 0 && <li className="text-xs text-gray-500">None identified.</li>}
-            </ul>
-          </section>
-          {result.unknown.length > 0 && (
-            <section>
-              <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-gray-400">Not on the register ({result.unknown.length})</h3>
-              <ul className="space-y-1">
-                {result.unknown.map((u, i) => (
-                  <Row key={i} icon={<HelpCircle size={14} className="text-gray-400" />} tone="">
-                    {u.description}
-                    {(u.brand || u.model) && <span className="text-gray-500"> · {[u.brand, u.model].filter(Boolean).join(" ")}</span>}
-                    {u.lobTag && <span className="text-gray-500"> · tag {u.lobTag}</span>}
-                    {u.possibly.length > 0 && <div className="text-gray-500">Same model is registered in: {u.possibly.join(", ")}</div>}
-                  </Row>
-                ))}
-              </ul>
-            </section>
-          )}
-          {result.notes && <p className="text-xs text-gray-500">Note from the check: {result.notes}</p>}
+          <CheckResultView
+            result={result}
+            boxName={box.name}
+            done={done}
+            onSendBack={(toolId, belongsTo) => setDone((d) => ({ ...d, [toolId]: `Leave it - return it to ${belongsTo ?? "the yard"}` }))}
+            onMine={(toolId) => act(toolId, { toolboxId: box.id, moveReason: `Found in ${box.name} on a photo check` }, `Now belongs in ${box.name}`)}
+            onMissing={(toolId) => act(toolId, { condition: "Missing" }, "Marked missing")}
+          />
           <div className="flex justify-end">
             <button className={btn} onClick={onClose}>Done</button>
           </div>
