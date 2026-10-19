@@ -70,6 +70,10 @@ business, without becoming unnecessarily complicated.
   link). Hire workers give name + company. Hours = signed time less the
   project's unpaid break, shown in Day Review with a "Use Xh" button — they
   only reach costs when someone confirms them there (`JobActual`).
+  Fixed **sign-in points** (added 2026-10-20): Office, Yard and one QR per
+  Lobos-owned truck (POSTER link with `place`; SiteAttendance with `place`
+  and no job). Office lists Personnel category "Office" — no board
+  allocation needed; these count straight away and odd ones are flagged.
 - **Structure:** `src/app/` — page routes (`command`, `calendar`, `tracking`,
   `day-review`, `hire`, `plant`, `vehicles`, `labour`, `projects`, `users`,
   `bugs`, `notes`, `tools`, `completed`, `setup`, `login`) each generally
