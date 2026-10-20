@@ -12,6 +12,10 @@ import { isISODate } from "@/lib/dateRules";
 // assignments are merged into that existing job (skipping any resource
 // that's already on it), so a job someone pre-created today still gets
 // staffed the same way it was yesterday.
+//
+// Never double-books (21 Oct 2026): anyone / anything already booked on
+// another job that day and shift - planned ahead, or placed earlier in this
+// same copy - is skipped and reported back, instead of landing on two jobs.
 export const POST = withErrorHandling(async (req: NextRequest) => {
   const denied = await guard("MANAGER");
   if (denied) return denied;
@@ -41,13 +45,31 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
       notRunning: false,
       OR: [{ projectId: null }, { project: { status: "ACTIVE" } }],
     },
-    include: { assignments: true },
+    include: { assignments: { include: { resource: { select: { name: true } } } } },
     orderBy: { sortOrder: "asc" },
   });
   const existing = await prisma.job.findMany({
     where: { date: { gte: toStart, lt: toEnd } },
-    include: { assignments: true },
+    include: { assignments: true, project: { select: { name: true } } },
   });
+  // Who's already booked on the target day, per shift -> which job.
+  const booked = new Map<string, string>();
+  for (const e of existing) {
+    for (const a of e.assignments) booked.set(`${a.resourceId}|${e.shift}`, e.project?.name ?? e.title);
+  }
+  const skipped: { name: string; on: string }[] = [];
+  // Keep only what isn't already booked elsewhere that shift; book what's kept.
+  const free = <A extends { resourceId: string; resource: { name: string } }>(list: A[], shift: string, jobName: string) =>
+    list.filter((a) => {
+      const key = `${a.resourceId}|${shift}`;
+      const on = booked.get(key);
+      if (on && on !== jobName) {
+        skipped.push({ name: a.resource.name, on });
+        return false;
+      }
+      booked.set(key, jobName);
+      return true;
+    });
   const existingByKey = new Map(existing.map((j) => [`${j.projectId ?? j.title}|${j.shift}`, j]));
 
   let copied = 0;
@@ -57,7 +79,8 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
     const match = existingByKey.get(key);
     if (match) {
       const already = new Set(match.assignments.map((a) => a.resourceId));
-      const toAdd = j.assignments.filter((a) => !already.has(a.resourceId));
+      const matchName = match.project?.name ?? match.title;
+      const toAdd = free(j.assignments.filter((a) => !already.has(a.resourceId)), j.shift, matchName);
       if (toAdd.length > 0) {
         await prisma.assignment.createMany({
           data: toAdd.map((a) => ({ jobId: match.id, resourceId: a.resourceId, role: a.role })),
@@ -66,6 +89,7 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
       }
       continue;
     }
+    const keep = free(j.assignments, j.shift, j.title);
     await prisma.job.create({
       data: {
         projectId: j.projectId,
@@ -81,11 +105,11 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
         colorTag: j.colorTag,
         sortOrder: j.sortOrder,
         assignments: {
-          create: j.assignments.map((a) => ({ resourceId: a.resourceId, role: a.role })),
+          create: keep.map((a) => ({ resourceId: a.resourceId, role: a.role })),
         },
       },
     });
     copied++;
   }
-  return NextResponse.json({ copied, merged });
+  return NextResponse.json({ copied, merged, skipped });
 });

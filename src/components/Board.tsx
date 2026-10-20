@@ -259,10 +259,12 @@ export default function Board() {
       body: JSON.stringify({ from: addDays(selectedDate, -1), to: selectedDate }),
     });
     if (!res.ok) return fail(await serverErrorMessage(res, "Couldn't copy yesterday's plan."));
-    const { copied, merged } = await res.json();
+    const { copied, merged, skipped = [] } = (await res.json()) as { copied: number; merged: number; skipped?: { name: string; on: string }[] };
     const parts = [];
     if (copied) parts.push(`copied ${copied} job${copied > 1 ? "s" : ""}`);
     if (merged) parts.push(`filled in crew on ${merged} existing job${merged > 1 ? "s" : ""}`);
+    // Already booked on another job that day - left where they are, not doubled.
+    if (skipped.length) parts.push(`skipped ${skipped.map((s) => `${s.name} (already on ${s.on})`).join(", ")}`);
     setMessage({
       text: parts.length ? `Yesterday: ${parts.join(", ")}.` : "Nothing new to copy from yesterday.",
     });
