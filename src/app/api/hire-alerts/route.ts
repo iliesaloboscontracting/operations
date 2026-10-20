@@ -13,7 +13,8 @@ export const GET = withErrorHandling(async () => {
   if (denied) return denied;
   const today = todaySydney();
   const items = await prisma.resource.findMany({
-    where: { type: "HIRE", active: true, offHireDate: { not: null }, NOT: { hireStatus: "RETURNED" } },
+    // Status not set counts as still out - a plain NOT would drop those (SQL null).
+    where: { type: "HIRE", active: true, offHireDate: { not: null }, OR: [{ hireStatus: null }, { hireStatus: { not: "RETURNED" } }] },
     select: {
       id: true, name: true, category: true, agency: true, hireRef: true, hireStatus: true, offHireDate: true,
       hireProject: { select: { id: true, name: true } },

@@ -8,6 +8,8 @@ import { whereToday } from "@/lib/resource";
 import { fmtDay, parseISO, parseLooseDate } from "@/lib/dates";
 import { hireEstimate, offHireAlert, HIRE_STATUS_LABEL } from "@/lib/hireEstimate";
 import { useAuth } from "@/components/AuthProvider";
+import PageShell from "@/components/PageShell";
+import HireOverview from "@/components/hire/HireOverview";
 
 // Last date this item actually appeared on a job, from its own assignment
 // history - not filtered to today, so it reads "still idle" correctly even
@@ -47,6 +49,7 @@ function hireRateSummary(r: ResourceDTO): string {
 // labour; each item can carry its project, supplier reference, delivery /
 // pick-up and status, and shows an estimated cost (lib/hireEstimate.ts).
 const TABS = [
+  { key: "OVERVIEW", label: "Overview", noun: "hire" },
   { key: "PLANT", label: "Plant", noun: "plant" },
   { key: "EQUIPMENT", label: "Equipment", noun: "equipment" },
   { key: "TOOLS", label: "Tools", noun: "tool" },
@@ -95,7 +98,8 @@ function ComingOffHire() {
 
 export default function HirePage() {
   const { canEdit } = useAuth();
-  const [tab, setTab] = useState("PLANT");
+  // Overview first (21 Oct 2026): every site's hire at a glance.
+  const [tab, setTab] = useState("OVERVIEW");
   const [projects, setProjects] = useState<{ id: string; name: string; status: string }[]>([]);
   useEffect(() => {
     fetch("/api/projects")
@@ -107,6 +111,32 @@ export default function HirePage() {
   const isLabour = tab === "LABOUR";
   const projectName = (id: string | null | undefined) => (id ? projects.find((p) => p.id === id)?.name ?? "—" : "—");
   const today = todayIso();
+
+  const tabBar = (
+    <div className="mb-3 flex flex-wrap gap-1">
+      {TABS.map((x) => (
+        <button
+          key={x.key}
+          onClick={() => setTab(x.key)}
+          className={`rounded-md px-3 py-1 text-xs font-semibold uppercase tracking-wide ${
+            tab === x.key ? "bg-brand-600 text-white" : "bg-panel2 text-gray-400 hover:text-gray-200"
+          }`}
+        >
+          {x.label}
+        </button>
+      ))}
+    </div>
+  );
+
+  if (tab === "OVERVIEW") {
+    return (
+      <PageShell title="Hire" subtitle="Everything on hire across all sites, project by project - who it's from, when it's due back and roughly what it's costing.">
+        {tabBar}
+        <ComingOffHire />
+        <HireOverview canSeeMoney={canEdit} onOpenTab={setTab} />
+      </PageShell>
+    );
+  }
 
   return (
     <RegisterPage<ResourceDTO>
@@ -121,21 +151,7 @@ export default function HirePage() {
         searchText: (r) => `${r.name} ${r.agency} ${r.role} ${r.hireRef ?? ""} ${projectName(r.hireProjectId)}`,
         newDefaults: { type: "HIRE", category: tab, ownership: "HIRED", role: isLabour ? "General labour" : "", hireStatus: isLabour ? "" : "BOOKED" },
         header: () => <ComingOffHire />,
-        tabs: (
-          <div className="mb-3 flex flex-wrap gap-1">
-            {TABS.map((x) => (
-              <button
-                key={x.key}
-                onClick={() => setTab(x.key)}
-                className={`rounded-md px-3 py-1 text-xs font-semibold uppercase tracking-wide ${
-                  tab === x.key ? "bg-brand-600 text-white" : "bg-panel2 text-gray-400 hover:text-gray-200"
-                }`}
-              >
-                {x.label}
-              </button>
-            ))}
-          </div>
-        ),
+        tabs: tabBar,
         columns: [
           { label: isLabour ? "Worker" : "Item", render: (r) => <span className="font-medium">{r.name}</span> },
           { label: isLabour ? "Agency" : "Supplier", render: (r) => r.agency },

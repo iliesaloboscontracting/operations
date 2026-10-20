@@ -3,6 +3,7 @@
 import { X } from "lucide-react";
 import { AssignmentDTO, DragResourcePayload } from "@/lib/types";
 import { columnFor, CREW_ROLE_OPTIONS, isLabourHire } from "@/lib/resource";
+import HireTag from "./HireTag";
 
 export default function AssignedChip({
   assignment,
@@ -57,6 +58,8 @@ export default function AssignedChip({
       }`}
     >
       <span className="max-w-[8rem] truncate">{r.name}</span>
+      {/* Hired plant / equipment / tools: who it's from and when it's due back. */}
+      {column === "hire" && <HireTag resource={r} className="max-w-[9rem]" />}
       {conflict > 0 && <span className="text-amber-300">⚠</span>}
       {isCrew && (
         <select
