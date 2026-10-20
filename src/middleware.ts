@@ -20,12 +20,15 @@ export async function middleware(req: NextRequest) {
   if (pathname.startsWith("/api/")) {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });
   }
-  // A relative Location, so the browser stays on whatever address it used
-  // (ops.lobostools.com.mx through the tunnel). An absolute URL built from
-  // req.nextUrl carries the server's own bind address (localhost:3000) and
-  // sent people to a blank page after the Cloudflare login (20 Oct 2026).
+  // Redirect on the address the browser actually used (ops.lobostools.com.mx
+  // through the tunnel, localhost on a dev machine). req.nextUrl carries the
+  // server's own bind address (localhost:3000) behind the tunnel, which sent
+  // people to a blank page after the Cloudflare login (20 Oct 2026).
   const next = pathname === "/" ? "" : `?next=${encodeURIComponent(pathname + search)}`;
-  return new NextResponse(null, { status: 307, headers: { Location: `/login${next}` } });
+  const host = req.headers.get("x-forwarded-host") ?? req.headers.get("host");
+  const proto = req.headers.get("x-forwarded-proto") ?? req.nextUrl.protocol.replace(":", "");
+  const base = host ? `${proto}://${host}` : req.nextUrl.origin;
+  return NextResponse.redirect(new URL(`/login${next}`, base));
 }
 
 export const config = {
