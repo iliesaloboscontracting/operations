@@ -20,10 +20,12 @@ export async function middleware(req: NextRequest) {
   if (pathname.startsWith("/api/")) {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });
   }
-  const url = req.nextUrl.clone();
-  url.pathname = "/login";
-  url.search = pathname === "/" ? "" : `?next=${encodeURIComponent(pathname + search)}`;
-  return NextResponse.redirect(url);
+  // A relative Location, so the browser stays on whatever address it used
+  // (ops.lobostools.com.mx through the tunnel). An absolute URL built from
+  // req.nextUrl carries the server's own bind address (localhost:3000) and
+  // sent people to a blank page after the Cloudflare login (20 Oct 2026).
+  const next = pathname === "/" ? "" : `?next=${encodeURIComponent(pathname + search)}`;
+  return new NextResponse(null, { status: 307, headers: { Location: `/login${next}` } });
 }
 
 export const config = {
