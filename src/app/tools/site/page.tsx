@@ -10,6 +10,7 @@ import { useAuth } from "@/components/AuthProvider";
 import { apiFetch, serverErrorMessage } from "@/lib/apiFetch";
 import type { CheckResult } from "@/lib/toolboxCheck";
 import type { ResourceDTO, ToolboxDTO, ToolDTO } from "@/lib/types";
+import { isLead } from "@/lib/leads";
 
 const btn = "rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-500 disabled:opacity-50";
 const quiet = "rounded-lg border border-edge px-3 py-1.5 text-xs text-gray-300 hover:bg-panel2 disabled:opacity-50";
@@ -60,6 +61,9 @@ export default function FromSitePage() {
   const [toCheck, setToCheck] = useState<ToolDTO[]>([]);
   const [madeLink, setMadeLink] = useState<{ name: string; url: string } | null>(null);
   const [copied, setCopied] = useState(false);
+  // Switched-off links are history (photos / sign-ins sent through them), so
+  // they're hidden rather than deleted - one active link per person shows.
+  const [showOff, setShowOff] = useState(false);
 
   const load = useCallback(async () => {
     const [s, l, b, t, p] = await Promise.all([
@@ -94,8 +98,14 @@ export default function FromSitePage() {
 
   const pending = subs.filter((s) => s.status === "PENDING");
   const handled = subs.filter((s) => s.status !== "PENDING");
-  // Supervisors = people in charge of a toolbox (links are for them only).
-  const supervisors = Array.from(new Map(boxes.filter((b) => b.supervisor).map((b) => [b.supervisor!.id, b.supervisor!])).values());
+  // Supervisor links: site supervisors and team leaders (lib/leads.ts), plus
+  // anyone already in charge of a toolbox.
+  const supervisors = Array.from(
+    new Map([
+      ...people.filter(isLead).map((p) => [p.id, { id: p.id, name: p.name }] as const),
+      ...boxes.filter((b) => b.supervisor).map((b) => [b.supervisor!.id, b.supervisor!] as const),
+    ]).values()
+  ).sort((a, b) => a.name.localeCompare(b.name));
   // Office / yard links can go to anyone in the Personnel register.
   const linkPeople: { id: string; name: string }[] = linkKind === "OFFICE" ? people : supervisors;
 
@@ -269,7 +279,7 @@ export default function FromSitePage() {
                 </button>
               </div>
             )}
-            {linkKind === "SUPERVISOR" && supervisors.length === 0 && <p className="mb-3 text-xs text-amber-500">Set a supervisor on a toolbox first.</p>}
+            {linkKind === "SUPERVISOR" && supervisors.length === 0 && <p className="mb-3 text-xs text-amber-500">No site supervisors or team leaders in Personnel yet.</p>}
             {madeLink && (
               <div className="mb-3 rounded-lg border border-brand-500 bg-brand-600/10 p-3 text-xs">
                 <div className="mb-1 font-semibold text-gray-100">Link for {madeLink.name}</div>
@@ -292,8 +302,8 @@ export default function FromSitePage() {
               </div>
             )}
             <ul className="divide-y divide-edge/60 rounded-xl border border-edge bg-panel">
-              {links.length === 0 && <li className="px-3 py-2 text-xs text-gray-500">No links yet.</li>}
-              {links.map((l) => (
+              {links.filter((l) => !l.revokedAt).length === 0 && <li className="px-3 py-2 text-xs text-gray-500">No active links.</li>}
+              {links.filter((l) => showOff || !l.revokedAt).map((l) => (
                 <li key={l.id} className="flex items-center gap-2 px-3 py-2 text-xs">
                   <div className="min-w-0 flex-1">
                     <div className="text-gray-200">
@@ -316,6 +326,11 @@ export default function FromSitePage() {
                 </li>
               ))}
             </ul>
+            {links.some((l) => l.revokedAt) && (
+              <button className="mt-2 text-xs text-gray-500 hover:text-gray-300" onClick={() => setShowOff((v) => !v)}>
+                {showOff ? "Hide switched-off links" : `Show switched-off links (${links.filter((l) => l.revokedAt).length})`}
+              </button>
+            )}
           </section>
         </div>
       )}

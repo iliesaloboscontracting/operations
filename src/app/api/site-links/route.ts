@@ -4,6 +4,7 @@ import { guard, getCurrentUser } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { hashSecret, newLinkSecret, siteUrl } from "@/lib/siteLinks";
 import { createHandover } from "@/lib/signin";
+import { isLead } from "@/lib/leads";
 
 // GET /api/site-links -> every supervisor's link (never the link itself - only
 // a hash is stored), newest first.
@@ -62,7 +63,7 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   const kind = body.kind === "OFFICE" ? "OFFICE" : "SUPERVISOR";
   // Supervisor links: anyone in charge of a toolbox, or a Site Manager /
   // supervisor (they run crew sign-in even without a toolbox).
-  const leads = person.toolboxes.length > 0 || person.category === "Site Manager" || /supervis|leading hand|foreman/i.test(person.role ?? "");
+  const leads = person.toolboxes.length > 0 || isLead(person);
   if (kind === "SUPERVISOR" && !leads) {
     return NextResponse.json({ error: "Supervisor links are for site managers and supervisors - set them as a Site Manager or give them a toolbox first." }, { status: 400 });
   }
