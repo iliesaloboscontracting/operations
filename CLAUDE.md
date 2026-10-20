@@ -17,17 +17,31 @@ business, without becoming unnecessarily complicated.
 - **Name and location:** the app is called **Operations** — that is its only
   name. It lives at `C:\Users\ilies\Documents\operations`. Older names and
   folders have been retired and removed; don't reintroduce them.
-- **Hosting:** runs on this Windows machine as the **`OperationsServer`
-  Windows service** (installed via NSSM, `service/install-service.ps1`; wraps
-  `next start` directly against a production build), port 3000, LocalSystem,
-  set to auto-restart on crash. There is no separate staging environment —
-  this *is* production. After any build (`npm run build`), redeploy with
-  `Stop-Service OperationsServer` → `npm.cmd run build` → `Start-Service OperationsServer` —
-  both commands need an elevated PowerShell, since the service isn't tied to
-  any interactive logon (that's the point: it survives sleep, lock and
-  logoff). The nightly database backup is the "Operations DB Backup"
-  Scheduled Task (`scripts/register-backup-task.ps1`) writing to
-  `OneDrive\Operations-Backups`; it's only visible from an elevated shell.
+- **Hosting (since 2026-10-20 — cloud):** production runs on an **AWS
+  Lightsail server in Sydney** (`operations-sydney`, Ubuntu 24.04, 4 GB,
+  static IP `52.64.25.179`), approved by Ilies after the laptop slept for ~6h
+  on 20 Oct and took sign-ins offline. Layout: app in
+  `/srv/operations/app` (owned by the `operations` system user, `.env` mode
+  600, DB at `prisma/dev.db`), tool photos in `/srv/operations/tool-photos`,
+  Node 24 in `/opt/node`. systemd units: `operations` (`next start` bound to
+  **127.0.0.1:3000 only**), `cloudflared-operations` (the tunnel, token in
+  `/etc/cloudflared/token`), `operations-backup.timer` (1:30am: SQLite
+  `.backup` + integrity check + photos tar, 14 days in
+  `/srv/operations/backups`) plus Lightsail's daily snapshot. ufw allows SSH
+  only; key-only login with `~/.ssh/lobos_ops_lightsail` on this PC
+  (`ubuntu@52.64.25.179`). Unattended security upgrades on. **Deploy** =
+  copy the committed code to the server (`git archive HEAD | ssh … tar -x`),
+  then as `operations`: `npm ci` (if deps changed) → `prisma db push` (after
+  testing on a copy) → `npm run build` → `sudo systemctl restart
+  operations`; back up the DB first. Schema/data rules below still apply —
+  test on a copy (locally or on the server) before the live DB.
+  The old **laptop** install (`OperationsServer` + `cloudflared` Windows
+  services) is **stopped and Disabled** — kept as a fallback until about
+  2026-11-03, then remove. Rollback = stop the cloud tunnel, copy the DB
+  back, re-enable and start both Windows services. While it's disabled,
+  `http://localhost:3000` on the laptop only works through an SSH port
+  forward (`ssh -N -L 3000:127.0.0.1:3000 …`); the office address is
+  **`https://ops.lobostools.com.mx`**.
 - **Auth:** custom cookie-session auth (`src/lib/auth.ts`), scrypt password
   hashing, roles `ADMIN | MANAGER | VIEWER` via a `guard(minRole)` pattern.
 - **AI assistant** (`/assistant`, Manager+ only, added 2026-09-29): a
@@ -56,7 +70,14 @@ business, without becoming unnecessarily complicated.
   internet**: a Cloudflare Tunnel (`cloudflared` Windows service) publishes
   `https://photos.lobostools.com.mx` with routes for exactly `site/.*`,
   `api/site/.*`, `_next/.*` and `logo.png` → `http://localhost:3000`;
-  everything else 404s at Cloudflare. Never add a route without a path.
+  everything else 404s at Cloudflare. Never add a route without a path on
+  `photos`. The one deliberate exception (2026-10-20) is
+  **`ops.lobostools.com.mx`** → the whole app, which sits behind
+  **Cloudflare Access** (Zero Trust Free, team `lobos-contracting`, app
+  "Operations office", policy "Lobos staff": emails ending
+  `@loboscontracting.com.au`, one-time PIN, 24h session) *and* the app's own
+  login. Never publish any other full-app route, and never loosen that
+  policy (e.g. to "Everyone").
   `SITE_BASE_URL` in `.env` sets the address links are made with.
 - **Site sign-in / sign-out** (added 2026-10-19, `src/lib/signin.ts`,
   `/attendance` "Sign-ins", Manager+): crew scan the supervisor's QR on
