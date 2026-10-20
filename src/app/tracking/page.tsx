@@ -496,7 +496,7 @@ export default function TrackingPage() {
                 {projects.map((p) => {
                   const isOpen = open.has(p.id);
                   const hasDetail =
-                    p.jobs.length > 0 || p.invoiced.length > 0 || p.labour.length > 0 ||
+                    p.jobs.length > 0 || p.invoiced.length > 0 || p.labour.length > 0 || p.hireItems.length > 0 ||
                     p.hireLabourEstimate.length > 0 || p.uncostedCount > 0 || p.unconfirmedCount > 0 ||
                     p.contractValue != null || !!p.contractValueNotes;
                   const breakdown = buildBreakdown(p);
@@ -581,6 +581,29 @@ export default function TrackingPage() {
                                   {money(Math.abs(p.hireLabourEstimateTotal - p.labourHireInvoicedTotal))} difference - for review, not added into the total
                                 </span>
                               </div>
+                            </Card>
+                          )}
+
+                          {p.hireItems.length > 0 && (
+                            <Card className="mb-3">
+                              <SectionHeading icon={Wrench}>Hire register (estimate)</SectionHeading>
+                              <div className="space-y-1">
+                                {p.hireItems.map((h) => (
+                                  <div key={h.id} className="flex flex-wrap items-center gap-x-2 gap-y-0.5 rounded-lg border border-[#eceef1] bg-[#f9fafb] px-2.5 py-1.5 text-xs transition-colors hover:bg-[#f1f2f4]">
+                                    <span className="min-w-0 flex-1 truncate text-gray-300">
+                                      {h.name}
+                                      {h.supplier && <span className="text-gray-500"> · {h.supplier}</span>}
+                                    </span>
+                                    <span className="shrink-0 text-gray-500">
+                                      {h.onHireDate ? fmtDay(h.onHireDate, { day: "numeric", month: "short" }) : "?"} – {h.offHireDate ? fmtDay(h.offHireDate, { day: "numeric", month: "short" }) : "no finish date"}
+                                      {" · "}{h.daysToDate} day{h.daysToDate === 1 ? "" : "s"} so far
+                                    </span>
+                                    <span className="shrink-0 font-medium text-gray-200">{h.costToDate != null ? money(h.costToDate) : <span className="text-red-600">no rate</span>}</span>
+                                    {h.costTotal != null && <span className="shrink-0 text-gray-500">of ~{money(h.costTotal)}</span>}
+                                  </div>
+                                ))}
+                              </div>
+                              <p className="mt-1.5 text-[11px] text-gray-500">Estimates: rate × working days on hire + delivery / pick-up. Not matched to supplier invoices yet.</p>
                             </Card>
                           )}
 

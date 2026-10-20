@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { guard, getCurrentUser } from "@/lib/auth";
 import { pickResourceData, PAY_RATE_FIELDS } from "@/lib/resourceFields";
+import { hireRegisterError } from "@/lib/hireServer";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { toPublicResource } from "@/lib/serializeResource";
 import { hireDateError } from "@/lib/dateRules";
@@ -31,6 +32,8 @@ export const PATCH = withErrorHandling(async (
     const hireError = hireDateError({ ...(existing ?? {}), ...data } as Parameters<typeof hireDateError>[0]);
     if (hireError) return NextResponse.json({ error: hireError }, { status: 400 });
   }
+  const registerError = await hireRegisterError(data);
+  if (registerError) return NextResponse.json({ error: registerError }, { status: 400 });
 
   const resource = await prisma.resource.update({
     where: { id: params.id },

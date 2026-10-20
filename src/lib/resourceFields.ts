@@ -42,6 +42,12 @@ export const RESOURCE_FIELDS = [
   "dailyRateExGst",
   "hireRate",
   "hireRateUnit",
+  "hireProjectId",
+  "hireRef",
+  "hireDeliveryCost",
+  "hireCollectionCost",
+  "hireStatus",
+  "hireSource",
   "active",
   ...PAY_RATE_FIELDS,
 ] as const;
@@ -57,6 +63,8 @@ const NUMERIC_FIELDS = new Set([
   "saturdayRate",
   "sundayRate",
   "hireRate",
+  "hireDeliveryCost",
+  "hireCollectionCost",
 ]);
 
 export function pickResourceData(body: Record<string, unknown>) {

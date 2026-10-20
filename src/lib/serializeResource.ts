@@ -21,6 +21,8 @@ export function toPublicResource<T extends Record<string, unknown>>(resource: T,
     delete resource.rate;
     delete resource.hireRate;
     delete resource.hireRateUnit;
+    delete resource.hireDeliveryCost;
+    delete resource.hireCollectionCost;
   }
   return resource;
 }

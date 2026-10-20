@@ -53,7 +53,8 @@ function isVehicle(type: string, category: string | null) {
   return type === "VEHICLE" || (type === "HIRE" && category === "VEHICLE");
 }
 function isPlant(type: string, category: string | null) {
-  return type === "EQUIPMENT" || type === "ATTACHMENT" || (type === "HIRE" && category === "PLANT");
+  // Hired equipment and tools (21 Oct 2026) sit with plant on the day sheet.
+  return type === "EQUIPMENT" || type === "ATTACHMENT" || (type === "HIRE" && (category === "PLANT" || category === "EQUIPMENT" || category === "TOOLS"));
 }
 
 function bullets(lines: string[]) {

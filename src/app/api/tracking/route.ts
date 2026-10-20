@@ -6,6 +6,7 @@ import { tierFor, type CostStatus } from "@/lib/labourCost";
 import { costAllocation } from "@/lib/costAllocation";
 import { fmtDay, parseISO, parseLooseDate, addDays } from "@/lib/dates";
 import { todaySydney } from "@/lib/today";
+import { hireEstimate } from "@/lib/hireEstimate";
 
 // The historical labour-cost backfill (from the daily allocation PDFs) covers
 // every real work-date up to and including this one. Jobs on or before this
@@ -63,7 +64,7 @@ export const GET = withErrorHandling(async () => {
                 select: {
                   type: true, category: true, name: true, dailyRateExGst: true,
                   payRateBasis: true, ordinaryRate: true, nightRate: true, saturdayRate: true, sundayRate: true,
-                  payRateConfirmed: true, hireRate: true, hireRateUnit: true,
+                  payRateConfirmed: true, hireRate: true, hireRateUnit: true, hireProjectId: true,
                 },
               },
             },
@@ -74,6 +75,23 @@ export const GET = withErrorHandling(async () => {
       labourCosts: { orderBy: { date: "asc" } },
     },
   });
+
+  // Hire register (21 Oct 2026): hired plant / equipment / tools / vehicles
+  // tied to a project are costed as an ESTIMATE for every working day on
+  // hire (lib/hireEstimate.ts) - the way suppliers charge - instead of per
+  // board day. So their board allocations and idle days are skipped below,
+  // never counted twice. Hired labour stays costed by hours as before.
+  const todayIso = todaySydney();
+  const registered = await prisma.resource.findMany({
+    where: { type: "HIRE", hireProjectId: { not: null }, NOT: { category: "LABOUR" } },
+    select: {
+      id: true, name: true, category: true, agency: true, hireRef: true, hireProjectId: true, hireStatus: true,
+      onHireDate: true, offHireDate: true, hireRate: true, hireRateUnit: true, dailyRateExGst: true,
+      hireDeliveryCost: true, hireCollectionCost: true,
+    },
+  });
+  const isRegisteredHire = (r: { type: string; category: string | null; hireProjectId?: string | null }) =>
+    r.type === "HIRE" && r.category !== "LABOUR" && !!r.hireProjectId;
 
   const bucketOf = (type: string): "plant" | "attach" | "trucks" | "hire" | null => {
     if (type === "EQUIPMENT") return "plant";
@@ -112,6 +130,7 @@ export const GET = withErrorHandling(async () => {
         const isClosed = isLive && closedDates.has(dateStr);
         let jobLabourCost = 0;
         for (const a of j.assignments) {
+          if (isRegisteredHire(a.resource)) continue; // costed by hire period below
           const shift = j.shift as "DAY" | "NIGHT";
           const result = costAllocation(dateStr, shift, j.startTime, j.endTime, p, a.resource);
           const frozen = isClosed ? frozenByAssignment.get(a.id) : undefined;
@@ -215,6 +234,21 @@ export const GET = withErrorHandling(async () => {
       ...liveLabour,
     ].sort((a, b) => a.date.localeCompare(b.date));
     const labourTotal = labour.reduce((n, l) => n + (l.cost ?? 0), 0);
+    // Registered hire for this project - estimates, to date and to finish.
+    const hireItems = registered
+      .filter((r) => r.hireProjectId === p.id)
+      .map((r) => {
+        const e = hireEstimate(r, todayIso);
+        return {
+          id: r.id, name: r.name, category: r.category, supplier: r.agency, hireRef: r.hireRef, status: r.hireStatus,
+          onHireDate: r.onHireDate, offHireDate: r.offHireDate,
+          dayRate: e?.dayRate ?? null, daysToDate: e?.daysToDate ?? 0, costToDate: e?.costToDate ?? null, costTotal: e?.costTotal ?? null,
+        };
+      });
+    const hireEstimateToDate = hireItems.reduce((n, h) => n + (h.costToDate ?? 0), 0);
+    byCode.hire += hireEstimateToDate;
+    estimatedCost += hireEstimateToDate;
+    uncostedCount += hireItems.filter((h) => h.costToDate == null && h.daysToDate > 0).length;
     const hireLabourEstimateTotal = hireLabourEstimate.reduce((n, l) => n + (l.cost ?? 0), 0);
     const totalCost = byCode.plant + byCode.attach + byCode.trucks + byCode.hire + invoicedTotal + labourTotal;
 
@@ -243,6 +277,9 @@ export const GET = withErrorHandling(async () => {
       // and what the agency billed is visible for review, not silently
       // resolved either way.
       hireLabourEstimateTotal,
+      // Hire register estimates (included in byCode.hire / totalCost above).
+      hireEstimateToDate,
+      hireItems,
       hireLabourEstimate: isAdmin ? hireLabourEstimate : [],
       uncostedCount,
       unconfirmedCount,
@@ -259,7 +296,12 @@ export const GET = withErrorHandling(async () => {
   // which stays best-effort parsed until re-entered; an unparseable/unset
   // start just means that item can't be scored and is skipped, not guessed at.
   const hireResources = await prisma.resource.findMany({
-    where: { type: "HIRE", active: true, OR: [{ hireStart: { not: null } }, { onHireDate: { not: null } }] },
+    // Registered hire tied to a project is already charged to that project
+    // for every day on hire, so it's never "idle" here.
+    where: {
+      type: "HIRE", active: true, OR: [{ hireStart: { not: null } }, { onHireDate: { not: null } }],
+      NOT: { AND: [{ hireProjectId: { not: null } }, { category: { not: "LABOUR" } }] },
+    },
     select: {
       id: true, name: true, agency: true, hireStart: true, hireEnd: true, onHireDate: true, offHireDate: true,
       dailyRateExGst: true, hireRate: true, hireRateUnit: true,

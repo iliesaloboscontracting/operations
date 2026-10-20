@@ -83,6 +83,7 @@ model Project {
   updatedAt DateTime @updatedAt
   jobs      Job[]
   invoicedCosts InvoicedCost[]
+  hireItems     Resource[] @relation("HireProject")
   labourCosts   LabourCost[]
   allocationCosts AllocationCost[]
   contacts  ProjectContact[]
@@ -246,6 +247,17 @@ model Resource {
   // from `rate`/hireStart/hireEnd, which stay untouched until re-entered here.
   hireRate     Float?
   hireRateUnit String? // HOUR | DAY | WEEK
+  // Hire register (21 Oct 2026): what a hired item is for and roughly what
+  // it costs. hireProjectId set = the item is costed as an estimate for
+  // every working day it's on hire (lib/hireEstimate.ts), not per board day.
+  // Estimates only - supplier invoices aren't matched yet (Xero later).
+  hireProjectId      String?
+  hireProject        Project? @relation("HireProject", fields: [hireProjectId], references: [id], onDelete: SetNull)
+  hireRef            String? // supplier's hire / docket / order number
+  hireDeliveryCost   Float? // one-off delivery charge, ex GST
+  hireCollectionCost Float? // one-off pick-up charge, ex GST
+  hireStatus         String? // BOOKED | ON_HIRE | OFF_HIRE_REQUESTED | RETURNED
+  hireSource         String? // where it came from, e.g. "Email: Hire Express, 16 Oct 2026, 'Confirmation email'"
 
   // Pay rate (personnel only) - what Lobos actually pays this person. Kept
   // separate from dailyRateExGst (that's for plant/vehicles/hire, never set

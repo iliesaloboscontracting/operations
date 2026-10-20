@@ -22,6 +22,8 @@ const GROUPS: { key: GroupKey; label: string }[] = [
 const HIRE_CATEGORIES = [
   { value: "LABOUR", label: "Personnel (labour hire)" },
   { value: "PLANT", label: "Machine (plant hire)" },
+  { value: "EQUIPMENT", label: "Equipment (hire)" },
+  { value: "TOOLS", label: "Tools (hire)" },
   { value: "VEHICLE", label: "Truck (subcontractor)" },
 ];
 

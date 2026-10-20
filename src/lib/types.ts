@@ -36,12 +36,19 @@ export interface ResourceDTO {
   hireEnd: string | null;
   onHireDate: string | null; // YYYY-MM-DD, replaces hireStart's free text once re-entered
   offHireDate: string | null; // YYYY-MM-DD, replaces hireEnd's free text once re-entered
+  // Hire register (21 Oct 2026) - see lib/hireEstimate.ts.
+  hireProjectId?: string | null;
+  hireRef?: string | null;
+  hireStatus?: "BOOKED" | "ON_HIRE" | "OFF_HIRE_REQUESTED" | "RETURNED" | null;
+  hireSource?: string | null;
   // Cost fields - the API omits these entirely for a Viewer, so they come
   // through as undefined, not null, for anyone below Manager.
   rate?: string | null;
   dailyRateExGst?: number | null;
   hireRate?: number | null;
   hireRateUnit?: "HOUR" | "DAY" | "WEEK" | null;
+  hireDeliveryCost?: number | null;
+  hireCollectionCost?: number | null;
   // Pay rate (personnel only) - sensitive; the API omits these entirely for
   // a non-Admin caller, so they come through as undefined, not null, for
   // anyone who isn't an Admin.
@@ -426,6 +433,21 @@ export interface DayCloseDTO {
 // are null until a supervisor records them. Never carries a dollar figure -
 // Day Review is an operational record, not a cost view (see Project
 // Tracking for money).
+export interface HireItemCostDTO {
+  id: string;
+  name: string;
+  category: string | null;
+  supplier: string | null;
+  hireRef: string | null;
+  status: string | null;
+  onHireDate: string | null;
+  offHireDate: string | null;
+  dayRate: number | null;
+  daysToDate: number;
+  costToDate: number | null; // null = no rate set
+  costTotal: number | null; // to the expected finish; null = no rate or no finish date
+}
+
 export interface DayReviewRowDTO {
   resourceId: string;
   name: string;
@@ -505,6 +527,11 @@ export interface ProjectCostDTO {
   // invoicedTotal, the agency's real bill).
   hireLabourEstimateTotal: number;
   hireLabourEstimate: HireLabourEstimateDTO[]; // empty for Manager, full detail Admin-only
+  // Hire register (21 Oct 2026): estimated cost of hired plant / equipment /
+  // tools tied to this project, every working day on hire - included in
+  // byCode.hire and totalCost.
+  hireEstimateToDate: number;
+  hireItems: HireItemCostDTO[];
   uncostedCount: number; // allocations with RATE_MISSING or HOURS_UNKNOWN
   unconfirmedCount: number; // allocations with RATE_UNCONFIRMED
   jobs: JobCostDTO[]; // only jobs that actually cost something, oldest first

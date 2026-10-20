@@ -36,11 +36,13 @@ function NavTab({
   label,
   active,
   badge,
+  badgeTitle = "Projects starting within a week",
 }: {
   href: string;
   label: string;
   active: boolean;
   badge?: number;
+  badgeTitle?: string;
 }) {
   return (
     <Link
@@ -55,7 +57,7 @@ function NavTab({
       {!!badge && (
         <span
           className="rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold leading-none text-black"
-          title="Projects starting within a week"
+          title={badgeTitle}
         >
           {badge}
         </span>
@@ -72,6 +74,7 @@ export default function TopNav() {
   const [changingPw, setChangingPw] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [startingSoon, setStartingSoon] = useState(0);
+  const [offHire, setOffHire] = useState(0);
 
   // Badge on Calendar: projects starting within a week (refreshed on navigation).
   const refreshBadge = useCallback(() => {
@@ -79,6 +82,11 @@ export default function TopNav() {
       .then((r) => (r.ok ? r.json() : []))
       .then((a: unknown[]) => setStartingSoon(a.length))
       .catch(() => setStartingSoon(0));
+    // Badge on Hire: items overdue / finishing today / within 3 days.
+    fetch("/api/hire-alerts")
+      .then((r) => (r.ok ? r.json() : { alerts: [] }))
+      .then((d: { alerts: unknown[] }) => setOffHire(d.alerts.length))
+      .catch(() => setOffHire(0));
   }, []);
 
   useEffect(refreshBadge, [refreshBadge, path]);
@@ -105,7 +113,14 @@ export default function TopNav() {
         ))}
         <Divider />
         {REGISTERS.map((i) => (
-          <NavTab key={i.href} href={i.href} label={i.label} active={isActive(i.href)} />
+          <NavTab
+            key={i.href}
+            href={i.href}
+            label={i.label}
+            active={isActive(i.href)}
+            badge={i.href === "/hire" ? offHire : undefined}
+            badgeTitle="Hire coming off hire within 3 days, or overdue"
+          />
         ))}
         {isAdmin && (
           <>
