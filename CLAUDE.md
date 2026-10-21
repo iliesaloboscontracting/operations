@@ -27,7 +27,10 @@ business, without becoming unnecessarily complicated.
   **127.0.0.1:3000 only**), `cloudflared-operations` (the tunnel, token in
   `/etc/cloudflared/token`), `operations-backup.timer` (1:30am: SQLite
   `.backup` + integrity check + photos tar, 14 days in
-  `/srv/operations/backups`) plus Lightsail's daily snapshot. ufw allows SSH
+  `/srv/operations/backups`) plus Lightsail's daily snapshot; an off-AWS
+  copy is pulled nightly at 2am by the laptop's "Operations DB Backup" task
+  (`scripts/backup-cloud.ps1`, into OneDrive `Operations-Backups\cloud-*`,
+  30 days, since 2026-10-21). ufw allows SSH
   only; key-only login with `~/.ssh/lobos_ops_lightsail` on this PC
   (`ubuntu@52.64.25.179`). Unattended security upgrades on. **Deploy** =
   copy the committed code to the server (`git archive HEAD | ssh … tar -x`),
