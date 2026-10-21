@@ -22,6 +22,10 @@ if (-not (New-Object Security.Principal.WindowsPrincipal([Security.Principal.Win
 # SSH key + known hosts for SYSTEM, readable only by SYSTEM and Administrators
 # (OpenSSH refuses a key owned by another user).
 New-Item -ItemType Directory -Force $keyDir | Out-Null
+# Re-running: take back any earlier copies (an earlier run could leave them
+# unreadable even to Administrators) before overwriting them.
+takeown /F $keyDir /R /A /D Y | Out-Null
+icacls $keyDir /reset /T | Out-Null
 Copy-Item "C:\Users\ilies\.ssh\lobos_ops_lightsail", "C:\Users\ilies\.ssh\known_hosts" $keyDir -Force
 icacls $keyDir /inheritance:r /grant:r "SYSTEM:(OI)(CI)F" "Administrators:(OI)(CI)F" | Out-Null
 # Files get plain grants - inheritance flags (OI)(CI) only apply to folders,
