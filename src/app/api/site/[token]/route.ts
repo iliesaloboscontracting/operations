@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { resolveLink } from "@/lib/siteLinks";
+import { OPEN_STATUSES } from "@/lib/requestTypes";
 
 // GET /api/site/:token -> who the link belongs to and their toolbox(es) with
 // the tools in each (for picking a tool when reporting a fault). Tool names
@@ -22,5 +23,12 @@ export const GET = withErrorHandling(async (_req: NextRequest, { params }: { par
       },
     },
   });
-  return NextResponse.json({ person: link.person.name, kind: link.kind, shared: link.shared, toolboxes });
+  // Counts for the request buttons: a supervisor's open requests (and how
+  // many the office has a question on), an office person's to-do list.
+  const [openRequests, needsAnswer, todo] = await Promise.all([
+    link.kind === "OFFICE" ? 0 : prisma.siteRequest.count({ where: { siteLinkId: link.id, status: { in: OPEN_STATUSES } } }),
+    link.kind === "OFFICE" ? 0 : prisma.siteRequest.count({ where: { siteLinkId: link.id, status: "NEEDS_INFO" } }),
+    link.kind === "OFFICE" && link.person.id ? prisma.siteRequest.count({ where: { assigneeId: link.person.id, status: "TODO" } }) : 0,
+  ]);
+  return NextResponse.json({ person: link.person.name, kind: link.kind, shared: link.shared, toolboxes, openRequests, needsAnswer, todo });
 });

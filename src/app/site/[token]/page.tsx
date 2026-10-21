@@ -1,9 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { ArrowLeft, Camera, Loader2, QrCode as QrIcon, ScanLine, Wrench } from "lucide-react";
+import { ArrowLeft, Camera, ClipboardList, ListChecks, Loader2, QrCode as QrIcon, ScanLine, Send, Wrench } from "lucide-react";
 import PhotoPicker from "@/components/tools/PhotoPicker";
 import SignInCrew from "@/components/site/SignInCrew";
+import { MyRequests, RequestForm } from "@/components/site/SiteRequests";
+import TodoList from "@/components/site/TodoList";
 import CheckResultView from "@/components/tools/CheckResultView";
 import { serverErrorMessage } from "@/lib/apiFetch";
 import type { CheckResult } from "@/lib/toolboxCheck";
@@ -13,8 +15,16 @@ import type { CheckResult } from "@/lib/toolboxCheck";
 // check their toolbox, report a fault. No login; the link is the key.
 
 type SiteTool = { id: string; tag: string; name: string; brand: string | null; model: string | null; serialNumber: string | null; condition: string };
-type SiteInfo = { person: string; kind: "SUPERVISOR" | "OFFICE" | "HANDOVER"; shared?: boolean; toolboxes: { id: string; name: string; tools: SiteTool[] }[] };
-type Mode = "home" | "register" | "check" | "fault" | "signin";
+type SiteInfo = {
+  person: string;
+  kind: "SUPERVISOR" | "OFFICE" | "HANDOVER";
+  shared?: boolean;
+  toolboxes: { id: string; name: string; tools: SiteTool[] }[];
+  openRequests: number;
+  needsAnswer: number;
+  todo: number;
+};
+type Mode = "home" | "register" | "check" | "fault" | "signin" | "request" | "requests" | "todo";
 
 const input =
   "w-full rounded-lg border border-edge bg-panel2 px-3 py-2.5 text-base text-gray-200 placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500";
@@ -44,6 +54,7 @@ export default function SitePhotosPage({ params }: { params: { token: string } }
   const finished = (message: string) => {
     setFlash(message);
     setMode("home");
+    window.scrollTo(0, 0);
     load();
   };
 
@@ -61,15 +72,17 @@ export default function SitePhotosPage({ params }: { params: { token: string } }
         <div className="py-16 text-center text-sm text-gray-500"><Loader2 className="mx-auto animate-spin" /></div>
       ) : mode === "home" ? (
         <>
-          <h1 className="mb-1 text-xl font-semibold text-gray-100">{info.kind === "OFFICE" ? "Tools capture" : info.kind === "HANDOVER" ? "Crew sign-in" : "Site"}</h1>
+          <h1 className="mb-1 text-xl font-semibold text-gray-100">{info.kind === "OFFICE" ? (info.shared ? "Tools capture" : "Office") : info.kind === "HANDOVER" ? "Crew sign-in" : "Site"}</h1>
           <p className="mb-4 text-sm text-gray-500">
             {info.kind === "OFFICE"
-              ? "Add tools to the Lobos inventory."
+              ? info.shared
+                ? "Add tools to the Lobos inventory."
+                : "Your to-do from site requests, and adding tools to the inventory."
               : info.kind === "HANDOVER"
                 ? "You're running sign-in for today - this link stops working tonight."
                 : hasTools
-                  ? `Crew sign-in, and tools for ${info.toolboxes.map((b) => b.name).join(", ")}.`
-                  : "Crew sign-in for your jobs."}
+                  ? `Crew sign-in, requests, and tools for ${info.toolboxes.map((b) => b.name).join(", ")}.`
+                  : "Crew sign-in and requests for your jobs."}
           </p>
           {info.shared && (
             <label className="mb-4 block">
@@ -89,6 +102,20 @@ export default function SitePhotosPage({ params }: { params: { token: string } }
           <div className="space-y-3">
             {info.kind !== "OFFICE" && (
               <Big icon={<QrIcon size={22} />} title="Sign in crew" text="Show the QR - crew scan it to sign in or out" onClick={() => { setFlash(null); setMode("signin"); }} />
+            )}
+            {info.kind !== "OFFICE" && (<>
+              <Big icon={<Send size={22} />} title="Make a request" text="Labour, trucks, hire, tools, materials - straight to the office" onClick={() => { setFlash(null); setMode("request"); }} />
+              <Big
+                icon={<ClipboardList size={22} />}
+                title="My requests"
+                text={info.needsAnswer ? `The office has a question on ${info.needsAnswer}` : info.openRequests ? `${info.openRequests} open - see where they're up to` : "See where they're up to"}
+                count={info.needsAnswer || info.openRequests}
+                alert={info.needsAnswer > 0}
+                onClick={() => { setFlash(null); setMode("requests"); }}
+              />
+            </>)}
+            {info.kind === "OFFICE" && !info.shared && (
+              <Big icon={<ListChecks size={22} />} title="My to-do" text={info.todo ? `${info.todo} to action` : "Requests the office hands you"} count={info.todo} onClick={() => { setFlash(null); setMode("todo"); }} />
             )}
             {(info.kind === "OFFICE" || hasTools) && (<>
             <Big icon={<Camera size={22} />} title="Add a tool" text="Photos and/or type the details" onClick={() => { setFlash(null); setMode("register"); }} />
@@ -111,20 +138,24 @@ export default function SitePhotosPage({ params }: { params: { token: string } }
           {mode === "check" && <CheckBox api={api} info={info} />}
           {mode === "fault" && <ReportFault api={api} info={info} onDone={finished} />}
           {mode === "signin" && <SignInCrew api={api} />}
+          {mode === "request" && <RequestForm api={api} who={who} onDone={finished} />}
+          {mode === "requests" && <MyRequests api={api} />}
+          {mode === "todo" && <TodoList api={api} />}
         </>
       )}
     </div>
   );
 }
 
-function Big({ icon, title, text, onClick }: { icon: React.ReactNode; title: string; text: string; onClick: () => void }) {
+function Big({ icon, title, text, count, alert, onClick }: { icon: React.ReactNode; title: string; text: string; count?: number; alert?: boolean; onClick: () => void }) {
   return (
     <button onClick={onClick} className="flex w-full items-center gap-4 rounded-2xl border border-edge bg-panel p-4 text-left active:scale-[0.99]">
       <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-brand-600/20 text-brand-300">{icon}</span>
-      <span>
+      <span className="min-w-0 flex-1">
         <span className="block text-base font-semibold text-gray-100">{title}</span>
-        <span className="block text-sm text-gray-500">{text}</span>
+        <span className={`block text-sm ${alert ? "text-amber-300" : "text-gray-500"}`}>{text}</span>
       </span>
+      {!!count && <span className={`rounded-full px-2 py-0.5 text-sm font-semibold ${alert ? "bg-amber-500 text-black" : "bg-brand-600 text-white"}`}>{count}</span>}
     </button>
   );
 }

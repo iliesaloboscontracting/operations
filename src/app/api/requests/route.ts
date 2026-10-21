@@ -1,0 +1,34 @@
+import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { guard } from "@/lib/auth";
+import { withErrorHandling } from "@/lib/apiHandler";
+import { officeView } from "@/lib/siteRequests";
+import { NEEDS_ILIES, OPEN_STATUSES } from "@/lib/requestTypes";
+
+// GET /api/requests           -> open requests, plus anything closed in the last 14 days
+// GET /api/requests?count=1   -> { waiting } for the menu badge (new / seen / can't-do)
+// GET /api/requests?all=1     -> everything (history, newest first, up to 500)
+// Manager+ can look; only an Admin decides (see [id]).
+export const GET = withErrorHandling(async (req: NextRequest) => {
+  const denied = await guard("MANAGER");
+  if (denied) return denied;
+  const q = req.nextUrl.searchParams;
+  if (q.get("count")) {
+    const waiting = await prisma.siteRequest.count({ where: { status: { in: NEEDS_ILIES } } });
+    return NextResponse.json({ waiting });
+  }
+  const since = new Date(Date.now() - 14 * 86_400_000);
+  const rows = await prisma.siteRequest.findMany({
+    where: q.get("all") ? {} : { OR: [{ status: { in: OPEN_STATUSES } }, { updatedAt: { gte: since } }] },
+    include: { events: { orderBy: { at: "asc" } } },
+    orderBy: { createdAt: "desc" },
+    take: 500,
+  });
+  // Who a request can be handed to: office people with their own link (Alex).
+  const links = await prisma.siteLink.findMany({
+    where: { kind: "OFFICE", revokedAt: null, resourceId: { not: null } },
+    select: { resource: { select: { id: true, name: true } } },
+  });
+  const assignees = [...new Map(links.filter((l) => l.resource).map((l) => [l.resource!.id, l.resource!])).values()];
+  return NextResponse.json({ requests: rows.map(officeView), assignees });
+});

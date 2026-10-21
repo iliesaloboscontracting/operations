@@ -14,6 +14,7 @@ const OPERATIONS = [
   { href: "/projects", label: "Projects" },
   { href: "/calendar", label: "Calendar" },
   { href: "/command", label: "Allocations" },
+  { href: "/requests", label: "Requests" },
   { href: "/completed", label: "Completed" },
   { href: "/day-review", label: "Day Review" },
   { href: "/attendance", label: "Sign-ins" },
@@ -76,6 +77,7 @@ export default function TopNav() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [startingSoon, setStartingSoon] = useState(0);
   const [offHire, setOffHire] = useState(0);
+  const [requests, setRequests] = useState(0);
 
   // Badge on Calendar: projects starting within a week (refreshed on navigation).
   const refreshBadge = useCallback(() => {
@@ -88,9 +90,19 @@ export default function TopNav() {
       .then((r) => (r.ok ? r.json() : { alerts: [] }))
       .then((d: { alerts: unknown[] }) => setOffHire(d.alerts.length))
       .catch(() => setOffHire(0));
+    // Badge on Requests: site requests waiting on Ilies (new, seen, sent back).
+    fetch("/api/requests?count=1")
+      .then((r) => (r.ok ? r.json() : { waiting: 0 }))
+      .then((d: { waiting: number }) => setRequests(d.waiting))
+      .catch(() => setRequests(0));
   }, []);
 
   useEffect(refreshBadge, [refreshBadge, path]);
+  // The Requests page says when a decision changes the count.
+  useEffect(() => {
+    window.addEventListener("requests-changed", refreshBadge);
+    return () => window.removeEventListener("requests-changed", refreshBadge);
+  }, [refreshBadge]);
   useAutoRefresh(refreshBadge);
 
   const isActive = (href: string) => path === href || path.startsWith(href + "/");
@@ -103,13 +115,14 @@ export default function TopNav() {
       </Link>
 
       <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto py-1.5">
-        {OPERATIONS.filter((i) => (i.href !== "/tracking" && i.href !== "/assistant" && i.href !== "/attendance" && i.href !== "/timesheets") || canEdit).map((i) => (
+        {OPERATIONS.filter((i) => (i.href !== "/tracking" && i.href !== "/assistant" && i.href !== "/attendance" && i.href !== "/timesheets" && i.href !== "/requests") || canEdit).map((i) => (
           <NavTab
             key={i.href}
             href={i.href}
             label={i.label}
             active={isActive(i.href)}
-            badge={i.href === "/calendar" ? startingSoon : undefined}
+            badge={i.href === "/calendar" ? startingSoon : i.href === "/requests" ? requests : undefined}
+            badgeTitle={i.href === "/requests" ? "Site requests waiting on a decision" : undefined}
           />
         ))}
         <Divider />

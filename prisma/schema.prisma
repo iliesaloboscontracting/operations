@@ -84,6 +84,7 @@ model Project {
   jobs      Job[]
   invoicedCosts InvoicedCost[]
   hireItems     Resource[] @relation("HireProject")
+  siteRequests  SiteRequest[]
   labourCosts   LabourCost[]
   allocationCosts AllocationCost[]
   contacts  ProjectContact[]
@@ -677,4 +678,59 @@ model TimesheetWeek {
   reopenReason String?
 
   @@index([weekStart])
+}
+
+// Site requests (21 Oct 2026, Ilies): supervisors ask for labour, trucks,
+// hire, tools and so on from their private link instead of a call or a
+// WhatsApp. Only Ilies (ADMIN) decides; approved ones go on the to-do list of
+// the person they're assigned to (Alex, on his office link). Every step is
+// kept in SiteRequestEvent. Nothing is deleted - a request is declined or
+// cancelled instead.
+model SiteRequest {
+  id            String    @id @default(cuid())
+  number        Int       @unique // shown as R-0001
+  kind          String // LABOUR | TRUCK | BIN_SWAP | HIRE | TOOLS | MATERIALS | DELIVERY | SAFETY | DOCUMENTS | OTHER | OFF_HIRE
+  priority      String // LOW | HIGH | URGENT
+  neededBy      DateTime // when it has to be actioned by
+  projectId     String?
+  project       Project?  @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  siteLabel     String // site name as sent - survives a project rename
+  summary       String // one line: what is being asked for
+  details       String // JSON of the type's fields (lib/siteRequests.ts)
+  note          String? // the supervisor's note
+  photoFile     String? // optional photo, inside TOOL_PHOTO_DIR
+  requestedBy   String // name as sent
+  requestedById String? // Personnel resource, when the link has one
+  siteLinkId    String? // the link it came from
+  // SENT | SEEN | NEEDS_INFO | TODO (assigned) | MINE (Ilies doing it) | DONE | CANT_DO | DECLINED | CANCELLED
+  status        String    @default("SENT")
+  seenAt        DateTime?
+  officeNote    String? // Ilies's note for whoever actions it
+  question      String? // Ilies asking the supervisor for more info
+  answer        String? // the supervisor's reply
+  declineReason String?
+  assigneeId    String? // Personnel resource whose to-do it's on (Alex)
+  assigneeName  String?
+  outcome       String? // done note ("Booked Hire Express #4471") or why it can't be done
+  doneAt        DateTime?
+  hireResourceId String? // a hire register item this request is about (off-hire, hire check)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  events        SiteRequestEvent[]
+
+  @@index([status])
+  @@index([assigneeId])
+  @@index([siteLinkId])
+}
+
+model SiteRequestEvent {
+  id        String      @id @default(cuid())
+  requestId String
+  request   SiteRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  action    String // SENT | SEEN | ASKED | ANSWERED | APPROVED | MINE | DECLINED | DONE | CANT_DO | PRIORITY | NEEDED_BY | CANCELLED | REOPENED
+  by        String
+  note      String?
+  at        DateTime    @default(now())
+
+  @@index([requestId])
 }
