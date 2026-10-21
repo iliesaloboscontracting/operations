@@ -30,6 +30,7 @@ export type FieldDef = {
 export type RequestType = {
   kind: string;
   label: string;
+  hint: string; // one line under the label on the picker
   fields: FieldDef[];
   // One-line summary from the answers, e.g. "2 x labour - asbestos ticket".
   summary: (d: Record<string, string>) => string;
@@ -43,6 +44,7 @@ export const REQUEST_TYPES: RequestType[] = [
   {
     kind: "LABOUR",
     label: "Labour",
+    hint: "Extra crew for the site",
     fields: [
       { key: "count", label: "How many", type: "number", required: true, placeholder: "e.g. 2" },
       { key: "tickets", label: "Tickets / skills needed", placeholder: "e.g. operator, EWP, asbestos" },
@@ -54,6 +56,7 @@ export const REQUEST_TYPES: RequestType[] = [
   {
     kind: "TRUCK",
     label: "Truck / load-out",
+    hint: "Tipper or hook truck to load out",
     fields: [
       { key: "truck", label: "Truck", type: "select", options: ["Tipper", "Hook truck", "7-seater / ute", "Not sure"], required: true },
       { key: "loads", label: "How much", placeholder: "e.g. 2 loads, ~15 m³" },
@@ -65,12 +68,14 @@ export const REQUEST_TYPES: RequestType[] = [
   {
     kind: "BIN_SWAP",
     label: "Bin swap",
+    hint: "Full bin to be swapped",
     fields: [{ key: "bin", label: "Which bin / what's in it", required: true, placeholder: "e.g. full hook bin, mixed waste" }],
     summary: (d) => join("Bin swap", v(d, "bin")),
   },
   {
     kind: "HIRE",
     label: "Hire - plant / equipment",
+    hint: "Plant or equipment on hire",
     fields: [
       { key: "item", label: "What", required: true, placeholder: "e.g. scissor lift 19ft, 1.7t excavator" },
       { key: "howLong", label: "How long", placeholder: "e.g. 1 week" },
@@ -81,6 +86,7 @@ export const REQUEST_TYPES: RequestType[] = [
   {
     kind: "TOOLS",
     label: "Tools",
+    hint: "A tool, or a replacement",
     fields: [
       { key: "item", label: "What", required: true, placeholder: "e.g. 9in grinder" },
       { key: "qty", label: "How many", type: "number", placeholder: "1" },
@@ -91,6 +97,7 @@ export const REQUEST_TYPES: RequestType[] = [
   {
     kind: "MATERIALS",
     label: "Materials / PPE",
+    hint: "Bags, blades, masks, PPE",
     fields: [
       { key: "item", label: "What", required: true, placeholder: "e.g. rubble bags, P2 masks, blades" },
       { key: "qty", label: "How many", placeholder: "e.g. 2 boxes" },
@@ -100,6 +107,7 @@ export const REQUEST_TYPES: RequestType[] = [
   {
     kind: "DELIVERY",
     label: "Delivery / pick-up",
+    hint: "Move something to or from site",
     fields: [
       { key: "item", label: "What", required: true, placeholder: "e.g. jackhammer, 2 bulka bags" },
       { key: "from", label: "From", placeholder: "e.g. yard" },
@@ -110,6 +118,7 @@ export const REQUEST_TYPES: RequestType[] = [
   {
     kind: "SAFETY",
     label: "Safety / site issue",
+    hint: "Unsafe, no access, work stopped",
     fields: [{ key: "issue", label: "What's the issue", required: true, placeholder: "e.g. no access, unsafe scaffold, client instruction" }],
     summary: (d) => `Site issue: ${v(d, "issue")}`,
     defaultPriority: "URGENT",
@@ -117,12 +126,14 @@ export const REQUEST_TYPES: RequestType[] = [
   {
     kind: "DOCUMENTS",
     label: "Documents / paperwork",
+    hint: "SWMS, permits, inductions",
     fields: [{ key: "what", label: "What's needed", required: true, placeholder: "e.g. SWMS, permit, plant docs, induction" }],
     summary: (d) => `Docs: ${v(d, "what")}`,
   },
   {
     kind: "OTHER",
     label: "Other",
+    hint: "Anything else",
     fields: [{ key: "what", label: "What do you need", required: true }],
     summary: (d) => v(d, "what"),
   },
@@ -131,6 +142,7 @@ export const REQUEST_TYPES: RequestType[] = [
 export const OFF_HIRE_TYPE: RequestType = {
   kind: "OFF_HIRE",
   label: "Off-hire",
+  hint: "Call off a hire item",
   fields: [{ key: "item", label: "Item", required: true }],
   summary: (d) => `Call off hire: ${v(d, "item")}`,
 };

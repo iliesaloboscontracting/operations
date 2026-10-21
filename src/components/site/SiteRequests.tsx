@@ -1,7 +1,23 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Camera, Loader2, X } from "lucide-react";
+import {
+  Camera,
+  ChevronRight,
+  Container,
+  FileText,
+  Forklift,
+  HardHat,
+  Loader2,
+  MessageSquarePlus,
+  Package,
+  ShieldAlert,
+  Truck,
+  Users,
+  Wrench,
+  X,
+  type LucideIcon,
+} from "lucide-react";
 import { resizePhoto } from "@/lib/imageResize";
 import { serverErrorMessage } from "@/lib/apiFetch";
 import {
@@ -27,6 +43,28 @@ import type { SiteRequestView } from "@/lib/siteRequests";
 const input =
   "w-full rounded-lg border border-edge bg-panel2 px-3 py-2.5 text-base text-gray-200 placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500";
 const primary = "flex w-full items-center justify-center gap-2 rounded-xl bg-brand-600 px-4 py-3 text-base font-semibold text-white disabled:opacity-50";
+
+// The picker: most-used first; Safety stands out in red.
+const PICK_ORDER = ["LABOUR", "TRUCK", "HIRE", "TOOLS", "BIN_SWAP", "MATERIALS", "DELIVERY", "DOCUMENTS", "SAFETY", "OTHER"];
+const ICON: Record<string, LucideIcon> = {
+  LABOUR: Users,
+  TRUCK: Truck,
+  HIRE: Forklift,
+  TOOLS: Wrench,
+  BIN_SWAP: Container,
+  MATERIALS: HardHat,
+  DELIVERY: Package,
+  DOCUMENTS: FileText,
+  SAFETY: ShieldAlert,
+  OTHER: MessageSquarePlus,
+};
+const iconTone = (kind: string) => (kind === "SAFETY" ? "bg-red-500/15 text-red-300" : "bg-brand-600/15 text-brand-300");
+const picker = PICK_ORDER.map((k) => REQUEST_TYPES.find((t) => t.kind === k)!).filter(Boolean);
+
+function TypeIcon({ kind, size = 20 }: { kind: string; size?: number }) {
+  const Icon = ICON[kind] ?? MessageSquarePlus;
+  return <Icon size={size} strokeWidth={1.75} />;
+}
 
 type Sites = { mine: { id: string; name: string }[]; others: { id: string; name: string }[] };
 
@@ -109,11 +147,18 @@ export function RequestForm({ api, who, onDone }: { api: string; who: string; on
     return (
       <>
         <h1 className="mb-1 text-xl font-semibold text-gray-100">Make a request</h1>
-        <p className="mb-4 text-sm text-gray-500">What do you need?</p>
-        <div className="grid grid-cols-2 gap-2">
-          {REQUEST_TYPES.map((t) => (
-            <button key={t.kind} onClick={() => pickType(t)} className="rounded-xl border border-edge bg-panel px-3 py-4 text-left text-sm font-semibold text-gray-100 active:scale-[0.99]">
-              {t.label}
+        <p className="mb-4 text-sm text-gray-500">What do you need? It goes straight to the office.</p>
+        <div className="divide-y divide-edge overflow-hidden rounded-2xl border border-edge bg-panel">
+          {picker.map((t) => (
+            <button key={t.kind} onClick={() => pickType(t)} className="flex w-full items-center gap-3 px-3.5 py-3 text-left transition-colors active:bg-panel2">
+              <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${iconTone(t.kind)}`}>
+                <TypeIcon kind={t.kind} />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className={`block text-[15px] font-semibold leading-tight ${t.kind === "SAFETY" ? "text-red-200" : "text-gray-100"}`}>{t.label}</span>
+                <span className="mt-0.5 block truncate text-[13px] text-gray-500">{t.hint}</span>
+              </span>
+              <ChevronRight size={18} className="shrink-0 text-gray-600" />
             </button>
           ))}
         </div>
@@ -125,7 +170,12 @@ export function RequestForm({ api, who, onDone }: { api: string; who: string; on
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold text-gray-100">{type.label}</h1>
+        <h1 className="flex items-center gap-2.5 text-xl font-semibold text-gray-100">
+          <span className={`flex h-9 w-9 items-center justify-center rounded-lg ${iconTone(type.kind)}`}>
+            <TypeIcon kind={type.kind} size={18} />
+          </span>
+          {type.label}
+        </h1>
         <button onClick={() => setType(null)} className="text-sm text-gray-400 underline">Change</button>
       </div>
 
