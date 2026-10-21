@@ -89,8 +89,14 @@ business, without becoming unnecessarily complicated.
   the **office** changes a time (with a reason, kept in `AttendanceEdit`);
   supervisors can hand sign-in to another lead for one day (`HANDOVER`
   link). Hire workers give name + company. Hours = signed time less the
-  project's unpaid break, shown in Day Review with a "Use Xh" button — they
-  only reach costs when someone confirms them there (`JobActual`).
+  project's unpaid break. Since 2026-10-21 they fill Day Review's hours box
+  automatically once signed out (`JobActual.hoursSource = SIGN_IN`,
+  `src/lib/signInActuals.ts`); typed hours are never overwritten. Note
+  `JobActual` hours are a record only — job costs still come from the
+  allocation and job times, not from Day Review. Labour hire sign-ins are
+  matched to the board's labour hire tiles on read (`lib/labourHireMatch.ts`).
+  Weekly staff timesheets (`/timesheets`, `TimesheetWeek`) use sign-in times
+  directly; a Manager approves and locks a week, an Admin reopens.
   Fixed **sign-in points** (added 2026-10-20): Office, Yard and one QR per
   Lobos-owned truck (POSTER link with `place`; SiteAttendance with `place`
   and no job). Office lists Personnel category "Office" — no board
