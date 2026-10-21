@@ -4,6 +4,7 @@ import { Fragment, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { Printer, X } from "lucide-react";
 import PageShell from "@/components/PageShell";
+import PushToggle from "@/components/PushToggle";
 import { useAuth } from "@/components/AuthProvider";
 import { apiFetch, serverErrorMessage } from "@/lib/apiFetch";
 import { useAutoRefresh } from "@/lib/useAutoRefresh";
@@ -81,6 +82,19 @@ export default function RequestsPage() {
   }, [canEdit, load]);
   useAutoRefresh(load, 15_000);
 
+  // Tapping a phone alert opens /requests?open=<id> - show that request.
+  const [wanted, setWanted] = useState<string | null>(null);
+  useEffect(() => setWanted(new URLSearchParams(window.location.search).get("open")), []);
+  useEffect(() => {
+    const r = wanted && data?.requests.find((x) => x.id === wanted);
+    if (r) {
+      setWanted(null);
+      window.history.replaceState(null, "", "/requests");
+      open(r);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wanted, data]);
+
   const replace = (r: OfficeRequestView) => {
     setData((d) => (d ? { ...d, requests: d.requests.map((x) => (x.id === r.id ? r : x)) } : d));
     window.dispatchEvent(new Event("requests-changed")); // menu badge
@@ -108,7 +122,8 @@ export default function RequestsPage() {
       title="Requests"
       subtitle="What supervisors have asked for from their site link. You decide; approved ones go on Alex's to-do list."
       actions={
-        <div className="flex gap-2">
+        <div className="flex flex-wrap items-start gap-2">
+          {isAdmin && <PushToggle />}
           <button onClick={() => printRequests("Open site requests", [...openRows].sort(byPriority))} className="flex items-center gap-1.5 rounded-lg border border-edge px-3 py-2 text-sm text-gray-300 hover:bg-panel2">
             <Printer size={15} /> Print open
           </button>

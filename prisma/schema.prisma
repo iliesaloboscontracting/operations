@@ -337,6 +337,25 @@ model User {
   lastLoginAt  DateTime?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
+  pushDevices  PushDevice[]
+}
+
+// A phone/browser that gets notifications (Web Push, 21 Oct 2026) - site
+// requests alert Ilies's phone. The endpoint + keys come from the browser;
+// sending goes through the browser maker's push service (Google for Android).
+model PushDevice {
+  id         String    @id @default(cuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  endpoint   String    @unique
+  p256dh     String
+  auth       String
+  label      String? // e.g. "Android - Chrome"
+  createdAt  DateTime  @default(now())
+  lastSentAt DateTime?
+  failures   Int       @default(0) // consecutive failed sends; removed when the push service says it's gone
+
+  @@index([userId])
 }
 
 model BugReport {

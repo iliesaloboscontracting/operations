@@ -33,5 +33,5 @@ export async function middleware(req: NextRequest) {
 
 export const config = {
   // Skip Next internals and static files (logo, icon).
-  matcher: ["/((?!_next/static|_next/image|logo.png|logo-dark.png|icon.svg|favicon.ico).*)"],
+  matcher: ["/((?!_next/static|_next/image|logo.png|logo-dark.png|icon.svg|favicon.ico|sw.js).*)"],
 };

@@ -104,6 +104,16 @@ business, without becoming unnecessarily complicated.
   Lobos-owned truck (POSTER link with `place`; SiteAttendance with `place`
   and no job). Office lists Personnel category "Office" — no board
   allocation needed; these count straight away and odd ones are flagged.
+- **Site requests** (added 2026-10-21, `/requests`, `src/lib/siteRequests.ts`,
+  `requestTypes.ts`): supervisors ask for labour, trucks, hire, tools etc.
+  from their site link (Low / High / Urgent + needed-by, optional photo) and
+  see live status. **Only Ilies (Admin) decides** — approve onto a person's
+  to-do (Alex's OFFICE link "My to-do"), do it himself, ask, decline;
+  Managers can view only. Alex never decides. Phone alerts to Admins via
+  **Web Push** (`src/lib/push.ts`, `web-push`, keys `VAPID_*` in `.env`,
+  `public/sw.js`) — the third outbound connection (to the browser's push
+  service); Urgent re-alerts every 15 min while unopened (max 3) from
+  `src/instrumentation.ts`. No money on requests.
 - **Structure:** `src/app/` — page routes (`command`, `calendar`, `tracking`,
   `day-review`, `hire`, `plant`, `vehicles`, `labour`, `projects`, `users`,
   `bugs`, `notes`, `tools`, `completed`, `setup`, `login`) each generally
