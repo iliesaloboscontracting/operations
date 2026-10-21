@@ -16,6 +16,7 @@ export type TimesheetLine = {
   name: string;
   role: string | null;
   site: string; // project / job, or Office / Yard / the truck
+  point?: boolean; // office / yard / truck sign-in rather than a project site
   in: string;
   out: string | null;
   breakMinutes: number;
@@ -72,6 +73,7 @@ export async function timesheetLines(weekStart: string): Promise<TimesheetLine[]
       name: a.resource!.name,
       role: a.resource!.role,
       site: a.job ? jobLabel(a.job) : a.placeLabel ?? a.place ?? "Sign-in point",
+      point: !a.job,
       in: sydneyTime(a.signInAt)!,
       out: sydneyTime(a.signOutAt),
       breakMinutes,
