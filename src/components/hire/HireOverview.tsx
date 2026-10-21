@@ -6,21 +6,40 @@ import { fmtDay } from "@/lib/dates";
 import { hireEstimate, offHireAlert, HIRE_STATUS_LABEL } from "@/lib/hireEstimate";
 import type { ResourceDTO } from "@/lib/types";
 
-// Hire overview (21 Oct 2026): everything on hire across all sites, laid out
-// project by project so each site's hired plant, equipment, tools and trucks
-// - and when they're due back - is visible at a glance. Dollar figures only
-// for managers (the API strips rates for Viewers anyway).
+// Hire overview (21 Oct 2026): one column per site, like the allocations
+// board, with a tile per hired item showing where it is in its hire period,
+// when it's due back and - for managers - what it's cost so far and what it
+// will cost by the expected finish date (the assumed hire period). Dollar
+// figures only for managers (the API strips rates for Viewers anyway).
 
 const money = (n: number) => n.toLocaleString("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 });
 const short = (iso: string) => fmtDay(iso, { day: "numeric", month: "short" });
 const sydneyToday = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Australia/Sydney" }).format(new Date());
+const dayNo = (iso: string) => Date.UTC(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10)) / 86_400_000;
 const CATEGORY_LABEL: Record<string, string> = { PLANT: "Plant", EQUIPMENT: "Equipment", TOOLS: "Tools", VEHICLE: "Vehicle" };
+// Left edge colour per category, the same idea as the board's job colour tags.
+const CATEGORY_EDGE: Record<string, string> = {
+  PLANT: "border-l-amber-500",
+  EQUIPMENT: "border-l-sky-500",
+  TOOLS: "border-l-violet-500",
+  VEHICLE: "border-l-emerald-500",
+};
 
 type Row = {
   r: ResourceDTO;
   est: ReturnType<typeof hireEstimate>;
   alert: ReturnType<typeof offHireAlert>;
 };
+
+// What's missing before an item can be projected properly.
+function gaps(r: ResourceDTO, canSeeMoney: boolean): string[] {
+  const g: string[] = [];
+  if (!r.agency) g.push("supplier");
+  if (!r.onHireDate) g.push("start date");
+  if (!r.offHireDate) g.push("finish date");
+  if (canSeeMoney && (r.hireRate == null || !r.hireRateUnit)) g.push("rate");
+  return g;
+}
 
 function Tile({ label, value, tone = "" }: { label: string; value: string | number; tone?: string }) {
   return (
@@ -31,17 +50,74 @@ function Tile({ label, value, tone = "" }: { label: string; value: string | numb
   );
 }
 
+// Hire period as a bar: filled up to today, red past the expected finish.
+function PeriodBar({ r, today }: { r: ResourceDTO; today: string }) {
+  if (!r.onHireDate || !r.offHireDate) return null;
+  const start = dayNo(r.onHireDate);
+  const end = dayNo(r.offHireDate);
+  const now = dayNo(r.hireStatus === "RETURNED" ? r.offHireDate : today);
+  const span = Math.max(end - start, 1);
+  const pct = Math.min(Math.max(((now - start) / span) * 100, 0), 100);
+  const over = now > end;
+  return (
+    <div className="mt-1.5">
+      <div className="h-1.5 overflow-hidden rounded-full bg-gray-700/70">
+        <div className={`h-full rounded-full ${over ? "bg-red-500" : pct >= 80 ? "bg-amber-400" : "bg-brand-500"}`} style={{ width: `${over ? 100 : pct}%` }} />
+      </div>
+      <div className="mt-0.5 flex justify-between text-[10px] text-gray-500">
+        <span>{short(r.onHireDate)}</span>
+        <span>{short(r.offHireDate)}</span>
+      </div>
+    </div>
+  );
+}
+
 function DueBack({ row }: { row: Row }) {
   const { r, alert } = row;
+  if (r.hireStatus === "RETURNED") return <span className="text-gray-500">returned</span>;
   if (!r.offHireDate) return <span className="text-gray-500">no finish date</span>;
   if (alert?.level === "OVERDUE")
     return (
       <span className="inline-flex items-center gap-1 font-semibold text-red-400">
-        <TriangleAlert size={12} /> {short(r.offHireDate)} · overdue {-alert.daysLeft}d
+        <TriangleAlert size={11} /> overdue {-alert.daysLeft}d
       </span>
     );
-  if (alert) return <span className="font-semibold text-amber-400">{short(r.offHireDate)} · {alert.level === "TODAY" ? "today" : `in ${alert.daysLeft}d`}</span>;
-  return <span className="text-gray-300">{short(r.offHireDate)}</span>;
+  if (alert) return <span className="font-semibold text-amber-400">{alert.level === "TODAY" ? "due back today" : `due back in ${alert.daysLeft}d`}</span>;
+  return <span className="text-gray-400">due {short(r.offHireDate)}</span>;
+}
+
+function ItemTile({ row, today, canSeeMoney }: { row: Row; today: string; canSeeMoney: boolean }) {
+  const { r, est, alert } = row;
+  const missing = gaps(r, canSeeMoney);
+  const ring = alert?.level === "OVERDUE" ? "ring-1 ring-red-500/60" : alert ? "ring-1 ring-amber-500/50" : "";
+  return (
+    <div className={`rounded-lg border border-edge border-l-4 ${CATEGORY_EDGE[r.category ?? ""] ?? "border-l-gray-500"} bg-panel2 px-3 py-2 text-xs ${ring} ${r.hireStatus === "RETURNED" ? "opacity-50" : ""}`}>
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0 text-sm font-medium leading-tight text-gray-100">{r.name}</div>
+        <span className="shrink-0 rounded-full bg-gray-700 px-1.5 py-0.5 text-[10px] text-gray-300">{CATEGORY_LABEL[r.category ?? ""] ?? r.category}</span>
+      </div>
+      <div className="mt-0.5 truncate text-gray-500">
+        {r.agency ?? "No supplier"}
+        {r.hireRef && ` · ${r.hireRef}`}
+        {r.hireStatus && ` · ${HIRE_STATUS_LABEL[r.hireStatus] ?? r.hireStatus}`}
+      </div>
+      <PeriodBar r={r} today={today} />
+      <div className="mt-1 flex items-baseline justify-between gap-2">
+        <DueBack row={row} />
+        {canSeeMoney && (
+          <span className="text-right text-gray-300" title="Estimate: rate × working days on hire + delivery / pick-up">
+            {est?.costToDate != null ? (
+              <>
+                {money(est.costToDate)}
+                {est.costTotal != null && <span className="text-gray-500"> → {money(est.costTotal)}</span>}
+              </>
+            ) : null}
+          </span>
+        )}
+      </div>
+      {missing.length > 0 && <div className="mt-1 text-[10px] text-amber-400/90">Missing: {missing.join(", ")}</div>}
+    </div>
+  );
 }
 
 export default function HireOverview({ canSeeMoney, onOpenTab }: { canSeeMoney: boolean; onOpenTab: (tab: string) => void }) {
@@ -73,35 +149,41 @@ export default function HireOverview({ canSeeMoney, onOpenTab }: { canSeeMoney: 
     }
     const rank = (rs: Row[]) => Math.min(...rs.map((x) => (x.alert?.level === "OVERDUE" ? 0 : x.alert ? 1 : 2)));
     return [...byProject.entries()]
-      .map(([pid, rs]) => ({
-        pid,
-        project: projects.find((p) => p.id === pid) ?? null,
-        rows: rs.sort((a, b) => (a.r.offHireDate ?? "9999").localeCompare(b.r.offHireDate ?? "9999")),
-        soFar: rs.reduce((n, x) => n + (x.est?.costToDate ?? 0), 0),
-        toFinish: rs.reduce((n, x) => n + (x.est?.costTotal ?? x.est?.costToDate ?? 0), 0),
-        alerts: rs.filter((x) => x.alert).length,
-      }))
-      // Sites needing attention first, then the biggest hire spend; unlinked last.
-      .sort((a, b) => (a.pid === "" ? 1 : 0) - (b.pid === "" ? 1 : 0) || rank(a.rows) - rank(b.rows) || b.soFar - a.soFar);
+      .map(([pid, rs]) => {
+        const live = rs.filter((x) => x.r.hireStatus !== "RETURNED");
+        return {
+          pid,
+          project: projects.find((p) => p.id === pid) ?? null,
+          rows: rs.sort((a, b) => (a.r.offHireDate ?? "9999").localeCompare(b.r.offHireDate ?? "9999")),
+          out: live.length,
+          soFar: rs.reduce((n, x) => n + (x.est?.costToDate ?? 0), 0),
+          projected: rs.reduce((n, x) => n + (x.est?.costTotal ?? x.est?.costToDate ?? 0), 0),
+          unprojected: live.filter((x) => x.est?.costTotal == null).length,
+          alerts: rs.filter((x) => x.alert).length,
+        };
+      })
+      // Sites needing attention first, then the biggest projected spend; unlinked last.
+      .sort((a, b) => (a.pid === "" ? 1 : 0) - (b.pid === "" ? 1 : 0) || rank(a.rows) - rank(b.rows) || b.projected - a.projected);
   }, [items, projects, showReturned, today]);
 
   if (!items) return <div className="py-10 text-center text-sm text-gray-500">Loading...</div>;
 
-  const out = items.filter((r) => r.hireStatus !== "RETURNED");
-  const allRows = groups.flatMap((g) => g.rows).filter((x) => x.r.hireStatus !== "RETURNED");
-  const due = allRows.filter((x) => x.alert);
-  const soFar = allRows.reduce((n, x) => n + (x.est?.costToDate ?? 0), 0);
-  const toFinish = allRows.reduce((n, x) => n + (x.est?.costTotal ?? x.est?.costToDate ?? 0), 0);
-  const sites = new Set(out.map((r) => r.hireProjectId).filter(Boolean)).size;
+  const live = groups.flatMap((g) => g.rows).filter((x) => x.r.hireStatus !== "RETURNED");
+  const due = live.filter((x) => x.alert);
+  const soFar = live.reduce((n, x) => n + (x.est?.costToDate ?? 0), 0);
+  const projected = live.reduce((n, x) => n + (x.est?.costTotal ?? x.est?.costToDate ?? 0), 0);
+  const incomplete = live.filter((x) => gaps(x.r, canSeeMoney).length > 0).length;
+  const sites = new Set(live.map((x) => x.r.hireProjectId).filter(Boolean)).size;
 
   return (
     <div className="space-y-4">
-      <div className={`grid grid-cols-2 gap-3 ${canSeeMoney ? "md:grid-cols-5" : "md:grid-cols-3"}`}>
-        <Tile label="Items on hire" value={out.length} />
+      <div className={`grid grid-cols-2 gap-3 ${canSeeMoney ? "md:grid-cols-6" : "md:grid-cols-4"}`}>
+        <Tile label="Items on hire" value={live.length} />
         <Tile label="Sites" value={sites} />
         <Tile label="Due back ≤3 days / overdue" value={due.length} tone={due.length ? "text-amber-400" : ""} />
+        <Tile label="Missing details" value={incomplete} tone={incomplete ? "text-amber-400" : ""} />
         {canSeeMoney && <Tile label="Est. cost so far" value={money(soFar)} />}
-        {canSeeMoney && <Tile label="Est. cost to finish" value={money(toFinish)} />}
+        {canSeeMoney && <Tile label="Projected to finish" value={money(projected)} />}
       </div>
 
       {groups.length === 0 && (
@@ -110,55 +192,39 @@ export default function HireOverview({ canSeeMoney, onOpenTab }: { canSeeMoney: 
         </p>
       )}
 
-      <div className="grid gap-4 xl:grid-cols-2">
+      {/* One column per site, scrolling sideways like the allocations board. */}
+      <div className="flex gap-3 overflow-x-auto pb-2">
         {groups.map((g) => (
-          <section key={g.pid || "none"} className={`overflow-hidden rounded-xl border shadow-soft ${g.alerts ? "border-amber-500/50" : "border-edge"}`}>
-            <header className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-edge bg-panel px-4 py-2.5">
-              <h3 className="min-w-0 flex-1 truncate text-sm font-semibold text-gray-100">
+          <section
+            key={g.pid || "none"}
+            className={`flex w-72 shrink-0 flex-col overflow-hidden rounded-xl border shadow-soft ${g.alerts ? "border-amber-500/50" : "border-edge"}`}
+          >
+            <header className="border-b border-edge bg-panel px-3 py-2.5">
+              <h3 className="truncate text-sm font-semibold text-gray-100" title={g.project?.name}>
                 {g.pid ? g.project?.name ?? "Unknown project" : "Not linked to a project"}
-                {g.project?.client && <span className="ml-1.5 text-xs font-normal text-gray-500">{g.project.client}</span>}
               </h3>
-              <span className="text-xs text-gray-400">
-                {g.rows.length} item{g.rows.length === 1 ? "" : "s"}
-                {g.alerts > 0 && <span className="ml-1.5 font-semibold text-amber-400">· {g.alerts} due back soon</span>}
-              </span>
-              {canSeeMoney && (
-                <span className="text-xs text-gray-300">
-                  {money(g.soFar)} <span className="text-gray-500">so far · ~{money(g.toFinish)} to finish</span>
+              <div className="truncate text-[11px] text-gray-500">{g.project?.client ?? (g.pid ? "" : "Set a project on these items")}</div>
+              <div className="mt-1.5 flex items-baseline justify-between gap-2 text-xs">
+                <span className="text-gray-300">
+                  <span className="text-base font-bold text-gray-100">{g.out}</span> on hire
+                  {g.alerts > 0 && <span className="ml-1.5 font-semibold text-amber-400">· {g.alerts} due</span>}
                 </span>
+                {canSeeMoney && (
+                  <span className="text-right">
+                    <span className="font-semibold text-gray-100">{money(g.projected)}</span>
+                    <span className="block text-[10px] text-gray-500">projected · {money(g.soFar)} so far</span>
+                  </span>
+                )}
+              </div>
+              {canSeeMoney && g.unprojected > 0 && (
+                <div className="mt-1 text-[10px] text-amber-400/90">
+                  {g.unprojected} item{g.unprojected === 1 ? "" : "s"} counted to today only - add a rate and finish date to project
+                </div>
               )}
             </header>
-            <div className="divide-y divide-edge/50 bg-panel/60">
-              {g.rows.map(({ r, est, alert }) => (
-                <div key={r.id} className={`grid grid-cols-[1fr_auto] gap-x-3 gap-y-0.5 px-4 py-2 text-xs ${r.hireStatus === "RETURNED" ? "opacity-50" : ""}`}>
-                  <div className="min-w-0">
-                    <div className="truncate text-sm text-gray-100">
-                      {r.name}
-                      <span className="ml-1.5 rounded-full bg-gray-700 px-1.5 py-0.5 text-[10px] text-gray-300">{CATEGORY_LABEL[r.category ?? ""] ?? r.category}</span>
-                    </div>
-                    <div className="truncate text-gray-500">
-                      {r.agency ?? "No supplier"}
-                      {r.hireRef && ` · ${r.hireRef}`}
-                      {r.hireStatus && ` · ${HIRE_STATUS_LABEL[r.hireStatus] ?? r.hireStatus}`}
-                      {r.onHireDate && ` · from ${short(r.onHireDate)}`}
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <DueBack row={{ r, est, alert }} />
-                    {canSeeMoney && (
-                      <div className="text-gray-400">
-                        {est?.costToDate != null ? (
-                          <>
-                            {money(est.costToDate)}
-                            {est.costTotal != null && <span className="text-gray-500"> / ~{money(est.costTotal)}</span>}
-                          </>
-                        ) : (
-                          <span className="text-gray-500">{est ? "no rate" : "no start date"}</span>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
+            <div className="flex-1 space-y-2 bg-panel/60 p-2">
+              {g.rows.map((row) => (
+                <ItemTile key={row.r.id} row={row} today={today} canSeeMoney={canSeeMoney} />
               ))}
             </div>
           </section>
@@ -179,7 +245,9 @@ export default function HireOverview({ canSeeMoney, onOpenTab }: { canSeeMoney: 
             </button>
           ))}
         </span>
-        {canSeeMoney && <span>· Costs are estimates (rate × working days on hire + delivery / pick-up), not invoices.</span>}
+        {canSeeMoney && (
+          <span>· Projected = rate × working days from start to expected finish + delivery / pick-up. Estimates, not invoices.</span>
+        )}
       </div>
     </div>
   );
