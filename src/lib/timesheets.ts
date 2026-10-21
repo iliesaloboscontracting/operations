@@ -4,7 +4,7 @@
 // subcontractor workers are left off; rejected sign-ins don't count. Times
 // and hours only - never a dollar figure.
 import { prisma } from "./prisma";
-import { jobLabel, POINT_BREAK_MINUTES, signedHours, sydneyTime } from "./signin";
+import { jobLabel, POINT_BREAK_MINUTES, signedHours, STILL_ON_HOURS, sydneyTime } from "./signin";
 import { todaySydney } from "./today";
 
 export type TimesheetIssue = "NO_SIGN_OUT" | "TO_CONFIRM";
@@ -16,7 +16,8 @@ export type TimesheetLine = {
   name: string;
   role: string | null;
   site: string; // project / job, or Office / Yard / the truck
-  point?: boolean; // office / yard / truck sign-in rather than a project site
+  point?: boolean;
+  onSite?: boolean; // signed in within the last 20 hours and not out yet - not a missing sign-out // office / yard / truck sign-in rather than a project site
   in: string;
   out: string | null;
   breakMinutes: number;
@@ -74,6 +75,7 @@ export async function timesheetLines(weekStart: string): Promise<TimesheetLine[]
       role: a.resource!.role,
       site: a.job ? jobLabel(a.job) : a.placeLabel ?? a.place ?? "Sign-in point",
       point: !a.job,
+      onSite: !a.signOutAt && Date.now() - a.signInAt.getTime() < STILL_ON_HOURS * 3_600_000,
       in: sydneyTime(a.signInAt)!,
       out: sydneyTime(a.signOutAt),
       breakMinutes,
@@ -88,7 +90,7 @@ export async function timesheetLines(weekStart: string): Promise<TimesheetLine[]
 }
 
 export const lineIssues = (l: TimesheetLine): TimesheetIssue[] => [
-  ...(l.out ? [] : (["NO_SIGN_OUT"] as const)),
+  ...(l.out || l.onSite ? [] : (["NO_SIGN_OUT"] as const)),
   ...(l.status === "TO_CONFIRM" ? (["TO_CONFIRM"] as const) : []),
 ];
 

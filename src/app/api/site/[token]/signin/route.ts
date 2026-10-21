@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { resolveLink, siteUrl, type ResolvedLink } from "@/lib/siteLinks";
 import { syncSignInActualsQuietly } from "@/lib/signInActuals";
-import { createHandover, jobLabel, openJob, openJobsFor, ROTATE_SECONDS, rotatingCode, sydneyTime } from "@/lib/signin";
+import { createHandover, jobLabel, openJob, openJobsFor, ROTATE_SECONDS, rotatingCode, sydneyTime, takesSignIns } from "@/lib/signin";
 
 // The supervisor's side of crew sign-in, through their own link (or a
 // stand-in's one-day hand-over link). Supervisors confirm or reject poster
@@ -101,6 +101,7 @@ export const POST = withErrorHandling(async (req: NextRequest, { params }: { par
     case "MANUAL_IN": {
       const job = jobs.find((j) => j.id === body.jobId);
       if (!job) return bad("Pick one of your jobs.");
+      if (!takesSignIns(job)) return bad("That shift has finished - tick them in on today's job.");
       const person = typeof body.resourceId === "string"
         ? await prisma.resource.findUnique({ where: { id: body.resourceId }, select: { id: true, name: true, type: true } })
         : null;

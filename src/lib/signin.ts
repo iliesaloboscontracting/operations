@@ -73,6 +73,9 @@ export function readTicket(ticket: unknown, now = Date.now()): Ticket | null {
 // --- which jobs are open for sign-in -----------------------------------------
 // Today's running jobs, plus last night's night shift (crew sign out after
 // midnight). Stood-down / inactive / completed jobs don't take sign-ins.
+// A job also stays open - for signing OUT only - while anyone on it is still
+// signed in from the last 20 hours (21 Oct 2026): a late crew on a job the
+// board has as a day shift could otherwise never sign out after midnight.
 export function signinDates(today = todaySydney()) {
   const d = new Date(today + "T00:00:00.000Z");
   const yesterday = new Date(d.getTime() - 86_400_000).toISOString().slice(0, 10);
@@ -85,6 +88,21 @@ const jobDateWhere = () => {
     OR: [{ date: new Date(today + "T00:00:00.000Z") }, { date: new Date(yesterday + "T00:00:00.000Z"), shift: "NIGHT" }],
   };
 };
+export const STILL_ON_HOURS = 20;
+const stillOnWhere = () => ({
+  attendances: {
+    some: { signOutAt: null, status: { not: "REJECTED" }, signInAt: { gte: new Date(Date.now() - STILL_ON_HOURS * 3_600_000) } },
+  },
+});
+const openWhere = () => ({ OR: [jobDateWhere(), stillOnWhere()] });
+
+// True for today's jobs (and last night's night shift) - the only ones new
+// sign-ins go to. False for an earlier job kept open just for signing out.
+export function takesSignIns(job: { date: Date; shift: string }) {
+  const { today, yesterday } = signinDates();
+  const d = job.date.toISOString().slice(0, 10);
+  return d === today || (d === yesterday && job.shift === "NIGHT");
+}
 
 export const jobSelect = {
   id: true,
@@ -108,16 +126,16 @@ export const jobLabel = (j: { title: string; shift: string; project: { name: str
 // allocated to.
 export function openJobsFor(resourceId: string) {
   return prisma.job.findMany({
-    where: { ...jobDateWhere(), assignments: { some: { resourceId } } },
+    where: { AND: [openWhere(), { assignments: { some: { resourceId } } }] },
     select: jobSelect,
     orderBy: [{ date: "desc" }, { shift: "asc" }],
   });
 }
 export function openJobsAtProject(projectId: string) {
-  return prisma.job.findMany({ where: { ...jobDateWhere(), projectId }, select: jobSelect, orderBy: [{ date: "desc" }, { shift: "asc" }] });
+  return prisma.job.findMany({ where: { AND: [openWhere(), { projectId }] }, select: jobSelect, orderBy: [{ date: "desc" }, { shift: "asc" }] });
 }
 export function openJob(jobId: string) {
-  return prisma.job.findFirst({ where: { ...jobDateWhere(), id: jobId }, select: jobSelect });
+  return prisma.job.findFirst({ where: { AND: [openWhere(), { id: jobId }] }, select: jobSelect });
 }
 
 // The poster link for a secret (not switched off): a site poster

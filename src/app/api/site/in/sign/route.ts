@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { withErrorHandling } from "@/lib/apiHandler";
-import { jobLabel, openJob, pointOf, readTicket, sydneyTime } from "@/lib/signin";
+import { jobLabel, openJob, pointOf, readTicket, sydneyTime, takesSignIns } from "@/lib/signin";
 import { todaySydney } from "@/lib/today";
 import { syncSignInActualsQuietly } from "@/lib/signInActuals";
 
@@ -27,6 +27,7 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
     label: string;
     date: string;
     allocatedIds: string[] | null; // null = everyone counts as allocated (points)
+    projectId: string | null;
   };
   if (ticket.method === "POINT") {
     const link = await prisma.siteLink.findUnique({
@@ -35,13 +36,15 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
     });
     const point = link && !link.revokedAt ? pointOf(link) : null;
     if (!point) return bad("This sign-in QR isn't active any more.");
-    where = { jobId: null, place: point.place, vehicleId: point.vehicleId, label: point.label, date: todaySydney(), allocatedIds: null };
+    where = { jobId: null, place: point.place, vehicleId: point.vehicleId, label: point.label, date: todaySydney(), allocatedIds: null, projectId: null };
   } else {
     const job = await openJob(body.jobId);
     if (!job) return bad("That job isn't open for sign-in any more.");
+    // An earlier job kept open only so people still on it can sign out.
+    if (body.action === "IN" && !takesSignIns(job)) return bad("That shift has finished - sign in to today's job.");
     where = {
       jobId: job.id, place: null, vehicleId: null, label: jobLabel(job),
-      date: job.date.toISOString().slice(0, 10), allocatedIds: job.assignments.map((a) => a.resource.id),
+      date: job.date.toISOString().slice(0, 10), allocatedIds: job.assignments.map((a) => a.resource.id), projectId: job.project?.id ?? null,
     };
   }
 
@@ -63,10 +66,19 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   const recent = { gte: new Date(now.getTime() - 20 * 3_600_000) };
   // Their open sign-in here: same job, or same point (and same truck).
   const hereWhere = where.jobId ? { jobId: where.jobId } : { jobId: null, place: where.place, vehicleId: where.vehicleId, signInAt: recent };
-  const open = await prisma.siteAttendance.findFirst({
+  let open = await prisma.siteAttendance.findFirst({
     where: { ...hereWhere, ...whoWhere, signOutAt: null, status: { not: "REJECTED" } },
     orderBy: { signInAt: "desc" },
   });
+  // Signing out the next morning from the site poster, they may pick today's
+  // job: find their sign-in from last night at the same site (21 Oct 2026).
+  // Not for signing in - a forgotten sign-out mustn't block a new day.
+  if (!open && body.action !== "IN" && where.projectId) {
+    open = await prisma.siteAttendance.findFirst({
+      where: { job: { projectId: where.projectId }, ...whoWhere, signOutAt: null, status: { not: "REJECTED" }, signInAt: recent },
+      orderBy: { signInAt: "desc" },
+    });
+  }
 
   if (body.action === "STATUS") {
     return NextResponse.json({ signedIn: !!open, since: open ? sydneyTime(open.signInAt) : null, site: where.label });

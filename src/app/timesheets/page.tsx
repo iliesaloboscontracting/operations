@@ -47,7 +47,7 @@ function Tile({ label, value, tone = "" }: { label: string; value: string | numb
 }
 
 function Entry({ l, today, showSite = true }: { l: TimesheetLine; today: string; showSite?: boolean }) {
-  const onNow = !l.out && l.date >= today; // signed in today, not out yet
+  const onNow = !l.out && (l.onSite ?? l.date >= today); // still on site, not a missing sign-out
   const noOut = !l.out && !onNow;
   const pending = l.status === "TO_CONFIRM";
   // In and out within a few minutes - usually a mis-tap worth a look.
@@ -87,7 +87,7 @@ function SiteView({ data, search }: { data: Data; search: string }) {
         site,
         point: ls.some((l) => l.point),
         total: Math.round(ls.reduce((n, l) => n + (l.hours ?? 0), 0) * 4) / 4,
-        issues: ls.filter((l) => (!l.out && l.date < data.today) || l.status === "TO_CONFIRM").length,
+        issues: ls.filter((l) => (!l.out && !l.onSite) || l.status === "TO_CONFIRM").length,
         people: [...people.values()]
           .map((pl) => ({ id: pl[0].resourceId, name: pl[0].name, role: pl[0].role, lines: pl, total: Math.round(pl.reduce((n, l) => n + (l.hours ?? 0), 0) * 4) / 4 }))
           .filter((p) => !search || p.name.toLowerCase().includes(search.toLowerCase()))
