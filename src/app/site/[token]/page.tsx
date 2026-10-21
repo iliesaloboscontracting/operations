@@ -7,6 +7,7 @@ import SignInCrew from "@/components/site/SignInCrew";
 import { MyRequests, RequestForm } from "@/components/site/SiteRequests";
 import TodoList from "@/components/site/TodoList";
 import CheckResultView from "@/components/tools/CheckResultView";
+import InstallApp from "@/components/InstallApp";
 import { serverErrorMessage } from "@/lib/apiFetch";
 import type { CheckResult } from "@/lib/toolboxCheck";
 
@@ -98,6 +99,7 @@ export default function SitePhotosPage({ params }: { params: { token: string } }
               />
             </label>
           )}
+          <InstallApp appName={info.kind === "OFFICE" && !info.shared ? "Lobos Office" : "Lobos Site"} />
           {flash && <div className="mb-4 rounded-xl bg-emerald-500/15 px-4 py-3 text-sm text-emerald-300">✓ {flash}</div>}
           <div className="space-y-3">
             {info.kind !== "OFFICE" && (

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Printer, X } from "lucide-react";
 import PageShell from "@/components/PageShell";
 import PushToggle from "@/components/PushToggle";
+import InstallApp from "@/components/InstallApp";
 import { useAuth } from "@/components/AuthProvider";
 import { apiFetch, serverErrorMessage } from "@/lib/apiFetch";
 import { useAutoRefresh } from "@/lib/useAutoRefresh";
@@ -58,9 +59,9 @@ const FOLLOW_UP: Record<string, { href: string; label: string }> = {
 
 function Stat({ label, value, tone }: { label: string; value: number; tone?: string }) {
   return (
-    <div className="rounded-lg border border-edge bg-panel px-4 py-2">
-      <div className="text-[10px] uppercase tracking-widest text-gray-500">{label}</div>
-      <div className={`text-2xl font-bold ${value ? tone || "text-gray-100" : "text-gray-500"}`}>{value}</div>
+    <div className="rounded-lg border border-edge bg-panel px-2.5 py-1.5 sm:px-4 sm:py-2">
+      <div className="text-[9px] uppercase leading-tight tracking-wider text-gray-500 sm:text-[10px] sm:tracking-widest">{label}</div>
+      <div className={`text-xl font-bold sm:text-2xl ${value ? tone || "text-gray-100" : "text-gray-500"}`}>{value}</div>
     </div>
   );
 }
@@ -70,6 +71,7 @@ export default function RequestsPage() {
   const [data, setData] = useState<Data | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
+  const [showClosed, setShowClosed] = useState(false); // phones: closed ones folded away
 
   const load = useCallback(async () => {
     const res = await apiFetch("/api/requests").catch(() => null);
@@ -124,21 +126,22 @@ export default function RequestsPage() {
       actions={
         <div className="flex flex-wrap items-start gap-2">
           {isAdmin && <PushToggle />}
-          <button onClick={() => printRequests("Open site requests", [...openRows].sort(byPriority))} className="flex items-center gap-1.5 rounded-lg border border-edge px-3 py-2 text-sm text-gray-300 hover:bg-panel2">
+          <button onClick={() => printRequests("Open site requests", [...openRows].sort(byPriority))} className="hidden items-center md:flex gap-1.5 rounded-lg border border-edge px-3 py-2 text-sm text-gray-300 hover:bg-panel2">
             <Printer size={15} /> Print open
           </button>
           <button
             onClick={() => printRequests(`To-do - ${withAlex[0]?.assigneeName ?? "Alex"}`, [...withAlex].sort(byPriority))}
             disabled={!withAlex.length}
-            className="flex items-center gap-1.5 rounded-lg border border-edge px-3 py-2 text-sm text-gray-300 hover:bg-panel2 disabled:opacity-40"
+            className="hidden items-center md:flex gap-1.5 rounded-lg border border-edge px-3 py-2 text-sm text-gray-300 hover:bg-panel2 disabled:opacity-40"
           >
             <Printer size={15} /> Print to-do list
           </button>
         </div>
       }
     >
+      <InstallApp appName="Lobos Ops" />
       {error && <p className="mb-3 text-sm text-red-400">{error}</p>}
-      <div className="mb-4 flex flex-wrap gap-2">
+      <div className="mb-4 grid grid-cols-4 gap-2 sm:flex sm:flex-wrap">
         <Stat label="To decide" value={all.filter((r) => COLUMNS[0].statuses.includes(r.status)).length} tone="text-brand-300" />
         <Stat label="Urgent open" value={openRows.filter((r) => r.priority === "URGENT").length} tone="text-red-400" />
         <Stat label="Overdue" value={openRows.filter(isOverdue).length} tone="text-red-400" />
@@ -147,20 +150,32 @@ export default function RequestsPage() {
       {!data ? (
         <p className="text-sm text-gray-500">Loading…</p>
       ) : (
-        <div className="flex gap-3 overflow-x-auto pb-3">
+        <div className="flex flex-col gap-3 pb-3 md:flex-row md:overflow-x-auto">
           {COLUMNS.map((c) => {
             const rows = all.filter((r) => c.statuses.includes(r.status));
             if (c.key !== "closed") rows.sort(byPriority);
             return (
-              <div key={c.key} className="w-80 shrink-0 rounded-xl border border-edge bg-panel/60 p-2">
+              <div
+                key={c.key}
+                className={`w-full rounded-xl border border-edge bg-panel/60 p-2 md:w-80 md:shrink-0 ${!rows.length && c.key !== "decide" ? "hidden md:block" : ""}`}
+              >
                 <div className="mb-2 px-1">
                   <div className="flex items-center justify-between">
                     <span className="text-sm font-semibold text-gray-100">{c.title}</span>
-                    <span className="text-xs text-gray-500">{rows.length}</span>
+                    {c.key === "closed" ? (
+                      <>
+                        <button onClick={() => setShowClosed((s) => !s)} className="text-xs text-gray-400 underline md:hidden">
+                          {showClosed ? "Hide" : `Show ${rows.length}`}
+                        </button>
+                        <span className="hidden text-xs text-gray-500 md:inline">{rows.length}</span>
+                      </>
+                    ) : (
+                      <span className="text-xs text-gray-500">{rows.length}</span>
+                    )}
                   </div>
                   <div className="text-[11px] text-gray-500">{c.hint}</div>
                 </div>
-                <div className="space-y-2">
+                <div className={`space-y-2 ${c.key === "closed" && !showClosed ? "hidden md:block" : ""}`}>
                   {rows.map((r) => <Card key={r.id} r={r} onOpen={() => open(r)} />)}
                   {!rows.length && <div className="px-1 py-4 text-center text-xs text-gray-600">Nothing here</div>}
                 </div>
@@ -264,7 +279,7 @@ function Detail({
 
   return (
     <div className="fixed inset-0 z-40 flex justify-end bg-black/50" onClick={onClose}>
-      <div className="h-full w-full max-w-md overflow-y-auto border-l border-edge bg-panel p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+      <div className="h-full w-full max-w-md overflow-y-auto border-l border-edge bg-panel p-4 shadow-xl sm:p-5" onClick={(e) => e.stopPropagation()}>
         <div className="mb-3 flex items-start justify-between gap-2">
           <div>
             <div className="text-xs text-gray-500">{requestNo(r.number)} · {type?.label ?? r.kind}</div>
@@ -308,7 +323,7 @@ function Detail({
           closed ? (
             <button disabled={busy} onClick={() => send({ action: "REOPEN" })} className="mb-4 rounded-lg border border-edge px-3 py-2 text-sm text-gray-300 hover:bg-panel2">Reopen</button>
           ) : !action ? (
-            <div className="mb-4 grid grid-cols-2 gap-2">
+            <div className="mb-4 grid grid-cols-2 gap-2 [&>button]:py-3 sm:[&>button]:py-2">
               <button onClick={() => setAction("APPROVE")} disabled={!assignees.length} className="rounded-lg bg-brand-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-40">
                 {r.status === "TODO" ? "Change / re-send" : `Approve → ${assignees[0]?.name.split(" ")[0] ?? "to-do"}`}
               </button>
