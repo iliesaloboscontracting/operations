@@ -20,11 +20,12 @@ const GROUPS: { key: GroupKey; label: string }[] = [
 ];
 
 const HIRE_CATEGORIES = [
-  { value: "LABOUR", label: "Personnel (labour hire)" },
-  { value: "PLANT", label: "Machine (plant hire)" },
-  { value: "EQUIPMENT", label: "Equipment (hire)" },
-  { value: "TOOLS", label: "Tools (hire)" },
-  { value: "VEHICLE", label: "Truck (subcontractor)" },
+  { value: "PLANT", label: "Machine (supplier hire)" },
+  { value: "EQUIPMENT", label: "Equipment (supplier hire)" },
+  { value: "TOOLS", label: "Tools (supplier hire)" },
+  { value: "LABOUR", label: "Personnel (labour hire - subcontractor)" },
+  { value: "WET_HIRE", label: "Plant + operator (subcontractor)" },
+  { value: "VEHICLE", label: "Truck + driver (subcontractor)" },
 ];
 
 const HIRE_FIELDS: FieldDef[] = [

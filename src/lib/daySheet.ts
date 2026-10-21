@@ -54,7 +54,7 @@ function isVehicle(type: string, category: string | null) {
 }
 function isPlant(type: string, category: string | null) {
   // Hired equipment and tools (21 Oct 2026) sit with plant on the day sheet.
-  return type === "EQUIPMENT" || type === "ATTACHMENT" || (type === "HIRE" && (category === "PLANT" || category === "EQUIPMENT" || category === "TOOLS"));
+  return type === "EQUIPMENT" || type === "ATTACHMENT" || (type === "HIRE" && (category === "PLANT" || category === "EQUIPMENT" || category === "TOOLS" || category === "WET_HIRE"));
 }
 
 function bullets(lines: string[]) {

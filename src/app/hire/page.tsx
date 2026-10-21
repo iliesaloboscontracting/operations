@@ -48,13 +48,20 @@ function hireRateSummary(r: ResourceDTO): string {
 // Hire register (21 Oct 2026): equipment and tools join plant, vehicles and
 // labour; each item can carry its project, supplier reference, delivery /
 // pick-up and status, and shows an estimated cost (lib/hireEstimate.ts).
+// Tabs are split into supplier hire (equipment only) and subcontractors
+// (labour hire, plant + operator, trucks) - see lib/hireKinds.ts.
 const TABS = [
-  { key: "OVERVIEW", label: "Overview", noun: "hire" },
-  { key: "PLANT", label: "Plant", noun: "plant" },
-  { key: "EQUIPMENT", label: "Equipment", noun: "equipment" },
-  { key: "TOOLS", label: "Tools", noun: "tool" },
-  { key: "VEHICLE", label: "Vehicles", noun: "vehicle" },
-  { key: "LABOUR", label: "Labour", noun: "worker" },
+  { key: "OVERVIEW", label: "Overview", noun: "hire", group: "SUPPLIER" },
+  { key: "PLANT", label: "Plant", noun: "plant", group: "SUPPLIER" },
+  { key: "EQUIPMENT", label: "Equipment", noun: "equipment", group: "SUPPLIER" },
+  { key: "TOOLS", label: "Tools", noun: "tool", group: "SUPPLIER" },
+  { key: "LABOUR", label: "Labour hire", noun: "worker", group: "SUBCONTRACT" },
+  { key: "WET_HIRE", label: "Plant + operator", noun: "plant + operator", group: "SUBCONTRACT" },
+  { key: "VEHICLE", label: "Trucks", noun: "truck", group: "SUBCONTRACT" },
+];
+const TAB_GROUPS = [
+  { key: "SUPPLIER", label: "Supplier hire", hint: "equipment only, no operator" },
+  { key: "SUBCONTRACT", label: "Subcontractors", hint: "labour, or plant / trucks with an operator" },
 ];
 
 type OffHireAlertRow = {
@@ -113,24 +120,37 @@ export default function HirePage() {
   const today = todayIso();
 
   const tabBar = (
-    <div className="mb-3 flex flex-wrap gap-1">
-      {TABS.map((x) => (
-        <button
-          key={x.key}
-          onClick={() => setTab(x.key)}
-          className={`rounded-md px-3 py-1 text-xs font-semibold uppercase tracking-wide ${
-            tab === x.key ? "bg-brand-600 text-white" : "bg-panel2 text-gray-400 hover:text-gray-200"
-          }`}
+    <div className="mb-3 flex flex-wrap gap-3">
+      {TAB_GROUPS.map((g) => (
+        <div
+          key={g.key}
+          className={`rounded-lg border px-2 pb-2 pt-1 ${g.key === "SUBCONTRACT" ? "border-rose-500/40 bg-rose-500/5" : "border-edge bg-panel/40"}`}
         >
-          {x.label}
-        </button>
+          <div className="mb-1 text-[10px] uppercase tracking-widest text-gray-500">
+            <span className={`font-semibold ${g.key === "SUBCONTRACT" ? "text-rose-300" : "text-gray-300"}`}>{g.label}</span> · {g.hint}
+          </div>
+          <div className="flex flex-wrap gap-1">
+            {TABS.filter((x) => x.group === g.key).map((x) => (
+              <button
+                key={x.key}
+                onClick={() => setTab(x.key)}
+                className={`rounded-md px-3 py-1 text-xs font-semibold uppercase tracking-wide ${
+                  tab === x.key ? "bg-brand-600 text-white" : "bg-panel2 text-gray-400 hover:text-gray-200"
+                }`}
+              >
+                {x.label}
+              </button>
+            ))}
+          </div>
+        </div>
       ))}
     </div>
   );
+  const isSub = t.group === "SUBCONTRACT";
 
   if (tab === "OVERVIEW") {
     return (
-      <PageShell title="Hire" subtitle="Everything on hire across all sites, project by project - who it's from, when it's due back and roughly what it's costing.">
+      <PageShell title="Hire" subtitle="Everything on hire across all sites, site by site - supplier hire and subcontractors kept separate - who it's from, when it's due back and roughly what it's costing.">
         {tabBar}
         <ComingOffHire />
         <HireOverview canSeeMoney={canEdit} onOpenTab={setTab} />
@@ -142,8 +162,10 @@ export default function HirePage() {
     <RegisterPage<ResourceDTO>
       key={tab}
       config={{
-        title: "Hire",
-        subtitle: "Everything bought in: who it's from, which project, roughly what it costs, and when it's due back.",
+        title: isSub ? "Hire · Subcontractors" : "Hire · Supplier hire",
+        subtitle: isSub
+          ? "Subcontractors: labour hire, and plant or trucks that come with an operator / driver."
+          : "Equipment hired from a supplier, no operator: who it's from, which project, roughly what it costs, and when it's due back.",
         addLabel: `Add ${t.noun} hire`,
         itemNoun: `${t.noun} hire`,
         api: "/api/resources",
@@ -154,7 +176,7 @@ export default function HirePage() {
         tabs: tabBar,
         columns: [
           { label: isLabour ? "Worker" : "Item", render: (r) => <span className="font-medium">{r.name}</span> },
-          { label: isLabour ? "Agency" : "Supplier", render: (r) => r.agency },
+          { label: isLabour ? "Agency" : isSub ? "Subcontractor" : "Supplier", render: (r) => r.agency },
           ...(isLabour
             ? [
                 { label: "Role", render: (r: ResourceDTO) => r.role },
@@ -217,8 +239,18 @@ export default function HirePage() {
             : []),
         ],
         fields: [
-          { key: "name", label: isLabour ? "Worker" : "Item", required: true, full: true, placeholder: isLabour ? "" : "e.g. 5t excavator, EWP 19ft scissor, road saw" },
-          { key: "agency", label: isLabour ? "Agency" : "Supplier", placeholder: "e.g. Hire Express, Allcott Hire" },
+          {
+            key: "name",
+            label: isLabour ? "Worker" : "Item",
+            required: true,
+            full: true,
+            placeholder: isLabour ? "" : tab === "WET_HIRE" ? "e.g. Road saw + operator, 5t excavator wet hire" : tab === "VEHICLE" ? "e.g. Tipper + driver" : "e.g. 5t excavator, EWP 19ft scissor, road saw",
+          },
+          {
+            key: "agency",
+            label: isLabour ? "Agency" : isSub ? "Subcontractor" : "Supplier",
+            placeholder: isSub ? "e.g. Envirocut" : "e.g. Hire Express, Allcott Hire",
+          },
           ...(isLabour
             ? [{ key: "role", label: "Role" }]
             : [

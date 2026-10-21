@@ -5,24 +5,29 @@ import { TriangleAlert } from "lucide-react";
 import { fmtDay } from "@/lib/dates";
 import { hireEstimate, offHireAlert, HIRE_STATUS_LABEL } from "@/lib/hireEstimate";
 import type { ResourceDTO } from "@/lib/types";
+import { HIRE_KIND_LABEL, SUPPLIER_HIRE_KINDS, SUBCONTRACT_KINDS, isSubcontract } from "@/lib/hireKinds";
 
 // Hire overview (21 Oct 2026): one column per site, like the allocations
 // board, with a tile per hired item showing where it is in its hire period,
 // when it's due back and - for managers - what it's cost so far and what it
 // will cost by the expected finish date (the assumed hire period). Dollar
 // figures only for managers (the API strips rates for Viewers anyway).
+// Each column keeps supplier hire and subcontractors (plant + operator,
+// trucks) under separate headings; labour hire stays on its own tab.
 
 const money = (n: number) => n.toLocaleString("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 });
 const short = (iso: string) => fmtDay(iso, { day: "numeric", month: "short" });
 const sydneyToday = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Australia/Sydney" }).format(new Date());
 const dayNo = (iso: string) => Date.UTC(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10)) / 86_400_000;
-const CATEGORY_LABEL: Record<string, string> = { PLANT: "Plant", EQUIPMENT: "Equipment", TOOLS: "Tools", VEHICLE: "Vehicle" };
-// Left edge colour per category, the same idea as the board's job colour tags.
+const CATEGORY_LABEL = HIRE_KIND_LABEL;
+// Left edge colour per category, the same idea as the board's job colour tags;
+// subcontractors in rose/pink so they read as a different group at a glance.
 const CATEGORY_EDGE: Record<string, string> = {
   PLANT: "border-l-amber-500",
   EQUIPMENT: "border-l-sky-500",
   TOOLS: "border-l-violet-500",
-  VEHICLE: "border-l-emerald-500",
+  WET_HIRE: "border-l-rose-500",
+  VEHICLE: "border-l-pink-400",
 };
 
 type Row = {
@@ -222,10 +227,23 @@ export default function HireOverview({ canSeeMoney, onOpenTab }: { canSeeMoney: 
                 </div>
               )}
             </header>
-            <div className="flex-1 space-y-2 bg-panel/60 p-2">
-              {g.rows.map((row) => (
-                <ItemTile key={row.r.id} row={row} today={today} canSeeMoney={canSeeMoney} />
-              ))}
+            <div className="flex-1 space-y-3 bg-panel/60 p-2">
+              {(["SUPPLIER", "SUBCONTRACT"] as const).map((kind) => {
+                const rs = g.rows.filter((x) => isSubcontract(x.r.category) === (kind === "SUBCONTRACT"));
+                if (rs.length === 0) return null;
+                const total = rs.reduce((n, x) => n + (x.est?.costTotal ?? x.est?.costToDate ?? 0), 0);
+                return (
+                  <div key={kind} className="space-y-2">
+                    <div className={`flex items-baseline justify-between border-b pb-0.5 text-[10px] font-semibold uppercase tracking-widest ${kind === "SUBCONTRACT" ? "border-rose-500/40 text-rose-300" : "border-edge text-gray-400"}`}>
+                      <span>{kind === "SUBCONTRACT" ? "Subcontractors" : "Supplier hire"}</span>
+                      {canSeeMoney && <span className="normal-case tracking-normal">{money(total)}</span>}
+                    </div>
+                    {rs.map((row) => (
+                      <ItemTile key={row.r.id} row={row} today={today} canSeeMoney={canSeeMoney} />
+                    ))}
+                  </div>
+                );
+              })}
             </div>
           </section>
         ))}
@@ -237,9 +255,16 @@ export default function HireOverview({ canSeeMoney, onOpenTab }: { canSeeMoney: 
         </button>
         <span>·</span>
         <span>
-          To add or change an item, open its tab:{" "}
-          {["PLANT", "EQUIPMENT", "TOOLS", "VEHICLE"].map((t, i) => (
+          To add or change an item - supplier hire:{" "}
+          {SUPPLIER_HIRE_KINDS.map((t, i) => (
             <button key={t} className="text-brand-300 hover:underline" onClick={() => onOpenTab(t)}>
+              {i ? ", " : ""}
+              {CATEGORY_LABEL[t]}
+            </button>
+          ))}
+          {" "}· subcontractors:{" "}
+          {SUBCONTRACT_KINDS.filter((t) => t !== "LABOUR").map((t, i) => (
+            <button key={t} className="text-rose-300 hover:underline" onClick={() => onOpenTab(t)}>
               {i ? ", " : ""}
               {CATEGORY_LABEL[t]}
             </button>
