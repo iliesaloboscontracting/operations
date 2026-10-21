@@ -23,8 +23,13 @@ if (-not (New-Object Security.Principal.WindowsPrincipal([Security.Principal.Win
 # (OpenSSH refuses a key owned by another user).
 New-Item -ItemType Directory -Force $keyDir | Out-Null
 Copy-Item "C:\Users\ilies\.ssh\lobos_ops_lightsail", "C:\Users\ilies\.ssh\known_hosts" $keyDir -Force
-icacls $keyDir /inheritance:r /grant:r "SYSTEM:(OI)(CI)F" "Administrators:(OI)(CI)F" /T | Out-Null
-icacls "$keyDir\*" /setowner SYSTEM | Out-Null
+icacls $keyDir /inheritance:r /grant:r "SYSTEM:(OI)(CI)F" "Administrators:(OI)(CI)F" | Out-Null
+# Files get plain grants - inheritance flags (OI)(CI) only apply to folders,
+# and on a file they left it with no access at all (21 Oct 2026).
+foreach ($f in "lobos_ops_lightsail", "known_hosts") {
+    icacls "$keyDir\$f" /inheritance:r /grant:r "SYSTEM:F" "Administrators:F" | Out-Null
+    icacls "$keyDir\$f" /setowner SYSTEM | Out-Null
+}
 
 Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
 

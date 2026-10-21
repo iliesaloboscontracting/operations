@@ -41,9 +41,17 @@ function Test-DbGz($path) {
 
 try {
   # Newest database and photos backups on the server (root-owned, so copy to
-  # /tmp readable, download, then remove the temporary copies).
-  $list = & ssh @sshOpts $server "sudo ls -t /srv/operations/backups"
-  if ($LASTEXITCODE -ne 0 -or -not $list) { throw "couldn't list the server's backups (ssh exit $LASTEXITCODE)" }
+  # /tmp readable, download, then remove the temporary copies). ssh's own
+  # error text is kept for the log if it fails.
+  $ErrorActionPreference = "Continue"
+  $out = & ssh @sshOpts $server "sudo ls -t /srv/operations/backups" 2>&1
+  $code = $LASTEXITCODE
+  $ErrorActionPreference = "Stop"
+  $list = @($out | Where-Object { $_ -isnot [Management.Automation.ErrorRecord] } | ForEach-Object { "$_" })
+  if ($code -ne 0 -or -not $list) {
+    $why = ($out | ForEach-Object { "$_" }) -join " / "
+    throw "couldn't list the server's backups (ssh exit $code as $([Security.Principal.WindowsIdentity]::GetCurrent().Name), key dir $sshDir): $why"
+  }
   $db = @($list | Where-Object { $_ -like "dev-*.db.gz" })[0]
   $photos = @($list | Where-Object { $_ -like "tool-photos-*.tar.gz" })[0]
   if (-not $db -or -not $photos) { throw "no backup files found on the server" }
