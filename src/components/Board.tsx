@@ -16,6 +16,7 @@ import {
   localISODate,
   NEW_LABOUR_HIRE,
   QUICK_LABOUR_HIRE_NAME,
+  nextQuickLabourHireNumber,
 } from "@/lib/resource";
 import DateTabs from "./DateTabs";
 import ResourceSidebar from "./ResourceSidebar";
@@ -192,22 +193,23 @@ export default function Board() {
     // Dragged from the Yard's "Labour hire" box: make a new tile for this drop.
     let resourceId = payload.resourceId;
     if (resourceId === NEW_LABOUR_HIRE) {
-      const used = resources
-        .map((r) => QUICK_LABOUR_HIRE_NAME.exec(r.name)?.[1])
-        .filter(Boolean)
-        .map(Number);
-      const created = await fetch("/api/resources", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: `Labour hire ${used.length ? Math.max(...used) + 1 : 1}`,
-          type: "HIRE",
-          category: "LABOUR",
-          ownership: "HIRED",
-        }),
-      });
-      if (!created.ok) return fail(await serverErrorMessage(created, "Couldn't add a labour hire tile. Try again."));
-      resourceId = (await created.json()).id;
+      // Numbers already on this day's board (any job, either shift).
+      const onDay = (r: ResourceDTO) => (r.assignments ?? []).some((a) => a.job.date.slice(0, 10) === selectedDate);
+      const used = resources.filter((r) => isQuickLabourHire(r) && onDay(r)).map((r) => Number(QUICK_LABOUR_HIRE_NAME.exec(r.name)![1]));
+      const name = `Labour hire ${nextQuickLabourHireNumber(used)}`;
+      // Reuse a spare tile with that number from another day, else make one.
+      const spare = resources.find((r) => isQuickLabourHire(r) && r.name.toLowerCase() === name.toLowerCase() && !onDay(r));
+      if (spare) {
+        resourceId = spare.id;
+      } else {
+        const created = await fetch("/api/resources", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name, type: "HIRE", category: "LABOUR", ownership: "HIRED" }),
+        });
+        if (!created.ok) return fail(await serverErrorMessage(created, "Couldn't add a labour hire tile. Try again."));
+        resourceId = (await created.json()).id;
+      }
     }
     const res = payload.assignmentId
       ? await fetch(`/api/assignments/${payload.assignmentId}`, {

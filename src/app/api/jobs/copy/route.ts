@@ -4,6 +4,7 @@ import { guard } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { assertDateOpen } from "@/lib/dayLock";
 import { isISODate } from "@/lib/dateRules";
+import { QUICK_LABOUR_HIRE_NAME, nextQuickLabourHireNumber } from "@/lib/resource";
 
 // POST /api/jobs/copy { from: "YYYY-MM-DD", to: "YYYY-MM-DD" }
 // Copies every running job from one day to another so the target day ends up
@@ -16,6 +17,12 @@ import { isISODate } from "@/lib/dateRules";
 // Never double-books (21 Oct 2026): anyone / anything already booked on
 // another job that day and shift - planned ahead, or placed earlier in this
 // same copy - is skipped and reported back, instead of landing on two jobs.
+//
+// Labour hire tiles are numbered per day (21 Oct 2026): copied tiles take the
+// lowest numbers free on the target day (1, 2, 3...), so the count restarts
+// each day. A tile already carrying that number moves across as it is;
+// otherwise a spare tile with that number (one not on the target day) is
+// reused, or a new one made.
 export const POST = withErrorHandling(async (req: NextRequest) => {
   const denied = await guard("MANAGER");
   if (denied) return denied;
@@ -45,13 +52,42 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
       notRunning: false,
       OR: [{ projectId: null }, { project: { status: "ACTIVE" } }],
     },
-    include: { assignments: { include: { resource: { select: { name: true } } } } },
+    include: { assignments: { include: { resource: { select: { name: true, type: true, category: true } } } } },
     orderBy: { sortOrder: "asc" },
   });
   const existing = await prisma.job.findMany({
     where: { date: { gte: toStart, lt: toEnd } },
-    include: { assignments: true, project: { select: { name: true } } },
+    include: { assignments: { include: { resource: { select: { name: true, type: true, category: true } } } }, project: { select: { name: true } } },
   });
+  type Res = { name: string; type: string; category: string | null };
+  const tileNo = (r: Res) => (r.type === "HIRE" && r.category === "LABOUR" ? Number(QUICK_LABOUR_HIRE_NAME.exec(r.name)?.[1] ?? NaN) : NaN);
+  // Labour hire numbers already on the target day -> which tile has it.
+  const tileOnDay = new Map<number, string>();
+  for (const e of existing) for (const a of e.assignments) if (!Number.isNaN(tileNo(a.resource))) tileOnDay.set(tileNo(a.resource), a.resourceId);
+  const renumber = async <A extends { resourceId: string; role: string | null; resource: Res }>(list: A[]) => {
+    const out: { resourceId: string; role: string | null }[] = [];
+    for (const a of list) {
+      const n = tileNo(a.resource);
+      if (Number.isNaN(n)) {
+        out.push({ resourceId: a.resourceId, role: a.role });
+        continue;
+      }
+      const k = nextQuickLabourHireNumber(tileOnDay.keys());
+      const tileId =
+        n === k
+          ? a.resourceId
+          : ((await prisma.resource.findFirst({
+              where: {
+                type: "HIRE", category: "LABOUR", active: true, name: `Labour hire ${k}`,
+                assignments: { none: { job: { date: { gte: toStart, lt: toEnd } } } },
+              },
+              select: { id: true },
+            })) ?? (await prisma.resource.create({ data: { name: `Labour hire ${k}`, type: "HIRE", category: "LABOUR", ownership: "HIRED" } }))).id;
+      tileOnDay.set(k, tileId);
+      out.push({ resourceId: tileId, role: a.role });
+    }
+    return out;
+  };
   // Who's already booked on the target day, per shift -> which job.
   const booked = new Map<string, string>();
   for (const e of existing) {
@@ -83,13 +119,13 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
       const toAdd = free(j.assignments.filter((a) => !already.has(a.resourceId)), j.shift, matchName);
       if (toAdd.length > 0) {
         await prisma.assignment.createMany({
-          data: toAdd.map((a) => ({ jobId: match.id, resourceId: a.resourceId, role: a.role })),
+          data: (await renumber(toAdd)).map((a) => ({ jobId: match.id, resourceId: a.resourceId, role: a.role })),
         });
         merged++;
       }
       continue;
     }
-    const keep = free(j.assignments, j.shift, j.title);
+    const keep = await renumber(free(j.assignments, j.shift, j.title));
     await prisma.job.create({
       data: {
         projectId: j.projectId,

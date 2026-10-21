@@ -24,6 +24,15 @@ export const QUICK_LABOUR_HIRE_NAME = /^Labour hire (\d+)$/i;
 export function isQuickLabourHire(r: Pick<ResourceDTO, "type" | "category" | "name">) {
   return isLabourHire(r) && QUICK_LABOUR_HIRE_NAME.test(r.name);
 }
+// Numbered per day (21 Oct 2026, Ilies): each day's tiles run 1, 2, 3...
+// rather than one count that keeps climbing - a new tile takes the lowest
+// number not already on that day.
+export function nextQuickLabourHireNumber(usedThatDay: Iterable<number>) {
+  const used = new Set(usedThatDay);
+  let n = 1;
+  while (used.has(n)) n++;
+  return n;
+}
 
 export function money(n: number | null | undefined) {
   if (n === null || n === undefined) return null;
