@@ -5,12 +5,14 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "./prisma";
 import { jobLabel, pointCrew, POINT_BREAK_MINUTES, signedHours, sydneyTime, type Place } from "./signin";
 import { todaySydney } from "./today";
+import { matchHireSignIns } from "./labourHireMatch";
 
 export type AttendanceFlag =
   | "NO_SIGN_IN" // allocated, never signed in
   | "STILL_ON" // signed in today, not out yet
   | "NO_SIGN_OUT" // an earlier day, never signed out
   | "NOT_ALLOCATED" // signed in on a job they weren't allocated to
+  | "NO_HIRE_TILE" // labour hire signed in, but no labour hire tile left on that job
   | "TO_CONFIRM" // poster sign-in waiting for the supervisor
   | "MOVED" // signed in at another site, so this one was ended
   | "SHARED_PHONE" // one phone signed in more than one person that day
@@ -23,13 +25,18 @@ type AttendanceWithEdits = Prisma.SiteAttendanceGetPayload<{ include: { edits: t
 const sydneyHour = (d: Date) => Number(new Intl.DateTimeFormat("en-AU", { timeZone: "Australia/Sydney", hour: "numeric", hourCycle: "h23" }).format(d));
 const weekday = (iso: string) => new Date(iso + "T12:00:00Z").getUTCDay();
 
-function rowOf(a: AttendanceWithEdits, opts: { date: string; today: string; breakMin: number | null; devices: Map<string, Set<string>>; point: boolean }) {
+function rowOf(
+  a: AttendanceWithEdits,
+  // slot: the labour hire tile a hire worker fills on this job (null = none left); undefined for staff / points.
+  opts: { date: string; today: string; breakMin: number | null; devices: Map<string, Set<string>>; point: boolean; slot?: string | null }
+) {
   const flags: AttendanceFlag[] = [];
   if (a.status === "TO_CONFIRM") flags.push("TO_CONFIRM");
   if (a.status === "REJECTED") flags.push("REJECTED");
-  // Hire workers fill placeholder slots on the board, so only register
-  // people can be "not allocated".
+  // Staff: not on this job's allocation. Hire workers: no labour hire tile
+  // left on this job for them (lib/labourHireMatch.ts).
   if (!a.allocated && a.resourceId) flags.push("NOT_ALLOCATED");
+  if (opts.slot === null && a.status !== "REJECTED") flags.push("NO_HIRE_TILE");
   if (!a.signOutAt) flags.push(opts.date < opts.today ? "NO_SIGN_OUT" : "STILL_ON");
   if (a.signOutMethod === "MOVED") flags.push("MOVED");
   if (a.deviceId && (opts.devices.get(a.deviceId)?.size ?? 0) > 1) flags.push("SHARED_PHONE");
@@ -43,6 +50,7 @@ function rowOf(a: AttendanceWithEdits, opts: { date: string; today: string; brea
     resourceId: a.resourceId,
     name: a.workerName,
     company: a.company,
+    slot: opts.slot ?? null,
     signInAt: a.signInAt.toISOString(),
     signOutAt: a.signOutAt?.toISOString() ?? null,
     in: sydneyTime(a.signInAt),
@@ -66,7 +74,10 @@ export async function attendanceForDate(date: string) {
     select: {
       id: true, title: true, shift: true, status: true, startTime: true, endTime: true,
       project: { select: { id: true, name: true, unpaidBreakMinutes: true } },
-      assignments: { where: { resource: { type: "PERSONNEL" } }, select: { resource: { select: { id: true, name: true } } } },
+      assignments: {
+        where: { resource: { OR: [{ type: "PERSONNEL" }, { type: "HIRE", category: "LABOUR" }] } },
+        select: { resource: { select: { id: true, name: true, type: true } } },
+      },
       attendances: { orderBy: { signInAt: "asc" }, include: { edits: { orderBy: { editedAt: "asc" } } } },
     },
   });
@@ -90,10 +101,17 @@ export async function attendanceForDate(date: string) {
     .filter((j) => j.status === "ACTIVE" || j.attendances.length > 0)
     .map((j) => {
       const breakMin = j.project?.unpaidBreakMinutes ?? null;
-      const rows = j.attendances.map((a) => rowOf(a, { date, today, breakMin, devices, point: false }));
+      const staff = j.assignments.filter((x) => x.resource.type === "PERSONNEL").map((x) => ({ id: x.resource.id, name: x.resource.name }));
+      const tiles = j.assignments.filter((x) => x.resource.type === "HIRE").map((x) => ({ id: x.resource.id, name: x.resource.name }));
+      // Labour hire sign-ins paired with this job's labour hire tiles.
+      const slots = matchHireSignIns(tiles, j.attendances.filter((a) => !a.resourceId));
+      const rows = j.attendances.map((a) =>
+        rowOf(a, { date, today, breakMin, devices, point: false, slot: a.resourceId ? undefined : slots.get(a.id)?.name ?? null })
+      );
       const signedIn = new Set(j.attendances.filter((a) => a.status !== "REJECTED").map((a) => a.resourceId));
+      const filled = new Set([...slots.values()].map((t) => t.id));
       const noShows = j.status === "ACTIVE" && date <= today
-        ? j.assignments.filter((x) => !signedIn.has(x.resource.id)).map((x) => x.resource)
+        ? [...staff.filter((p) => !signedIn.has(p.id)), ...tiles.filter((t) => !filled.has(t.id))]
         : [];
       return {
         id: j.id,
@@ -106,7 +124,7 @@ export async function attendanceForDate(date: string) {
         shift: j.shift,
         times: j.startTime && j.endTime ? `${j.startTime}-${j.endTime}` : null,
         breakMinutes: breakMin,
-        allocated: j.assignments.map((x) => x.resource),
+        allocated: [...staff, ...tiles],
         rows,
         noShows,
       };
@@ -161,13 +179,24 @@ export async function signInHoursForJobs(jobIds: string[]) {
     where: { jobId: { in: jobIds }, status: { not: "REJECTED" } },
     orderBy: { signInAt: "asc" },
     select: {
-      jobId: true, resourceId: true, workerName: true, company: true, signInAt: true, signOutAt: true, status: true,
+      id: true, jobId: true, resourceId: true, workerName: true, company: true, signInAt: true, signOutAt: true, status: true,
       job: { select: { project: { select: { unpaidBreakMinutes: true } } } },
     },
   });
+  // A labour hire sign-in counts against the tile it fills on that job.
+  const tiles = await prisma.assignment.findMany({
+    where: { jobId: { in: jobIds }, resource: { type: "HIRE", category: "LABOUR" } },
+    select: { jobId: true, resource: { select: { id: true, name: true } } },
+  });
+  const slot = new Map<string, { id: string; name: string }>();
+  for (const jobId of jobIds) {
+    const m = matchHireSignIns(tiles.filter((t) => t.jobId === jobId).map((t) => t.resource), rows.filter((r) => r.jobId === jobId && !r.resourceId).map((r) => ({ ...r, workerName: r.workerName })));
+    m.forEach((t, id) => slot.set(id, t));
+  }
   return rows.map((r) => ({
     jobId: r.jobId,
-    resourceId: r.resourceId,
+    resourceId: r.resourceId ?? slot.get(r.id)?.id ?? null,
+    tile: r.resourceId ? null : slot.get(r.id)?.name ?? null,
     name: r.workerName,
     company: r.company,
     in: sydneyTime(r.signInAt),

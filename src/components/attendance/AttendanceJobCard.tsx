@@ -135,6 +135,7 @@ export default function AttendanceJobCard({
                 <div className="min-w-0 flex-1">
                   <span className={r.status === "REJECTED" ? "text-gray-500 line-through" : "text-gray-200"}>{r.name}</span>
                   {r.company && <span className="text-xs text-gray-400"> ({r.company})</span>}
+                  {r.slot && <span className="ml-1.5 rounded-full border border-yellow-400/60 bg-yellow-400/15 px-1.5 py-0.5 text-[10px] font-semibold text-yellow-200">{r.slot}</span>}
                   <div className="text-[11px] text-gray-500">
                     {METHOD_LABEL[r.signInMethod] ?? r.signInMethod}
                     {r.runBy && ` · ${r.runBy}`}

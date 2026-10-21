@@ -18,6 +18,11 @@ function lastWorked(r: ResourceDTO): string | null {
   const dates = (r.assignments ?? []).map((a) => a.job.date.slice(0, 10));
   return dates.length ? dates.sort().at(-1)! : null;
 }
+// Where it was on that last day - the site(s), so the list shows where the
+// labour was, not just when (21 Oct 2026).
+function lastWorkedWhere(r: ResourceDTO, day: string): string {
+  return [...new Set((r.assignments ?? []).filter((a) => a.job.date.slice(0, 10) === day).map((a) => a.job.title))].join(", ");
+}
 
 // Prefers the typed offHireDate (Phase 2b) over hireEnd's legacy free text,
 // which stays best-effort parsed until re-entered.
@@ -213,7 +218,14 @@ export default function HirePage() {
                   label: "Last worked",
                   render: (r: ResourceDTO) => {
                     const d = lastWorked(r);
-                    return d ? short(d) : <span className="text-gray-500">Never</span>;
+                    if (!d) return <span className="text-gray-500">Never</span>;
+                    const where = lastWorkedWhere(r, d);
+                    return (
+                      <span>
+                        {short(d)}
+                        {where && <span className="text-gray-500"> · {where}</span>}
+                      </span>
+                    );
                   },
                 },
               ]

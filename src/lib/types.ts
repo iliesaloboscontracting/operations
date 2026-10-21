@@ -73,6 +73,7 @@ export interface AssignmentDTO {
   resourceId: string;
   role: string | null;
   resource: ResourceDTO;
+  signedInAs?: string | null; // labour hire tile: who signed in to fill it that day
 }
 
 export type JobStatus = "INACTIVE" | "ACTIVE" | "COMPLETED";

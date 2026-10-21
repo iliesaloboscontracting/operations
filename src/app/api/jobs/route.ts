@@ -7,6 +7,7 @@ import { sanitizeJobs } from "@/lib/serializeResource";
 import { assertDateOpen } from "@/lib/dayLock";
 import { todaySydney } from "@/lib/today";
 import { checkJobDate } from "@/lib/dateRulesServer";
+import { matchHireSignIns } from "@/lib/labourHireMatch";
 
 // GET /api/jobs?date=YYYY-MM-DD  -> jobs for that date, with assignments+resource included
 export const GET = withErrorHandling(async (req: NextRequest) => {
@@ -36,9 +37,28 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
 
   sanitizeJobs(jobs, user?.role ?? null);
 
+  // Who signed in to fill each labour hire tile (lib/labourHireMatch.ts) -
+  // names only, shown on the tile.
+  const hireSignIns = await prisma.siteAttendance.findMany({
+    where: { jobId: { in: jobs.map((j) => j.id) }, resourceId: null, status: { not: "REJECTED" } },
+    select: { id: true, jobId: true, workerName: true, company: true, signInAt: true, status: true },
+  });
+  const filledBy = new Map<string, string>(); // assignment id -> "Name (Company)"
+  for (const j of jobs) {
+    const tiles = j.assignments.filter((a) => a.resource.type === "HIRE" && a.resource.category === "LABOUR");
+    if (!tiles.length) continue;
+    const mine = hireSignIns.filter((s) => s.jobId === j.id);
+    matchHireSignIns(tiles.map((a) => ({ id: a.resource.id, name: a.resource.name })), mine).forEach((tile, attendanceId) => {
+      const s = mine.find((x) => x.id === attendanceId)!;
+      const a = tiles.find((x) => x.resource.id === tile.id)!;
+      if (!filledBy.has(a.id)) filledBy.set(a.id, s.company ? `${s.workerName} (${s.company})` : s.workerName);
+    });
+  }
+
   // JobDTO.date is documented (and used, e.g. in a <input type="date">) as YYYY-MM-DD.
   const out = jobs.map(({ project, ...j }) => ({
     ...j,
+    assignments: j.assignments.map((a) => ({ ...a, signedInAs: filledBy.get(a.id) ?? null })),
     ...liveJobFields({ title: j.title, client: j.client, siteCode: j.siteCode, siteAddress: j.siteAddress, project }),
     date: j.date.toISOString().slice(0, 10),
   }));

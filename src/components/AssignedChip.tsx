@@ -58,6 +58,12 @@ export default function AssignedChip({
       }`}
     >
       <span className="max-w-[8rem] truncate">{r.name}</span>
+      {/* Labour hire: who signed in with the QR to fill this tile. */}
+      {labourHire && assignment.signedInAs && (
+        <span className="max-w-[9rem] truncate text-[10px] text-yellow-200/80" title={`Signed in: ${assignment.signedInAs}`}>
+          ✓ {assignment.signedInAs}
+        </span>
+      )}
       {/* Hired plant / equipment / tools: who it's from and when it's due back. */}
       {column === "hire" && <HireTag resource={r} className="max-w-[9rem]" />}
       {conflict > 0 && <span className="text-amber-300">⚠</span>}

@@ -122,6 +122,13 @@ function JobCard({
                   {r.role && ` · ${r.role}`}
                 </div>
                 {usesSignIn && r.type === "PERSONNEL" && <SignInLine s={r.signIn ?? null} />}
+                {/* A labour hire tile: who signed in to fill it (lib/labourHireMatch.ts). */}
+                {usesSignIn && r.type === "HIRE" && r.signIn && (
+                  <div className="truncate text-[11px] text-yellow-200/80">
+                    {r.signIn.name}
+                    {r.signIn.company && ` (${r.signIn.company})`} · <SignInLine s={r.signIn} inline />
+                  </div>
+                )}
               </div>
               {r.signIn?.hours != null && r.signIn.hours !== r.actualHours && !disabled && (
                 <button

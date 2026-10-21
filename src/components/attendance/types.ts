@@ -5,6 +5,7 @@ export type AttendanceRow = {
   resourceId: string | null;
   name: string;
   company: string | null;
+  slot: string | null; // labour hire: the board tile they fill on this job
   signInAt: string;
   signOutAt: string | null;
   in: string | null;
@@ -47,6 +48,7 @@ export const FLAG_LABEL: Record<string, string> = {
   TO_CONFIRM: "Poster - to confirm",
   REJECTED: "Wasn't here",
   NOT_ALLOCATED: "Not allocated here",
+  NO_HIRE_TILE: "No labour hire tile here",
   STILL_ON: "On site",
   NO_SIGN_OUT: "No sign-out",
   MOVED: "Moved site",
