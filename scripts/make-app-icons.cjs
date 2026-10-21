@@ -1,9 +1,10 @@
-// Makes the phone home-screen icons from public/logo.png (no image library
-// needed): the Lobos logo centred on the app's dark background, with a
-// coloured stripe so the two apps are easy to tell apart -
-//   Lobos Ops  (office, Ilies)  - blue stripe   -> public/icons/ops-*.png
-//   Lobos Site (supervisors)    - amber stripe  -> public/site/icons/site-*.png
-// Re-run after changing the logo:  node scripts/make-app-icons.cjs
+// Makes the phone home-screen icons from the Lobos wolf (public/brand/
+// lobos-wolf.png - the wolf on black, cleaned up 22 Oct 2026 from the
+// artwork Ilies supplied), with no image library needed: the wolf on black,
+// rising from the bottom edge so phones can round or circle-crop the corners.
+//   Lobos Ops  (office)      -> public/icons/ops-*.png
+//   Lobos Site (supervisors) -> public/site/icons/site-*.png  (photos address)
+// Re-run after changing the artwork:  node scripts/make-app-icons.cjs
 const fs = require("fs");
 const path = require("path");
 const zlib = require("zlib");
@@ -55,37 +56,78 @@ function encode(w, h, px) {
   return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk("IHDR", ihdr), chunk("IDAT", zlib.deflateSync(raw, { level: 9 })), chunk("IEND", Buffer.alloc(0))]);
 }
 
-const hex = (s) => [1, 3, 5].map((i) => parseInt(s.slice(i, i + 2), 16));
-function icon(logo, size, stripe) {
-  const bg = hex("#0E1115"), st = hex(stripe), px = Buffer.alloc(size * size * 4);
-  for (let i = 0; i < size * size; i++) px.set([...bg, 255], i * 4);
-  // Stripe across the lower part - inside the "maskable" safe zone.
-  const sy0 = Math.round(size * 0.66), sy1 = Math.round(size * 0.7);
-  for (let y = sy0; y < sy1; y++) for (let x = Math.round(size * 0.2); x < Math.round(size * 0.8); x++) px.set([...st, 255], (y * size + x) * 4);
-  // Logo at 64% of the width, centred a little above the middle; area-averaged scaling.
-  const lw = Math.round(size * 0.64), lh = Math.round((lw * logo.h) / logo.w);
-  const ox = Math.round((size - lw) / 2), oy = Math.round(size * 0.47 - lh / 2), sx = logo.w / lw, sy = logo.h / lh;
-  for (let y = 0; y < lh; y++)
-    for (let x = 0; x < lw; x++) {
-      let r = 0, g = 0, b = 0, a = 0, n = 0;
-      for (let yy = Math.floor(y * sy); yy < Math.min(logo.h, Math.ceil((y + 1) * sy)); yy++)
-        for (let xx = Math.floor(x * sx); xx < Math.min(logo.w, Math.ceil((x + 1) * sx)); xx++) {
-          const i = (yy * logo.w + xx) * 4, al = logo.px[i + 3];
-          r += logo.px[i] * al; g += logo.px[i + 1] * al; b += logo.px[i + 2] * al; a += al; n++;
+const FRAME_BLUE = [0x66, 0xae, 0xe2]; // the outline colour in Ilies's artwork
+
+// The wolf's own outline in the artwork (anything brighter than near-black).
+function bounds(art) {
+  let x0 = art.w, y0 = art.h, x1 = 0, y1 = 0;
+  for (let y = 0; y < art.h; y++)
+    for (let x = 0; x < art.w; x++) {
+      const i = (y * art.w + x) * 4;
+      if (Math.max(art.px[i], art.px[i + 1], art.px[i + 2]) > 40) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
+    }
+  return { x0, y0, x1, y1 };
+}
+
+// style "frame": a rounded blue frame like the artwork, the wolf standing on
+//   its inner bottom edge (iPhone, browser tab, notifications, Android "any").
+// style "ring": the blue as a circle inside Android's safe zone, wolf cut off
+//   by the circle the same way - whatever shape the phone crops to (maskable).
+function icon(art, size, style) {
+  const px = Buffer.alloc(size * size * 4);
+  for (let i = 0; i < size * size; i++) px[i * 4 + 3] = 255; // black
+  const c = size / 2, stroke = size * 0.03;
+  // Inside-the-frame test (inner edge) and "on the blue line" coverage.
+  let inner, onLine, wolfH, wolfBottom;
+  if (style === "frame") {
+    const inset = size * 0.035, rad = size * 0.2;
+    const sdf = (x, y, grow) => {
+      const hw = c - inset + grow, r = rad + grow;
+      const qx = Math.abs(x - c) - (hw - r), qy = Math.abs(y - c) - (hw - r);
+      return Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) + Math.min(Math.max(qx, qy), 0) - r;
+    };
+    inner = (x, y) => sdf(x, y, -stroke) < 0;
+    onLine = (x, y) => sdf(x, y, 0) < 0 && sdf(x, y, -stroke) >= 0;
+    wolfH = size * 0.8;
+    wolfBottom = size - inset - stroke;
+  } else {
+    const rOut = size * 0.39, rIn = rOut - stroke;
+    inner = (x, y) => Math.hypot(x - c, y - c) < rIn;
+    onLine = (x, y) => { const d = Math.hypot(x - c, y - c); return d < rOut && d >= rIn; };
+    wolfH = size * 0.6;
+    wolfBottom = c + rIn;
+  }
+  const { x0, y0, x1, y1 } = bounds(art);
+  const cw = x1 - x0 + 1, ch = y1 - y0 + 1, scale = wolfH / ch;
+  const dw = cw * scale, ox = (size - dw) / 2, oy = wolfBottom - wolfH;
+  const sample = (x, y) => {
+    // artwork colour at icon point (x, y), nearest pixel; black outside the wolf box
+    const ax = Math.floor(x0 + (x - ox) / scale), ay = Math.floor(y0 + (y - oy) / scale);
+    if (ax < x0 || ax > x1 || ay < y0 || ay > y1) return [0, 0, 0];
+    const i = (ay * art.w + ax) * 4;
+    return [art.px[i], art.px[i + 1], art.px[i + 2]];
+  };
+  const N = 4; // 4x4 samples per pixel - smooth edges
+  for (let y = 0; y < size; y++)
+    for (let x = 0; x < size; x++) {
+      let r = 0, g = 0, b = 0;
+      for (let sy = 0; sy < N; sy++)
+        for (let sx = 0; sx < N; sx++) {
+          const px_ = x + (sx + 0.5) / N, py_ = y + (sy + 0.5) / N;
+          const col = onLine(px_, py_) ? FRAME_BLUE : inner(px_, py_) ? sample(px_, py_) : [0, 0, 0];
+          r += col[0]; g += col[1]; b += col[2];
         }
-      if (!a) continue;
-      const alpha = a / n / 255, o = ((oy + y) * size + ox + x) * 4;
-      px[o] = Math.round(px[o] * (1 - alpha) + (r / a) * alpha);
-      px[o + 1] = Math.round(px[o + 1] * (1 - alpha) + (g / a) * alpha);
-      px[o + 2] = Math.round(px[o + 2] * (1 - alpha) + (b / a) * alpha);
+      const o = (y * size + x) * 4, n = N * N;
+      px[o] = Math.round(r / n); px[o + 1] = Math.round(g / n); px[o + 2] = Math.round(b / n);
     }
   return encode(size, size, px);
 }
 
 const root = path.join(__dirname, "..", "public");
-const logo = decode(path.join(root, "logo.png"));
-for (const [dir, name, stripe] of [["icons", "ops", "#4F8FD1"], [path.join("site", "icons"), "site", "#F59E0B"]]) {
+const art = decode(path.join(root, "brand", "lobos-wolf.png"));
+for (const [dir, name] of [["icons", "ops"], [path.join("site", "icons"), "site"]]) {
   fs.mkdirSync(path.join(root, dir), { recursive: true });
-  for (const size of [180, 192, 512]) fs.writeFileSync(path.join(root, dir, `${name}-${size}.png`), icon(logo, size, stripe));
+  for (const size of [180, 192, 512]) fs.writeFileSync(path.join(root, dir, `${name}-${size}.png`), icon(art, size, "frame"));
+  fs.writeFileSync(path.join(root, dir, `${name}-maskable-512.png`), icon(art, 512, "ring"));
 }
 console.log("icons written");

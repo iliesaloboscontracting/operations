@@ -14,7 +14,7 @@ self.addEventListener("push", (e) => {
   e.waitUntil(
     self.registration.showNotification(m.title || "Operations", {
       body: m.body || "",
-      icon: "/logo.png",
+      icon: "/icons/ops-192.png",
       tag: m.tag,
       renotify: !!m.tag && !m.silent,
       silent: !!m.silent,

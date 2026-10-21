@@ -23,7 +23,7 @@ export async function GET(_req: NextRequest, { params }: { params: { token: stri
       icons: [
         { src: "/site/icons/site-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
         { src: "/site/icons/site-512.png", sizes: "512x512", type: "image/png", purpose: "any" },
-        { src: "/site/icons/site-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
+        { src: "/site/icons/site-maskable-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
       ],
     }),
     { headers: { "Content-Type": "application/manifest+json", "Cache-Control": "private, max-age=3600" } },

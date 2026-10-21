@@ -8,6 +8,7 @@ import { MyRequests, RequestForm } from "@/components/site/SiteRequests";
 import TodoList from "@/components/site/TodoList";
 import CheckResultView from "@/components/tools/CheckResultView";
 import InstallApp from "@/components/InstallApp";
+import SiteBrand from "@/components/site/SiteBrand";
 import { serverErrorMessage } from "@/lib/apiFetch";
 import type { CheckResult } from "@/lib/toolboxCheck";
 
@@ -62,8 +63,7 @@ export default function SitePhotosPage({ params }: { params: { token: string } }
   return (
     <div className="mx-auto min-h-screen max-w-md px-4 pb-10 pt-5">
       <div className="mb-5 flex items-center justify-between">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/logo.png" alt="Lobos" className="h-7" />
+        <SiteBrand />
         {info && <span className="text-sm text-gray-400">{info.person}</span>}
       </div>
 
