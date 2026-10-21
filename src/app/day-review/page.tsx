@@ -148,9 +148,16 @@ function JobCard({
                 key={`${r.resourceId}-${r.actualHours}`}
                 defaultValue={r.actualHours ?? ""}
                 disabled={disabled || busy === r.resourceId}
-                onBlur={(e) => saveActual(r.resourceId, { actualHours: e.target.value === "" ? null : Number(e.target.value) })}
+                onBlur={(e) => {
+                  // Only a real change counts - clicking through an hours box
+                  // filled from sign-ins mustn't turn it into a typed figure.
+                  const v = e.target.value === "" ? null : Number(e.target.value);
+                  if (v !== r.actualHours) saveActual(r.resourceId, { actualHours: v });
+                }}
                 className="w-16 rounded-md border border-edge bg-panel2 px-2 py-1 text-xs text-gray-200 disabled:opacity-50"
+                title={r.hoursFromSignIn ? "Filled in from site sign-in - type over it to change" : undefined}
               />
+              {r.hoursFromSignIn && <span className="text-[9px] uppercase tracking-wide text-emerald-400">from sign-in</span>}
               {!r.planned && !disabled && (
                 <button onClick={() => removeUnplanned(r.resourceId)} className="text-gray-500 hover:text-red-400" title="Remove">
                   <X size={14} />

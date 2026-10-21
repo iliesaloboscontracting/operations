@@ -410,6 +410,9 @@ model JobActual {
   resource    Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
   attended    Boolean  @default(true)
   actualHours Float?
+  // "SIGN_IN" when filled from site sign-ins (21 Oct 2026) - follows later
+  // sign-in corrections; null when someone typed it (never overwritten).
+  hoursSource String?
   notes       String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt

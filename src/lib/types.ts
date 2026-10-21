@@ -457,6 +457,7 @@ export interface DayReviewRowDTO {
   planned: boolean;
   attended: boolean | null;
   actualHours: number | null;
+  hoursFromSignIn?: boolean; // hours filled in from site sign-ins, not typed
   notes: string | null;
   costStatus: CostStatus | null; // from the same live costing Tracking uses - a data-quality signal, not a $ figure
   // From site sign-in (19 Oct 2026): times and the hours they work out to.

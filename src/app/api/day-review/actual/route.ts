@@ -22,7 +22,12 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
 
   const update: Record<string, unknown> = {};
   if ("attended" in body) update.attended = !!body.attended;
-  if ("actualHours" in body) update.actualHours = body.actualHours === "" || body.actualHours == null ? null : Number(body.actualHours);
+  if ("actualHours" in body) {
+    update.actualHours = body.actualHours === "" || body.actualHours == null ? null : Number(body.actualHours);
+    // Typed (or the "Use Xh" button): from now on it's someone's figure, so
+    // sign-in corrections no longer change it.
+    update.hoursSource = null;
+  }
   if ("notes" in body) update.notes = body.notes || null;
 
   const actual = await prisma.jobActual.upsert({

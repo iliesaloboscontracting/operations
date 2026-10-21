@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { guard } from "@/lib/auth";
+import { guard, getCurrentUser } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { costAllocation } from "@/lib/costAllocation";
 import { liveJobFields } from "@/lib/jobs";
 import { signInHoursForJobs } from "@/lib/attendanceView";
+import { syncSignInActuals } from "@/lib/signInActuals";
 import type { ResourceType, DayReviewRowDTO } from "@/lib/types";
 
 // GET /api/day-review?date=YYYY-MM-DD -> that date's jobs with planned
@@ -17,6 +18,13 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
   if (denied) return denied;
   const date = req.nextUrl.searchParams.get("date");
   if (!date) return NextResponse.json({ error: "date is required" }, { status: 400 });
+  // Bring the day's sign-in hours into the hours boxes first (Manager+ only -
+  // a Viewer opening the page never writes anything).
+  const viewer = await getCurrentUser();
+  if (viewer && viewer.role !== "VIEWER") {
+    const ids = await prisma.job.findMany({ where: { date: new Date(date + "T00:00:00.000Z") }, select: { id: true } });
+    await syncSignInActuals(ids.map((j) => j.id));
+  }
 
   const [close, jobs] = await Promise.all([
     prisma.dayClose.findUnique({ where: { date } }),
@@ -84,6 +92,7 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
       if (existing) {
         existing.attended = ja.attended;
         existing.actualHours = ja.actualHours;
+        existing.hoursFromSignIn = ja.hoursSource === "SIGN_IN";
         existing.notes = ja.notes;
       } else {
         rows.set(ja.resourceId, {
@@ -94,6 +103,7 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
           planned: false,
           attended: ja.attended,
           actualHours: ja.actualHours,
+          hoursFromSignIn: ja.hoursSource === "SIGN_IN",
           notes: ja.notes,
           costStatus: null,
         });

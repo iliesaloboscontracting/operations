@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { jobLabel, openJob, pointOf, readTicket, sydneyTime } from "@/lib/signin";
 import { todaySydney } from "@/lib/today";
+import { syncSignInActualsQuietly } from "@/lib/signInActuals";
 
 // POST /api/site/in/sign - someone signing in or out from their phone.
 //   { ticket, jobId, action: "STATUS" | "IN" | "OUT", deviceId?,
@@ -109,6 +110,8 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
         runBy,
       },
     });
+    // Anywhere they were just moved off now has their hours.
+    await syncSignInActualsQuietly(elsewhere.map((e) => e.jobId));
     return NextResponse.json({
       ok: true,
       message: `Signed in at ${sydneyTime(now)} - ${where.label}.${toConfirm ? " Your supervisor will confirm it." : ""}`,
@@ -121,6 +124,7 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
       where: { id: open.id },
       data: { signOutAt: now, signOutMethod: ticket.method, ...(toConfirm ? { status: "TO_CONFIRM" } : {}) },
     });
+    await syncSignInActualsQuietly([open.jobId]);
     return NextResponse.json({ ok: true, message: `Signed out at ${sydneyTime(now)} - ${where.label}. See you next time.` });
   }
   return bad("Unknown request.");

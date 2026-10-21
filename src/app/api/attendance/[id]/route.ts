@@ -4,6 +4,7 @@ import { guard, getCurrentUser } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { parseTime } from "@/lib/signin";
 import { lockedWeekFor } from "@/lib/timesheets";
+import { syncSignInActualsQuietly } from "@/lib/signInActuals";
 
 const STATUSES = ["CONFIRMED", "TO_CONFIRM", "REJECTED"];
 
@@ -60,6 +61,7 @@ export const PATCH = withErrorHandling(async (req: NextRequest, { params }: { pa
     where: { id: a.id },
     data: { ...data, edits: { create: edits.map((e) => ({ ...e, reason, editedBy: by })) } },
   });
+  await syncSignInActualsQuietly([a.jobId]);
   return NextResponse.json({ ok: true });
 });
 

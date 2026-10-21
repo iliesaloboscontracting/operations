@@ -7,6 +7,7 @@ import { attendanceForDate } from "@/lib/attendanceView";
 import { todaySydney } from "@/lib/today";
 import { parseTime } from "@/lib/signin";
 import { lockedWeekFor } from "@/lib/timesheets";
+import { syncSignInActualsQuietly } from "@/lib/signInActuals";
 
 // GET /api/attendance?date=YYYY-MM-DD -> that date's jobs with sign-ins,
 // hours, no-shows and flags; plus the active site posters and hand-overs.
@@ -88,6 +89,7 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
       edits: { create: { field: "added", before: null, after: `${signInAt.toISOString()} - ${signOutAt?.toISOString() ?? "open"}`, reason, editedBy: by } },
     },
   });
+  await syncSignInActualsQuietly([created.jobId]);
   return NextResponse.json({ id: created.id }, { status: 201 });
 });
 

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { resolveLink, siteUrl, type ResolvedLink } from "@/lib/siteLinks";
+import { syncSignInActualsQuietly } from "@/lib/signInActuals";
 import { createHandover, jobLabel, openJob, openJobsFor, ROTATE_SECONDS, rotatingCode, sydneyTime } from "@/lib/signin";
 
 // The supervisor's side of crew sign-in, through their own link (or a
@@ -94,6 +95,7 @@ export const POST = withErrorHandling(async (req: NextRequest, { params }: { par
         where: { id: attendance.id },
         data: { status: body.action === "CONFIRM" ? "CONFIRMED" : "REJECTED", confirmedBy: by, confirmedAt: new Date() },
       });
+      await syncSignInActualsQuietly([attendance.jobId]);
       return NextResponse.json({ ok: true });
     }
     case "MANUAL_IN": {
@@ -124,6 +126,7 @@ export const POST = withErrorHandling(async (req: NextRequest, { params }: { par
       if (!attendance) return bad("That sign-in isn't on your jobs.");
       if (attendance.signOutAt) return bad("Already signed out - the office can change the time.");
       await prisma.siteAttendance.update({ where: { id: attendance.id }, data: { signOutAt: new Date(), signOutMethod: "MANUAL" } });
+      await syncSignInActualsQuietly([attendance.jobId]);
       return NextResponse.json({ ok: true });
     }
     case "HANDOVER": {
