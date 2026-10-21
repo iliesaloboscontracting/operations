@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { guard, getCurrentUser } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { parseTime } from "@/lib/signin";
+import { lockedWeekFor } from "@/lib/timesheets";
 
 const STATUSES = ["CONFIRMED", "TO_CONFIRM", "REJECTED"];
 
@@ -19,6 +20,7 @@ export const PATCH = withErrorHandling(async (req: NextRequest, { params }: { pa
   if (reason.length < 3) return bad("Say why it's being changed.");
   const a = await prisma.siteAttendance.findUnique({ where: { id: params.id } });
   if (!a) return NextResponse.json({ error: "not found" }, { status: 404 });
+  if (await lockedWeekFor(a.date)) return bad("That week's timesheet has been approved - an Admin has to reopen it (Timesheets page) before its sign-ins can change.");
 
   const data: Record<string, unknown> = {};
   const edits: { field: string; before: string | null; after: string | null }[] = [];

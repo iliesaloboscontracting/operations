@@ -653,3 +653,25 @@ model AttendanceEdit {
 
   @@index([attendanceId])
 }
+
+// Weekly timesheets (21 Oct 2026, Ilies): a Manager approves a week (Monday
+// to Sunday) of Lobos staff hours from site sign-ins before it goes to
+// accounts. `snapshot` is the JSON of every line exactly as approved - what
+// the export sends - so it never changes afterwards, even if a sign-in is
+// later corrected. While approved, the office can't change that week's
+// sign-ins; an Admin can reopen it with a reason. Rows are never deleted:
+// re-approving after a reopen adds a new row, so the history stays.
+model TimesheetWeek {
+  id           String    @id @default(cuid())
+  weekStart    String // YYYY-MM-DD, the Monday
+  approvedBy   String
+  approvedAt   DateTime  @default(now())
+  snapshot     String // JSON: { lines, people } exactly as approved
+  totalHours   Float
+  people       Int
+  reopenedBy   String?
+  reopenedAt   DateTime?
+  reopenReason String?
+
+  @@index([weekStart])
+}

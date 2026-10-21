@@ -107,6 +107,15 @@ export const DELETE = withErrorHandling(async (
   if (!current) return NextResponse.json({ error: "not found" }, { status: 404 });
   const locked = await assertDateOpen(current.date.toISOString().slice(0, 10));
   if (locked) return locked;
+  // Sign-ins are the timesheet record (21 Oct 2026) - deleting the job would
+  // take them with it, so a job anyone signed in to can only be stood down.
+  const signIns = await prisma.siteAttendance.count({ where: { jobId: params.id } });
+  if (signIns > 0) {
+    return NextResponse.json(
+      { error: `${signIns} sign-in${signIns === 1 ? " is" : "s are"} recorded on this job, so it can't be deleted - mark it Stood down instead.` },
+      { status: 409 }
+    );
+  }
   await prisma.job.delete({ where: { id: params.id } });
   return NextResponse.json({ ok: true });
 });

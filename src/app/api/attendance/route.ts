@@ -6,6 +6,7 @@ import { isISODate } from "@/lib/dateRules";
 import { attendanceForDate } from "@/lib/attendanceView";
 import { todaySydney } from "@/lib/today";
 import { parseTime } from "@/lib/signin";
+import { lockedWeekFor } from "@/lib/timesheets";
 
 // GET /api/attendance?date=YYYY-MM-DD -> that date's jobs with sign-ins,
 // hours, no-shows and flags; plus the active site posters and hand-overs.
@@ -66,12 +67,14 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
     if (name.length < 2 || company.length < 2) return bad("Enter the worker's name and company.");
     who = { resourceId: null, workerName: name, company };
   }
+  const date = job ? job.date.toISOString().slice(0, 10) : sydneyDate(signInAt);
+  if (await lockedWeekFor(date)) return bad("That week's timesheet has been approved - an Admin has to reopen it (Timesheets page) before its sign-ins can change.");
   const by = user?.name ?? "Office";
   const created = await prisma.siteAttendance.create({
     data: {
       jobId: job?.id ?? null,
       ...(point ?? {}),
-      date: job ? job.date.toISOString().slice(0, 10) : sydneyDate(signInAt),
+      date,
       ...who,
       allocated: job ? !!who.resourceId && job.assignments.some((a) => a.resourceId === who.resourceId) : true,
       signInAt,
