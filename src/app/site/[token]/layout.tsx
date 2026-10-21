@@ -5,7 +5,7 @@ export function generateMetadata({ params }: { params: { token: string } }): Met
   return {
     title: "Lobos Site",
     manifest: `/site/${params.token}/app.webmanifest`,
-    icons: { icon: "/site/icons/site-192.png", apple: "/site/icons/site-180.png" },
+    icons: { icon: "/site/icons/site-192.png?v=wolf", apple: "/site/icons/site-180.png?v=wolf" },
     appleWebApp: { capable: true, title: "Lobos Site", statusBarStyle: "black" },
   };
 }

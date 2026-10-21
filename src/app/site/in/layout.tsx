@@ -4,7 +4,7 @@ import type { Metadata } from "next";
 // the tab / shortcut icon, served from /site/ like the rest of these pages.
 export const metadata: Metadata = {
   title: "Lobos sign-in",
-  icons: { icon: "/site/icons/site-192.png", apple: "/site/icons/site-180.png" },
+  icons: { icon: "/site/icons/site-192.png?v=wolf", apple: "/site/icons/site-180.png?v=wolf" },
 };
 
 export default function SignInLayout({ children }: { children: React.ReactNode }) {

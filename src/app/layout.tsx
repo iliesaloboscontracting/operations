@@ -19,7 +19,7 @@ export const metadata: Metadata = {
   // with crossorigin=use-credentials, so it passes Cloudflare Access.
   // Supervisors' links override all of this with "Lobos Site".
   manifest: "/ops.webmanifest",
-  icons: { icon: "/icons/ops-192.png", apple: "/icons/ops-180.png" },
+  icons: { icon: "/icons/ops-192.png?v=wolf", apple: "/icons/ops-180.png?v=wolf" }, // ?v= makes browsers drop a cached old icon
   appleWebApp: { capable: true, title: "Lobos Ops", statusBarStyle: "black" },
 };
 export const viewport: Viewport = { themeColor: "#090B0E" };
