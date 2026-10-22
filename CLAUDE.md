@@ -46,7 +46,11 @@ business, without becoming unnecessarily complicated.
   forward (`ssh -N -L 3000:127.0.0.1:3000 …`); the office address is
   **`https://ops.lobostools.com.mx`**.
 - **Auth:** custom cookie-session auth (`src/lib/auth.ts`), scrypt password
-  hashing, roles `ADMIN | MANAGER | VIEWER` via a `guard(minRole)` pattern.
+  hashing, roles `ADMIN | MANAGER | VIEWER` via a `guard(minRole)` pattern,
+  plus `TIMESHEETS` (2026-10-22, Alex): review-only weekly timesheets and
+  nothing else. It ranks below VIEWER so every `guard()` refuses it; only
+  `guardTimesheetViewer()` (timesheets GET) lets it in. Keep it that way -
+  never loosen a guard to admit it.
 - **AI assistant** (`/assistant`, Manager+ only, added 2026-09-29): a
   read-only Q&A chat over live operational data, via the Anthropic API
   (`ANTHROPIC_API_KEY` in `.env`, unset by default — the route 503s with a
