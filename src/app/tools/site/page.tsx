@@ -56,7 +56,6 @@ export default function FromSitePage() {
   const [registering, setRegistering] = useState<Submission | null>(null);
   const [openCheck, setOpenCheck] = useState<string | null>(null);
   const [newLinkFor, setNewLinkFor] = useState("");
-  const [linkKind, setLinkKind] = useState<"SUPERVISOR" | "OFFICE" | "YARD">("SUPERVISOR");
   const [people, setPeople] = useState<ResourceDTO[]>([]);
   const [toCheck, setToCheck] = useState<ToolDTO[]>([]);
   const [madeLink, setMadeLink] = useState<{ name: string; url: string } | null>(null);
@@ -106,8 +105,15 @@ export default function FromSitePage() {
       ...boxes.filter((b) => b.supervisor).map((b) => [b.supervisor!.id, b.supervisor!] as const),
     ]).values()
   ).sort((a, b) => a.name.localeCompare(b.name));
-  // Office / yard links can go to anyone in the Personnel register.
-  const linkPeople: { id: string; name: string }[] = linkKind === "OFFICE" ? people : supervisors;
+  // One "who's it for" list (22 Oct 2026, Ilies: the office should never need
+  // a supervisor/allocation step). The kind of link follows the person: Office
+  // staff get an office link (My to-do, tools), supervisors a supervisor link
+  // (crew sign-in, requests, toolbox), anyone else an office / yard link.
+  const supervisorIds = new Set(supervisors.map((p) => p.id));
+  const officeStaff = people.filter((p) => p.category === "Office" && p.active !== false).sort((a, b) => a.name.localeCompare(b.name));
+  const others = people.filter((p) => p.category !== "Office" && !supervisorIds.has(p.id) && p.active !== false).sort((a, b) => a.name.localeCompare(b.name));
+  const linkKind: "SUPERVISOR" | "OFFICE" | "YARD" = newLinkFor === "YARD" ? "YARD" : supervisorIds.has(newLinkFor) && !officeStaff.some((p) => p.id === newLinkFor) ? "SUPERVISOR" : "OFFICE";
+  const linkPeople: { id: string; name: string }[] = [...officeStaff, ...supervisors, ...others];
 
   return (
     <PageShell title="From site" subtitle="Tools added from site, faults reported, and everyone's private phone links.">
@@ -233,34 +239,35 @@ export default function FromSitePage() {
           <section className="min-w-0">
             <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-gray-200"><Link2 size={14} /> Phone links</h2>
             <p className="mb-3 text-xs text-gray-500">
-              <b className="text-gray-300">Supervisor link</b>: add tools to their toolbox, check it, report faults. <b className="text-gray-300">Office / yard link</b>: add tools to
-              the inventory (any toolbox or the yard). Each person gets their own private link; making a new one switches their old one of that kind off.
+              <b className="text-gray-300">Supervisor link</b>: add tools to their toolbox, check it, report faults. <b className="text-gray-300">Office link</b>: requests to-do list and adding tools
+              to the inventory. Pick the person - the right kind of link is chosen for you. Each person gets their own private link; making a new one switches their old one of that kind off.
             </p>
             {canEdit && (
               <div className="mb-3 flex flex-wrap gap-2">
-                <select
-                  className="rounded-lg border border-edge bg-panel2 px-2.5 py-1.5 text-xs text-gray-200"
-                  value={linkKind}
-                  onChange={(e) => {
-                    setLinkKind(e.target.value as "SUPERVISOR" | "OFFICE" | "YARD");
-                    setNewLinkFor("");
-                  }}
-                >
-                  <option value="SUPERVISOR">Supervisor link</option>
-                  <option value="OFFICE">Office / yard link</option>
-                  <option value="YARD">Yard link (shared)</option>
-                </select>
-                {linkKind === "YARD" ? (
-                  <span className="min-w-0 flex-1 self-center text-xs text-gray-400">One link for anyone in the yard</span>
-                ) : (
                 <select className="min-w-0 flex-1 rounded-lg border border-edge bg-panel2 px-2.5 py-1.5 text-xs text-gray-200" value={newLinkFor} onChange={(e) => setNewLinkFor(e.target.value)}>
-                  <option value="">{linkKind === "OFFICE" ? "Person…" : "Supervisor…"}</option>
-                  {linkPeople.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  <option value="">Who&apos;s it for…</option>
+                  {officeStaff.length > 0 && (
+                    <optgroup label="Office">
+                      {officeStaff.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </optgroup>
+                  )}
+                  {supervisors.length > 0 && (
+                    <optgroup label="Supervisors">
+                      {supervisors.filter((p) => !officeStaff.some((o) => o.id === p.id)).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </optgroup>
+                  )}
+                  <optgroup label="Shared">
+                    <option value="YARD">Yard - one link for anyone in the yard</option>
+                  </optgroup>
+                  {others.length > 0 && (
+                    <optgroup label="Everyone else (office / yard link)">
+                      {others.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </optgroup>
+                  )}
                 </select>
-                )}
                 <button
                   className={btn}
-                  disabled={linkKind !== "YARD" && !newLinkFor}
+                  disabled={!newLinkFor}
                   onClick={async () => {
                     if (linkKind === "YARD" && links.some((l) => !l.resource && !l.revokedAt) && !confirm("Make a new Yard link? The old one stops working - everyone in the yard will need the new one.")) return;
                     const out = await act(
@@ -269,7 +276,7 @@ export default function FromSitePage() {
                     );
                     if (out) {
                       const who = linkPeople.find((p) => p.id === newLinkFor)?.name ?? "";
-                      setMadeLink({ name: linkKind === "YARD" ? "the Yard" : linkKind === "OFFICE" ? `${who} (office / yard)` : who, url: out.url });
+                      setMadeLink({ name: linkKind === "YARD" ? "the Yard" : linkKind === "OFFICE" ? `${who} (office link)` : who, url: out.url });
                       setCopied(false);
                       setNewLinkFor("");
                     }
@@ -277,9 +284,18 @@ export default function FromSitePage() {
                 >
                   Make link
                 </button>
+                {newLinkFor && (
+                  <p className="w-full text-xs text-gray-500">
+                    {linkKind === "SUPERVISOR"
+                      ? "Supervisor link: crew sign-in QR, site requests, their toolbox."
+                      : linkKind === "YARD"
+                        ? "Shared yard link: tools into the inventory; each person types their name."
+                        : "Office link: their requests to-do list and adding tools. No allocation needed."}
+                  </p>
+                )}
               </div>
             )}
-            {linkKind === "SUPERVISOR" && supervisors.length === 0 && <p className="mb-3 text-xs text-amber-500">No site supervisors or team leaders in Personnel yet.</p>}
+            {supervisors.length === 0 && <p className="mb-3 text-xs text-amber-500">No site supervisors or team leaders in Personnel yet.</p>}
             {madeLink && (
               <div className="mb-3 rounded-lg border border-brand-500 bg-brand-600/10 p-3 text-xs">
                 <div className="mb-1 font-semibold text-gray-100">Link for {madeLink.name}</div>
