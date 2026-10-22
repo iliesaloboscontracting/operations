@@ -31,6 +31,7 @@ export const GET = withErrorHandling(async (_req: NextRequest, { params }: { par
       where: { AND: [mine, { OR: [{ status: { in: OPEN_STATUSES } }, { updatedAt: { gte: since } }] }] },
       orderBy: { createdAt: "desc" },
       take: 60,
+      include: { events: { orderBy: { at: "asc" } } },
     }),
     sitesFor(link),
   ]);

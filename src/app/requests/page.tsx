@@ -35,7 +35,7 @@ type Data = { requests: OfficeRequestView[]; assignees: { id: string; name: stri
 const COLUMNS: { key: string; title: string; hint: string; statuses: string[] }[] = [
   { key: "decide", title: "To decide", hint: "New, seen, or sent back", statuses: ["SENT", "SEEN", "CANT_DO"] },
   { key: "waiting", title: "Waiting on site", hint: "You asked the supervisor", statuses: ["NEEDS_INFO"] },
-  { key: "doing", title: "Being actioned", hint: "With Alex, or you", statuses: ["TODO", "MINE"] },
+  { key: "doing", title: "Being actioned", hint: "With Alex, or you", statuses: ["TODO", "ACTIONING", "MINE"] },
   { key: "closed", title: "Closed - last 14 days", hint: "Done, declined, cancelled", statuses: ["DONE", "DECLINED", "CANCELLED"] },
 ];
 
@@ -117,7 +117,7 @@ export default function RequestsPage() {
   const all = data?.requests ?? [];
   const openRows = all.filter((r) => !COLUMNS[3].statuses.includes(r.status));
   const current = all.find((r) => r.id === openId) ?? null;
-  const withAlex = openRows.filter((r) => r.status === "TODO");
+  const withAlex = openRows.filter((r) => r.status === "TODO" || r.status === "ACTIONING" || (r.status === "NEEDS_INFO" && !!r.assigneeName));
 
   return (
     <PageShell
@@ -198,7 +198,7 @@ function Card({ r, onOpen }: { r: OfficeRequestView; onOpen: () => void }) {
     <button onClick={onOpen} className={`w-full rounded-lg border bg-panel2 p-2.5 text-left hover:border-brand-500/60 ${isNew ? "border-brand-500/70" : "border-edge"}`}>
       <div className="mb-1 flex items-center justify-between gap-2">
         <span className={`rounded border px-1.5 py-0.5 text-[11px] font-semibold ${PRIORITY_TONE[r.priority]}`}>{PRIORITY_DOT[r.priority]} {PRIORITY_LABEL[r.priority]}</span>
-        <span className="text-[11px] text-gray-500">{isNew ? <b className="text-brand-300">NEW</b> : STATUS_FOR_OFFICE[r.status]}{r.status === "TODO" && r.assigneeName ? ` ${r.assigneeName}` : ""}</span>
+        <span className="text-[11px] text-gray-500">{isNew ? <b className="text-brand-300">NEW</b> : STATUS_FOR_OFFICE[r.status]}{(r.status === "TODO" || r.status === "ACTIONING") && r.assigneeName ? ` ${r.assigneeName}` : ""}</span>
       </div>
       <div className="text-sm font-semibold text-gray-100">{r.summary}</div>
       <div className="truncate text-xs text-gray-400">{r.site} · {r.requestedBy}</div>
@@ -206,6 +206,8 @@ function Card({ r, onOpen }: { r: OfficeRequestView; onOpen: () => void }) {
         {late ? "Overdue - " : "By "}{whenText(r.neededBy)}{r.hasPhoto ? " · 📷" : ""}
       </div>
       {r.status === "CANT_DO" && r.outcome && <div className="mt-1 text-xs text-amber-300">Can&apos;t do: {r.outcome}</div>}
+      {(r.status === "TODO" || r.status === "ACTIONING") && r.update && <div className="mt-1 truncate text-xs text-emerald-300">{r.update.by}: {r.update.note}</div>}
+      {r.status === "NEEDS_INFO" && r.askedBy && r.askedBy !== "You" && <div className="mt-1 truncate text-xs text-amber-300">{r.askedBy} asked the supervisor</div>}
       {r.status === "SEEN" && r.answer && <div className="mt-1 text-xs text-sky-300">Answered: {r.answer}</div>}
     </button>
   );
@@ -290,7 +292,7 @@ function Detail({
 
         <div className="mb-3 flex flex-wrap items-center gap-2">
           <span className={`rounded border px-2 py-0.5 text-xs font-semibold ${PRIORITY_TONE[r.priority]}`}>{PRIORITY_DOT[r.priority]} {PRIORITY_LABEL[r.priority]}</span>
-          <span className="rounded bg-panel2 px-2 py-0.5 text-xs text-gray-300">{STATUS_FOR_OFFICE[r.status]}{r.status === "TODO" && r.assigneeName ? ` ${r.assigneeName}` : ""}</span>
+          <span className="rounded bg-panel2 px-2 py-0.5 text-xs text-gray-300">{STATUS_FOR_OFFICE[r.status]}{(r.status === "TODO" || r.status === "ACTIONING") && r.assigneeName ? ` ${r.assigneeName}` : ""}</span>
           {isOverdue(r) && <span className="rounded bg-red-500/15 px-2 py-0.5 text-xs font-semibold text-red-300">Overdue</span>}
         </div>
 
@@ -306,7 +308,8 @@ function Detail({
           )}
         </dl>
         {r.note && <p className="mb-2 rounded-lg bg-panel2 px-3 py-2 text-sm text-gray-300">Supervisor: “{r.note}”</p>}
-        {r.question && <p className="mb-1 text-sm text-amber-300">You asked: {r.question}</p>}
+        {r.question && <p className="mb-1 text-sm text-amber-300">{r.askedBy && r.askedBy !== "You" ? `${r.askedBy} asked` : "You asked"}: {r.question}</p>}
+        {r.update && <p className="mb-2 text-sm text-emerald-300">Latest update ({r.update.by}, {whenText(r.update.at)}): {r.update.note}</p>}
         {r.answer && <p className="mb-2 text-sm text-sky-300">Answer: {r.answer}</p>}
         {r.officeNote && <p className="mb-2 text-sm text-brand-200">Your note: {r.officeNote}</p>}
         {r.outcome && <p className={`mb-2 text-sm ${r.status === "CANT_DO" ? "text-amber-300" : "text-emerald-300"}`}>{r.status === "CANT_DO" ? "Can't do: " : "Outcome: "}{r.outcome}</p>}
@@ -325,12 +328,12 @@ function Detail({
           ) : !action ? (
             <div className="mb-4 grid grid-cols-2 gap-2 [&>button]:py-3 sm:[&>button]:py-2">
               <button onClick={() => setAction("APPROVE")} disabled={!assignees.length} className="rounded-lg bg-brand-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-40">
-                {r.status === "TODO" ? "Change / re-send" : `Approve → ${assignees[0]?.name.split(" ")[0] ?? "to-do"}`}
+                {r.status === "TODO" || r.status === "ACTIONING" ? "Change / re-send" : `Approve → ${assignees[0]?.name.split(" ")[0] ?? "to-do"}`}
               </button>
               <button onClick={() => setAction("MINE")} className="rounded-lg border border-edge px-3 py-2 text-sm text-gray-200 hover:bg-panel2">I&apos;ll do it</button>
               <button onClick={() => setAction("ASK")} className="rounded-lg border border-edge px-3 py-2 text-sm text-gray-200 hover:bg-panel2">Ask supervisor</button>
               <button onClick={() => setAction("DECLINE")} className="rounded-lg border border-red-500/40 px-3 py-2 text-sm text-red-300 hover:bg-red-500/10">Decline</button>
-              {(r.status === "MINE" || r.status === "TODO") && (
+              {(r.status === "MINE" || r.status === "TODO" || r.status === "ACTIONING") && (
                 <button onClick={() => setAction("DONE")} className="col-span-2 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white">Mark done</button>
               )}
             </div>

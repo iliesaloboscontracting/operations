@@ -37,7 +37,7 @@ export function printRequests(title: string, rows: Row[]) {
   <td>${esc(r.site)}</td>
   <td><b>${esc(r.summary)}</b>${extra.map((x) => `<div class="x">${esc(x)}</div>`).join("")}</td>
   <td>${esc(r.requestedBy)}<div class="x">${esc(whenText(r.createdAt))}</div></td>
-  <td>${requestNo(r.number)}<div class="x">${esc(STATUS_FOR_OFFICE[r.status] ?? r.status)}${r.status === "TODO" && r.assigneeName ? ` ${esc(r.assigneeName)}` : ""}</div></td>
+  <td>${requestNo(r.number)}<div class="x">${esc(STATUS_FOR_OFFICE[r.status] ?? r.status)}${(r.status === "TODO" || r.status === "ACTIONING") && r.assigneeName ? ` ${esc(r.assigneeName)}` : ""}</div></td>
   <td class="tick"></td>
 </tr>`;
     })

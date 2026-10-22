@@ -283,11 +283,16 @@ export function RequestForm({ api, who, onDone }: { api: string; who: string; on
   );
 }
 
+// The status chip, naming who's handling it once it's been handed over.
+const statusText = (r: SiteRequestView) =>
+  r.status === "TODO" && r.handler ? `Approved - with ${r.handler}` : r.status === "ACTIONING" && r.handler ? `${r.handler} is on it` : STATUS_FOR_SITE[r.status] ?? r.status;
+
 const STATUS_TONE: Record<string, string> = {
   SENT: "bg-gray-700/60 text-gray-300",
   SEEN: "bg-sky-500/15 text-sky-300",
   NEEDS_INFO: "bg-amber-500/20 text-amber-300",
   TODO: "bg-brand-600/25 text-brand-200",
+  ACTIONING: "bg-emerald-500/15 text-emerald-300",
   MINE: "bg-brand-600/25 text-brand-200",
   CANT_DO: "bg-brand-600/25 text-brand-200",
   DONE: "bg-emerald-500/15 text-emerald-300",
@@ -356,7 +361,7 @@ function MyRequest({ api, r, onChange }: { api: string; r: SiteRequestView; onCh
     <div className={`rounded-xl border border-edge bg-panel p-4 ${closed ? "opacity-70" : ""}`}>
       <div className="mb-1 flex items-center justify-between gap-2">
         <span className="text-xs text-gray-500">{requestNo(r.number)} · {whenText(r.createdAt)}</span>
-        <span className={`rounded px-2 py-0.5 text-xs font-semibold ${STATUS_TONE[r.status] ?? ""}`}>{STATUS_FOR_SITE[r.status] ?? r.status}</span>
+        <span className={`rounded px-2 py-0.5 text-xs font-semibold ${STATUS_TONE[r.status] ?? ""}`}>{statusText(r)}</span>
       </div>
       <div className="text-base font-semibold text-gray-100">{PRIORITY_DOT[r.priority]} {r.summary}</div>
       <div className="text-sm text-gray-400">{r.site} · needed by {whenText(r.neededBy)}</div>
@@ -367,9 +372,14 @@ function MyRequest({ api, r, onChange }: { api: string; r: SiteRequestView; onCh
       {/* eslint-disable-next-line @next/next/no-img-element */}
       {showPhoto && <img src={`${api}/requests/${r.id}/photo`} alt="" className="mt-2 max-h-64 w-full rounded-lg object-cover" />}
 
+      {r.update && (
+        <div className="mt-2 rounded-lg bg-panel2 px-3 py-2 text-sm text-gray-300">
+          <span className="text-gray-500">{r.update.by} · {whenText(r.update.at)}:</span> {r.update.note}
+        </div>
+      )}
       {r.status === "NEEDS_INFO" && (
         <div className="mt-3 rounded-lg bg-amber-500/10 p-3">
-          <div className="mb-2 text-sm text-amber-200">Office asks: {r.question}</div>
+          <div className="mb-2 text-sm text-amber-200">{r.askedBy ?? "Office"} asks: {r.question}</div>
           <textarea className={input} rows={2} value={answer} onChange={(e) => setAnswer(e.target.value)} placeholder="Your answer" />
           <button className={`${primary} mt-2`} disabled={busy} onClick={() => act({ action: "ANSWER", answer })}>Send answer</button>
         </div>

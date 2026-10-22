@@ -154,6 +154,7 @@ export const STATUS_FOR_SITE: Record<string, string> = {
   SEEN: "Seen by the office",
   NEEDS_INFO: "Office needs more info",
   TODO: "Approved - being actioned",
+  ACTIONING: "Being actioned",
   MINE: "Approved - being actioned",
   DONE: "Done",
   CANT_DO: "Approved - being actioned",
@@ -166,13 +167,17 @@ export const STATUS_FOR_OFFICE: Record<string, string> = {
   SEEN: "Seen - to decide",
   NEEDS_INFO: "Waiting on supervisor",
   TODO: "With",
+  ACTIONING: "On it -",
   MINE: "Doing it myself",
   DONE: "Done",
   CANT_DO: "Can't do - back to you",
   DECLINED: "Declined",
   CANCELLED: "Cancelled",
 };
-export const OPEN_STATUSES = ["SENT", "SEEN", "NEEDS_INFO", "TODO", "MINE", "CANT_DO"];
+// ACTIONING (22 Oct 2026): the person it was handed to has started on it.
+export const OPEN_STATUSES = ["SENT", "SEEN", "NEEDS_INFO", "TODO", "ACTIONING", "MINE", "CANT_DO"];
+// On the assignee's to-do list (Alex): handed over, started, or waiting on his question.
+export const ON_TODO = ["TODO", "ACTIONING", "NEEDS_INFO"];
 // Waiting on Ilies to act (the menu badge).
 export const NEEDS_ILIES = ["SENT", "SEEN", "CANT_DO"];
 

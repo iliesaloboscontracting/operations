@@ -86,6 +86,16 @@ export async function createRequest(link: ResolvedLink, body: Record<string, unk
 }
 
 const iso = (d: Date | null) => d?.toISOString() ?? null;
+const firstName = (n: string | null) => (n ? n.split(" ")[0] : null);
+const last = (r: Req, action: string) => [...(r.events ?? [])].reverse().find((e) => e.action === action) ?? null;
+// Who asked the open question - Ilies, or the person actioning it (Alex).
+// Answers go back to whoever asked.
+export const askedByAssignee = (r: Req) => !!r.assigneeName && last(r, "ASK")?.by === r.assigneeName;
+// The latest progress note from whoever is actioning it.
+const latestUpdate = (r: Req) => {
+  const e = last(r, "UPDATE");
+  return e ? { note: e.note ?? "", at: e.at.toISOString(), by: firstName(e.by) } : null;
+};
 const base = (r: Req) => ({
   id: r.id,
   number: r.number,
@@ -107,6 +117,10 @@ const base = (r: Req) => ({
 export const siteView = (r: Req) => ({
   ...base(r),
   seenAt: iso(r.seenAt),
+  // First name of whoever is actioning it (no other office detail).
+  handler: ["TODO", "ACTIONING", "NEEDS_INFO"].includes(r.status) ? firstName(r.assigneeName) : null,
+  askedBy: r.status === "NEEDS_INFO" ? (askedByAssignee(r) ? firstName(r.assigneeName) : "Office") : null,
+  update: ["TODO", "ACTIONING", "NEEDS_INFO", "DONE"].includes(r.status) ? latestUpdate(r) : null,
   question: r.status === "NEEDS_INFO" ? r.question : null,
   answer: r.answer,
   declineReason: r.status === "DECLINED" ? r.declineReason : null,
@@ -115,7 +129,16 @@ export const siteView = (r: Req) => ({
 });
 
 // Whoever it's assigned to (Alex): the task, with Ilies's note.
-export const todoView = (r: Req) => ({ ...base(r), officeNote: r.officeNote, answer: r.answer, outcome: r.outcome, doneAt: iso(r.doneAt) });
+export const todoView = (r: Req) => ({
+  ...base(r),
+  officeNote: r.officeNote,
+  question: r.status === "NEEDS_INFO" ? r.question : null,
+  askedByMe: r.status === "NEEDS_INFO" && askedByAssignee(r),
+  answer: r.answer,
+  update: latestUpdate(r),
+  outcome: r.outcome,
+  doneAt: iso(r.doneAt),
+});
 
 // Ilies: everything, including the history.
 export const officeView = (r: Req) => ({
@@ -129,6 +152,8 @@ export const officeView = (r: Req) => ({
   assigneeName: r.assigneeName,
   outcome: r.outcome,
   doneAt: iso(r.doneAt),
+  update: latestUpdate(r),
+  askedBy: r.status === "NEEDS_INFO" ? (askedByAssignee(r) ? r.assigneeName : "You") : null,
   events: (r.events ?? []).map((e) => ({ action: e.action, by: e.by, note: e.note, at: e.at.toISOString() })),
 });
 export type SiteRequestView = ReturnType<typeof siteView>;

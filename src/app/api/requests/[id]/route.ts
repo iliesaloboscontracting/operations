@@ -14,7 +14,7 @@ import { PRIORITIES, type Priority } from "@/lib/requestTypes";
 //   DECLINE { reason }
 //   DONE    { outcome }                         - closed by Ilies
 //   REOPEN                                      - a closed one back to "to decide"
-const DECIDABLE = ["SENT", "SEEN", "NEEDS_INFO", "CANT_DO", "MINE", "TODO"];
+const DECIDABLE = ["SENT", "SEEN", "NEEDS_INFO", "CANT_DO", "MINE", "TODO", "ACTIONING"];
 
 export const PATCH = withErrorHandling(async (req: NextRequest, { params }: { params: { id: string } }) => {
   const denied = await guard("ADMIN");
