@@ -149,7 +149,7 @@ function SiteView({ data, search }: { data: Data; search: string }) {
 }
 
 export default function TimesheetsPage() {
-  const { canEdit, isAdmin } = useAuth();
+  const { canEdit, isAdmin, timesheetsOnly } = useAuth();
   const [week, setWeek] = useState(() => localISODate());
   const [data, setData] = useState<Data | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -182,13 +182,13 @@ export default function TimesheetsPage() {
     load();
   };
 
-  if (!canEdit) return <PageShell title="Timesheets"><p className="text-sm text-gray-400">Timesheets are for managers.</p></PageShell>;
+  if (!canEdit && !timesheetsOnly) return <PageShell title="Timesheets"><p className="text-sm text-gray-400">Timesheets are for managers.</p></PageShell>;
 
   const people = (data?.people ?? []).filter((p) => !search || p.name.toLowerCase().includes(search.toLowerCase()));
   const dayTotals = (data?.days ?? []).map((d) => (data?.people ?? []).reduce((n, p) => n + (p.days[d] ?? []).reduce((m, l) => m + (l.hours ?? 0), 0), 0));
 
   return (
-    <PageShell title="Timesheets" subtitle="Lobos staff hours for the week from site sign-ins - every site, the office, yard and trucks. Approve the week, then export it for accounts.">
+    <PageShell title="Timesheets" subtitle={`Lobos staff hours for the week from site sign-ins - every site, the office, yard and trucks.${timesheetsOnly ? "" : " Approve the week, then export it for accounts."}`}>
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <button className="rounded-lg border border-edge p-2 text-gray-300 hover:bg-panel2" onClick={() => setWeek(shiftDate(data?.weekStart ?? week, -7))} aria-label="Previous week">
           <ChevronLeft size={16} />
@@ -213,7 +213,7 @@ export default function TimesheetsPage() {
               Reopen week
             </button>
           )}
-          {data && !data.approval && (
+          {data && !data.approval && canEdit && (
             <button
               disabled={busy || !data.weekEnded || data.issues > 0 || data.people.length === 0}
               onClick={() => act("approve")}
@@ -223,7 +223,8 @@ export default function TimesheetsPage() {
               <Lock size={14} /> Approve week
             </button>
           )}
-          {data && (
+          {timesheetsOnly && <span className="self-center rounded-full bg-gray-700/60 px-3 py-1 text-xs text-gray-300">Review only</span>}
+          {data && canEdit && (
             <a href={`/api/timesheets/export?week=${data.weekStart}`} className="flex items-center gap-1.5 rounded-lg border border-edge px-3.5 py-2 text-sm font-medium text-gray-200 hover:bg-panel2">
               <Download size={14} /> Export for accounts{data.approval ? "" : " (draft)"}
             </a>

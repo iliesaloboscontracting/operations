@@ -10,7 +10,7 @@ interface UserRow {
   id: string;
   email: string;
   name: string;
-  role: "ADMIN" | "MANAGER" | "VIEWER";
+  role: "ADMIN" | "MANAGER" | "VIEWER" | "TIMESHEETS";
   active: boolean;
   lastLoginAt: string | null;
   createdAt: string;
@@ -20,12 +20,14 @@ const ROLE_OPTIONS = [
   { value: "ADMIN", label: "Admin — manage users + edit everything" },
   { value: "MANAGER", label: "Manager — edit board, calendar, registers" },
   { value: "VIEWER", label: "Viewer — read only" },
+  { value: "TIMESHEETS", label: "Timesheets — review only, nothing else" },
 ];
 
 const ROLE_STYLE: Record<string, string> = {
   ADMIN: "bg-purple-900/60 text-purple-300",
   MANAGER: "bg-blue-900/60 text-blue-300",
   VIEWER: "bg-gray-700 text-gray-300",
+  TIMESHEETS: "bg-emerald-900/50 text-emerald-300",
 };
 
 function when(iso: string | null) {

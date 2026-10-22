@@ -7,9 +7,12 @@ import { SESSION_COOKIE, sessionMaxAgeFor, signSession, verifySession } from "./
 
 const scrypt = promisify(scryptCb) as (pw: string, salt: Buffer, len: number) => Promise<Buffer>;
 
-export type Role = "ADMIN" | "MANAGER" | "VIEWER";
-export const ROLES: Role[] = ["ADMIN", "MANAGER", "VIEWER"];
-const RANK: Record<Role, number> = { VIEWER: 1, MANAGER: 2, ADMIN: 3 };
+// TIMESHEETS (22 Oct 2026): review-only access to the weekly timesheets and
+// nothing else (Alex). It ranks below VIEWER, so every guard() in the app
+// refuses it; only guardTimesheetViewer() below lets it in.
+export type Role = "ADMIN" | "MANAGER" | "VIEWER" | "TIMESHEETS";
+export const ROLES: Role[] = ["ADMIN", "MANAGER", "VIEWER", "TIMESHEETS"];
+const RANK: Record<Role, number> = { TIMESHEETS: 0, VIEWER: 1, MANAGER: 2, ADMIN: 3 };
 
 export interface AuthUser {
   id: string;
@@ -75,6 +78,17 @@ export async function guard(min: Role = "VIEWER"): Promise<NextResponse | null> 
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
   if (RANK[user.role] < RANK[min]) {
+    return NextResponse.json({ error: "You don't have permission to do that" }, { status: 403 });
+  }
+  return null;
+}
+
+// Looking at timesheets: Managers and Admins, plus the review-only
+// TIMESHEETS role. Approving, reopening and exporting stay guard("MANAGER").
+export async function guardTimesheetViewer(): Promise<NextResponse | null> {
+  const user = await getCurrentUser();
+  if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+  if (user.role !== "TIMESHEETS" && RANK[user.role] < RANK.MANAGER) {
     return NextResponse.json({ error: "You don't have permission to do that" }, { status: 403 });
   }
   return null;

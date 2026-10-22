@@ -1,7 +1,8 @@
 "use client";
 
-import { usePathname } from "next/navigation";
-import AuthProvider from "./AuthProvider";
+import { useEffect } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import AuthProvider, { useAuth } from "./AuthProvider";
 import TopNav from "./TopNav";
 
 const BARE_PAGES = ["/login", "/setup"];
@@ -23,9 +24,23 @@ export default function AppFrame({ children }: { children: React.ReactNode }) {
       ) : (
         <div className="flex h-screen flex-col">
           <TopNav />
-          <main className="min-h-0 flex-1 overflow-hidden">{children}</main>
+          <main className="min-h-0 flex-1 overflow-hidden">
+            <TimesheetsOnlyGate path={path}>{children}</TimesheetsOnlyGate>
+          </main>
         </div>
       )}
     </AuthProvider>
   );
+}
+
+// Review-only timesheets access (Alex): every other page sends him to
+// Timesheets. The data routes refuse him anyway - this keeps the screen tidy.
+function TimesheetsOnlyGate({ path, children }: { path: string; children: React.ReactNode }) {
+  const { timesheetsOnly } = useAuth();
+  const router = useRouter();
+  const elsewhere = timesheetsOnly && path !== "/timesheets";
+  useEffect(() => {
+    if (elsewhere) router.replace("/timesheets");
+  }, [elsewhere, router]);
+  return elsewhere ? null : <>{children}</>;
 }

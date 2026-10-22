@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { guard, getCurrentUser } from "@/lib/auth";
+import { guard, getCurrentUser, guardTimesheetViewer } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { isISODate } from "@/lib/dateRules";
 import { todaySydney } from "@/lib/today";
@@ -13,7 +13,7 @@ import {
 // hours for that Monday-Sunday week from site sign-ins, the week's approval
 // (if any), what changed since it was approved, and its approval history.
 export const GET = withErrorHandling(async (req: NextRequest) => {
-  const denied = await guard("MANAGER");
+  const denied = await guardTimesheetViewer();
   if (denied) return denied;
   const q = req.nextUrl.searchParams.get("week");
   const weekStart = weekStartOf(q && isISODate(q) ? q : todaySydney());

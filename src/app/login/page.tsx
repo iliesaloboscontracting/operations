@@ -33,7 +33,8 @@ export default function LoginPage() {
       if (!res.ok) throw new Error(j.error || "Couldn't sign in");
       // Only follow same-site relative redirects.
       const next = new URLSearchParams(window.location.search).get("next");
-      window.location.assign(next && next.startsWith("/") && !next.startsWith("//") ? next : "/command");
+      const home = j.home === "/timesheets" ? "/timesheets" : "/command";
+      window.location.assign(home === "/command" && next && next.startsWith("/") && !next.startsWith("//") ? next : home);
     } catch (err) {
       setError((err as Error).message);
       setBusy(false);

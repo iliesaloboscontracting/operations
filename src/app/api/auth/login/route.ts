@@ -33,5 +33,6 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   clearFailures(key);
   await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
   await startSession(user.id, user.email);
-  return NextResponse.json({ ok: true });
+  // Where to land: review-only timesheets access goes straight to Timesheets.
+  return NextResponse.json({ ok: true, home: user.role === "TIMESHEETS" ? "/timesheets" : "/command" });
 });

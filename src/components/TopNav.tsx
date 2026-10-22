@@ -72,7 +72,7 @@ const Divider = () => <span className="mx-1.5 h-5 w-px shrink-0 self-center bg-w
 
 export default function TopNav() {
   const path = usePathname() ?? "";
-  const { user, canEdit, isAdmin, signOut } = useAuth();
+  const { user, canEdit, isAdmin, timesheetsOnly, signOut } = useAuth();
   const [changingPw, setChangingPw] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [startingSoon, setStartingSoon] = useState(0);
@@ -81,6 +81,7 @@ export default function TopNav() {
 
   // Badge on Calendar: projects starting within a week (refreshed on navigation).
   const refreshBadge = useCallback(() => {
+    if (timesheetsOnly) return; // review-only timesheets: no other badges
     fetch(`/api/alerts?date=${localISODate()}`)
       .then((r) => (r.ok ? r.json() : []))
       .then((a: unknown[]) => setStartingSoon(a.length))
@@ -95,7 +96,7 @@ export default function TopNav() {
       .then((r) => (r.ok ? r.json() : { waiting: 0 }))
       .then((d: { waiting: number }) => setRequests(d.waiting))
       .catch(() => setRequests(0));
-  }, []);
+  }, [timesheetsOnly]);
 
   useEffect(refreshBadge, [refreshBadge, path]);
   // The Requests page says when a decision changes the count.
@@ -109,12 +110,15 @@ export default function TopNav() {
 
   return (
     <nav className="relative z-10 flex h-14 w-full shrink-0 items-center border-b-[3px] border-brand-500 bg-sidebar px-3 shadow-soft">
-      <Link href="/projects" className="mr-3 flex shrink-0 items-center">
+      <Link href={timesheetsOnly ? "/timesheets" : "/projects"} className="mr-3 flex shrink-0 items-center">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/logo-dark.png" alt="Lobos Contracting" width={400} height={96} className="h-8 w-auto" />
       </Link>
 
       <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto py-1.5">
+        {timesheetsOnly ? (
+          <NavTab href="/timesheets" label="Timesheets" active={isActive("/timesheets")} />
+        ) : (<>
         {OPERATIONS.filter((i) => (i.href !== "/tracking" && i.href !== "/assistant" && i.href !== "/attendance" && i.href !== "/timesheets" && i.href !== "/requests") || canEdit).map((i) => (
           <NavTab
             key={i.href}
@@ -142,6 +146,7 @@ export default function TopNav() {
             <NavTab href="/users" label="Users" active={isActive("/users")} />
           </>
         )}
+        </>)}
       </div>
 
       {user && (
