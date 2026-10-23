@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import PageShell from "@/components/PageShell";
 import FormModal, { FieldDef } from "@/components/FormModal";
 import { useAuth } from "@/components/AuthProvider";
+import { isOwner } from "@/lib/owner";
 import { apiFetch } from "@/lib/apiFetch";
 
 interface UserRow {
@@ -134,13 +135,16 @@ export default function UsersPage() {
           <button
             key={u.id}
             onClick={() => setEditing(u)}
+            disabled={isOwner(u.email) && !isOwner(me?.email)}
+            title={isOwner(u.email) && !isOwner(me?.email) ? "Only Iliesa can change this account" : undefined}
             className={`grid w-full grid-cols-[1.2fr_1.6fr_0.7fr_0.9fr_0.7fr] gap-3 border-b border-edge/60 px-3 py-2 text-left text-sm last:border-0 hover:bg-panel2/60 ${
               u.active ? "text-gray-200" : "text-gray-500"
             }`}
           >
-            <div className="truncate font-medium">
-              {u.name}
-              {u.id === me?.id && <span className="ml-1 text-[10px] text-gray-500">(you)</span>}
+            <div className="flex min-w-0 items-center font-medium">
+              <span className="truncate">{u.name}</span>
+              {u.id === me?.id && <span className="ml-1 shrink-0 text-[10px] text-gray-500">(you)</span>}
+              {isOwner(u.email) && <span className="ml-1.5 shrink-0 rounded bg-amber-500/15 px-1 py-0.5 text-[9px] font-semibold uppercase text-amber-300">Owner</span>}
             </div>
             <div className="truncate">{u.email}</div>
             <div>

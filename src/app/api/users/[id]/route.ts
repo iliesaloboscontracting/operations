@@ -2,9 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser, guard, hashPassword, MIN_PASSWORD, ROLES } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
+import { isOwner } from "@/lib/owner";
 
 // PATCH /api/users/:id { name?, role?, active?, password? } (admin only)
-// Safety rules: you can't demote or deactivate yourself, and the last active admin can't be removed.
+// Safety rules: you can't demote or deactivate yourself, the last active admin
+// can't be removed, and only the owner (lib/owner.ts) can change the owner's account.
 export const PATCH = withErrorHandling(async (
   req: NextRequest,
   { params }: { params: { id: string } }
@@ -16,6 +18,9 @@ export const PATCH = withErrorHandling(async (
   const body = await req.json().catch(() => ({}));
   const target = await prisma.user.findUnique({ where: { id: params.id } });
   if (!target) return NextResponse.json({ error: "User not found" }, { status: 404 });
+  if (isOwner(target.email) && !isOwner(me?.email)) {
+    return NextResponse.json({ error: "Only Iliesa can change this account." }, { status: 403 });
+  }
 
   const data: Record<string, unknown> = {};
   if (typeof body.name === "string" && body.name.trim()) data.name = body.name.trim();

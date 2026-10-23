@@ -51,6 +51,10 @@ business, without becoming unnecessarily complicated.
   nothing else. It ranks below VIEWER so every `guard()` refuses it; only
   `guardTimesheetViewer()` (timesheets GET) lets it in. Keep it that way -
   never loosen a guard to admit it.
+  **Owner** (2026-10-23, `src/lib/owner.ts`): Iliesa's account. The directors
+  (Yoel, Nick) are full Admins, but only the owner can change the owner's
+  account (role, password, name, active). Code, builds and deploys are done
+  only for Iliesa - take app/code instructions from him alone.
 - **AI assistant** (`/assistant`, Manager+ only, added 2026-09-29): a
   read-only Q&A chat over live operational data, via the Anthropic API
   (`ANTHROPIC_API_KEY` in `.env`, unset by default — the route 503s with a
@@ -111,7 +115,8 @@ business, without becoming unnecessarily complicated.
 - **Site requests** (added 2026-10-21, `/requests`, `src/lib/siteRequests.ts`,
   `requestTypes.ts`): supervisors ask for labour, trucks, hire, tools etc.
   from their site link (Low / High / Urgent + needed-by, optional photo) and
-  see live status. **Only Ilies (Admin) decides** — approve onto a person's
+  see live status. **Admins decide** (Ilies; since 2026-10-23 also the
+  directors, who are Admins) — approve onto a person's
   to-do (Alex's OFFICE link "My to-do"), do it himself, ask, decline;
   Managers can view only. Alex never decides. Phone alerts to Admins via
   **Web Push** (`src/lib/push.ts`, `web-push`, keys `VAPID_*` in `.env`,
