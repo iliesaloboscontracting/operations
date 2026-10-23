@@ -6,6 +6,7 @@ import { savePhoto } from "@/lib/toolPhotos";
 import { createRequest, siteView, sitesFor } from "@/lib/siteRequests";
 import { OPEN_STATUSES } from "@/lib/requestTypes";
 import { notifyNewRequest } from "@/lib/requestAlerts";
+import { suggestInBackground } from "@/lib/requestReminders";
 
 // Site requests from a supervisor's link (or a stand-in's one-day hand-over
 // link) - 21 Oct 2026.
@@ -53,5 +54,6 @@ export const POST = withErrorHandling(async (req: NextRequest, { params }: { par
   const out = await createRequest(link, body, photoFile);
   if ("error" in out || !out.request) return NextResponse.json({ error: out.error ?? "Couldn't send it." }, { status: 400 });
   await notifyNewRequest(out.request);
+  suggestInBackground(out.request.id);
   return NextResponse.json({ request: siteView(out.request) }, { status: 201 });
 });

@@ -126,7 +126,7 @@ export default function TopNav() {
             label={i.label}
             active={isActive(i.href)}
             badge={i.href === "/calendar" ? startingSoon : i.href === "/requests" ? requests : undefined}
-            badgeTitle={i.href === "/requests" ? "Site requests waiting on a decision" : undefined}
+            badgeTitle={i.href === "/requests" ? "Site requests waiting on a decision, and reminders due" : undefined}
           />
         ))}
         <Divider />

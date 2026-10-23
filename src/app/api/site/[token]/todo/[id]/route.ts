@@ -4,6 +4,7 @@ import { withErrorHandling } from "@/lib/apiHandler";
 import { resolveLink } from "@/lib/siteLinks";
 import { addEvent, todoView } from "@/lib/siteRequests";
 import { notifyRequestUpdate } from "@/lib/requestAlerts";
+import { suggestInBackground } from "@/lib/requestReminders";
 import { ON_TODO } from "@/lib/requestTypes";
 
 // PATCH /api/site/:token/todo/:id - the person actioning a request (Alex):
@@ -64,6 +65,7 @@ export const PATCH = withErrorHandling(async (req: NextRequest, { params }: { pa
   }
   const updated = await prisma.siteRequest.update({ where: { id: r.id }, data, include: { events: { orderBy: { at: "asc" } } } });
   await notifyRequestUpdate(updated, what);
+  if (body.action === "UPDATE" || body.action === "START") suggestInBackground(r.id);
   return NextResponse.json({ request: todoView(updated) });
 });
 

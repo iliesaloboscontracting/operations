@@ -6,6 +6,7 @@ import { Printer, X } from "lucide-react";
 import PageShell from "@/components/PageShell";
 import PushToggle from "@/components/PushToggle";
 import InstallApp from "@/components/InstallApp";
+import { ReminderLine, ReminderSection, RemindersStrip } from "@/components/requests/Reminders";
 import { useAuth } from "@/components/AuthProvider";
 import { apiFetch, serverErrorMessage } from "@/lib/apiFetch";
 import { useAutoRefresh } from "@/lib/useAutoRefresh";
@@ -147,6 +148,7 @@ export default function RequestsPage() {
         <Stat label="Overdue" value={openRows.filter(isOverdue).length} tone="text-red-400" />
         <Stat label="On to-do lists" value={withAlex.length} />
       </div>
+      {data && <RemindersStrip rows={all} onOpen={open} />}
       {!data ? (
         <p className="text-sm text-gray-500">Loading…</p>
       ) : (
@@ -209,6 +211,7 @@ function Card({ r, onOpen }: { r: OfficeRequestView; onOpen: () => void }) {
       {(r.status === "TODO" || r.status === "ACTIONING") && r.update && <div className="mt-1 truncate text-xs text-emerald-300">{r.update.by}: {r.update.note}</div>}
       {r.status === "NEEDS_INFO" && r.askedBy && r.askedBy !== "You" && <div className="mt-1 truncate text-xs text-amber-300">{r.askedBy} asked the supervisor</div>}
       {r.status === "SEEN" && r.answer && <div className="mt-1 text-xs text-sky-300">Answered: {r.answer}</div>}
+      <ReminderLine r={r} />
     </button>
   );
 }
@@ -321,6 +324,8 @@ function Detail({
         </div>
         {/* eslint-disable-next-line @next/next/no-img-element */}
         {showPhoto && <img src={`/api/requests/${r.id}/photo`} alt="" className="mb-4 max-h-80 w-full rounded-lg object-contain" />}
+
+        <ReminderSection key={`${r.id}-${r.remindAt}-${r.aiSuggestedAt}`} r={r} isAdmin={isAdmin} onSaved={onSaved} />
 
         {isAdmin ? (
           closed ? (

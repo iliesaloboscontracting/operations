@@ -4,6 +4,7 @@ import { withErrorHandling } from "@/lib/apiHandler";
 import { resolveLink } from "@/lib/siteLinks";
 import { addEvent, askedByAssignee, siteView } from "@/lib/siteRequests";
 import { notifyRequestUpdate } from "@/lib/requestAlerts";
+import { suggestInBackground } from "@/lib/requestReminders";
 
 // PATCH /api/site/:token/requests/:id
 //   { action: "ANSWER", answer }  - reply to the office's question
@@ -28,6 +29,7 @@ export const PATCH = withErrorHandling(async (req: NextRequest, { params }: { pa
     await addEvent(r.id, "ANSWERED", link.person.name, answer);
     const updated = (await prisma.siteRequest.findUnique({ where: { id: r.id }, include: { events: { orderBy: { at: "asc" } } } }))!;
     await notifyRequestUpdate(updated, `${link.person.name} answered: ${answer}`);
+    suggestInBackground(r.id); // the answer may move when it's needed
     return NextResponse.json({ request: siteView(updated) });
   }
   if (body.action === "CANCEL") {

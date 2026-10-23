@@ -4,6 +4,7 @@ import { getCurrentUser, guard } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { addEvent, officeView } from "@/lib/siteRequests";
 import { PRIORITIES, type Priority } from "@/lib/requestTypes";
+import { suggestInBackground, suggestReminder } from "@/lib/requestReminders";
 
 // PATCH /api/requests/:id - Ilies deciding on a site request. Admin only:
 // Alex (and any other Manager) can see requests but never decides on them.
@@ -14,6 +15,13 @@ import { PRIORITIES, type Priority } from "@/lib/requestTypes";
 //   DECLINE { reason }
 //   DONE    { outcome }                         - closed by Ilies
 //   REOPEN                                      - a closed one back to "to decide"
+// Reminders (23 Oct 2026), on open requests:
+//   REMIND { remindAt, note? }                  - set / move Ilies's reminder
+//   CLEAR_REMINDER
+//   ACCEPT_SUGGESTION { alsoNeededBy? }         - take the AI's suggested reminder
+//                                                 (and its new needed-by, if ticked)
+//   DISMISS_SUGGESTION
+//   SUGGEST                                     - ask the AI now
 const DECIDABLE = ["SENT", "SEEN", "NEEDS_INFO", "CANT_DO", "MINE", "TODO", "ACTIONING"];
 
 export const PATCH = withErrorHandling(async (req: NextRequest, { params }: { params: { id: string } }) => {
@@ -81,6 +89,38 @@ export const PATCH = withErrorHandling(async (req: NextRequest, { params }: { pa
       note = outcome;
       break;
     }
+    case "REMIND": {
+      if (!open) return bad("This one is closed.");
+      const at = new Date(String(body.remindAt ?? ""));
+      if (Number.isNaN(at.getTime())) return bad("Pick when to be reminded.");
+      if (at.getTime() < Date.now() - 60_000) return bad("That time has already passed.");
+      data = { remindAt: at, remindNote: text(body.note, 120) || null, remindedAt: null };
+      note = [whenSyd(at), text(body.note, 120)].filter(Boolean).join(" - ");
+      break;
+    }
+    case "CLEAR_REMINDER":
+      data = { remindAt: null, remindNote: null, remindedAt: null };
+      break;
+    case "ACCEPT_SUGGESTION": {
+      if (!open) return bad("This one is closed.");
+      const s = r.aiSuggestion ? (JSON.parse(r.aiSuggestion) as { remindAt: string; note: string; newNeededBy: string | null }) : null;
+      if (!s) return bad("There's no suggestion to accept.");
+      const at = new Date(s.remindAt);
+      if (at.getTime() < Date.now() - 60_000) return bad("That suggested time has passed - set a new one.");
+      data = { remindAt: at, remindNote: s.note || null, remindedAt: null, aiSuggestion: null };
+      if (body.alsoNeededBy && s.newNeededBy) data.neededBy = new Date(s.newNeededBy);
+      note = [`${whenSyd(at)} - ${s.note}`, body.alsoNeededBy && s.newNeededBy ? `needed by moved to ${whenSyd(new Date(s.newNeededBy))}` : ""].filter(Boolean).join("; ");
+      break;
+    }
+    case "DISMISS_SUGGESTION":
+      data = { aiSuggestion: null };
+      break;
+    case "SUGGEST": {
+      if (!open) return bad("This one is closed.");
+      const s = await suggestReminder(r.id).catch(() => null);
+      if (!s) return bad("No suggestion this time - set the reminder yourself.");
+      return done(r.id);
+    }
     case "REOPEN":
       if (open) return bad("This one is still open.");
       data = { status: "SEEN", doneAt: null };
@@ -89,11 +129,16 @@ export const PATCH = withErrorHandling(async (req: NextRequest, { params }: { pa
       return bad("Unknown action.");
   }
   await prisma.siteRequest.update({ where: { id: r.id }, data });
-  await addEvent(r.id, body.action, user.name, note);
+  if (body.action !== "DISMISS_SUGGESTION") await addEvent(r.id, EVENT_NAME[body.action] ?? body.action, user.name, note);
+  // A decision with a note can change when things happen - re-read the thread.
+  if (["APPROVE", "MINE", "ASK"].includes(body.action)) suggestInBackground(r.id);
   return done(r.id);
 });
 
 const bad = (error: string) => NextResponse.json({ error }, { status: 400 });
+const EVENT_NAME: Record<string, string> = { REMIND: "REMINDER", ACCEPT_SUGGESTION: "REMINDER", CLEAR_REMINDER: "REMINDER_CLEARED" };
+const whenSyd = (d: Date) =>
+  d.toLocaleString("en-AU", { timeZone: "Australia/Sydney", weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
 async function done(id: string) {
   const r = await prisma.siteRequest.findUnique({ where: { id }, include: { events: { orderBy: { at: "asc" } } } });
   return NextResponse.json({ request: officeView(r!) });

@@ -14,8 +14,12 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
   if (denied) return denied;
   const q = req.nextUrl.searchParams;
   if (q.get("count")) {
-    const waiting = await prisma.siteRequest.count({ where: { status: { in: NEEDS_ILIES } } });
-    return NextResponse.json({ waiting });
+    // Waiting on a decision, plus reminders that have come due (23 Oct 2026).
+    const [decide, reminders] = await Promise.all([
+      prisma.siteRequest.count({ where: { status: { in: NEEDS_ILIES } } }),
+      prisma.siteRequest.count({ where: { status: { in: OPEN_STATUSES }, remindAt: { lte: new Date() } } }),
+    ]);
+    return NextResponse.json({ waiting: decide + reminders, decide, reminders });
   }
   const since = new Date(Date.now() - 14 * 86_400_000);
   const rows = await prisma.siteRequest.findMany({

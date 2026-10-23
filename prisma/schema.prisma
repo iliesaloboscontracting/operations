@@ -733,6 +733,16 @@ model SiteRequest {
   outcome       String? // done note ("Booked Hire Express #4471") or why it can't be done
   doneAt        DateTime?
   hireResourceId String? // a hire register item this request is about (off-hire, hire check)
+  // Reminders (23 Oct 2026) - Ilies's own nudge so non-urgent requests don't
+  // drift. remindedAt = when the phone alert went out for this reminder.
+  remindAt      DateTime?
+  remindNote    String?
+  remindedAt    DateTime?
+  // The AI's suggested reminder from reading the thread (JSON: remindAt,
+  // note, newNeededBy, reason) - shown for Ilies to accept or dismiss, never
+  // applied by itself. aiSuggestedAt = when it last read the thread.
+  aiSuggestion  String?
+  aiSuggestedAt DateTime?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   events        SiteRequestEvent[]
@@ -740,6 +750,7 @@ model SiteRequest {
   @@index([status])
   @@index([assigneeId])
   @@index([siteLinkId])
+  @@index([remindAt])
 }
 
 model SiteRequestEvent {

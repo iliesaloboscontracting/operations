@@ -6,6 +6,16 @@ import { prisma } from "./prisma";
 import type { ResolvedLink } from "./siteLinks";
 import { PRIORITIES, typeOf, type Priority } from "./requestTypes";
 import { todaySydney } from "./today";
+import type { ReminderSuggestion } from "./requestReminders";
+
+const parseSuggestion = (json: string | null): ReminderSuggestion | null => {
+  if (!json) return null;
+  try {
+    return JSON.parse(json) as ReminderSuggestion;
+  } catch {
+    return null;
+  }
+};
 
 type Req = SiteRequest & { events?: SiteRequestEvent[] };
 
@@ -154,6 +164,11 @@ export const officeView = (r: Req) => ({
   doneAt: iso(r.doneAt),
   update: latestUpdate(r),
   askedBy: r.status === "NEEDS_INFO" ? (askedByAssignee(r) ? r.assigneeName : "You") : null,
+  remindAt: iso(r.remindAt),
+  remindNote: r.remindNote,
+  remindedAt: iso(r.remindedAt),
+  aiSuggestion: parseSuggestion(r.aiSuggestion),
+  aiSuggestedAt: iso(r.aiSuggestedAt),
   events: (r.events ?? []).map((e) => ({ action: e.action, by: e.by, note: e.note, at: e.at.toISOString() })),
 });
 export type SiteRequestView = ReturnType<typeof siteView>;
