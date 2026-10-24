@@ -39,7 +39,7 @@ confidence "high" only when the site clearly names one job in the list. "low" wh
 async function parse<T>(system: string, content: Anthropic.Beta.BetaContentBlockParam[], schema: object): Promise<T> {
   const response = await client().beta.messages.parse({
     model: MODEL,
-    max_tokens: 32000,
+    max_tokens: 16000, // above this the SDK insists on streaming
     betas: ["server-side-fallback-2026-07-01"],
     fallbacks: "default",
     system,

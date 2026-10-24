@@ -11,7 +11,7 @@
 import { prisma } from "./prisma";
 import { invoiceMimeOf, readInvoiceFile } from "./invoiceFiles";
 import { readInvoiceSheet } from "./invoiceSheet";
-import { mapSheetColumns, matchInvoiceRows, readInvoiceDocument, type JobForMatching, type ReadInvoice } from "./invoiceReading";
+import { mapSheetColumns, matchInvoiceRows, readInvoiceDocument, ReadingNotConfigured, type JobForMatching, type ReadInvoice } from "./invoiceReading";
 import { readInvoice } from "./invoicedCosts";
 import { todaySydney } from "./today";
 
@@ -94,7 +94,8 @@ async function rawFromSheet(fileName: string, jobs: JobForMatching[]): Promise<R
   for (const r of table.rows) {
     const invoiceNo = get(r.cells, "invoiceNo");
     const amountExGst = money(get(r.cells, "amountExGst"));
-    if (!invoiceNo && amountExGst == null) continue; // totals, notes, blank lines
+    if (!invoiceNo && amountExGst == null) continue; // notes, blank lines
+    if (!invoiceNo && !get(r.cells, "supplier")) continue; // a totals line
     const notes = get(r.cells, "notes");
     rows.push({
       rowNo: r.rowNo,
@@ -145,6 +146,14 @@ async function aliasMap() {
 
 type Verdict = { status: DraftStatus; problem: string | null; hireResourceId?: string | null };
 
+// Words accounts use when an invoice isn't settled yet ("check vs TIN89926 -
+// possible duplicate", "FULLY CREDITED", "document is a quote").
+const ACCOUNTS_FLAG = /\b(check|duplicate|credited|credit note|quote|query|queried|dispute[d]?|tbc|transferred)\b/i;
+function noteAround(text: string, at: number) {
+  const start = Math.max(0, text.lastIndexOf(" - ", at) + 3, at - 60);
+  return text.slice(start, at + 70).trim();
+}
+
 function fiveMonthsAgo() {
   const d = new Date(`${todaySydney()}T00:00:00Z`);
   d.setUTCMonth(d.getUTCMonth() - 5);
@@ -163,11 +172,14 @@ async function decide(r: Raw, seen: Set<string>, existing: Set<string>, jobIds: 
     const missing = [!r.supplier && "supplier", r.amountExGst == null && "amount", !r.invoiceDate && "invoice date"].filter(Boolean).join(", ");
     return { status: "NEEDS_REVIEW", problem: `Couldn't read the ${missing}.` };
   }
+  // Ilies (24 Oct 2026): only jobs from the last five months and ongoing.
+  if (r.invoiceDate < fiveMonthsAgo()) return { status: "SKIPPED", problem: "Older than five months - outside what Tracking covers." };
+  if (r.entityBilled && !/lobos/i.test(r.entityBilled)) return { status: "NEEDS_REVIEW", problem: `Billed to ${r.entityBilled}, not Lobos - check it's ours.` };
   if (r.amountExGst < 0) return { status: "NEEDS_REVIEW", problem: "Credit note - check which invoice it reduces before adding it." };
+  // Accounts write their doubts into the notes - respect them.
+  const flagged = ACCOUNTS_FLAG.exec(r.description ?? "");
+  if (flagged) return { status: "NEEDS_REVIEW", problem: `Accounts' note: "${noteAround(r.description ?? "", flagged.index)}"` };
   if (!r.projectId || !r.confidence || !jobIds.has(r.projectId)) {
-    // Ilies (24 Oct 2026): only jobs from the last five months and ongoing -
-    // an old invoice for a site that isn't in Operations is left out quietly.
-    if (r.invoiceDate < fiveMonthsAgo()) return { status: "SKIPPED", problem: `Older than five months and no job in Operations matches ${site}.` };
     return { status: "NO_JOB", problem: `No job in Operations matches ${site}.` };
   }
   if (r.confidence !== "HIGH") return { status: "NEEDS_REVIEW", problem: `Not sure which job: ${r.matchReason ?? site}.` };
@@ -244,9 +256,14 @@ export async function processUpload(uploadId: string) {
       data: { status: "DONE", finishedAt: new Date(), error: raws.length ? null : "No invoices found in this file." },
     });
   } catch (e) {
+    // Our own messages are written for accounts; anything else (network,
+    // the reading service) gets a plain one, with the detail in the server log.
+    const msg = (e as Error).message ?? "";
+    const plain = e instanceof ReadingNotConfigured || /^(No invoice list|The file couldn't)/.test(msg) ? msg : "Couldn't read the file this time - try again in a minute.";
+    if (plain !== msg) console.error("invoice inbox: reading failed", uploadId, msg);
     await prisma.invoiceUpload.update({
       where: { id: uploadId },
-      data: { status: "FAILED", finishedAt: new Date(), error: (e as Error).message?.slice(0, 300) || "Couldn't read the file." },
+      data: { status: "FAILED", finishedAt: new Date(), error: plain.slice(0, 300) },
     });
   }
 }
