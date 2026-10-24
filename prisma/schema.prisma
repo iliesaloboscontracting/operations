@@ -411,6 +411,10 @@ model User {
   passwordHash String // scrypt$<salt>$<hash>
   role         String    @default("VIEWER") // ADMIN | MANAGER | VIEWER | TIMESHEETS | ACCOUNTS
   active       Boolean   @default(true)
+  // Director Insights (24 Oct 2026): sees /directors - the company overview.
+  // Separate from role so a future Admin doesn't see it by default. Only the
+  // owner (lib/owner.ts) can tick or untick it; the owner always has it.
+  directorAccess Boolean @default(false)
   lastLoginAt  DateTime?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
@@ -889,4 +893,23 @@ model SiteRequestEvent {
   at        DateTime    @default(now())
 
   @@index([requestId])
+}
+
+// Director Insights weekly snapshot (24 Oct 2026, Ilies: "start now"). One
+// row per KPI per week, written the first time the server checks in a new
+// Monday-Sunday week (lib/insights/snapshot.ts), so trends like "jobs at Act"
+// or "forecast at the start of the month" can be shown later - live data
+// can't rebuild those. Append-only: a week's row is never overwritten or
+// deleted, even if the data behind it is corrected later.
+model KpiSnapshot {
+  id         String   @id @default(cuid())
+  weekStart  String // YYYY-MM-DD, the Monday of the week it was taken in
+  kpi        String // KPI id from lib/insights/dictionary.ts, e.g. "O1"
+  value      Float? // null when it couldn't be worked out
+  detail     String? // optional JSON (e.g. counts by status)
+  confidence String? // HIGH | MEDIUM | LOW
+  createdAt  DateTime @default(now())
+
+  @@unique([weekStart, kpi])
+  @@index([kpi])
 }

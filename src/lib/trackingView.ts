@@ -90,6 +90,20 @@ export function weeklyBars(days: DayCostDTO[], today: string, n: number): WeekBa
   return out;
 }
 
+// The last `n` Monday-weeks up to today, spend split by category (Director
+// Insights cost trend, 24 Oct 2026). Same week rule and day sums as weeklyBars.
+export type WeekCats = { week: string; total: number; partial: boolean; cat: Partial<Record<CostCatKey, number>> };
+export function weeklyByCategory(days: DayCostDTO[], today: string, n: number): WeekCats[] {
+  const thisMon = startOfWeek(today);
+  const out: WeekCats[] = [];
+  for (let i = n - 1; i >= 0; i--) {
+    const week = addDays(thisMon, -7 * i);
+    const s = sumDays(days, { from: week, to: addDays(week, 6) });
+    out.push({ week, total: s.total, partial: i === 0, cat: s.cat });
+  }
+  return out;
+}
+
 // Short money for tiles and bars: $840, $12.3k, $1.24M. Tables use full money().
 export function short(n: number | null | undefined) {
   if (n == null) return "—";

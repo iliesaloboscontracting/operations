@@ -4,7 +4,7 @@ import { guard, hashPassword, MIN_PASSWORD, normaliseEmail, ROLES } from "@/lib/
 import { withErrorHandling } from "@/lib/apiHandler";
 
 const PUBLIC_FIELDS = {
-  id: true, email: true, name: true, role: true, active: true, lastLoginAt: true, createdAt: true,
+  id: true, email: true, name: true, role: true, active: true, lastLoginAt: true, createdAt: true, directorAccess: true,
 } as const;
 
 // GET /api/users -> all users (admin only). Never returns password hashes.

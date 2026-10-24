@@ -4,6 +4,7 @@ import { randomBytes, scrypt as scryptCb, timingSafeEqual } from "crypto";
 import { promisify } from "util";
 import { prisma } from "./prisma";
 import { SESSION_COOKIE, sessionMaxAgeFor, signSession, verifySession } from "./session";
+import { isOwner } from "./owner";
 
 const scrypt = promisify(scryptCb) as (pw: string, salt: Buffer, len: number) => Promise<Buffer>;
 
@@ -22,6 +23,14 @@ export interface AuthUser {
   email: string;
   name: string;
   role: Role;
+  directorAccess: boolean; // sees /directors - see hasDirectorAccess()
+}
+
+// Director Insights (24 Oct 2026): the director tick, or the owner. Never the
+// one-page roles, even if ticked by mistake.
+export function hasDirectorAccess(u: { email: string; role: string; directorAccess: boolean }) {
+  if (u.role === "TIMESHEETS" || u.role === "ACCOUNTS") return false;
+  return isOwner(u.email) || u.directorAccess;
 }
 
 // ---------- passwords ----------
@@ -71,7 +80,8 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
   if (!session) return null;
   const u = await prisma.user.findUnique({ where: { id: session.uid } });
   if (!u || !u.active) return null;
-  return { id: u.id, email: u.email, name: u.name, role: u.role as Role };
+  const base = { id: u.id, email: u.email, name: u.name, role: u.role as Role, directorAccess: u.directorAccess };
+  return { ...base, directorAccess: hasDirectorAccess(base) };
 }
 
 // Use at the top of an API handler:
@@ -105,6 +115,15 @@ export async function guardInvoiceInbox(): Promise<{ denied: NextResponse } | { 
     return { denied: NextResponse.json({ error: "You don't have permission to do that" }, { status: 403 }) };
   }
   return { user };
+}
+
+// The Directors overview (/api/directors/*): director access only - checked
+// against the database on every call, so unticking someone takes effect at once.
+export async function guardDirector(): Promise<NextResponse | null> {
+  const user = await getCurrentUser();
+  if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+  if (!user.directorAccess) return NextResponse.json({ error: "You don't have permission to do that" }, { status: 403 });
+  return null;
 }
 
 // Where a role lands after signing in - the limited roles only have one page.

@@ -9,7 +9,10 @@ export async function register() {
     const { realertUnopenedUrgent } = await import("./lib/requestAlerts");
     const { alertDueReminders } = await import("./lib/requestReminders");
     const { remindBeforeFinish } = await import("./lib/signOutReminders");
+    const { recordWeeklySnapshot } = await import("./lib/insights/snapshot");
     setInterval(() => {
+      // Director Insights: this week's KPI snapshot, if not taken yet (looks at most hourly).
+      recordWeeklySnapshot().catch((e) => console.error("director snapshot", e));
       realertUnopenedUrgent().catch((e) => console.error("re-alert check", e));
       // Ilies's reminders on non-urgent requests (23 Oct 2026).
       alertDueReminders().catch((e) => console.error("reminder check", e));

@@ -73,7 +73,7 @@ const Divider = () => <span className="mx-1.5 h-5 w-px shrink-0 self-center bg-w
 
 export default function TopNav() {
   const path = usePathname() ?? "";
-  const { user, loading, canEdit, isAdmin, timesheetsOnly, accountsOnly, signOut } = useAuth();
+  const { user, loading, canEdit, isAdmin, isDirector, timesheetsOnly, accountsOnly, signOut } = useAuth();
   const onePage = timesheetsOnly ? "/timesheets" : accountsOnly ? "/invoices" : null;
   const [changingPw, setChangingPw] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -121,6 +121,12 @@ export default function TopNav() {
         {loading ? null : onePage ? (
           <NavTab href={onePage} label={accountsOnly ? "Invoices" : "Timesheets"} active={isActive(onePage)} />
         ) : (<>
+        {isDirector && (
+          <>
+            <NavTab href="/directors" label="Directors" active={isActive("/directors")} />
+            <Divider />
+          </>
+        )}
         {OPERATIONS.filter((i) => (i.href !== "/tracking" && i.href !== "/invoices" && i.href !== "/assistant" && i.href !== "/attendance" && i.href !== "/timesheets" && i.href !== "/requests") || canEdit).map((i) => (
           <NavTab
             key={i.href}

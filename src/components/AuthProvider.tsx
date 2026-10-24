@@ -8,6 +8,7 @@ export interface Me {
   email: string;
   name: string;
   role: Role;
+  directorAccess: boolean;
 }
 
 interface AuthCtx {
@@ -17,6 +18,7 @@ interface AuthCtx {
   isAdmin: boolean;
   timesheetsOnly: boolean; // review-only timesheets access (Alex) - nothing else
   accountsOnly: boolean; // the invoices inbox (accounts) - nothing else
+  isDirector: boolean; // sees the Directors overview (the API checks this too)
   signOut: () => Promise<void>;
 }
 
@@ -27,6 +29,7 @@ const Ctx = createContext<AuthCtx>({
   isAdmin: false,
   timesheetsOnly: false,
   accountsOnly: false,
+  isDirector: false,
   signOut: async () => {},
 });
 
@@ -65,6 +68,7 @@ export default function AuthProvider({
         isAdmin: user?.role === "ADMIN",
         timesheetsOnly: user?.role === "TIMESHEETS",
         accountsOnly: user?.role === "ACCOUNTS",
+        isDirector: !!user?.directorAccess,
         signOut,
       }}
     >

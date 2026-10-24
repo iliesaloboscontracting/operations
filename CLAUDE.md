@@ -184,6 +184,21 @@ business, without becoming unnecessarily complicated.
   at `/tracking/[id]`. Status: Watch at 80% of contract value (forecast), Act
   at 100% (Ilies confirmed). Forecast = spent + still to come (unbilled
   labour hire, booked board days, hire to its finish) - not a cost-to-complete.
+  Its maths lives in `src/lib/trackingData.ts` (`loadTracking()`), shared
+  with the Directors overview - `/api/tracking` is a thin wrapper.
+- **Director Insights** (`/directors`, Phase 1, 2026-10-24; plan and KPI
+  dictionary in `director-insights-plan/`): a company overview for the
+  directors - needs-attention list, cost vs contract value, workload, crew
+  capacity, 12-week cost trend, plant & hire, people, data confidence.
+  **Access:** the owner, or a user with the `directorAccess` tick (Users page;
+  only the owner can set it; never TIMESHEETS / ACCOUNTS) - `guardDirector()`
+  on `/api/directors/*`. Read-only. Costs come from `loadTracking()`, never
+  recomputed; the other KPIs are plain functions in `src/lib/insights/kpis.ts`
+  with tests (`npm test`); definitions and draft thresholds in
+  `src/lib/insights/dictionary.ts` (also rendered at `/directors/kpis`).
+  Nothing is called margin - revenue isn't connected. Weekly `KpiSnapshot`
+  rows (append-only, part-week ones marked partial) are written from the
+  `instrumentation.ts` tick (`src/lib/insights/snapshot.ts`).
 - **Money-guard principle:** crew-facing/operational views (day sheets, Day
   Review, the Yard) never carry dollar figures — enforced at both the
   TypeScript type level (narrow DTOs with no money fields) and via a runtime
