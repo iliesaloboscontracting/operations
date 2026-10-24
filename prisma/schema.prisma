@@ -416,6 +416,10 @@ model User {
   // Separate from role so a future Admin doesn't see it by default. Only the
   // owner (lib/owner.ts) can tick or untick it; the owner always has it.
   directorAccess Boolean @default(false)
+  // The Labour-register person this login belongs to (Phase 2, 24 Oct
+  // 2026), so a query to "Nick" reaches both his login and his link. Set by
+  // Ilies (propose-then-apply), never by code or seed. A plain id, no relation.
+  personnelId  String?   @unique
   lastLoginAt  DateTime?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
