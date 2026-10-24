@@ -6,7 +6,7 @@
 import type { Role } from "./auth";
 import { PAY_RATE_FIELDS } from "./resourceFields";
 
-const RANK: Record<Role, number> = { TIMESHEETS: 0, VIEWER: 1, MANAGER: 2, ADMIN: 3 };
+const RANK: Record<Role, number> = { TIMESHEETS: 0, ACCOUNTS: 0, VIEWER: 1, MANAGER: 2, ADMIN: 3 };
 
 // Pay rate fields (ordinaryRate, nightRate, payRateNotes, ...): ADMIN only.
 // dailyRateExGst/rate (plant/vehicle/hire day-rate cost fields): MANAGER or

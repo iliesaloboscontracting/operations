@@ -25,7 +25,7 @@ export default function AppFrame({ children }: { children: React.ReactNode }) {
         <div className="flex h-screen flex-col">
           <TopNav />
           <main className="min-h-0 flex-1 overflow-hidden">
-            <TimesheetsOnlyGate path={path}>{children}</TimesheetsOnlyGate>
+            <OnePageGate path={path}>{children}</OnePageGate>
           </main>
         </div>
       )}
@@ -33,14 +33,16 @@ export default function AppFrame({ children }: { children: React.ReactNode }) {
   );
 }
 
-// Review-only timesheets access (Alex): every other page sends him to
-// Timesheets. The data routes refuse him anyway - this keeps the screen tidy.
-function TimesheetsOnlyGate({ path, children }: { path: string; children: React.ReactNode }) {
-  const { timesheetsOnly } = useAuth();
+// The one-page roles: review-only timesheets (Alex) and the invoices inbox
+// (accounts). Every other page sends them back to theirs. The data routes
+// refuse them anyway - this keeps the screen tidy.
+function OnePageGate({ path, children }: { path: string; children: React.ReactNode }) {
+  const { timesheetsOnly, accountsOnly } = useAuth();
   const router = useRouter();
-  const elsewhere = timesheetsOnly && path !== "/timesheets";
+  const home = timesheetsOnly ? "/timesheets" : accountsOnly ? "/invoices" : null;
+  const elsewhere = !!home && path !== home;
   useEffect(() => {
-    if (elsewhere) router.replace("/timesheets");
-  }, [elsewhere, router]);
+    if (elsewhere && home) router.replace(home);
+  }, [elsewhere, home, router]);
   return elsewhere ? null : <>{children}</>;
 }

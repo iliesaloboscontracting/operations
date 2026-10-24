@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { dummyHash, normaliseEmail, startSession, verifyPassword } from "@/lib/auth";
+import { dummyHash, homeFor, normaliseEmail, startSession, verifyPassword, type Role } from "@/lib/auth";
 import { clearFailures, isLocked, recordFailure } from "@/lib/throttle";
 import { withErrorHandling } from "@/lib/apiHandler";
 
@@ -33,6 +33,6 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   clearFailures(key);
   await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
   await startSession(user.id, user.email);
-  // Where to land: review-only timesheets access goes straight to Timesheets.
-  return NextResponse.json({ ok: true, home: user.role === "TIMESHEETS" ? "/timesheets" : "/command" });
+  // Where to land: the limited roles go straight to their one page.
+  return NextResponse.json({ ok: true, home: homeFor(user.role as Role) });
 });

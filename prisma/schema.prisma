@@ -145,6 +145,75 @@ model InvoicedCost {
 
   @@index([projectId])
   @@index([hireResourceId])
+  @@index([invoiceNo])
+}
+
+// Invoices inbox (24 Oct 2026): accounts upload supplier invoices (PDF or
+// photo) or their invoice register spreadsheet. Claude reads each file into
+// InvoiceDrafts; plain code then decides (lib/invoiceInbox.ts): a clear match
+// to a job goes straight onto it as an InvoicedCost, anything unclear waits
+// for a person. Files live outside the app (INVOICE_FILE_DIR).
+model InvoiceUpload {
+  id           String   @id @default(cuid())
+  fileName     String // stored name, made by lib/invoiceFiles.ts
+  originalName String
+  kind         String // PDF | IMAGE | SHEET
+  status       String   @default("READING") // READING | DONE | FAILED
+  error        String?
+  uploadedBy   String?
+  createdAt    DateTime @default(now())
+  finishedAt   DateTime?
+  drafts       InvoiceDraft[]
+
+  @@index([createdAt])
+}
+
+// One invoice found in an upload (a sheet row, or an invoice in a PDF).
+model InvoiceDraft {
+  id             String   @id @default(cuid())
+  uploadId       String
+  upload         InvoiceUpload @relation(fields: [uploadId], references: [id], onDelete: Cascade)
+  rowNo          Int? // sheet row, for finding it again
+  supplier       String?
+  entityBilled   String?
+  invoiceNo      String?
+  invoiceDate    String? // YYYY-MM-DD
+  periodFrom     String? // YYYY-MM-DD
+  periodTo       String?
+  description    String?
+  siteText       String? // the site as written on the invoice / sheet
+  hireRef        String? // supplier's contract / hire number
+  amountExGst    Float?
+  gst            Float?
+  totalIncGst    Float?
+  category       String? // PLANT_HIRE | LABOUR_HIRE | TIP_FEES | MATERIALS | OTHER
+  projectId      String? // suggested or chosen job
+  hireResourceId String? // hire-register item it bills, when known
+  confidence     String? // HIGH | LOW - how sure the job match is
+  matchReason    String?
+  // ADDED (on a job) | NEEDS_REVIEW (a person decides) | NO_JOB (no job in
+  // Operations matches) | DUPLICATE (already entered) | SKIPPED (not counted)
+  status         String   @default("NEEDS_REVIEW")
+  problem        String? // why it needs a person, or why it was skipped
+  invoicedCostId String? // the Tracking row it became
+  autoAdded      Boolean  @default(false)
+  decidedBy      String?
+  decidedAt      DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([uploadId])
+  @@index([status])
+}
+
+// "This is how accounts write that site" -> job. Saved whenever a person
+// matches an invoice to a job, so the next upload matches it straight away.
+model SiteAlias {
+  id        String   @id @default(cuid())
+  text      String   @unique // normalised (lower case, single spaces)
+  projectId String
+  createdBy String?
+  createdAt DateTime @default(now())
 }
 
 // Own-crew labour cost, backfilled from the daily allocation sheets (issued
@@ -340,7 +409,7 @@ model User {
   email        String    @unique // stored lower-case
   name         String
   passwordHash String // scrypt$<salt>$<hash>
-  role         String    @default("VIEWER") // ADMIN | MANAGER | VIEWER
+  role         String    @default("VIEWER") // ADMIN | MANAGER | VIEWER | TIMESHEETS | ACCOUNTS
   active       Boolean   @default(true)
   lastLoginAt  DateTime?
   createdAt    DateTime  @default(now())

@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 
-export type Role = "ADMIN" | "MANAGER" | "VIEWER" | "TIMESHEETS";
+export type Role = "ADMIN" | "MANAGER" | "VIEWER" | "TIMESHEETS" | "ACCOUNTS";
 export interface Me {
   id: string;
   email: string;
@@ -16,6 +16,7 @@ interface AuthCtx {
   canEdit: boolean; // Manager or Admin
   isAdmin: boolean;
   timesheetsOnly: boolean; // review-only timesheets access (Alex) - nothing else
+  accountsOnly: boolean; // the invoices inbox (accounts) - nothing else
   signOut: () => Promise<void>;
 }
 
@@ -25,6 +26,7 @@ const Ctx = createContext<AuthCtx>({
   canEdit: false,
   isAdmin: false,
   timesheetsOnly: false,
+  accountsOnly: false,
   signOut: async () => {},
 });
 
@@ -62,6 +64,7 @@ export default function AuthProvider({
         canEdit: user?.role === "ADMIN" || user?.role === "MANAGER",
         isAdmin: user?.role === "ADMIN",
         timesheetsOnly: user?.role === "TIMESHEETS",
+        accountsOnly: user?.role === "ACCOUNTS",
         signOut,
       }}
     >
