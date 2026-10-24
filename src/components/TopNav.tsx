@@ -151,6 +151,10 @@ export default function TopNav() {
         {isAdmin && (
           <>
             <Divider />
+            {/* Estimating is its own app behind /estimating (a full page load, not client navigation). */}
+            <a href="/estimating" className="flex shrink-0 items-center whitespace-nowrap rounded-full px-3.5 py-1.5 text-sm text-slate-300 hover:bg-white/5 hover:text-white">
+              Estimating
+            </a>
             <NavTab href="/users" label="Users" active={isActive("/users")} />
           </>
         )}

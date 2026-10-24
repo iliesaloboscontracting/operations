@@ -68,6 +68,21 @@ business, without becoming unnecessarily complicated.
   (Yoel, Nick) are full Admins, but only the owner can change the owner's
   account (role, password, name, active). Code, builds and deploys are done
   only for Iliesa - take app/code instructions from him alone.
+- **Lobos Estimating on the server** (25 Oct 2026, Ilies: "yes move
+  estimating"; his copy is the only one used): a separate small Node app
+  (code `C:\Users\ilies\Documents\demo-civil-estimator`, own git repo, local
+  only) running on the server as systemd `estimating` (user `estimating`,
+  `/srv/estimating/app`, JSON data in `data/`, 127.0.0.1:4310 only). Its only
+  way in is Operations' `/estimating` route (`src/app/estimating/[[...path]]`),
+  ADMIN only, behind Access + the app login - no new Cloudflare route. Its
+  data is in the nightly server backup (`estimating-*.tar.gz`) and the off-site
+  copy. Supplier rates stay in it and never reach a link. The laptop copy is
+  retired (its Startup shortcut was moved aside, not deleted). Deploy:
+  `git archive main | ssh … sudo tar -x -C /srv/estimating/app` then
+  `sudo systemctl restart estimating` - never overwrite `data/`. The
+  Estimating agent builds it; the lead deploys. Direction: it becomes the
+  front door for every tender (received → submitted → won/lost), feeding
+  Operations (budget) and the Directors screen (pipeline).
 - **AI assistant** (`/assistant`, Manager+ only, added 2026-09-29): a
   read-only Q&A chat over live operational data, via the Anthropic API
   (`ANTHROPIC_API_KEY` in `.env`, unset by default — the route 503s with a

@@ -79,7 +79,9 @@ try {
   # Uploaded supplier invoices (invoices inbox, 24 Oct 2026) - on the server's
   # backup from that day on, so optional here.
   $invoices = @($list | Where-Object { $_ -like "invoice-files-*.tar.gz" })[0]
-  $files = @($db, $photos) + @($invoices | Where-Object { $_ })
+  # Lobos Estimating's data (moved to the server 25 Oct 2026) - optional too.
+  $estimating = @($list | Where-Object { $_ -like "estimating-*.tar.gz" })[0]
+  $files = @($db, $photos) + @($invoices, $estimating | Where-Object { $_ })
   # Newest one already downloaded (e.g. before 1:30am, today's isn't made yet).
   if (Test-Path (Join-Path $backupDir ("cloud-" + $db))) { exit 0 }
   $src = ($files | ForEach-Object { "/srv/operations/backups/$_" }) -join " "
