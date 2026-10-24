@@ -8,6 +8,11 @@ const PUBLIC = ["/login", "/setup", "/api/auth/login", "/api/auth/setup"];
 
 export async function middleware(req: NextRequest) {
   const { pathname, search } = req.nextUrl;
+  // The image optimiser is never used here, and Next 14 has unpatched
+  // remote-code-execution holes in it (Oct 2026 audit). The photos tunnel
+  // publishes _next/.* to the internet, so refuse it outright until Next is
+  // upgraded.
+  if (pathname.startsWith("/_next/image")) return new NextResponse(null, { status: 404 });
   if (PUBLIC.some((p) => pathname === p)) return NextResponse.next();
   // The Site photos page and its upload API (supervisors' private links). No
   // session here - every handler under them checks the link's own secret
@@ -32,6 +37,7 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  // Skip Next internals and static files (logo, icon).
-  matcher: ["/((?!_next/static|_next/image|logo.png|logo-dark.png|icon.svg|favicon.ico|sw.js|ops.webmanifest|icons/).*)"],
+  // Skip Next static files and our own (logo, icon). /_next/image is
+  // deliberately NOT skipped - it is refused above.
+  matcher: ["/((?!_next/static|logo.png|logo-dark.png|icon.svg|favicon.ico|sw.js|ops.webmanifest|icons/).*)"],
 };
