@@ -10,9 +10,12 @@ export async function register() {
     const { alertDueReminders } = await import("./lib/requestReminders");
     const { remindBeforeFinish } = await import("./lib/signOutReminders");
     const { recordWeeklySnapshot } = await import("./lib/insights/snapshot");
+    const { runFindings } = await import("./lib/findings/store");
     setInterval(() => {
       // Director Insights: this week's KPI snapshot, if not taken yet (looks at most hourly).
       recordWeeklySnapshot().catch((e) => console.error("director snapshot", e));
+      // Findings (Phase 2): signals -> stored findings, at most every 30 min, never two at once.
+      runFindings().catch((e) => console.error("findings run", e));
       realertUnopenedUrgent().catch((e) => console.error("re-alert check", e));
       // Ilies's reminders on non-urgent requests (23 Oct 2026).
       alertDueReminders().catch((e) => console.error("reminder check", e));
