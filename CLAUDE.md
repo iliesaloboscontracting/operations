@@ -12,8 +12,15 @@ business, without becoming unnecessarily complicated.
 
 ## Current architecture (as of 2026-09-28 — verify before relying on this if it's been a while)
 
-- **Stack:** Next.js 14 (App Router), TypeScript, Tailwind CSS, Prisma ORM
-  over SQLite (`prisma/dev.db`), React 18.
+- **Stack:** Next.js 15.5 (App Router; upgraded from 14 on 2026-10-24 for
+  security), TypeScript, Tailwind CSS, Prisma ORM over SQLite
+  (`prisma/dev.db`), React 19. In Next 15 route handlers and pages get
+  `params` as a Promise (await it / `use()` it) and `cookies()` is async.
+  `/_next/image` is refused in middleware (the optimiser is unused).
+- **Builders (2026-10-24, Ilies):** this repo's lead builder is the
+  "Operations Building Agent" session; other agents (e.g. Director Insights)
+  take tasks from it, each work in their own git worktree (never the shared
+  folder at the same time), and only the lead merges to `main` and deploys.
 - **Name and location:** the app is called **Operations** — that is its only
   name. It lives at `C:\Users\ilies\Documents\operations`. Older names and
   folders have been retired and removed; don't reintroduce them.
