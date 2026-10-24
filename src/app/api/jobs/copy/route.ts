@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { effectiveTimes } from "@/lib/shiftTimes";
 import { prisma } from "@/lib/prisma";
 import { guard } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
@@ -52,7 +53,10 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
       notRunning: false,
       OR: [{ projectId: null }, { project: { status: "ACTIVE" } }],
     },
-    include: { assignments: { include: { resource: { select: { name: true, type: true, category: true } } } } },
+    include: {
+      assignments: { include: { resource: { select: { name: true, type: true, category: true } } } },
+      project: { select: { dayStart: true, dayEnd: true, nightStart: true, nightEnd: true } },
+    },
     orderBy: { sortOrder: "asc" },
   });
   const existing = await prisma.job.findMany({
@@ -135,8 +139,10 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
         siteAddress: j.siteAddress,
         date: toStart,
         shift: j.shift,
-        startTime: j.startTime,
-        endTime: j.endTime,
+        // Blank times pick up the project's usual hours for the shift
+        // (24 Oct 2026 - copying used to carry blanks forward day after day).
+        startTime: effectiveTimes(j, j.project).start,
+        endTime: effectiveTimes(j, j.project).end,
         dayBrief: j.dayBrief,
         colorTag: j.colorTag,
         sortOrder: j.sortOrder,

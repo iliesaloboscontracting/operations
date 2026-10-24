@@ -1,12 +1,13 @@
 // Sign-out reminders (24 Oct 2026): 20 minutes before a job's finish time on
 // the board, if anyone on that job is still signed in, the job's supervisors
 // get a phone alert ("Swiss Hotel finishes 3:30pm - 4 still signed in").
-// Sent once per job (ShiftReminder). Jobs without a clear finish time get
-// none - those are flagged to Ilies by the daily check instead.
+// Sent once per job (ShiftReminder). A job with no times of its own uses its
+// project's usual hours for that shift; with neither (or unclear ones) it
+// gets no reminder - those are flagged to Ilies by the daily check instead.
 // Run once a minute from instrumentation.ts.
 import { prisma } from "./prisma";
 import { pushToSiteLinks } from "./push";
-import { jobFinish } from "./shiftTimes";
+import { effectiveTimes, jobFinish } from "./shiftTimes";
 import { todaySydney } from "./today";
 
 const BEFORE_MIN = 20;
@@ -25,10 +26,15 @@ export async function remindBeforeFinish() {
   const days = [dayBefore(today), today];
   const jobs = await prisma.job.findMany({
     where: { date: { in: days.map((d) => new Date(`${d}T00:00:00.000Z`)) }, status: { notIn: ["COMPLETED", "INACTIVE", "STOOD_DOWN"] } },
-    select: { id: true, date: true, shift: true, startTime: true, endTime: true, project: { select: { name: true } }, assignments: { select: { resourceId: true } } },
+    select: {
+      id: true, date: true, shift: true, startTime: true, endTime: true,
+      project: { select: { name: true, dayStart: true, dayEnd: true, nightStart: true, nightEnd: true } },
+      assignments: { select: { resourceId: true } },
+    },
   });
   for (const j of jobs) {
-    const finish = jobFinish(j.date.toISOString().slice(0, 10), j.shift, j.startTime, j.endTime);
+    const times = effectiveTimes(j, j.project); // the job's own, else the project's usual hours
+    const finish = jobFinish(j.date.toISOString().slice(0, 10), j.shift, times.start, times.end);
     if (!finish) continue;
     const due = finish.getTime() - BEFORE_MIN * 60_000;
     if (now < due || now > finish.getTime() + LATE_LIMIT_MIN * 60_000) continue;
@@ -57,7 +63,7 @@ export async function remindBeforeFinish() {
     await pushToSiteLinks(
       links.map((l) => l.id),
       {
-        title: `${j.project?.name ?? "Site"} finishes ${j.endTime}`,
+        title: `${j.project?.name ?? "Site"} finishes ${times.end}`,
         body: `${names.length} still signed in: ${shown}. Tap to sign them out.`,
         url: "?go=signin",
         tag: `signout-${j.id}`,

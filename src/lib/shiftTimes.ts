@@ -75,3 +75,16 @@ export function timesProblem(startTime: string | null, endTime: string | null): 
   if (parseClock(startTime) == null) return `start time "${startTime}" isn't clear`;
   return null;
 }
+
+// A job's times, falling back to its project's usual hours for that shift
+// when the job itself has none (24 Oct 2026 - copied-forward jobs had been
+// carrying blank times). Never invented: no job or project times -> null.
+type ProjectHours = { dayStart: string | null; dayEnd: string | null; nightStart: string | null; nightEnd: string | null } | null | undefined;
+export function projectHours(project: ProjectHours, shift: string) {
+  if (!project) return { start: null, end: null };
+  return shift === "NIGHT" ? { start: project.nightStart, end: project.nightEnd } : { start: project.dayStart, end: project.dayEnd };
+}
+export function effectiveTimes(job: { shift: string; startTime: string | null; endTime: string | null }, project: ProjectHours) {
+  const usual = projectHours(project, job.shift);
+  return { start: job.startTime?.trim() || usual.start || null, end: job.endTime?.trim() || usual.end || null };
+}

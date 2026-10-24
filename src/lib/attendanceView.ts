@@ -2,6 +2,7 @@
 // allocated crew next to who actually signed in, the hours that works out
 // to, and what needs a look. Times only - never a dollar figure.
 import type { Prisma } from "@prisma/client";
+import { effectiveTimes } from "./shiftTimes";
 import { prisma } from "./prisma";
 import { jobLabel, pointCrew, POINT_BREAK_MINUTES, signedHours, sydneyTime, type Place } from "./signin";
 import { todaySydney } from "./today";
@@ -73,7 +74,7 @@ export async function attendanceForDate(date: string) {
     orderBy: [{ notRunning: "asc" }, { sortOrder: "asc" }, { createdAt: "asc" }],
     select: {
       id: true, title: true, shift: true, status: true, startTime: true, endTime: true,
-      project: { select: { id: true, name: true, unpaidBreakMinutes: true } },
+      project: { select: { id: true, name: true, unpaidBreakMinutes: true, dayStart: true, dayEnd: true, nightStart: true, nightEnd: true } },
       assignments: {
         where: { resource: { OR: [{ type: "PERSONNEL" }, { type: "HIRE", category: "LABOUR" }] } },
         select: { resource: { select: { id: true, name: true, type: true } } },
@@ -123,8 +124,9 @@ export async function attendanceForDate(date: string) {
         projectId: j.project?.id ?? null,
         shift: j.shift,
         times: j.startTime && j.endTime ? `${j.startTime}-${j.endTime}` : null,
-        startTime: j.startTime,
-        endTime: j.endTime,
+        // The job's own times, else the project's usual hours for the shift.
+        startTime: effectiveTimes(j, j.project).start,
+        endTime: effectiveTimes(j, j.project).end,
         breakMinutes: breakMin,
         allocated: [...staff, ...tiles],
         rows,

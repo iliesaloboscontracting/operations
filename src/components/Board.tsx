@@ -34,6 +34,8 @@ import { Building2, CalendarClock, Download, Eraser, HardHat, Plus, Users } from
 import StatTile from "./StatTile";
 import { saveWithDateCheck } from "@/lib/dateCheckPrompt";
 
+const nightOnly = (p: { dayStart?: string | null; dayEnd?: string | null; nightStart?: string | null }) => !p.dayStart && !p.dayEnd && !!p.nightStart;
+
 const BOARD_DATE_KEY = "board.selectedDate";
 
 export default function Board() {
@@ -165,9 +167,11 @@ export default function Board() {
           client: project.client,
           siteCode: project.jobNo,
           date: selectedDate,
-          shift: "DAY",
-          startTime: project.dayStart,
-          endTime: project.dayEnd,
+          // Night-only projects (e.g. Coles, Mt Hutton) go on as a night shift with
+          // their night hours (24 Oct 2026 - they were landing as blank day shifts).
+          shift: nightOnly(project) ? "NIGHT" : "DAY",
+          startTime: nightOnly(project) ? project.nightStart : project.dayStart,
+          endTime: nightOnly(project) ? project.nightEnd : project.dayEnd,
           status: "ACTIVE",
           dateCheckNote,
         }),
