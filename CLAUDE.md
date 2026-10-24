@@ -30,7 +30,9 @@ business, without becoming unnecessarily complicated.
   `/srv/operations/backups`) plus Lightsail's daily snapshot; an off-AWS
   copy is pulled nightly at 2am by the laptop's "Operations DB Backup" task
   (`scripts/backup-cloud.ps1`, into OneDrive `Operations-Backups\cloud-*`,
-  30 days, since 2026-10-21). ufw allows SSH
+  30 days, since 2026-10-21; since 2026-10-24 it also retries every 2 hours,
+  because the laptop is usually in standby at 2am, and waits for Wi-Fi after
+  wake - a no-op once the day's copy is in). ufw allows SSH
   only; key-only login with `~/.ssh/lobos_ops_lightsail` on this PC
   (`ubuntu@52.64.25.179`). Unattended security upgrades on. **Deploy** =
   copy the committed code to the server (`git archive HEAD | ssh … tar -x`),
