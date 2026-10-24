@@ -2,11 +2,13 @@
 
 import { useEffect, useState } from "react";
 import PageShell from "@/components/PageShell";
-import { IdleHireDTO, ProjectCostDTO } from "@/lib/types";
+import { IdleHireDTO, InvoicedCostDTO, ProjectCostDTO } from "@/lib/types";
 import { money } from "@/lib/resource";
 import { fmtDay } from "@/lib/dates";
 import { ShiftBadge } from "@/components/ShiftBadge";
 import { apiFetch } from "@/lib/apiFetch";
+import { useAuth } from "@/components/AuthProvider";
+import InvoiceModal from "@/components/InvoiceModal";
 import {
   CostBreakdown,
   CostBreakdownBar,
@@ -19,6 +21,7 @@ import {
   Building2,
   ChevronDown,
   ChevronRight,
+  Plus,
   Clock3,
   FileText,
   Lock,
@@ -283,15 +286,21 @@ export default function TrackingPage() {
   const [idleHireOpen, setIdleHireOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState<Set<string>>(new Set());
+  // Add / correct a supplier invoice (24 Oct 2026). null = closed.
+  const [invoiceFor, setInvoiceFor] = useState<{ project: ProjectCostDTO; invoice: InvoicedCostDTO | null } | null>(null);
+  const { isAdmin } = useAuth();
 
-  useEffect(() => {
-    apiFetch("/api/tracking")
+  function load() {
+    return apiFetch("/api/tracking")
       .then((r) => (r.ok ? r.json() : { projects: [], idleHire: null }))
       .then((data) => {
         setProjects(data.projects);
         setIdleHire(data.idleHire);
       })
       .finally(() => setLoading(false));
+  }
+  useEffect(() => {
+    load();
   }, []);
 
   const grandTotal = projects.reduce((n, p) => n + p.totalCost, 0);
@@ -495,10 +504,7 @@ export default function TrackingPage() {
               <Card className="overflow-hidden p-0">
                 {projects.map((p) => {
                   const isOpen = open.has(p.id);
-                  const hasDetail =
-                    p.jobs.length > 0 || p.invoiced.length > 0 || p.labour.length > 0 || p.hireItems.length > 0 ||
-                    p.hireLabourEstimate.length > 0 || p.uncostedCount > 0 || p.unconfirmedCount > 0 ||
-                    p.contractValue != null || !!p.contractValueNotes;
+                  const hasDetail = true; // always: "Add invoice" lives inside
                   const breakdown = buildBreakdown(p);
                   return (
                     <div key={p.id} className="border-b border-[#eceef1] last:border-b-0">
@@ -597,13 +603,14 @@ export default function TrackingPage() {
                                     <span className="shrink-0 text-gray-500">
                                       {h.onHireDate ? fmtDay(h.onHireDate, { day: "numeric", month: "short" }) : "?"} – {h.offHireDate ? fmtDay(h.offHireDate, { day: "numeric", month: "short" }) : "no finish date"}
                                       {" · "}{h.daysToDate} day{h.daysToDate === 1 ? "" : "s"} so far
+                                      {h.daysInvoiced > 0 && <span className="text-emerald-700">{" · "}{h.daysInvoiced} invoiced</span>}
                                     </span>
                                     <span className="shrink-0 font-medium text-gray-200">{h.costToDate != null ? money(h.costToDate) : <span className="text-red-600">no rate</span>}</span>
                                     {h.costTotal != null && <span className="shrink-0 text-gray-500">of ~{money(h.costTotal)}</span>}
                                   </div>
                                 ))}
                               </div>
-                              <p className="mt-1.5 text-[11px] text-gray-500">Estimates: rate × working days on hire + delivery / pick-up. Not matched to supplier invoices yet.</p>
+                              <p className="mt-1.5 text-[11px] text-gray-500">Estimates: rate × working days on hire + delivery / pick-up, for the days no supplier invoice covers yet. Link an invoice to an item (Add invoice) and those days come off.</p>
                             </Card>
                           )}
 
@@ -623,25 +630,41 @@ export default function TrackingPage() {
                             </Card>
                           )}
 
-                          {p.invoiced.length > 0 && (
-                            <Card className="mb-3">
+                          <Card className="mb-3">
+                            <div className="flex items-start justify-between gap-2">
                               <SectionHeading icon={FileText}>Invoiced</SectionHeading>
+                              <button
+                                onClick={() => setInvoiceFor({ project: p, invoice: null })}
+                                className="-mt-0.5 inline-flex shrink-0 items-center gap-1 rounded-lg border border-[#d9d5cb] bg-white px-2 py-1 text-[11px] font-medium text-gray-300 hover:bg-[#f1f2f4]"
+                              >
+                                <Plus size={12} /> Add invoice
+                              </button>
+                            </div>
+                            {p.invoiced.length === 0 ? (
+                              <div className="text-xs text-gray-500">No supplier invoices on this project yet.</div>
+                            ) : (
                               <div className="space-y-1">
                                 {p.invoiced.map((i) => (
-                                  <div key={i.id} className="flex items-center gap-2 rounded-lg border border-[#eceef1] bg-[#f9fafb] px-2.5 py-1.5 text-xs transition-colors hover:bg-[#f1f2f4]">
+                                  <button
+                                    key={i.id}
+                                    onClick={() => setInvoiceFor({ project: p, invoice: i })}
+                                    title={i.notes ?? undefined}
+                                    className="flex w-full items-center gap-2 rounded-lg border border-[#eceef1] bg-[#f9fafb] px-2.5 py-1.5 text-left text-xs transition-colors hover:bg-[#f1f2f4]"
+                                  >
                                     <span className="h-2 w-2 shrink-0 rounded-sm" style={{ backgroundColor: categoryColor(i.category) }} />
                                     <span className="shrink-0 text-gray-500">{fmtDay(i.weekEnding, { day: "numeric", month: "short" })}</span>
                                     <span className="min-w-0 flex-1 truncate text-gray-300">
                                       {i.vendor}
+                                      {i.invoiceNo && <span className="ml-1.5 text-gray-500">#{i.invoiceNo}</span>}
                                       <span className="ml-1.5 text-[10px] uppercase tracking-wide text-gray-500">{invoicedCategoryLabel(i.category)}</span>
                                     </span>
                                     {i.shift && <ShiftBadge shift={i.shift} />}
                                     <span className="shrink-0 font-medium text-gray-200">{money(i.amountExGst)}</span>
-                                  </div>
+                                  </button>
                                 ))}
                               </div>
-                            </Card>
-                          )}
+                            )}
+                          </Card>
 
                           {p.labour.length > 0 && (
                             <Card className="mb-3">
@@ -687,6 +710,19 @@ export default function TrackingPage() {
             </>
           )}
         </div>
+      )}
+      {invoiceFor && (
+        <InvoiceModal
+          projectId={invoiceFor.project.id}
+          projectName={invoiceFor.project.name}
+          hireItems={invoiceFor.project.hireItems}
+          invoice={invoiceFor.invoice}
+          canDelete={isAdmin}
+          onClose={() => setInvoiceFor(null)}
+          onSaved={() => {
+            load();
+          }}
+        />
       )}
     </PageShell>
   );

@@ -2,8 +2,9 @@
 // about to come off hire. Plain functions, used by the Hire page, Project
 // Tracking and the alerts, so all three agree.
 //
-// These are ESTIMATES (Ilies: "keep the invoices at an estimate for now") -
-// supplier invoices aren't matched; that comes with the Xero link later.
+// These are ESTIMATES (Ilies: "keep the invoices at an estimate for now").
+// Since 24 Oct 2026 a supplier invoice entered on Tracking can be linked to an
+// item and the days it covers; those days then drop out of the estimate.
 //
 // A hire week is 5 working days (the same divisor idle-hire already uses), so
 // an item is charged for each weekday it's on hire. An hourly rate is
@@ -52,11 +53,29 @@ export type HireEstimate = {
   dayRate: number | null;
   daysToDate: number; // working days on hire up to today (or the return)
   daysTotal: number | null; // working days start -> expected finish; null with no finish date
-  costToDate: number | null; // null = no rate to estimate with
+  daysInvoiced: number; // of daysToDate, how many a supplier invoice already covers
+  costToDate: number | null; // estimate for the days NOT yet invoiced; null = no rate to estimate with
   costTotal: number | null; // to the expected finish, incl. delivery + pick-up
 };
 
-export function hireEstimate(r: HireLike, today: string): HireEstimate | null {
+// Weekdays in [from, to] that fall inside any of the invoiced periods.
+function invoicedWeekdays(from: string, to: string, invoiced: { from: string; to: string }[]) {
+  if (!invoiced.length || to < from) return 0;
+  let n = 0;
+  for (let t = utc(from); t <= utc(to); t += 86_400_000) {
+    const d = new Date(t);
+    if (d.getUTCDay() === 0 || d.getUTCDay() === 6) continue;
+    const iso = d.toISOString().slice(0, 10);
+    if (invoiced.some((p) => p.from <= iso && iso <= p.to)) n++;
+  }
+  return n;
+}
+
+// `invoiced`: periods a supplier invoice already bills for this item (24 Oct
+// 2026). Those days drop out of the estimate - the invoice is the real cost -
+// and so do delivery / pick-up once any invoice is linked (suppliers bill them
+// on the invoice).
+export function hireEstimate(r: HireLike, today: string, invoiced: { from: string; to: string }[] = []): HireEstimate | null {
   if (!r.onHireDate || !ISO.test(r.onHireDate)) return null;
   const dayRate = hireDayRate(r);
   const end = r.offHireDate && ISO.test(r.offHireDate) ? r.offHireDate : null;
@@ -64,15 +83,18 @@ export function hireEstimate(r: HireLike, today: string): HireEstimate | null {
   // the expected finish (after that it's "overdue" - flagged, not guessed).
   const until = r.hireStatus === "RETURNED" && end ? end : end && end < today ? end : today;
   const daysToDate = r.onHireDate <= today ? weekdaysBetween(r.onHireDate, until) : 0;
+  const daysInvoiced = r.onHireDate <= today ? invoicedWeekdays(r.onHireDate, until, invoiced) : 0;
   const daysTotal = end ? weekdaysBetween(r.onHireDate, end) : null;
-  const delivery = r.hireDeliveryCost ?? 0;
-  const collection = r.hireCollectionCost ?? 0;
+  const linked = invoiced.length > 0;
+  const delivery = linked ? 0 : r.hireDeliveryCost ?? 0;
+  const collection = linked ? 0 : r.hireCollectionCost ?? 0;
   const started = r.onHireDate <= today;
   return {
     dayRate,
     daysToDate,
     daysTotal,
-    costToDate: dayRate == null ? null : round(dayRate * daysToDate + (started ? delivery : 0) + (r.hireStatus === "RETURNED" ? collection : 0)),
+    daysInvoiced,
+    costToDate: dayRate == null ? null : round(dayRate * (daysToDate - daysInvoiced) + (started ? delivery : 0) + (r.hireStatus === "RETURNED" ? collection : 0)),
     costTotal: dayRate == null || daysTotal == null ? null : round(dayRate * daysTotal + delivery + collection),
   };
 }

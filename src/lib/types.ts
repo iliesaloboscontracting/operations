@@ -345,6 +345,11 @@ export interface InvoicedCostDTO {
   weekEnding: string; // YYYY-MM-DD
   shift: ShiftType | null;
   amountExGst: number;
+  gst: number;
+  notes: string | null;
+  hireResourceId: string | null; // plant hire: the hire-register item it bills
+  periodFrom: string | null;
+  periodTo: string | null;
 }
 
 // One of these per costed allocation - so an uncosted one is never silently
@@ -445,7 +450,8 @@ export interface HireItemCostDTO {
   offHireDate: string | null;
   dayRate: number | null;
   daysToDate: number;
-  costToDate: number | null; // null = no rate set
+  daysInvoiced: number; // of daysToDate, covered by a linked supplier invoice
+  costToDate: number | null; // estimate for the days not yet invoiced; null = no rate set
   costTotal: number | null; // to the expected finish; null = no rate or no finish date
 }
 

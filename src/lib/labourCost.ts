@@ -23,12 +23,10 @@ const RATE_FIELD: Record<RateTier, HourlyRateField> = {
   SUNDAY: "sundayRate",
 };
 
-// Chris Poulos (Proground Solutions): ordinaryRate on file is $400/hr, ~8x
-// every other ABN contractor in the system, and was already self-flagged as
-// an unresolved outlier when imported from the pay-rates spreadsheet (see his
-// payRateNotes). Excluded from cost computation - hours still recorded -
-// until the real figure is confirmed. Remove this once his rate is fixed.
-const RATE_EXCLUDED_NAMES = new Set(["Chris"]);
+// Known unresolved rate outliers, excluded from cost computation (hours still
+// recorded) until the real figure is confirmed. Empty since 24 Oct 2026: Chris
+// Poulos's $400 turned out to be a DAY rate and is now on file as DAY_RATE.
+const RATE_EXCLUDED_NAMES = new Set<string>();
 
 // One of these per costed allocation, alongside rateUsed/cost - so an
 // uncosted allocation is never silently shown as $0 (Phase 2.3, 2026-09-28).

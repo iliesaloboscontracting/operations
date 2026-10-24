@@ -212,6 +212,11 @@ export const GET = withErrorHandling(async () => {
       weekEnding: i.weekEnding,
       shift: i.shift as "DAY" | "NIGHT" | null,
       amountExGst: i.amountExGst,
+      gst: i.gst,
+      notes: i.notes,
+      hireResourceId: i.hireResourceId,
+      periodFrom: i.periodFrom,
+      periodTo: i.periodTo,
     }));
     const invoicedTotal = invoiced.reduce((n, i) => n + i.amountExGst, 0);
     const labourHireInvoicedTotal = invoiced
@@ -238,17 +243,23 @@ export const GET = withErrorHandling(async () => {
     const hireItems = registered
       .filter((r) => r.hireProjectId === p.id)
       .map((r) => {
-        const e = hireEstimate(r, todayIso);
+        // Days a linked supplier invoice already bills drop out of the estimate
+        // (the invoice itself is in invoicedTotal) - never counted twice.
+        const billed = invoiced
+          .filter((i) => i.hireResourceId === r.id && i.periodFrom && i.periodTo)
+          .map((i) => ({ from: i.periodFrom as string, to: i.periodTo as string }));
+        const e = hireEstimate(r, todayIso, billed);
         return {
           id: r.id, name: r.name, category: r.category, supplier: r.agency, hireRef: r.hireRef, status: r.hireStatus,
           onHireDate: r.onHireDate, offHireDate: r.offHireDate,
-          dayRate: e?.dayRate ?? null, daysToDate: e?.daysToDate ?? 0, costToDate: e?.costToDate ?? null, costTotal: e?.costTotal ?? null,
+          dayRate: e?.dayRate ?? null, daysToDate: e?.daysToDate ?? 0, daysInvoiced: e?.daysInvoiced ?? 0,
+          costToDate: e?.costToDate ?? null, costTotal: e?.costTotal ?? null,
         };
       });
     const hireEstimateToDate = hireItems.reduce((n, h) => n + (h.costToDate ?? 0), 0);
     byCode.hire += hireEstimateToDate;
     estimatedCost += hireEstimateToDate;
-    uncostedCount += hireItems.filter((h) => h.costToDate == null && h.daysToDate > 0).length;
+    uncostedCount += hireItems.filter((h) => h.costToDate == null && h.daysToDate - h.daysInvoiced > 0).length;
     const hireLabourEstimateTotal = hireLabourEstimate.reduce((n, l) => n + (l.cost ?? 0), 0);
     const totalCost = byCode.plant + byCode.attach + byCode.trucks + byCode.hire + invoicedTotal + labourTotal;
 

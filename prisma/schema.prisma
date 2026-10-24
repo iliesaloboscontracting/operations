@@ -135,8 +135,16 @@ model InvoicedCost {
   totalIncGst Float
   notes       String?
   createdAt   DateTime @default(now())
+  // Plant hire (24 Oct 2026): the hire-register item this invoice bills and
+  // the days it covers. Tracking stops estimating those days for that item,
+  // so the real invoice replaces the estimate instead of adding to it.
+  hireResourceId String?
+  periodFrom     String? // YYYY-MM-DD
+  periodTo       String? // YYYY-MM-DD
+  enteredBy      String? // who added / last corrected it on Tracking (null = imported)
 
   @@index([projectId])
+  @@index([hireResourceId])
 }
 
 // Own-crew labour cost, backfilled from the daily allocation sheets (issued
