@@ -138,6 +138,12 @@ business, without becoming unnecessarily complicated.
   date's costs into frozen `AllocationCost` rows once closed (Manager+ to
   close, Admin+ with a reason to reopen); Tracking reads the frozen ledger for
   closed dates and computes live for open dates.
+  Supplier invoices (`InvoicedCost`) are entered on Tracking → project →
+  "Add invoice" (Manager+, `/api/invoiced-costs`, rules in
+  `src/lib/invoicedCosts.ts`; since 24 Oct 2026 — before that only by
+  approved scripts). A plant-hire invoice linked to a hire-register item and
+  period takes those days out of the item's estimate (`hireEstimate`), so
+  invoice and estimate are never both counted.
 - **Money-guard principle:** crew-facing/operational views (day sheets, Day
   Review, the Yard) never carry dollar figures — enforced at both the
   TypeScript type level (narrow DTOs with no money fields) and via a runtime
