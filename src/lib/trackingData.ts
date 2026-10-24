@@ -20,10 +20,18 @@ const INVOICE_CAT: Record<string, CostCatKey> = {
 // Job health against the contract value (redesign, 24 Oct 2026). Thresholds
 // suggested to Ilies and in use until he sets his own: Watch from 80% of the
 // contract value (on the forecast), Act from 100%.
-const WATCH_AT = 0.8;
-const ACT_AT = 1.0;
+// Exported (Director Insights signals, 24 Oct 2026) so the findings layer
+// uses the very same thresholds as this page - one source, no drift.
+export const WATCH_AT = 0.8;
+export const ACT_AT = 1.0;
+// Attention-list rules: a job counts as "live" if active or costed in the
+// last 30 days; a missing contract value is flagged once $2k is spent; hired
+// plant is chased after 15 working days on hire with no invoice.
+export const ATTENTION_RECENT_DAYS = 30;
+export const NO_CONTRACT_MIN_SPEND = 2000;
+export const HIRE_UNINVOICED_DAYS = 15;
 // The Yard is overhead, not a contract job - never "missing" a contract value.
-const isOverhead = (name: string) => /^yard$/i.test(name.trim());
+export const isOverhead = (name: string) => /^yard$/i.test(name.trim());
 function healthOf(status: string, contractValue: number | null, forecast: number, name: string): { level: JobHealth; reason: string } {
   if (status !== "ACTIVE") return { level: "CLOSED", reason: "Not an active job" };
   if (isOverhead(name)) return { level: "OVERHEAD", reason: "Overhead - not a contract job" };
@@ -503,7 +511,7 @@ function attentionList(
   const noContract: AttentionJobDTO[] = [];
   const uncosted: AttentionJobDTO[] = [];
   const noFinish: AttentionJobDTO[] = [];
-  const recent = addDays(todaySydney(), -30);
+  const recent = addDays(todaySydney(), -ATTENTION_RECENT_DAYS);
   for (const p of projects) {
     const live = p.status === "ACTIVE" || (p.lastDate != null && p.lastDate >= recent);
     if (!live) continue;
@@ -516,10 +524,10 @@ function attentionList(
         hint: p.health === "ACT" ? "Check costs and any variations not yet priced" : "Keep an eye on the next few weeks",
       });
     }
-    if (p.health === "CANT_ASSESS" && p.totalCost >= 2000) noContract.push({ id: p.id, name: p.name, detail: `${k(p.totalCost)} spent`, weight: p.totalCost });
+    if (p.health === "CANT_ASSESS" && p.totalCost >= NO_CONTRACT_MIN_SPEND) noContract.push({ id: p.id, name: p.name, detail: `${k(p.totalCost)} spent`, weight: p.totalCost });
     for (const h of p.hireItems) {
       const open = h.daysToDate - h.daysInvoiced;
-      if (h.status !== "RETURNED" && open >= 15 && h.costToDate) {
+      if (h.status !== "RETURNED" && open >= HIRE_UNINVOICED_DAYS && h.costToDate) {
         const who = h.supplier && !h.name.toLowerCase().includes(h.supplier.toLowerCase()) ? ` (${h.supplier})` : "";
         items.push({ ...base, level: "watch", weight: h.costToDate, text: `${h.name}${who}: ${open} working days on hire with no invoice yet (~${k(h.costToDate)} est.).`, hint: "Chase the supplier's invoice" });
       }

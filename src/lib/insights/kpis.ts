@@ -146,7 +146,7 @@ export function startAlerts(starts: StartAlertDTO[]): AlertDTO[] {
 export const isLeadRole = (role: string | null | undefined) => role === "Supervisor" || role === "Lead";
 
 export type UpcomingJob = {
-  projectId: string | null; projectName: string; date: string;
+  jobId?: string; projectId: string | null; projectName: string; date: string;
   ownCrewIds: string[]; labourHire: number; hasLead: boolean;
 };
 
@@ -179,7 +179,7 @@ export function supervisorGaps(jobs: UpcomingJob[], today: string, startKeys: Se
   return jobs
     .filter((j) => j.date >= today && j.date <= end && j.ownCrewIds.length + j.labourHire > 0 && !j.hasLead)
     .filter((j) => !startKeys.has(`${j.projectId}|${j.date}`))
-    .map((j) => ({ projectId: j.projectId, name: j.projectName, date: j.date, daysAway: daysBetween(today, j.date) }))
+    .map((j) => ({ jobId: j.jobId ?? null, projectId: j.projectId, name: j.projectName, date: j.date, daysAway: daysBetween(today, j.date) }))
     .sort((a, b) => a.date.localeCompare(b.date) || a.name.localeCompare(b.name));
 }
 

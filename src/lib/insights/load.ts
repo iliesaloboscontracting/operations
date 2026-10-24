@@ -21,7 +21,10 @@ import {
 const dayStart = (iso: string) => new Date(iso + "T00:00:00.000Z"); // Job.date is UTC midnight of the calendar day
 const isoOf = (d: Date) => d.toISOString().slice(0, 10);
 
-export async function loadDirectorOverview() {
+// Everything the overview and the findings signals (lib/findings/signals.ts)
+// both read, fetched once and worked through the same KPI functions - so a
+// signal and the Directors page can't disagree.
+export async function gatherDirectorInputs() {
   const today = todaySydney();
   const now = new Date();
   // Past jobs are needed from the plant-use window or the day after the
@@ -48,7 +51,7 @@ export async function loadDirectorOverview() {
     prisma.job.findMany({
       where: { notRunning: false, date: { gte: dayStart(today), lt: dayStart(addDays(today, THRESHOLDS.lookaheadDays)) } },
       select: {
-        projectId: true, title: true, date: true, project: { select: { name: true } },
+        id: true, projectId: true, title: true, date: true, project: { select: { name: true } },
         assignments: { select: { role: true, resourceId: true, resource: { select: { type: true, category: true } } } },
       },
     }),
@@ -56,7 +59,7 @@ export async function loadDirectorOverview() {
     prisma.resource.findMany({ where: { type: "EQUIPMENT", ownership: "OWNED", active: true }, select: { id: true, name: true, status: true } }),
     prisma.resource.findMany({
       where: { type: "HIRE", active: true, offHireDate: { not: null }, OR: [{ hireStatus: null }, { hireStatus: { not: "RETURNED" } }] },
-      select: { name: true, agency: true, offHireDate: true, hireStatus: true, onHireDate: true, hireRate: true, hireRateUnit: true, dailyRateExGst: true, hireProject: { select: { name: true } } },
+      select: { id: true, name: true, agency: true, offHireDate: true, hireStatus: true, onHireDate: true, hireRate: true, hireRateUnit: true, dailyRateExGst: true, hireProject: { select: { id: true, name: true } } },
     }),
     prisma.siteRequest.findMany({
       where: { status: { notIn: ["DONE", "DECLINED", "CANCELLED", "CANT_DO"] } },
@@ -88,7 +91,7 @@ export async function loadDirectorOverview() {
     const own = j.assignments.filter((a) => a.resource.type === "PERSONNEL" && a.resource.category !== "Office");
     const hire = j.assignments.filter((a) => a.resource.type === "HIRE" && a.resource.category === "LABOUR");
     return {
-      projectId: j.projectId, projectName: j.project?.name ?? j.title, date: isoOf(j.date),
+      jobId: j.id, projectId: j.projectId, projectName: j.project?.name ?? j.title, date: isoOf(j.date),
       ownCrewIds: own.map((a) => a.resourceId), labourHire: hire.length,
       hasLead: j.assignments.some((a) => isLeadRole(a.role)),
     };
@@ -109,11 +112,25 @@ export async function loadDirectorOverview() {
   const plant = plantUse(ownedPlant, allocations, worked, today);
   const overdueHire = hireOut
     .filter((r) => offHireAlert(r, today)?.level === "OVERDUE")
-    .map((r) => ({ name: r.name, supplier: r.agency, project: r.hireProject?.name ?? null }));
-  const hire = hiredPlantOut(projects);
+    .map((r) => ({ id: r.id, name: r.name, supplier: r.agency, project: r.hireProject?.name ?? null, projectId: r.hireProject?.id ?? null, offHireDate: r.offHireDate }));
 
   // ---- days not closed ----
   const open = daysNotClosed(pastJobs.map((j) => isoOf(j.date)), new Set(closes.map((c) => c.date)), today, LABOUR_BACKFILL_CUTOFF);
+
+  return {
+    today, now, tracking, projects, starts, crewCount, attendance, requests, invoicesWaiting, hireGaps, snapshots,
+    wl, upcoming, capacity, gaps, plant, overdueHire, open,
+  };
+}
+
+export type DirectorInputs = Awaited<ReturnType<typeof gatherDirectorInputs>>;
+
+export async function loadDirectorOverview() {
+  const {
+    today, now, tracking, projects, starts, crewCount, attendance, requests, invoicesWaiting, hireGaps, snapshots,
+    wl, capacity, gaps, plant, overdueHire, open,
+  } = await gatherDirectorInputs();
+  const hire = hiredPlantOut(projects);
 
   // ---- hours ----
   const hours = hoursByWeek(
