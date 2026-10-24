@@ -88,22 +88,36 @@ type ProjectDates = {
   completionReviewBy?: string | null;
 };
 
+// Each exception with a stable code (Director Insights signals, 24 Oct 2026),
+// so a finding can be keyed on the rule rather than its wording. The text is
+// exactly what the Projects page has always shown.
+export type DateExceptionCode =
+  | "DATE_INACTIVE_HAS_JOBS" | "DATE_COMPLETED_HAS_JOBS" | "DATE_NO_START" | "DATE_START_MISMATCH"
+  | "DATE_JOBS_AFTER_COMPLETION" | "DATE_COMPLETION_PASSED" | "DATE_TBC_REVIEW_DUE" | "DATE_JOBS_NO_TIMES";
+export type DateException = { code: DateExceptionCode; text: string };
+
 export function dateExceptions(p: ProjectDates, b: ProjectBoardDates | undefined, today: string): string[] {
+  return dateExceptionList(p, b, today).map((e) => e.text);
+}
+
+export function dateExceptionList(p: ProjectDates, b: ProjectBoardDates | undefined, today: string): DateException[] {
   if (p.archived) return [];
-  const out: string[] = [];
+  const out: DateException[] = [];
+  const add = (code: DateExceptionCode, text: string) => out.push({ code, text });
   const board = b ?? { firstJobDate: null, lastJobDate: null, nextJobDate: null, upcomingNoTimes: 0, predatesBoard: false };
 
   if (p.status !== "ACTIVE") {
     if (board.nextJobDate && p.status !== "COMPLETED") {
-      out.push(`Marked Inactive but has jobs from ${short(board.nextJobDate)}`);
+      add("DATE_INACTIVE_HAS_JOBS", `Marked Inactive but has jobs from ${short(board.nextJobDate)}`);
     } else if (board.nextJobDate) {
-      out.push(`Marked Completed but has jobs from ${short(board.nextJobDate)}`);
+      add("DATE_COMPLETED_HAS_JOBS", `Marked Completed but has jobs from ${short(board.nextJobDate)}`);
     }
     return out;
   }
 
   if (!p.startDate) {
-    out.push(
+    add(
+      "DATE_NO_START",
       board.predatesBoard
         ? "No start date (started before the board - take it from the handover)"
         : board.firstJobDate
@@ -114,22 +128,22 @@ export function dateExceptions(p: ProjectDates, b: ProjectBoardDates | undefined
     // An earlier start than the board's first day is expected for a project
     // that was already running when the board began - not a mismatch.
     if (!(board.predatesBoard && p.startDate < board.firstJobDate)) {
-      out.push(`Start date ${short(p.startDate)} but our crew's first day on the board is ${short(board.firstJobDate)}`);
+      add("DATE_START_MISMATCH", `Start date ${short(p.startDate)} but our crew's first day on the board is ${short(board.firstJobDate)}`);
     }
   }
 
   const completion = p.expectedCompletion && isISODate(p.expectedCompletion) ? p.expectedCompletion : null;
   if (completion && board.lastJobDate && board.lastJobDate > completion) {
-    out.push(`Jobs booked after planned completion (${short(completion)})`);
+    add("DATE_JOBS_AFTER_COMPLETION", `Jobs booked after planned completion (${short(completion)})`);
   } else if (completion && completion < today) {
-    out.push(`Planned completion ${short(completion)} has passed`);
+    add("DATE_COMPLETION_PASSED", `Planned completion ${short(completion)} has passed`);
   }
   if (p.expectedCompletion === COMPLETION_TBC && p.completionReviewBy && p.completionReviewBy <= today) {
-    out.push(`Completion TBC - review was due ${short(p.completionReviewBy)}`);
+    add("DATE_TBC_REVIEW_DUE", `Completion TBC - review was due ${short(p.completionReviewBy)}`);
   }
 
   if (board.upcomingNoTimes > 0) {
-    out.push(`${board.upcomingNoTimes} upcoming job${board.upcomingNoTimes === 1 ? "" : "s"} with no start/finish time`);
+    add("DATE_JOBS_NO_TIMES", `${board.upcomingNoTimes} upcoming job${board.upcomingNoTimes === 1 ? "" : "s"} with no start/finish time`);
   }
   return out;
 }
