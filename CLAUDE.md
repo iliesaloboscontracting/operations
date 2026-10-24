@@ -50,11 +50,11 @@ business, without becoming unnecessarily complicated.
   operations`; back up the DB first. Schema/data rules below still apply —
   test on a copy (locally or on the server) before the live DB.
   The old **laptop** install (`OperationsServer` + `cloudflared` Windows
-  services) is **stopped and Disabled** — kept as a fallback until about
-  2026-11-03, then remove. Rollback = stop the cloud tunnel, copy the DB
-  back, re-enable and start both Windows services. While it's disabled,
-  `http://localhost:3000` on the laptop only works through an SSH port
-  forward (`ssh -N -L 3000:127.0.0.1:3000 …`); the office address is
+  services, and the laptop's copy of the tunnel token) was **removed on
+  2026-10-24** (Ilies) - there is no laptop fallback. Recovery is from the
+  server's nightly backups, Lightsail snapshots and the OneDrive off-site
+  copies. `http://localhost:3000` on the laptop only works through an SSH
+  port forward (`ssh -N -L 3000:127.0.0.1:3000 …`); the office address is
   **`https://ops.lobostools.com.mx`**.
 - **Auth:** custom cookie-session auth (`src/lib/auth.ts`), scrypt password
   hashing, roles `ADMIN | MANAGER | VIEWER` via a `guard(minRole)` pattern,
@@ -91,7 +91,8 @@ business, without becoming unnecessarily complicated.
   yet in the nightly backup. Supervisors send photos from site through a
   private link (`/site/<secret>`, `src/lib/siteLinks.ts`; only a hash is
   stored). **This is the only part of Operations reachable from the
-  internet**: a Cloudflare Tunnel (`cloudflared` Windows service) publishes
+  internet**: a Cloudflare Tunnel (`cloudflared-operations` on the cloud
+  server) publishes
   `https://photos.lobostools.com.mx` with routes for exactly `site/.*`,
   `api/site/.*`, `_next/.*` and `logo.png` → `http://localhost:3000`;
   everything else 404s at Cloudflare. Never add a route without a path on
@@ -199,23 +200,20 @@ data-import change: copy `dev.db` to a throwaway `.db` file *inside*
 file's directory, not the process's cwd), point `DATABASE_URL` at that
 absolute path, run the change there first, reset a throwaway admin password,
 verify with `next dev -p 3001` and the browser. Only once verified, repeat
-against the real `dev.db`, then `npm run build`, redeploy (`Stop-Service
-OperationsServer` → build → `Start-Service OperationsServer`, elevated), commit
-to git, and delete the throwaway artifacts. This is real business/
+against the live database on the server (see Deploy above: back up first,
+`prisma db push`, build, restart), commit to git, and delete the throwaway
+artifacts. Since the move to the cloud the laptop's `prisma/dev.db` is a
+stale copy - test copies come from the server's `.backup` or the OneDrive
+off-site copies. This is real business/
 financial/personal data (pay rates, project costs, contract values) with no
 automated tests protecting it — treat it that way.
 
-**Don't run `next dev` against this checkout while `OperationsServer` is
-running.** `next.config.js` sets no `distDir`, so `next dev` (throwaway
-testing on port 3001) and the live `next start` service (port 3000) both
-read/write the same `.next/` folder. A dev server left running against this
-same checkout while the service is live will rewrite `.next/` out from
-under it, and the live service starts throwing `Cannot find module
-.next/server/...` for real users until the next clean rebuild (confirmed
-2026-09-28: this happened, self-healed by the next stop→build→start cycle,
-but should be avoided rather than relied on to self-heal). Either stop the
-service first, or don't leave a throwaway `next dev` preview server running
-longer than the verification actually needs.
+**One `.next/` per running server.** `next.config.js` sets no `distDir`, so
+two Next processes in the same checkout (e.g. `next dev` and `next start`)
+share and rewrite the same `.next/` folder and break each other (seen
+2026-09-28 on the old laptop service). Test servers run in their own git
+worktree; don't leave a throwaway preview server running longer than the
+verification needs.
 
 **OneDrive / SharePoint.** This PC has the Lobos work OneDrive account
 (`iliesa@loboscontracting.com.au`) synced locally at
