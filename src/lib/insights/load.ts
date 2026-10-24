@@ -12,6 +12,7 @@ import { weeklyByCategory } from "../trackingView";
 import { LABOUR_BACKFILL_CUTOFF, loadTracking } from "../trackingData";
 import type { ProjectCostDTO } from "../types";
 import { NOT_YET_AVAILABLE, THRESHOLDS } from "./dictionary";
+import { toFindingDTO, sortFindings } from "../findings/view";
 import {
   costConfidence, costPosition, crewDemand, daysNotClosed, daysNotClosedAlert, hiredPlantOut, hoursByWeek,
   isLeadRole, offHireAlerts, plantUse, requestAlerts, requestSummary, sortAlerts, startAlerts, supervisorAlerts,
@@ -159,6 +160,15 @@ export async function loadDirectorOverview() {
   };
   const firstSnapshot = snapshots.reduce<string | null>((m, s) => (m == null || s.weekStart < m ? s.weekStart : m), null);
 
+  // Stored findings (Phase 2 step 3): the open ones, and when the engine last
+  // looked (its latest sighting). The computed alerts stay alongside.
+  const [openFindings, lastSeen, closedThisWeek] = await Promise.all([
+    prisma.finding.findMany({ where: { status: { in: ["OPEN", "ACKNOWLEDGED", "ACTIONED"] } } }),
+    prisma.finding.aggregate({ _max: { lastSeenAt: true } }),
+    prisma.finding.count({ where: { status: { in: ["RESOLVED", "VERIFIED"] }, resolvedAt: { gte: new Date(now.getTime() - 7 * 86_400_000) } } }),
+  ]);
+  const findings = sortFindings(openFindings.map(toFindingDTO));
+
   const alerts = sortAlerts([
     ...trackingAlerts(tracking.attention),
     ...startAlerts(starts),
@@ -209,6 +219,14 @@ export async function loadDirectorOverview() {
     ],
     notYetAvailable: NOT_YET_AVAILABLE,
     snapshotsSince: firstSnapshot,
+    findings,
+    findingsMeta: {
+      checkedAt: lastSeen._max.lastSeenAt?.toISOString() ?? null,
+      open: findings.length,
+      bySeverity: findings.reduce<Record<string, number>>((m, f) => { m[f.severity] = (m[f.severity] ?? 0) + 1; return m; }, {}),
+      signalCleared: findings.filter((f) => f.signalClearedAt).length,
+      closedThisWeek,
+    },
   };
 }
 

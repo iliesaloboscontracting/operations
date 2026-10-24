@@ -4,6 +4,7 @@ import { withErrorHandling } from "@/lib/apiHandler";
 import { resolveLink } from "@/lib/siteLinks";
 import { OPEN_STATUSES } from "@/lib/requestTypes";
 import { hireForLink } from "@/lib/hireCheck";
+import { LINK_WHERE } from "@/lib/siteRequests";
 
 // GET /api/site/:token -> who the link belongs to and their toolbox(es) with
 // the tools in each (for picking a tool when reporting a fault). Tool names
@@ -29,9 +30,9 @@ export const GET = withErrorHandling(async (_req: NextRequest, { params: paramsP
   // many the office has a question on), an office person's to-do list.
   // ...and how many hire items are waiting for the hire check.
   const [openRequests, needsAnswer, todo, hire] = await Promise.all([
-    link.kind === "OFFICE" ? 0 : prisma.siteRequest.count({ where: { siteLinkId: link.id, status: { in: OPEN_STATUSES } } }),
-    link.kind === "OFFICE" ? 0 : prisma.siteRequest.count({ where: { siteLinkId: link.id, status: "NEEDS_INFO" } }),
-    link.kind === "OFFICE" && link.person.id ? prisma.siteRequest.count({ where: { assigneeId: link.person.id, status: "TODO" } }) : 0,
+    link.kind === "OFFICE" ? 0 : prisma.siteRequest.count({ where: { siteLinkId: link.id, ...LINK_WHERE, status: { in: OPEN_STATUSES } } }),
+    link.kind === "OFFICE" ? 0 : prisma.siteRequest.count({ where: { siteLinkId: link.id, ...LINK_WHERE, status: "NEEDS_INFO" } }),
+    link.kind === "OFFICE" && link.person.id ? prisma.siteRequest.count({ where: { assigneeId: link.person.id, ...LINK_WHERE, status: "TODO" } }) : 0,
     link.kind === "OFFICE" ? [] : hireForLink(link),
   ]);
   return NextResponse.json({ person: link.person.name, kind: link.kind, shared: link.shared, toolboxes, openRequests, needsAnswer, todo, hireItems: hire.length, hireToCheck: hire.filter((h) => h.askNow).length });

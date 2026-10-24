@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { resolveLink } from "@/lib/siteLinks";
-import { addEvent, todoView } from "@/lib/siteRequests";
+import { addEvent, linkVisible, todoView } from "@/lib/siteRequests";
 import { notifyRequestUpdate } from "@/lib/requestAlerts";
 import { suggestInBackground } from "@/lib/requestReminders";
 import { ON_TODO } from "@/lib/requestTypes";
@@ -20,7 +20,7 @@ export const PATCH = withErrorHandling(async (req: NextRequest, { params: params
   const link = await resolveLink(params.token);
   if (!link || link.kind !== "OFFICE" || !link.person.id) return NextResponse.json({ error: "No to-do list on this link." }, { status: 404 });
   const r = await prisma.siteRequest.findUnique({ where: { id: params.id } });
-  if (!r || r.assigneeId !== link.person.id) return NextResponse.json({ error: "Not found." }, { status: 404 });
+  if (!r || r.assigneeId !== link.person.id || !linkVisible(r)) return NextResponse.json({ error: "Not found." }, { status: 404 });
   if (!ON_TODO.includes(r.status)) return NextResponse.json({ error: "This one isn't on your list any more." }, { status: 409 });
   const body = await req.json().catch(() => ({}));
   const raw = [body.note, body.question, body.outcome, body.reason].find((x) => typeof x === "string") ?? "";

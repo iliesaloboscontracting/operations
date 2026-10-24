@@ -22,7 +22,7 @@ import { suggestInBackground, suggestReminder } from "@/lib/requestReminders";
 //                                                 (and its new needed-by, if ticked)
 //   DISMISS_SUGGESTION
 //   SUGGEST                                     - ask the AI now
-const DECIDABLE = ["SENT", "SEEN", "NEEDS_INFO", "CANT_DO", "MINE", "TODO", "ACTIONING"];
+const DECIDABLE = ["SENT", "SEEN", "NEEDS_INFO", "CANT_DO", "MINE", "TODO", "ACTIONING", "ANSWERED"];
 
 export const PATCH = withErrorHandling(async (req: NextRequest, { params: paramsP }: { params: Promise<{ id: string }> }) => {
   const params = await paramsP;

@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { resolveLink } from "@/lib/siteLinks";
 import { savePhoto } from "@/lib/toolPhotos";
-import { createRequest, siteView, sitesFor } from "@/lib/siteRequests";
+import { LINK_WHERE, createRequest, linkVisible, siteView, sitesFor } from "@/lib/siteRequests";
 import { OPEN_STATUSES } from "@/lib/requestTypes";
 import { notifyNewRequest } from "@/lib/requestAlerts";
 import { suggestInBackground } from "@/lib/requestReminders";
@@ -30,14 +30,14 @@ export const GET = withErrorHandling(async (_req: NextRequest, { params: paramsP
   const mine = link.person.id && !link.shared ? { OR: [{ siteLinkId: link.id }, { requestedById: link.person.id }] } : { siteLinkId: link.id };
   const [requests, sites] = await Promise.all([
     prisma.siteRequest.findMany({
-      where: { AND: [mine, { OR: [{ status: { in: OPEN_STATUSES } }, { updatedAt: { gte: since } }] }] },
+      where: { AND: [mine, LINK_WHERE, { OR: [{ status: { in: OPEN_STATUSES } }, { updatedAt: { gte: since } }] }] },
       orderBy: { createdAt: "desc" },
       take: 60,
       include: { events: { orderBy: { at: "asc" } } },
     }),
     sitesFor(link),
   ]);
-  return NextResponse.json({ requests: requests.map(siteView), sites });
+  return NextResponse.json({ requests: requests.filter(linkVisible).map(siteView), sites });
 });
 
 export const POST = withErrorHandling(async (req: NextRequest, { params: paramsP }: { params: Promise<{ token: string }> }) => {

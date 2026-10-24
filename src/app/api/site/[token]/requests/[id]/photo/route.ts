@@ -10,12 +10,13 @@ export const GET = withErrorHandling(async (_req: NextRequest, { params: paramsP
   const params = await paramsP;
   const link = await resolveLink(params.token);
   if (!link) return NextResponse.json({ error: "This link isn't active." }, { status: 404 });
-  const r = await prisma.siteRequest.findUnique({ where: { id: params.id }, select: { photoFile: true, siteLinkId: true, requestedById: true, assigneeId: true } });
+  const r = await prisma.siteRequest.findUnique({ where: { id: params.id }, select: { photoFile: true, siteLinkId: true, requestedById: true, assigneeId: true, audience: true } });
   const allowed =
     r &&
     (r.siteLinkId === link.id ||
       (!link.shared && link.person.id && (r.requestedById === link.person.id || (link.kind === "OFFICE" && r.assigneeId === link.person.id))));
-  if (!r || !allowed || !r.photoFile) return NextResponse.json({ error: "Not found." }, { status: 404 });
+  // Links only ever see operational requests (lib/siteRequests.ts LINK_WHERE).
+  if (!r || !allowed || !r.photoFile || r.audience !== "OPERATIONAL") return NextResponse.json({ error: "Not found." }, { status: 404 });
   const bytes = await readPhoto(r.photoFile).catch(() => null);
   if (!bytes) return NextResponse.json({ error: "The photo file is missing." }, { status: 404 });
   return new NextResponse(new Uint8Array(bytes), { headers: { "Content-Type": mediaTypeOf(r.photoFile), "Cache-Control": "private, max-age=86400" } });

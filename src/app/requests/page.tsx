@@ -34,7 +34,7 @@ import type { OfficeRequestView } from "@/lib/siteRequests";
 type Data = { requests: OfficeRequestView[]; assignees: { id: string; name: string }[] };
 
 const COLUMNS: { key: string; title: string; hint: string; statuses: string[] }[] = [
-  { key: "decide", title: "To decide", hint: "New, seen, or sent back", statuses: ["SENT", "SEEN", "CANT_DO"] },
+  { key: "decide", title: "To decide", hint: "New, seen, sent back, or a query answered", statuses: ["SENT", "SEEN", "CANT_DO", "ANSWERED"] },
   { key: "waiting", title: "Waiting on site", hint: "You asked the supervisor", statuses: ["NEEDS_INFO"] },
   { key: "doing", title: "Being actioned", hint: "With Alex, or you", statuses: ["TODO", "ACTIONING", "MINE"] },
   { key: "closed", title: "Closed - last 14 days", hint: "Done, declined, cancelled", statuses: ["DONE", "DECLINED", "CANCELLED"] },

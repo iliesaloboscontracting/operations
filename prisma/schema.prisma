@@ -416,6 +416,10 @@ model User {
   // Separate from role so a future Admin doesn't see it by default. Only the
   // owner (lib/owner.ts) can tick or untick it; the owner always has it.
   directorAccess Boolean @default(false)
+  // The Labour-register person this login belongs to (Phase 2, 24 Oct
+  // 2026), so a query to "Nick" reaches both his login and his link. Set by
+  // Ilies (propose-then-apply), never by code or seed. A plain id, no relation.
+  personnelId  String?   @unique
   lastLoginAt  DateTime?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
@@ -856,6 +860,15 @@ model SiteRequest {
   // applied by itself. aiSuggestedAt = when it last read the thread.
   aiSuggestion  String?
   aiSuggestedAt DateTime?
+  // Management actions and queries (Phase 2, 24 Oct 2026) ride this same
+  // flow - kinds ACTION / QUERY, never on the site form. Defaults keep every
+  // existing request exactly as it was: from a site link, operational.
+  origin         String    @default("SITE") // SITE | FINDING | DIRECTOR | SYSTEM
+  findingId      String?
+  finding        Finding?  @relation(fields: [findingId], references: [id], onDelete: SetNull)
+  audience       String    @default("OPERATIONAL") // OPERATIONAL | COMMERCIAL | DIRECTOR - links only ever see OPERATIONAL
+  assigneeUserId String? // an app user (accounts login, a director) - alongside assigneeId (a Personnel resource)
+  answerFile     String? // QUERY: optional attachment with the answer, stored like request photos
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   events        SiteRequestEvent[]
@@ -864,6 +877,9 @@ model SiteRequest {
   @@index([assigneeId])
   @@index([siteLinkId])
   @@index([remindAt])
+  @@index([findingId])
+  @@index([assigneeUserId])
+  @@index([origin])
 }
 
 // Hire check (stage 3, 24 Oct 2026): a supervisor's answer about a hire-
@@ -913,4 +929,105 @@ model KpiSnapshot {
 
   @@unique([weekStart, kpi])
   @@index([kpi])
+}
+
+// Findings (Director Insights Phase 2 / LCI phase 3, 24 Oct 2026): one record
+// per problem, not per detection run - lib/findings/engine.ts turns the
+// computed signals (lib/findings/signals.ts) into these. openKey = dedupeKey
+// while the finding is not closed, null once it is: SQLite allows any number
+// of NULLs in a unique index, so the database holds at most one open finding
+// per problem. Never deleted (Restrict on the history below).
+// Design: director-insights-plan/PHASE2-FINDINGS-DESIGN.md.
+model Finding {
+  id            String    @id @default(cuid())
+  ruleCode      String // the signal kind, e.g. COST_VS_CONTRACT, HIRE_OVERDUE, DATE_START_MISMATCH
+  subjectType   String // PROJECT | RESOURCE | JOB | COMPANY
+  subjectId     String
+  subjectName   String // as last seen - the key uses ids, so a rename never splits a finding
+  projectId     String?
+  dedupeKey     String // kind:subjectType:subjectId[:qualifier]
+  openKey       String?   @unique
+  severity      String // CRITICAL | HIGH | MEDIUM | INFO
+  audience      String // OPERATIONAL (Viewer+, no money) | COMMERCIAL (Manager+) | DIRECTOR
+  title         String
+  status        String    @default("OPEN") // OPEN | ACKNOWLEDGED | ACTIONED | RESOLVED | DISMISSED | VERIFIED
+  provisional   Boolean   @default(false)
+  confidence    String? // HIGH | MEDIUM | LOW
+  source        String    @default("RULE") // RULE | PERSON
+  currentValue  String? // JSON of the latest measured values (history in FindingEvidence)
+  href          String?
+  firstSeenAt   DateTime  @default(now())
+  lastSeenAt    DateTime  @default(now())
+  seenCount     Int       @default(1)
+  // Verification "asap" (FINDINGS_CONFIG): when the signal went clear, and
+  // how many days it has stayed clear since.
+  signalClearedAt     DateTime?
+  clearRuns           Int       @default(0)
+  resolvedWhileFiring Boolean   @default(false) // a person closed it while still firing: never auto-verified
+  ownerUserId   String?
+  ownerName     String?
+  dueDate       String? // YYYY-MM-DD
+  resolvedAt    DateTime?
+  resolvedBy    String?
+  resolution    String?
+  dismissedAt   DateTime?
+  dismissedBy   String?
+  dismissKind   String? // FALSE_ALARM | ACCEPTED_RISK
+  dismissReason String?
+  suppressUntil String? // YYYY-MM-DD, ACCEPTED_RISK only
+  verifiedAt    DateTime?
+  verifiedBy    String? // "System" when verified automatically
+  outcomeResult String? // EFFECTIVE | NOT_EFFECTIVE | RECURRED
+  outcome       String?
+  reopenedFromId String? // a new finding after the recurrence window links to the old one
+  createdBy     String    @default("System")
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  evidence      FindingEvidence[]
+  events        FindingEvent[]
+  requests      SiteRequest[] // actions and queries raised from it
+
+  @@index([dedupeKey])
+  @@index([status, severity])
+  @@index([projectId])
+  @@index([ruleCode])
+}
+
+// What a rule saw, from where and when - append-only, never updated or
+// deleted. Written when a finding opens and on a material change only.
+model FindingEvidence {
+  id           String    @id @default(cuid())
+  findingId    String
+  finding      Finding   @relation(fields: [findingId], references: [id], onDelete: Restrict)
+  kind         String // METRIC | RECORD | DOCUMENT | NOTE
+  recordType   String? // e.g. Project, Resource, InvoicedCost, SiteRequest
+  recordId     String?
+  label        String
+  value        String? // JSON
+  sourceSystem String    @default("Operations")
+  asOf         DateTime? // how fresh the source data was
+  capturedAt   DateTime  @default(now())
+  capturedBy   String    @default("System")
+
+  @@index([findingId])
+}
+
+// Every change to a finding, with who and why - append-only.
+model FindingEvent {
+  id        String   @id @default(cuid())
+  findingId String
+  finding   Finding  @relation(fields: [findingId], references: [id], onDelete: Restrict)
+  // OPENED | ESCALATED | DEESCALATED | ACKNOWLEDGED | ASSIGNED | ACTION_CREATED | QUERY_CREATED | ANSWERED |
+  // ACTIONED | RESOLVED | AUTO_RESOLVED | SIGNAL_CLEARED | SIGNAL_RETURNED | NOT_FIXED | DISMISSED | REOPENED |
+  // RECURRED | VERIFIED | COMMENT
+  action    String
+  by        String // a name, or "System"
+  byUserId  String?
+  fromValue String?
+  toValue   String?
+  note      String?
+  at        DateTime @default(now())
+
+  @@index([findingId])
+  @@index([at])
 }

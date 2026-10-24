@@ -18,9 +18,12 @@ import type { CostCatKey } from "@/lib/types";
 import type { DirectorOverviewDTO } from "@/lib/insights/load";
 import { Card, HEALTH, moneyTip, tooltipStyle } from "@/components/tracking/parts";
 import { ConfidenceBadge, DLink, Figure, Help, PriorityPill, Section, pct } from "@/components/directors/parts";
+import { groupForDisplay } from "@/lib/findings/view";
 
 const day = (iso: string) => fmtDay(iso, { day: "numeric", month: "short" });
 const weekday = (iso: string) => fmtDay(iso, { weekday: "short", day: "numeric" });
+// A stored timestamp as a Sydney calendar day ("25 Oct").
+const sydDay = (ts: string) => new Date(ts).toLocaleDateString("en-AU", { timeZone: "Australia/Sydney", day: "numeric", month: "short" });
 
 // The cost trend shows the four biggest categories over the 12 weeks and
 // folds the rest into "Other" - more series than that stop being readable.
@@ -68,53 +71,16 @@ export default function DirectorsPage() {
 }
 
 function Overview({ o, showAll, setShowAll }: { o: DirectorOverviewDTO; showAll: boolean; setShowAll: (fn: (v: boolean) => boolean) => void }) {
-  const urgent = o.alerts.filter((a) => a.priority === "CRITICAL" || a.priority === "HIGH").length;
-  const shown = showAll ? o.alerts : o.alerts.slice(0, 7);
   const c = o.cost;
   const vsLast = change(c.monthSoFar.total, c.lastMonthSameDays);
   const firmPct = c.monthSoFar.total > 0 ? c.monthSoFar.firm / c.monthSoFar.total : null;
 
   return (
     <>
-      {/* 1. Needs attention */}
-      <Card className="mb-4">
-        <div className="mb-1 flex items-center justify-between gap-2">
-          <div className="text-sm font-semibold text-gray-100">Needs attention</div>
-          <div className="text-[11px] text-gray-500">{urgent} critical or high · {o.alerts.length} in all</div>
-        </div>
-        {o.alerts.length === 0 ? (
-          <p className="text-sm text-emerald-400">All clear - nothing needs a director right now.</p>
-        ) : (
-          <div className="divide-y divide-edge">
-            {shown.map((a, i) => (
-              <div key={i} className="flex gap-3 py-2.5">
-                <PriorityPill p={a.priority} />
-                <div className="min-w-0 flex-1 text-sm">
-                  <div className="text-gray-200">
-                    {a.href ? <DLink href={a.href} className="hover:underline">{a.title}</DLink> : a.title}
-                  </div>
-                  {a.links && a.links.length > 0 && (
-                    <div className="mt-1 flex flex-wrap gap-1.5">
-                      {a.links.slice(0, 12).map((l, j) => (
-                        <DLink key={j} href={l.href} className="rounded-full border border-edge px-2 py-0.5 text-[11px] text-gray-300 hover:bg-panel2">
-                          {l.label}{l.detail && <span className="text-gray-500"> · {l.detail}</span>}
-                        </DLink>
-                      ))}
-                      {a.links.length > 12 && <span className="px-1 text-[11px] text-gray-500">+{a.links.length - 12} more</span>}
-                    </div>
-                  )}
-                  <div className="mt-0.5 flex items-center gap-1 text-[11px] text-gray-500">{a.hint} <Help id={a.kpi} /></div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-        {o.alerts.length > 7 && (
-          <button onClick={() => setShowAll((v) => !v)} className="mt-1 text-xs text-brand-400 hover:underline">
-            {showAll ? "Show fewer" : `Show all ${o.alerts.length}`}
-          </button>
-        )}
-      </Card>
+      {/* 1. Needs attention: stored findings once the engine has run, else the computed list */}
+      {o.findingsMeta.checkedAt
+        ? <FindingsAttention o={o} showAll={showAll} setShowAll={setShowAll} />
+        : <ComputedAttention o={o} showAll={showAll} setShowAll={setShowAll} />}
 
       {/* 2-4. Cost, workload, capacity */}
       <div className="mb-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
@@ -306,5 +272,124 @@ function HoursChart({ hours }: { hours: DirectorOverviewDTO["people"]["hours"] }
     </div>
     <div className="mt-1 text-[10px] text-gray-500">Signed-in hours per week · solid = staff · light = hire workers · * before 26 Oct incomplete (sign-ins trial)</div>
     </>
+  );
+}
+
+// Before the findings engine has run: the list worked out on the spot.
+function ComputedAttention({ o, showAll, setShowAll }: { o: DirectorOverviewDTO; showAll: boolean; setShowAll: (fn: (v: boolean) => boolean) => void }) {
+  const urgent = o.alerts.filter((a) => a.priority === "CRITICAL" || a.priority === "HIGH").length;
+  const shown = showAll ? o.alerts : o.alerts.slice(0, 7);
+  return (
+    <Card className="mb-4">
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <div className="text-sm font-semibold text-gray-100">Needs attention</div>
+        <div className="text-[11px] text-gray-500">{urgent} critical or high · {o.alerts.length} in all</div>
+      </div>
+      {o.alerts.length === 0 ? (
+        <p className="text-sm text-emerald-400">All clear - nothing needs a director right now.</p>
+      ) : (
+        <div className="divide-y divide-edge">
+          {shown.map((a, i) => (
+            <div key={i} className="flex gap-3 py-2.5">
+              <PriorityPill p={a.priority} />
+              <div className="min-w-0 flex-1 text-sm">
+                <div className="text-gray-200">
+                  {a.href ? <DLink href={a.href} className="hover:underline">{a.title}</DLink> : a.title}
+                </div>
+                {a.links && a.links.length > 0 && (
+                  <div className="mt-1 flex flex-wrap gap-1.5">
+                    {a.links.slice(0, 12).map((l, j) => (
+                      <DLink key={j} href={l.href} className="rounded-full border border-edge px-2 py-0.5 text-[11px] text-gray-300 hover:bg-panel2">
+                        {l.label}{l.detail && <span className="text-gray-500"> · {l.detail}</span>}
+                      </DLink>
+                    ))}
+                    {a.links.length > 12 && <span className="px-1 text-[11px] text-gray-500">+{a.links.length - 12} more</span>}
+                  </div>
+                )}
+                <div className="mt-0.5 flex items-center gap-1 text-[11px] text-gray-500">{a.hint} <Help id={a.kpi} /></div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {o.alerts.length > 7 && (
+        <button onClick={() => setShowAll((v) => !v)} className="mt-1 text-xs text-brand-400 hover:underline">
+          {showAll ? "Show fewer" : `Show all ${o.alerts.length}`}
+        </button>
+      )}
+    </Card>
+  );
+}
+
+// Stored findings (Phase 2): each problem once, with how long it's stood and
+// whether its rule has stopped firing. Critical / high / medium one by one;
+// information-only gaps bundled per kind. Overdue site requests come straight
+// from Requests (they're work items, not findings).
+function FindingsAttention({ o, showAll, setShowAll }: { o: DirectorOverviewDTO; showAll: boolean; setShowAll: (fn: (v: boolean) => boolean) => void }) {
+  const { singles, infoGroups } = groupForDisplay(o.findings);
+  const requests = o.alerts.filter((a) => a.kpi === "O6");
+  const m = o.findingsMeta;
+  const urgent = (m.bySeverity.CRITICAL ?? 0) + (m.bySeverity.HIGH ?? 0);
+  const shownSingles = showAll ? singles : singles.slice(0, 7);
+  const checked = m.checkedAt ? new Date(m.checkedAt).toLocaleString("en-AU", { weekday: "short", hour: "numeric", minute: "2-digit" }) : null;
+  return (
+    <Card className="mb-4">
+      <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+        <div className="text-sm font-semibold text-gray-100">Needs attention</div>
+        <div className="text-[11px] text-gray-500">
+          {urgent} critical or high · {m.open} open{m.signalCleared ? ` · ${m.signalCleared} cleared, to close` : ""} · {m.closedThisWeek} closed this week{checked ? ` · checked ${checked}` : ""}
+        </div>
+      </div>
+      {singles.length === 0 && infoGroups.length === 0 && requests.length === 0 ? (
+        <p className="text-sm text-emerald-400">All clear - nothing needs a director right now.</p>
+      ) : (
+        <div className="divide-y divide-edge">
+          {requests.map((a, i) => (
+            <div key={`r${i}`} className="flex gap-3 py-2.5">
+              <PriorityPill p={a.priority} />
+              <div className="min-w-0 flex-1 text-sm">
+                <div className="text-gray-200">{a.href ? <DLink href={a.href} className="hover:underline">{a.title}</DLink> : a.title}</div>
+                <div className="mt-0.5 flex items-center gap-1 text-[11px] text-gray-500">{a.hint} <Help id={a.kpi} /></div>
+              </div>
+            </div>
+          ))}
+          {shownSingles.map((f) => (
+            <div key={f.id} className="flex gap-3 py-2.5">
+              <PriorityPill p={f.severity} />
+              <div className="min-w-0 flex-1 text-sm">
+                <div className="text-gray-200">{f.href ? <DLink href={f.href} className="hover:underline">{f.title}</DLink> : f.title}</div>
+                <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-gray-500">
+                  <span>Open since {sydDay(f.firstSeenAt)}</span>
+                  {f.signalClearedAt && <span className="text-emerald-400">No longer showing since {sydDay(f.signalClearedAt)} - to close</span>}
+                  {f.status !== "OPEN" && <span>{f.status === "ACKNOWLEDGED" ? "Acknowledged" : "Being actioned"}{f.ownerName ? ` · ${f.ownerName}` : ""}</span>}
+                  {f.provisional && <span>Data incomplete</span>}
+                  <Help id={f.kpi} />
+                </div>
+              </div>
+            </div>
+          ))}
+          {infoGroups.map((g) => (
+            <div key={g.rule} className="flex gap-3 py-2.5">
+              <PriorityPill p="INFO" />
+              <div className="min-w-0 flex-1 text-sm">
+                <div className="text-gray-200">{g.items.length} {g.label}</div>
+                <div className="mt-1 flex flex-wrap gap-1.5">
+                  {g.items.slice(0, 12).map((f) => (
+                    <DLink key={f.id} href={f.href ?? "#"} className="rounded-full border border-edge px-2 py-0.5 text-[11px] text-gray-300 hover:bg-panel2">{f.subjectName}</DLink>
+                  ))}
+                  {g.items.length > 12 && <span className="px-1 text-[11px] text-gray-500">+{g.items.length - 12} more</span>}
+                </div>
+                <div className="mt-0.5 flex items-center gap-1 text-[11px] text-gray-500">Gaps to fill - they close themselves once fixed <Help id={g.kpi} /></div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {singles.length > 7 && (
+        <button onClick={() => setShowAll((v) => !v)} className="mt-1 text-xs text-brand-400 hover:underline">
+          {showAll ? "Show fewer" : `Show all ${singles.length}`}
+        </button>
+      )}
+    </Card>
   );
 }

@@ -6,6 +6,7 @@ import { prisma } from "./prisma";
 import type { ResolvedLink } from "./siteLinks";
 import { PRIORITIES, SYSTEM_TYPES, typeOf, type Priority } from "./requestTypes";
 import { todaySydney } from "./today";
+import { assertNoMoney } from "./moneyGuard";
 import type { ReminderSuggestion } from "./requestReminders";
 
 const parseSuggestion = (json: string | null): ReminderSuggestion | null => {
@@ -137,6 +138,28 @@ const base = (r: Req) => ({
   createdAt: r.createdAt.toISOString(),
 });
 
+// Site and office links ride the public photos tunnel - only the link's
+// secret protects them, not Cloudflare Access (Phase 2, 24 Oct 2026). So a
+// link only ever sees OPERATIONAL requests (LINK_WHERE in every link query,
+// linkVisible() on every row), and never a dollar figure the office or a
+// finding wrote: an action or query carrying one is left off the link; on a
+// supervisor's own request, an office note / question / outcome / decline
+// reason / progress note carrying one is swapped for a pointer to the office.
+// The supervisor's own words are theirs and shown exactly as before.
+export const LINK_WHERE = { audience: "OPERATIONAL" } as const;
+const WITH_THE_OFFICE = "Details are with the office";
+const linkText = (t: string | null) => (t != null && !assertNoMoney(t) ? WITH_THE_OFFICE : t);
+type LinkCheckable = Pick<SiteRequest, "audience" | "origin" | "summary" | "details" | "note" | "officeNote" | "question" | "answer" | "outcome" | "declineReason">;
+export function linkVisible(r: LinkCheckable): boolean {
+  if (r.audience !== "OPERATIONAL") return false;
+  if (r.origin === "SITE") return true;
+  return [r.summary, r.details, r.note, r.officeNote, r.question, r.answer, r.outcome, r.declineReason].every((t) => !t || assertNoMoney(t));
+}
+const linkUpdate = (r: Req) => {
+  const u = latestUpdate(r);
+  return u ? { ...u, note: linkText(u.note) ?? "" } : null;
+};
+
 // The supervisor who asked: where it's up to, any question, the outcome.
 export const siteView = (r: Req) => ({
   ...base(r),
@@ -144,23 +167,23 @@ export const siteView = (r: Req) => ({
   // First name of whoever is actioning it (no other office detail).
   handler: ["TODO", "ACTIONING", "NEEDS_INFO"].includes(r.status) ? firstName(r.assigneeName) : null,
   askedBy: r.status === "NEEDS_INFO" ? (askedByAssignee(r) ? firstName(r.assigneeName) : "Office") : null,
-  update: ["TODO", "ACTIONING", "NEEDS_INFO", "DONE"].includes(r.status) ? latestUpdate(r) : null,
-  question: r.status === "NEEDS_INFO" ? r.question : null,
+  update: ["TODO", "ACTIONING", "NEEDS_INFO", "DONE"].includes(r.status) ? linkUpdate(r) : null,
+  question: r.status === "NEEDS_INFO" ? linkText(r.question) : null,
   answer: r.answer,
-  declineReason: r.status === "DECLINED" ? r.declineReason : null,
-  outcome: r.status === "DONE" ? r.outcome : null,
+  declineReason: r.status === "DECLINED" ? linkText(r.declineReason) : null,
+  outcome: r.status === "DONE" ? linkText(r.outcome) : null,
   doneAt: iso(r.doneAt),
 });
 
 // Whoever it's assigned to (Alex): the task, with Ilies's note.
 export const todoView = (r: Req) => ({
   ...base(r),
-  officeNote: r.officeNote,
-  question: r.status === "NEEDS_INFO" ? r.question : null,
+  officeNote: linkText(r.officeNote),
+  question: r.status === "NEEDS_INFO" ? linkText(r.question) : null,
   askedByMe: r.status === "NEEDS_INFO" && askedByAssignee(r),
   answer: r.answer,
-  update: latestUpdate(r),
-  outcome: r.outcome,
+  update: linkUpdate(r),
+  outcome: linkText(r.outcome),
   doneAt: iso(r.doneAt),
 });
 

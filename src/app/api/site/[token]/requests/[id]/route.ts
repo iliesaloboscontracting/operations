@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { resolveLink } from "@/lib/siteLinks";
-import { addEvent, askedByAssignee, siteView } from "@/lib/siteRequests";
+import { addEvent, askedByAssignee, linkVisible, siteView } from "@/lib/siteRequests";
 import { notifyRequestUpdate } from "@/lib/requestAlerts";
 import { suggestInBackground } from "@/lib/requestReminders";
 
@@ -16,7 +16,7 @@ export const PATCH = withErrorHandling(async (req: NextRequest, { params: params
   if (!link || link.kind === "OFFICE") return NextResponse.json({ error: "This link isn't active." }, { status: 404 });
   const r = await prisma.siteRequest.findUnique({ where: { id: params.id }, include: { events: { orderBy: { at: "asc" } } } });
   const mine = r && (r.siteLinkId === link.id || (!link.shared && link.person.id && r.requestedById === link.person.id));
-  if (!r || !mine) return NextResponse.json({ error: "Not found." }, { status: 404 });
+  if (!r || !mine || !linkVisible(r)) return NextResponse.json({ error: "Not found." }, { status: 404 });
   const body = await req.json().catch(() => ({}));
   const text = (x: unknown) => (typeof x === "string" ? x.trim().slice(0, 500) : "");
 
