@@ -13,3 +13,6 @@ prisma/*.db-journal
 # Claude Code session-local runtime state (e.g. the scheduled-loop lock file) -
 # tied to a machine/session, meaningless in git history.
 .claude/scheduled_tasks.lock
+
+# Per-machine Claude Code permissions (e.g. the GitHub push rule Ilies added 24 Oct 2026)
+.claude/settings.local.json
