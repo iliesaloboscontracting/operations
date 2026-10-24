@@ -856,6 +856,15 @@ model SiteRequest {
   // applied by itself. aiSuggestedAt = when it last read the thread.
   aiSuggestion  String?
   aiSuggestedAt DateTime?
+  // Management actions and queries (Phase 2, 24 Oct 2026) ride this same
+  // flow - kinds ACTION / QUERY, never on the site form. Defaults keep every
+  // existing request exactly as it was: from a site link, operational.
+  origin         String    @default("SITE") // SITE | FINDING | DIRECTOR | SYSTEM
+  findingId      String?
+  finding        Finding?  @relation(fields: [findingId], references: [id], onDelete: SetNull)
+  audience       String    @default("OPERATIONAL") // OPERATIONAL | COMMERCIAL | DIRECTOR - links only ever see OPERATIONAL
+  assigneeUserId String? // an app user (accounts login, a director) - alongside assigneeId (a Personnel resource)
+  answerFile     String? // QUERY: optional attachment with the answer, stored like request photos
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   events        SiteRequestEvent[]
@@ -864,6 +873,9 @@ model SiteRequest {
   @@index([assigneeId])
   @@index([siteLinkId])
   @@index([remindAt])
+  @@index([findingId])
+  @@index([assigneeUserId])
+  @@index([origin])
 }
 
 // Hire check (stage 3, 24 Oct 2026): a supervisor's answer about a hire-
@@ -969,6 +981,7 @@ model Finding {
   updatedAt     DateTime  @updatedAt
   evidence      FindingEvidence[]
   events        FindingEvent[]
+  requests      SiteRequest[] // actions and queries raised from it
 
   @@index([dedupeKey])
   @@index([status, severity])
