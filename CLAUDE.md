@@ -204,9 +204,15 @@ business, without becoming unnecessarily complicated.
   TypeScript type level (narrow DTOs with no money fields) and via a runtime
   scan (`assertNoMoney`, `scripts/check-viewer-safety.ts`). Preserve this
   wall when touching any operational view.
-- No automated test suite exists yet — `npx tsc --noEmit` is the only
-  automated check. Verification is manual, via the throwaway-db workflow
-  below and browser checks.
+- Automated checks: `npx tsc --noEmit` plus `npm test` (tsx --test, unit
+  tests under `src/**/*.test.ts`, added 24 Oct 2026 - Director Insights KPIs
+  so far). Both must pass before a deploy. Everything else is still verified
+  on a throwaway copy of live data and in the browser.
+- **Code on GitHub** (24 Oct 2026, Ilies approved): private repo
+  `iliesaloboscontracting/operations`, remote `origin`, branch `main` -
+  off-machine copy with full history. Code only: `.env`, databases, backups,
+  supplier rates and business data never go there. Only the lead builder
+  pushes; push `main` after each deploy.
 
 Before making substantial changes, inspect what already exists — the
 structure above, the relevant `src/lib/` helper, existing components, the
