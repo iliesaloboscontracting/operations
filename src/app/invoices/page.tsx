@@ -12,6 +12,7 @@ import { resizePhoto } from "@/lib/imageResize";
 import { money } from "@/lib/resource";
 import { fmtDay } from "@/lib/dates";
 import { CheckCircle2, ChevronDown, ChevronRight, FileText, Loader2, RotateCcw, Upload, XCircle } from "lucide-react";
+import MyQueries, { useMyQueries } from "@/components/queries/MyQueries";
 
 type Draft = {
   id: string; uploadId: string; rowNo: number | null; supplier: string | null; entityBilled: string | null; invoiceNo: string | null;
@@ -55,6 +56,10 @@ export default function InvoicesPage() {
   const [sending, setSending] = useState<{ name: string; error?: string }[]>([]);
   const [showOther, setShowOther] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
+  // Queries (Phase 2): questions Ilies has asked this login, answered here.
+  const myQueries = useMyQueries();
+  const [tab, setTab] = useState<"invoices" | "queries">("invoices");
+  const showTabs = accountsOnly || (myQueries.rows?.length ?? 0) > 0;
 
   const load = useCallback(() => apiFetch("/api/invoice-inbox").then((r) => (r.ok ? r.json() : null)).then((d) => d && setInbox(d)), []);
   useEffect(() => { load(); }, [load]);
@@ -96,6 +101,19 @@ export default function InvoicesPage() {
 
   return (
     <PageShell title="Invoices" subtitle="Upload supplier invoices (PDF or photo) or your invoice register spreadsheet. Clear matches go straight onto the job; anything unclear waits here.">
+      {showTabs && (
+        <div className="mb-4 flex gap-1.5" role="tablist" aria-label="Invoices or queries">
+          {([["invoices", "Invoices"], ["queries", `Queries${myQueries.waiting ? ` (${myQueries.waiting})` : ""}`]] as const).map(([k, label]) => (
+            <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)}
+              className={`rounded-full px-3 py-1 text-xs font-medium ${tab === k ? "bg-brand-600 text-white" : "border border-edge text-gray-400 hover:text-gray-200"}`}>
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+      {tab === "queries" ? (
+        <div className="max-w-2xl"><MyQueries rows={myQueries.rows} onChange={myQueries.load} /></div>
+      ) : (<>
       <div
         onDragOver={(e) => e.preventDefault()}
         onDrop={(e) => { e.preventDefault(); upload(e.dataTransfer.files); }}
@@ -203,6 +221,7 @@ export default function InvoicesPage() {
           </div>
         </>
       )}
+      </>)}
     </PageShell>
   );
 }

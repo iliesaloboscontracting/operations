@@ -7,6 +7,7 @@ import SignInCrew from "@/components/site/SignInCrew";
 import { MyRequests, RequestForm } from "@/components/site/SiteRequests";
 import TodoList from "@/components/site/TodoList";
 import HireCheck from "@/components/site/HireCheck";
+import SiteQuestions from "@/components/site/SiteQuestions";
 import CheckResultView from "@/components/tools/CheckResultView";
 import InstallApp from "@/components/InstallApp";
 import SiteBrand from "@/components/site/SiteBrand";
@@ -120,6 +121,7 @@ export default function SitePhotosPage({ params: paramsP }: { params: Promise<{ 
             </div>
           )}
           {flash && <div className="mb-4 rounded-xl bg-emerald-500/15 px-4 py-3 text-sm text-emerald-300">✓ {flash}</div>}
+          {!info.shared && info.kind !== "HANDOVER" && <SiteQuestions api={api} />}
           <div className="space-y-3">
             {info.kind !== "OFFICE" && (
               <Big icon={<QrIcon size={22} />} title="Sign in crew" text="Show the QR - crew scan it to sign in or out" onClick={() => { setFlash(null); setMode("signin"); }} />
