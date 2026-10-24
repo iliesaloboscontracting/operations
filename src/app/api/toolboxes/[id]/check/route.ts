@@ -9,7 +9,8 @@ import { runToolboxCheck } from "@/lib/toolboxCheckRun";
 // Reads the photo(s), compares with what should be in this toolbox and
 // records the check. It changes no tool - moving a tool found in the wrong
 // box, or marking one missing, is a separate step the person chooses.
-export const POST = withErrorHandling(async (req: NextRequest, { params }: { params: { id: string } }) => {
+export const POST = withErrorHandling(async (req: NextRequest, { params: paramsP }: { params: Promise<{ id: string }> }) => {
+  const params = await paramsP;
   const denied = await guard("MANAGER");
   if (denied) return denied;
   const user = await getCurrentUser();

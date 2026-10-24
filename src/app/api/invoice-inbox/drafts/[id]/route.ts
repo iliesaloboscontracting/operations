@@ -7,7 +7,8 @@ import { decideDraft } from "@/lib/invoiceInbox";
 //   { action: "ADD", fields }  put it on a job (corrections in fields)
 //   { action: "SKIP", reason } not a job cost / not ours
 //   { action: "UNDO" }         take an added invoice back off its job
-export const PATCH = withErrorHandling(async (req: NextRequest, { params }: { params: { id: string } }) => {
+export const PATCH = withErrorHandling(async (req: NextRequest, { params: paramsP }: { params: Promise<{ id: string }> }) => {
+  const params = await paramsP;
   const g = await guardInvoiceInbox();
   if ("denied" in g) return g.denied;
   const body = await req.json().catch(() => ({}));

@@ -22,7 +22,8 @@ async function linkFor(token: string) {
   return { link };
 }
 
-export const GET = withErrorHandling(async (_req: NextRequest, { params }: { params: { token: string } }) => {
+export const GET = withErrorHandling(async (_req: NextRequest, { params: paramsP }: { params: Promise<{ token: string }> }) => {
+  const params = await paramsP;
   const { link, res } = await linkFor(params.token);
   if (!link) return res;
   const since = new Date(Date.now() - 14 * 86_400_000);
@@ -39,7 +40,8 @@ export const GET = withErrorHandling(async (_req: NextRequest, { params }: { par
   return NextResponse.json({ requests: requests.map(siteView), sites });
 });
 
-export const POST = withErrorHandling(async (req: NextRequest, { params }: { params: { token: string } }) => {
+export const POST = withErrorHandling(async (req: NextRequest, { params: paramsP }: { params: Promise<{ token: string }> }) => {
+  const params = await paramsP;
   const { link, res } = await linkFor(params.token);
   if (!link) return res;
   const today = await prisma.siteRequest.count({ where: { siteLinkId: link.id, createdAt: { gte: new Date(Date.now() - 86_400_000) } } });

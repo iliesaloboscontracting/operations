@@ -9,7 +9,8 @@ import { jobLabel, makeTicket, openJob, openJobsAtProject, pointCrew, readRotati
 // point), the names to pick from the first time, and a 15-minute ticket to
 // sign in/out with. Nothing else from Operations - no times, no money, no
 // other sites.
-export const GET = withErrorHandling(async (_req: NextRequest, { params }: { params: { code: string } }) => {
+export const GET = withErrorHandling(async (_req: NextRequest, { params: paramsP }: { params: Promise<{ code: string }> }) => {
+  const params = await paramsP;
   const code = decodeURIComponent(params.code);
   let method: Method;
   let linkId: string;

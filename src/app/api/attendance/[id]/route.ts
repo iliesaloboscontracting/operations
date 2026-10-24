@@ -7,7 +7,8 @@ import { syncSignInActualsQuietly } from "@/lib/signInActuals";
 
 // PATCH /api/attendance/:id { signInAt?, signOutAt? (null = clear), status?, reason }
 // Only the office (Manager+) changes a sign-in - rules in lib/attendanceEdits.ts.
-export const PATCH = withErrorHandling(async (req: NextRequest, { params }: { params: { id: string } }) => {
+export const PATCH = withErrorHandling(async (req: NextRequest, { params: paramsP }: { params: Promise<{ id: string }> }) => {
+  const params = await paramsP;
   const denied = await guard("MANAGER");
   if (denied) return denied;
   const user = await getCurrentUser();

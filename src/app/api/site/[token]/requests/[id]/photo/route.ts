@@ -6,7 +6,8 @@ import { mediaTypeOf, readPhoto } from "@/lib/toolPhotos";
 
 // GET /api/site/:token/requests/:id/photo - a request's photo, for the link
 // that sent it or the person it's been given to.
-export const GET = withErrorHandling(async (_req: NextRequest, { params }: { params: { token: string; id: string } }) => {
+export const GET = withErrorHandling(async (_req: NextRequest, { params: paramsP }: { params: Promise<{ token: string; id: string }> }) => {
+  const params = await paramsP;
   const link = await resolveLink(params.token);
   if (!link) return NextResponse.json({ error: "This link isn't active." }, { status: 404 });
   const r = await prisma.siteRequest.findUnique({ where: { id: params.id }, select: { photoFile: true, siteLinkId: true, requestedById: true, assigneeId: true } });

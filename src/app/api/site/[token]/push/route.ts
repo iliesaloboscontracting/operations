@@ -12,13 +12,15 @@ async function linkFor(token: string) {
   return link && (link.kind === "SUPERVISOR" || link.kind === "HANDOVER") ? link : null;
 }
 
-export const GET = withErrorHandling(async (_req: NextRequest, { params }: { params: { token: string } }) => {
+export const GET = withErrorHandling(async (_req: NextRequest, { params: paramsP }: { params: Promise<{ token: string }> }) => {
+  const params = await paramsP;
   const link = await linkFor(params.token);
   if (!link) return NextResponse.json({ error: "Alerts are for supervisors' links." }, { status: 404 });
   return NextResponse.json({ publicKey: pushPublicKey() });
 });
 
-export const POST = withErrorHandling(async (req: NextRequest, { params }: { params: { token: string } }) => {
+export const POST = withErrorHandling(async (req: NextRequest, { params: paramsP }: { params: Promise<{ token: string }> }) => {
+  const params = await paramsP;
   const link = await linkFor(params.token);
   if (!link) return NextResponse.json({ error: "Alerts are for supervisors' links." }, { status: 404 });
   const body = await req.json().catch(() => ({}));
@@ -41,7 +43,8 @@ export const POST = withErrorHandling(async (req: NextRequest, { params }: { par
   return NextResponse.json({ ok: true });
 });
 
-export const DELETE = withErrorHandling(async (req: NextRequest, { params }: { params: { token: string } }) => {
+export const DELETE = withErrorHandling(async (req: NextRequest, { params: paramsP }: { params: Promise<{ token: string }> }) => {
+  const params = await paramsP;
   const link = await linkFor(params.token);
   if (!link) return NextResponse.json({ error: "Alerts are for supervisors' links." }, { status: 404 });
   const body = await req.json().catch(() => ({}));

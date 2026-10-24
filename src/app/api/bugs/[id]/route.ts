@@ -8,8 +8,9 @@ const FIELDS = ["title", "description", "severity", "status", "notes"] as const;
 // PATCH /api/bugs/:id -> triage a report (status, notes, severity). Managers+ only.
 export const PATCH = withErrorHandling(async (
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params: paramsP }: { params: Promise<{ id: string }> }
 ) => {
+  const params = await paramsP;
   const denied = await guard("MANAGER");
   if (denied) return denied;
   const body = await req.json().catch(() => ({}));
@@ -27,8 +28,9 @@ export const PATCH = withErrorHandling(async (
 // DELETE /api/bugs/:id -> Managers+ only (e.g. clearing a duplicate/spam report)
 export const DELETE = withErrorHandling(async (
   _req: NextRequest,
-  { params }: { params: { id: string } }
+  { params: paramsP }: { params: Promise<{ id: string }> }
 ) => {
+  const params = await paramsP;
   const denied = await guard("MANAGER");
   if (denied) return denied;
   await prisma.bugReport.delete({ where: { id: params.id } });

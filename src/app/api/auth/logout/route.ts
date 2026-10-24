@@ -4,6 +4,6 @@ import { withErrorHandling } from "@/lib/apiHandler";
 
 // POST /api/auth/logout
 export const POST = withErrorHandling(async () => {
-  endSession();
+  await endSession();
   return NextResponse.json({ ok: true });
 });

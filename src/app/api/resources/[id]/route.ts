@@ -10,8 +10,9 @@ import { hireDateError } from "@/lib/dateRules";
 // PATCH /api/resources/:id
 export const PATCH = withErrorHandling(async (
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params: paramsP }: { params: Promise<{ id: string }> }
 ) => {
+  const params = await paramsP;
   const denied = await guard("MANAGER");
   if (denied) return denied;
   const user = await getCurrentUser();
@@ -46,8 +47,9 @@ export const PATCH = withErrorHandling(async (
 // DELETE /api/resources/:id -> soft delete (mark inactive) to keep assignment history
 export const DELETE = withErrorHandling(async (
   _req: NextRequest,
-  { params }: { params: { id: string } }
+  { params: paramsP }: { params: Promise<{ id: string }> }
 ) => {
+  const params = await paramsP;
   const denied = await guard("MANAGER");
   if (denied) return denied;
   await prisma.resource.update({

@@ -10,8 +10,9 @@ import { assertDateOpen } from "@/lib/dayLock";
 //  - { jobId } -> move the resource to another job (drag chip between rows)
 export const PATCH = withErrorHandling(async (
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params: paramsP }: { params: Promise<{ id: string }> }
 ) => {
+  const params = await paramsP;
   const denied = await guard("MANAGER");
   if (denied) return denied;
   const user = await getCurrentUser();
@@ -63,8 +64,9 @@ export const PATCH = withErrorHandling(async (
 // DELETE /api/assignments/:id -> unassign (drag off / remove chip)
 export const DELETE = withErrorHandling(async (
   _req: NextRequest,
-  { params }: { params: { id: string } }
+  { params: paramsP }: { params: Promise<{ id: string }> }
 ) => {
+  const params = await paramsP;
   const denied = await guard("MANAGER");
   if (denied) return denied;
   const current = await prisma.assignment.findUnique({ where: { id: params.id }, include: { job: { select: { date: true } } } });

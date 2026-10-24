@@ -15,7 +15,8 @@ import { ON_TODO } from "@/lib/requestTypes";
 //   { action: "DONE", outcome }       - done, with what was booked
 //   { action: "CANT_DO", reason }     - goes back to Ilies to decide again
 // Alex doesn't decide - no declining or re-assigning from here (22 Oct 2026).
-export const PATCH = withErrorHandling(async (req: NextRequest, { params }: { params: { token: string; id: string } }) => {
+export const PATCH = withErrorHandling(async (req: NextRequest, { params: paramsP }: { params: Promise<{ token: string; id: string }> }) => {
+  const params = await paramsP;
   const link = await resolveLink(params.token);
   if (!link || link.kind !== "OFFICE" || !link.person.id) return NextResponse.json({ error: "No to-do list on this link." }, { status: 404 });
   const r = await prisma.siteRequest.findUnique({ where: { id: params.id } });

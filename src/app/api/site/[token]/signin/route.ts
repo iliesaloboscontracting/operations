@@ -32,7 +32,8 @@ async function load(req: NextRequest, token: string) {
   return { ok: true as const, link, jobs: await jobsFor(link) };
 }
 
-export const GET = withErrorHandling(async (req: NextRequest, { params }: { params: { token: string } }) => {
+export const GET = withErrorHandling(async (req: NextRequest, { params: paramsP }: { params: Promise<{ token: string }> }) => {
+  const params = await paramsP;
   const r = await load(req, params.token);
   if (!r.ok) return r.res;
   const { link, jobs } = r;
@@ -75,7 +76,8 @@ export const GET = withErrorHandling(async (req: NextRequest, { params }: { para
   });
 });
 
-export const POST = withErrorHandling(async (req: NextRequest, { params }: { params: { token: string } }) => {
+export const POST = withErrorHandling(async (req: NextRequest, { params: paramsP }: { params: Promise<{ token: string }> }) => {
+  const params = await paramsP;
   const r = await load(req, params.token);
   if (!r.ok) return r.res;
   const { link, jobs } = r;

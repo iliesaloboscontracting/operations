@@ -10,8 +10,9 @@ import { CONTACT_TEXT_KEYS, moneyError, moneyProblems } from "@/lib/projectFile"
 // staff aren't added here - they come from the Personnel register.
 export const POST = withErrorHandling(async (
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params: paramsP }: { params: Promise<{ id: string }> }
 ) => {
+  const params = await paramsP;
   const denied = await guard("MANAGER");
   if (denied) return denied;
   const data = pickContact(await req.json());

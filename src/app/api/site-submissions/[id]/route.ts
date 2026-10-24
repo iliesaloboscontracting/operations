@@ -7,7 +7,8 @@ import { withErrorHandling } from "@/lib/apiHandler";
 //   { status: "REJECTED", note? }                 - not used (e.g. duplicate, blurry)
 //   { status: "APPLIED", appliedRef }             - REGISTER: after the tool was saved (appliedRef = tool id)
 //   { status: "APPLIED", notWorking? }            - FAULT: logs the fault on the tool now
-export const PATCH = withErrorHandling(async (req: NextRequest, { params }: { params: { id: string } }) => {
+export const PATCH = withErrorHandling(async (req: NextRequest, { params: paramsP }: { params: Promise<{ id: string }> }) => {
+  const params = await paramsP;
   const denied = await guard("MANAGER");
   if (denied) return denied;
   const user = await getCurrentUser();

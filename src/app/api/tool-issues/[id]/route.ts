@@ -14,7 +14,8 @@ const NEXT: Record<string, string[]> = {
 // SWAPPED needs the replacement tool (register it by photo first): the
 // replacement takes the faulty tool's place in its toolbox, and the faulty
 // tool leaves the toolbox marked "Swapped out" (with Hilti).
-export const PATCH = withErrorHandling(async (req: NextRequest, { params }: { params: { id: string } }) => {
+export const PATCH = withErrorHandling(async (req: NextRequest, { params: paramsP }: { params: Promise<{ id: string }> }) => {
+  const params = await paramsP;
   const denied = await guard("MANAGER");
   if (denied) return denied;
   const user = await getCurrentUser();

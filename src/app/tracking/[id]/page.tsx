@@ -5,7 +5,7 @@
 // against the contract value; what it's spent on, tap a type for the records
 // behind it; supplier invoices (Add invoice). Research: reports/Job cost
 // tracking page design.md.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, use } from "react";
 import Link from "next/link";
 import { Area, Bar, BarChart, ComposedChart, Line, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import PageShell from "@/components/PageShell";
@@ -23,7 +23,8 @@ import { ArrowLeft, Plus } from "lucide-react";
 const INVOICE_CAT: Record<string, CostCatKey> = { LABOUR_HIRE: "labourHire", PLANT_HIRE: "hire", TIP_FEES: "tipFees", MATERIALS: "materials" };
 const day = (iso: string) => fmtDay(iso, { day: "numeric", month: "short" });
 
-export default function TrackingJobPage({ params }: { params: { id: string } }) {
+export default function TrackingJobPage({ params: paramsP }: { params: Promise<{ id: string }> }) {
+  const params = use(paramsP);
   const { isAdmin } = useAuth();
   const [p, setP] = useState<ProjectCostDTO | null>(null);
   const [missing, setMissing] = useState(false);

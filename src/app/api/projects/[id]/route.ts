@@ -15,8 +15,9 @@ import { todaySydney } from "@/lib/today";
 // or the internal notes scratchpad.
 export const GET = withErrorHandling(async (
   _req: NextRequest,
-  { params }: { params: { id: string } }
+  { params: paramsP }: { params: Promise<{ id: string }> }
 ) => {
+  const params = await paramsP;
   const denied = await guard("VIEWER");
   if (denied) return denied;
   const user = await getCurrentUser();
@@ -56,8 +57,9 @@ export const GET = withErrorHandling(async (
 
 export const PATCH = withErrorHandling(async (
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params: paramsP }: { params: Promise<{ id: string }> }
 ) => {
+  const params = await paramsP;
   const denied = await guard("MANAGER");
   if (denied) return denied;
   const body = await req.json();
@@ -79,8 +81,9 @@ export const PATCH = withErrorHandling(async (
 // Deleting a project keeps its past jobs (projectId set null); prefer archiving.
 export const DELETE = withErrorHandling(async (
   _req: NextRequest,
-  { params }: { params: { id: string } }
+  { params: paramsP }: { params: Promise<{ id: string }> }
 ) => {
+  const params = await paramsP;
   const denied = await guard("MANAGER");
   if (denied) return denied;
   await prisma.project.delete({ where: { id: params.id } });

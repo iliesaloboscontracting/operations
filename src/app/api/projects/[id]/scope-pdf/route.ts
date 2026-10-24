@@ -11,8 +11,9 @@ import { assertNoMoney } from "@/lib/moneyGuard";
 // one that's only there for the handful already researched.
 export const GET = withErrorHandling(async (
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params: paramsP }: { params: Promise<{ id: string }> }
 ) => {
+  const params = await paramsP;
   const denied = await guard("VIEWER");
   if (denied) return denied;
 

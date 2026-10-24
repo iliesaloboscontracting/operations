@@ -7,7 +7,8 @@ import { processInBackground } from "@/lib/invoiceInbox";
 
 // GET /api/invoice-inbox/uploads/:id -> the uploaded file itself (to check
 // an invoice against what was read).
-export const GET = withErrorHandling(async (_req: NextRequest, { params }: { params: { id: string } }) => {
+export const GET = withErrorHandling(async (_req: NextRequest, { params: paramsP }: { params: Promise<{ id: string }> }) => {
+  const params = await paramsP;
   const g = await guardInvoiceInbox();
   if ("denied" in g) return g.denied;
   const u = await prisma.invoiceUpload.findUnique({ where: { id: params.id } });
@@ -27,7 +28,8 @@ export const GET = withErrorHandling(async (_req: NextRequest, { params }: { par
 
 // PATCH /api/invoice-inbox/uploads/:id { action: "RETRY" } -> read a failed
 // upload again (its earlier partial results are cleared first).
-export const PATCH = withErrorHandling(async (req: NextRequest, { params }: { params: { id: string } }) => {
+export const PATCH = withErrorHandling(async (req: NextRequest, { params: paramsP }: { params: Promise<{ id: string }> }) => {
+  const params = await paramsP;
   const g = await guardInvoiceInbox();
   if ("denied" in g) return g.denied;
   const body = await req.json().catch(() => ({}));

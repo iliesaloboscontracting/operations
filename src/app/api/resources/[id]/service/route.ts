@@ -7,8 +7,9 @@ import { withErrorHandling } from "@/lib/apiHandler";
 // GET /api/resources/:id/service -> that resource's service history, newest first
 export const GET = withErrorHandling(async (
   _req: NextRequest,
-  { params }: { params: { id: string } }
+  { params: paramsP }: { params: Promise<{ id: string }> }
 ) => {
+  const params = await paramsP;
   const denied = await guard("VIEWER");
   if (denied) return denied;
   const records = await prisma.serviceRecord.findMany({
@@ -21,8 +22,9 @@ export const GET = withErrorHandling(async (
 // POST /api/resources/:id/service -> add a service record
 export const POST = withErrorHandling(async (
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params: paramsP }: { params: Promise<{ id: string }> }
 ) => {
+  const params = await paramsP;
   const denied = await guard("MANAGER");
   if (denied) return denied;
   const body = await req.json().catch(() => ({}));

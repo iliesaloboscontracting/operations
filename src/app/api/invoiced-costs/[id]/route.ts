@@ -6,7 +6,8 @@ import { readInvoice } from "@/lib/invoicedCosts";
 
 // PATCH /api/invoiced-costs/:id - correct an entered invoice (Manager+). The
 // whole invoice is re-checked as one, same rules as adding it.
-export const PATCH = withErrorHandling(async (req: NextRequest, { params }: { params: { id: string } }) => {
+export const PATCH = withErrorHandling(async (req: NextRequest, { params: paramsP }: { params: Promise<{ id: string }> }) => {
+  const params = await paramsP;
   const denied = await guard("MANAGER");
   if (denied) return denied;
   const user = await getCurrentUser();
@@ -21,7 +22,8 @@ export const PATCH = withErrorHandling(async (req: NextRequest, { params }: { pa
 
 // DELETE /api/invoiced-costs/:id - remove an invoice entered by mistake.
 // Admin only: it takes real cost off a project.
-export const DELETE = withErrorHandling(async (_req: NextRequest, { params }: { params: { id: string } }) => {
+export const DELETE = withErrorHandling(async (_req: NextRequest, { params: paramsP }: { params: Promise<{ id: string }> }) => {
+  const params = await paramsP;
   const denied = await guard("ADMIN");
   if (denied) return denied;
   const existing = await prisma.invoicedCost.findUnique({ where: { id: params.id }, select: { id: true } });

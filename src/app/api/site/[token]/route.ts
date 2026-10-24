@@ -7,7 +7,8 @@ import { OPEN_STATUSES } from "@/lib/requestTypes";
 // GET /api/site/:token -> who the link belongs to and their toolbox(es) with
 // the tools in each (for picking a tool when reporting a fault). Tool names
 // and serials only - nothing else from Operations is reachable from here.
-export const GET = withErrorHandling(async (_req: NextRequest, { params }: { params: { token: string } }) => {
+export const GET = withErrorHandling(async (_req: NextRequest, { params: paramsP }: { params: Promise<{ token: string }> }) => {
+  const params = await paramsP;
   const link = await resolveLink(params.token);
   if (!link) return NextResponse.json({ error: "This link isn't active. Ask the office for a new one." }, { status: 404 });
   const toolboxes = await prisma.toolbox.findMany({

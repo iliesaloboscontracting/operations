@@ -7,8 +7,9 @@ import { withErrorHandling } from "@/lib/apiHandler";
 // PATCH /api/service/:id -> edit a service record
 export const PATCH = withErrorHandling(async (
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params: paramsP }: { params: Promise<{ id: string }> }
 ) => {
+  const params = await paramsP;
   const denied = await guard("MANAGER");
   if (denied) return denied;
   const body = await req.json().catch(() => ({}));
@@ -22,8 +23,9 @@ export const PATCH = withErrorHandling(async (
 // DELETE /api/service/:id
 export const DELETE = withErrorHandling(async (
   _req: NextRequest,
-  { params }: { params: { id: string } }
+  { params: paramsP }: { params: Promise<{ id: string }> }
 ) => {
+  const params = await paramsP;
   const denied = await guard("MANAGER");
   if (denied) return denied;
   await prisma.serviceRecord.delete({ where: { id: params.id } });

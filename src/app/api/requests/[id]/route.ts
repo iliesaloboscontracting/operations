@@ -24,7 +24,8 @@ import { suggestInBackground, suggestReminder } from "@/lib/requestReminders";
 //   SUGGEST                                     - ask the AI now
 const DECIDABLE = ["SENT", "SEEN", "NEEDS_INFO", "CANT_DO", "MINE", "TODO", "ACTIONING"];
 
-export const PATCH = withErrorHandling(async (req: NextRequest, { params }: { params: { id: string } }) => {
+export const PATCH = withErrorHandling(async (req: NextRequest, { params: paramsP }: { params: Promise<{ id: string }> }) => {
+  const params = await paramsP;
   const denied = await guard("ADMIN");
   if (denied) return denied;
   const user = (await getCurrentUser())!;

@@ -5,7 +5,8 @@ import { resolveLink } from "@/lib/siteLinks";
 // as the "Lobos Site" phone app (22 Oct 2026). The app opens straight onto
 // their own link, so they never handle the link again. Served on the photos
 // address with the rest of /site/... (no Cloudflare change).
-export async function GET(_req: NextRequest, { params }: { params: { token: string } }) {
+export async function GET(_req: NextRequest, { params: paramsP }: { params: Promise<{ token: string }> }) {
+  const params = await paramsP;
   const link = await resolveLink(params.token);
   if (!link) return NextResponse.json({ error: "This link isn't active." }, { status: 404 });
   const home = `/site/${params.token}`;

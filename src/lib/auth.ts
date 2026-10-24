@@ -52,7 +52,7 @@ export function dummyHash() {
 export async function startSession(userId: string, email?: string | null) {
   const maxAge = sessionMaxAgeFor(email);
   const token = await signSession(userId, maxAge);
-  cookies().set(SESSION_COOKIE, token, {
+  (await cookies()).set(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
@@ -61,13 +61,13 @@ export async function startSession(userId: string, email?: string | null) {
   });
 }
 
-export function endSession() {
-  cookies().set(SESSION_COOKIE, "", { httpOnly: true, path: "/", maxAge: 0 });
+export async function endSession() {
+  (await cookies()).set(SESSION_COOKIE, "", { httpOnly: true, path: "/", maxAge: 0 });
 }
 
 // The signed-in user (fresh from the DB), or null. Inactive users are treated as signed out.
 export async function getCurrentUser(): Promise<AuthUser | null> {
-  const session = await verifySession(cookies().get(SESSION_COOKIE)?.value);
+  const session = await verifySession((await cookies()).get(SESSION_COOKIE)?.value);
   if (!session) return null;
   const u = await prisma.user.findUnique({ where: { id: session.uid } });
   if (!u || !u.active) return null;

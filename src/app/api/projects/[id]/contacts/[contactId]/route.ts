@@ -12,8 +12,9 @@ async function findContact(projectId: string, contactId: string) {
 // PATCH /api/projects/:id/contacts/:contactId
 export const PATCH = withErrorHandling(async (
   req: NextRequest,
-  { params }: { params: { id: string; contactId: string } }
+  { params: paramsP }: { params: Promise<{ id: string; contactId: string }> }
 ) => {
+  const params = await paramsP;
   const denied = await guard("MANAGER");
   if (denied) return denied;
   const data = pickContact(await req.json());
@@ -31,8 +32,9 @@ export const PATCH = withErrorHandling(async (
 // by mistake or no longer on the job.
 export const DELETE = withErrorHandling(async (
   _req: NextRequest,
-  { params }: { params: { id: string; contactId: string } }
+  { params: paramsP }: { params: Promise<{ id: string; contactId: string }> }
 ) => {
+  const params = await paramsP;
   const denied = await guard("MANAGER");
   if (denied) return denied;
   if (!(await findContact(params.id, params.contactId))) {

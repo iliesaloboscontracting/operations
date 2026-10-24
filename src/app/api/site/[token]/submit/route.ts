@@ -18,7 +18,8 @@ import { createTool, duplicateMessage, findDuplicate } from "@/lib/toolCreate";
 // recorded straight away, and from its result they can take a tool from
 // another box into theirs or mark one of theirs missing - each logged as
 // done by them through their link. Faults wait for the office.
-export const POST = withErrorHandling(async (req: NextRequest, { params }: { params: { token: string } }) => {
+export const POST = withErrorHandling(async (req: NextRequest, { params: paramsP }: { params: Promise<{ token: string }> }) => {
+  const params = await paramsP;
   const link = await resolveLink(params.token);
   if (!link) return NextResponse.json({ error: "This link isn't active. Ask the office for a new one." }, { status: 404 });
   if (link.kind === "HANDOVER") return NextResponse.json({ error: "This link is only for crew sign-in." }, { status: 403 });

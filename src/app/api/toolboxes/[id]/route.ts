@@ -7,7 +7,8 @@ import { checkSupervisor } from "@/lib/toolboxServer";
 // PATCH /api/toolboxes/:id { name?, supervisorId?, notes?, active? }
 // Retiring a toolbox (active: false) is only allowed once it's empty, so no
 // tool is left pointing at a box nobody can see.
-export const PATCH = withErrorHandling(async (req: NextRequest, { params }: { params: { id: string } }) => {
+export const PATCH = withErrorHandling(async (req: NextRequest, { params: paramsP }: { params: Promise<{ id: string }> }) => {
+  const params = await paramsP;
   const denied = await guard("MANAGER");
   if (denied) return denied;
   const body = await req.json().catch(() => ({}));

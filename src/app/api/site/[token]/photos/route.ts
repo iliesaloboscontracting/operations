@@ -6,7 +6,8 @@ import { PHOTO_KINDS, savePhoto } from "@/lib/toolPhotos";
 
 // POST /api/site/:token/photos { kind, dataUrl } -> { id }
 // Uploads one photo through a supervisor's link, up to a daily limit.
-export const POST = withErrorHandling(async (req: NextRequest, { params }: { params: { token: string } }) => {
+export const POST = withErrorHandling(async (req: NextRequest, { params: paramsP }: { params: Promise<{ token: string }> }) => {
+  const params = await paramsP;
   const link = await resolveLink(params.token);
   if (!link) return NextResponse.json({ error: "This link isn't active. Ask the office for a new one." }, { status: 404 });
   if (link.kind === "HANDOVER") return NextResponse.json({ error: "This link is only for crew sign-in." }, { status: 403 });

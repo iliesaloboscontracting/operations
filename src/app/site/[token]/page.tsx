@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, use } from "react";
 import { ArrowLeft, Camera, ClipboardList, ListChecks, Loader2, QrCode as QrIcon, ScanLine, Send, Wrench } from "lucide-react";
 import PhotoPicker from "@/components/tools/PhotoPicker";
 import SignInCrew from "@/components/site/SignInCrew";
@@ -33,7 +33,8 @@ const input =
   "w-full rounded-lg border border-edge bg-panel2 px-3 py-2.5 text-base text-gray-200 placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500";
 const primary = "flex w-full items-center justify-center gap-2 rounded-xl bg-brand-600 px-4 py-3 text-base font-semibold text-white disabled:opacity-50";
 
-export default function SitePhotosPage({ params }: { params: { token: string } }) {
+export default function SitePhotosPage({ params: paramsP }: { params: Promise<{ token: string }> }) {
+  const params = use(paramsP);
   const api = `/api/site/${params.token}`;
   const [info, setInfo] = useState<SiteInfo | null>(null);
   const [dead, setDead] = useState<string | null>(null);

@@ -9,8 +9,9 @@ import { isOwner } from "@/lib/owner";
 // can't be removed, and only the owner (lib/owner.ts) can change the owner's account.
 export const PATCH = withErrorHandling(async (
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params: paramsP }: { params: Promise<{ id: string }> }
 ) => {
+  const params = await paramsP;
   const denied = await guard("ADMIN");
   if (denied) return denied;
   const me = await getCurrentUser();

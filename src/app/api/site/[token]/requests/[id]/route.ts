@@ -10,7 +10,8 @@ import { suggestInBackground } from "@/lib/requestReminders";
 //   { action: "ANSWER", answer }  - reply to the office's question
 //   { action: "CANCEL", reason? } - no longer needed (until it's done)
 // Only the link that sent it (or the same supervisor's other link).
-export const PATCH = withErrorHandling(async (req: NextRequest, { params }: { params: { token: string; id: string } }) => {
+export const PATCH = withErrorHandling(async (req: NextRequest, { params: paramsP }: { params: Promise<{ token: string; id: string }> }) => {
+  const params = await paramsP;
   const link = await resolveLink(params.token);
   if (!link || link.kind === "OFFICE") return NextResponse.json({ error: "This link isn't active." }, { status: 404 });
   const r = await prisma.siteRequest.findUnique({ where: { id: params.id }, include: { events: { orderBy: { at: "asc" } } } });

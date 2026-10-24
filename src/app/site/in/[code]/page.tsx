@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, use } from "react";
 import SiteBrand from "@/components/site/SiteBrand";
 import { Loader2, LogIn, LogOut } from "lucide-react";
 import { serverErrorMessage } from "@/lib/apiFetch";
@@ -38,7 +38,8 @@ function deviceId() {
   return id ?? "";
 }
 
-export default function CrewSignInPage({ params }: { params: { code: string } }) {
+export default function CrewSignInPage({ params: paramsP }: { params: Promise<{ code: string }> }) {
+  const params = use(paramsP);
   const [scan, setScan] = useState<Scan | null>(null);
   const [dead, setDead] = useState<string | null>(null);
   const [jobId, setJobId] = useState("");

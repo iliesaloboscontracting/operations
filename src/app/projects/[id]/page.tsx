@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, use } from "react";
 import Link from "next/link";
 import { ArrowLeft, ClipboardList, FileText, Pencil, Plus, Trash2, UserRound } from "lucide-react";
 import PageShell from "@/components/PageShell";
@@ -419,7 +419,8 @@ function SupervisorText({ project }: { project: ProjectFileDTO }) {
   );
 }
 
-export default function ProjectFilePage({ params }: { params: { id: string } }) {
+export default function ProjectFilePage({ params: paramsP }: { params: Promise<{ id: string }> }) {
+  const params = use(paramsP);
   const { canEdit } = useAuth();
   const [project, setProject] = useState<ProjectFileDTO | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);

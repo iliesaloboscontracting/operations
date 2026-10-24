@@ -5,7 +5,8 @@ import { withErrorHandling } from "@/lib/apiHandler";
 import { mediaTypeOf, readPhoto } from "@/lib/toolPhotos";
 
 // GET /api/requests/:id/photo - the photo sent with a site request (Manager+).
-export const GET = withErrorHandling(async (_req: NextRequest, { params }: { params: { id: string } }) => {
+export const GET = withErrorHandling(async (_req: NextRequest, { params: paramsP }: { params: Promise<{ id: string }> }) => {
+  const params = await paramsP;
   const denied = await guard("MANAGER");
   if (denied) return denied;
   const r = await prisma.siteRequest.findUnique({ where: { id: params.id }, select: { photoFile: true } });

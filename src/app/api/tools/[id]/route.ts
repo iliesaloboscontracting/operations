@@ -7,7 +7,8 @@ import { moveTool } from "@/lib/toolMoves";
 import { duplicateMessage, findDuplicate, serialKeyOf } from "@/lib/toolCreate";
 
 // GET /api/tools/:id -> the tool with its photos, move history and faults.
-export const GET = withErrorHandling(async (_req: NextRequest, { params }: { params: { id: string } }) => {
+export const GET = withErrorHandling(async (_req: NextRequest, { params: paramsP }: { params: Promise<{ id: string }> }) => {
+  const params = await paramsP;
   const denied = await guard("VIEWER");
   if (denied) return denied;
   const tool = await prisma.tool.findUnique({
@@ -29,8 +30,9 @@ export const GET = withErrorHandling(async (_req: NextRequest, { params }: { par
 // PATCH /api/tools/:id { ...fields, toolboxId?, moveReason? }
 export const PATCH = withErrorHandling(async (
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params: paramsP }: { params: Promise<{ id: string }> }
 ) => {
+  const params = await paramsP;
   const denied = await guard("MANAGER");
   if (denied) return denied;
   const user = await getCurrentUser();
@@ -60,8 +62,9 @@ export const PATCH = withErrorHandling(async (
 
 export const DELETE = withErrorHandling(async (
   _req: NextRequest,
-  { params }: { params: { id: string } }
+  { params: paramsP }: { params: Promise<{ id: string }> }
 ) => {
+  const params = await paramsP;
   const denied = await guard("MANAGER");
   if (denied) return denied;
   await prisma.tool.delete({ where: { id: params.id } });

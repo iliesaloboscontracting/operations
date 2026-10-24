@@ -4,7 +4,8 @@ import { resolveLink } from "@/lib/siteLinks";
 import { pushPublicKey, pushToSiteLinks } from "@/lib/push";
 
 // POST /api/site/:token/push/test - a test alert to this link's phones.
-export const POST = withErrorHandling(async (_req: NextRequest, { params }: { params: { token: string } }) => {
+export const POST = withErrorHandling(async (_req: NextRequest, { params: paramsP }: { params: Promise<{ token: string }> }) => {
+  const params = await paramsP;
   const link = await resolveLink(params.token);
   if (!link || (link.kind !== "SUPERVISOR" && link.kind !== "HANDOVER")) return NextResponse.json({ error: "Alerts are for supervisors' links." }, { status: 404 });
   if (!pushPublicKey()) return NextResponse.json({ error: "Alerts aren't set up on the server yet." }, { status: 503 });

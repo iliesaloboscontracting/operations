@@ -10,8 +10,9 @@ import { checkJobDate } from "@/lib/dateRulesServer";
 // PATCH /api/jobs/:id -> update job fields
 export const PATCH = withErrorHandling(async (
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params: paramsP }: { params: Promise<{ id: string }> }
 ) => {
+  const params = await paramsP;
   const denied = await guard("MANAGER");
   if (denied) return denied;
   const user = await getCurrentUser();
@@ -99,8 +100,9 @@ export const PATCH = withErrorHandling(async (
 // DELETE /api/jobs/:id
 export const DELETE = withErrorHandling(async (
   _req: NextRequest,
-  { params }: { params: { id: string } }
+  { params: paramsP }: { params: Promise<{ id: string }> }
 ) => {
+  const params = await paramsP;
   const denied = await guard("MANAGER");
   if (denied) return denied;
   const current = await prisma.job.findUnique({ where: { id: params.id }, select: { date: true } });

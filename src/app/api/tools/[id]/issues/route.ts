@@ -6,7 +6,8 @@ import { withErrorHandling } from "@/lib/apiHandler";
 // POST /api/tools/:id/issues { description, photoId?, notWorking? }
 // Reports a fault. "Not working" also marks the tool Needs repair so it shows
 // on the register; it stays in its toolbox until it's actually swapped.
-export const POST = withErrorHandling(async (req: NextRequest, { params }: { params: { id: string } }) => {
+export const POST = withErrorHandling(async (req: NextRequest, { params: paramsP }: { params: Promise<{ id: string }> }) => {
+  const params = await paramsP;
   const denied = await guard("MANAGER");
   if (denied) return denied;
   const user = await getCurrentUser();
