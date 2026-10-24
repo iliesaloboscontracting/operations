@@ -6,7 +6,33 @@ import { tierFor, type CostStatus } from "@/lib/labourCost";
 import { costAllocation } from "@/lib/costAllocation";
 import { fmtDay, parseISO, parseLooseDate, addDays } from "@/lib/dates";
 import { todaySydney } from "@/lib/today";
-import { hireEstimate } from "@/lib/hireEstimate";
+import { hireEstimate, hireEstimateDays, hireStillToCome } from "@/lib/hireEstimate";
+import type { AttentionItemDTO, AttentionJobDTO, CostCatKey, DayCostDTO, JobHealth } from "@/lib/types";
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+// Invoice category -> the page's cost category (same mapping as the chart).
+const INVOICE_CAT: Record<string, CostCatKey> = {
+  LABOUR_HIRE: "labourHire", PLANT_HIRE: "hire", TIP_FEES: "tipFees", MATERIALS: "materials",
+};
+
+// Job health against the contract value (redesign, 24 Oct 2026). Thresholds
+// suggested to Ilies and in use until he sets his own: Watch from 80% of the
+// contract value (on the forecast), Act from 100%.
+const WATCH_AT = 0.8;
+const ACT_AT = 1.0;
+// The Yard is overhead, not a contract job - never "missing" a contract value.
+const isOverhead = (name: string) => /^yard$/i.test(name.trim());
+function healthOf(status: string, contractValue: number | null, forecast: number, name: string): { level: JobHealth; reason: string } {
+  if (status !== "ACTIVE") return { level: "CLOSED", reason: "Not an active job" };
+  if (isOverhead(name)) return { level: "OVERHEAD", reason: "Overhead - not a contract job" };
+  if (contractValue == null || contractValue <= 0) return { level: "CANT_ASSESS", reason: "No contract value on file" };
+  const used = forecast / contractValue;
+  const pct = `${Math.round(used * 100)}% of the contract value`;
+  if (used >= ACT_AT) return { level: "ACT", reason: `Forecast is ${pct}` };
+  if (used >= WATCH_AT) return { level: "WATCH", reason: `Forecast is ${pct}` };
+  return { level: "ON_TRACK", reason: `Forecast is ${pct}` };
+}
 
 // The historical labour-cost backfill (from the daily allocation PDFs) covers
 // every real work-date up to and including this one. Jobs on or before this
@@ -101,6 +127,42 @@ export const GET = withErrorHandling(async () => {
     return null; // PERSONNEL - never carries a daily rate
   };
 
+  // Days already booked on the board after today (redesign): what they'll
+  // cost on today's rates - own crew, labour hire, owned plant and trucks.
+  // Registered hire is left out here; its days to come are counted from the
+  // hire period instead.
+  const bookedByProject = new Map<string, { cost: number; days: Set<string>; uncosted: number }>();
+  const ahead = await prisma.job.findMany({
+    where: { notRunning: false, date: { gte: todayEnd } },
+    include: {
+      project: { select: { unpaidBreakMinutes: true, dayStart: true, dayEnd: true, nightStart: true, nightEnd: true } },
+      assignments: {
+        include: {
+          resource: {
+            select: {
+              type: true, category: true, name: true, dailyRateExGst: true,
+              payRateBasis: true, ordinaryRate: true, nightRate: true, saturdayRate: true, sundayRate: true,
+              payRateConfirmed: true, hireRate: true, hireRateUnit: true, hireProjectId: true,
+            },
+          },
+        },
+      },
+    },
+  });
+  for (const j of ahead) {
+    if (!j.projectId || !j.project) continue;
+    const b = bookedByProject.get(j.projectId) ?? { cost: 0, days: new Set<string>(), uncosted: 0 };
+    const dateStr = j.date.toISOString().slice(0, 10);
+    for (const a of j.assignments) {
+      if (isRegisteredHire(a.resource)) continue;
+      const r = costAllocation(dateStr, j.shift as "DAY" | "NIGHT", j.startTime, j.endTime, j.project, a.resource);
+      if (r.amount == null) { if (r.status === "RATE_MISSING" || r.status === "HOURS_UNKNOWN") b.uncosted++; continue; }
+      b.cost += r.amount;
+    }
+    if (j.assignments.length) b.days.add(dateStr);
+    bookedByProject.set(j.projectId, b);
+  }
+
   const out = projects.map((p) => {
     const liveLabour: {
       id: string; personName: string; date: string; shift: "DAY" | "NIGHT";
@@ -121,6 +183,17 @@ export const GET = withErrorHandling(async () => {
     // whole close/re-open concept and never move either way.
     let recordedCost = 0;
     let estimatedCost = 0;
+    // Day-by-day cost (redesign, 24 Oct 2026): every dollar in totalCost lands
+    // on a date, a certainty (locked / estimated / invoiced) and a category,
+    // so the page can show spend over time and filter by period.
+    const daily = new Map<string, DayCostDTO>();
+    const addDay = (date: string, amount: number | null | undefined, kind: "locked" | "estimated" | "invoiced", cat: CostCatKey) => {
+      if (!amount) return;
+      const d = daily.get(date) ?? { date, locked: 0, estimated: 0, invoiced: 0, cat: {} };
+      d[kind] += amount;
+      d.cat[cat] = (d.cat[cat] ?? 0) + amount;
+      daily.set(date, d);
+    };
 
     const jobs = p.jobs
       .map((j) => {
@@ -128,6 +201,7 @@ export const GET = withErrorHandling(async () => {
         const dateStr = j.date.toISOString().slice(0, 10);
         const isLive = dateStr > LABOUR_BACKFILL_CUTOFF;
         const isClosed = isLive && closedDates.has(dateStr);
+        const kind = isLive && !isClosed ? "estimated" : "locked";
         let jobLabourCost = 0;
         for (const a of j.assignments) {
           if (isRegisteredHire(a.resource)) continue; // costed by hire period below
@@ -146,6 +220,7 @@ export const GET = withErrorHandling(async () => {
                 status: status!, notes: null, source,
               });
               jobLabourCost += cost ?? 0;
+              addDay(dateStr, cost, kind, "ownCrew");
               if (status === "RATE_MISSING" || status === "HOURS_UNKNOWN") uncostedCount++;
               if (status === "RATE_UNCONFIRMED") unconfirmedCount++;
             }
@@ -176,7 +251,10 @@ export const GET = withErrorHandling(async () => {
           if (status === "RATE_UNCONFIRMED") unconfirmedCount++;
           if (cost == null) continue;
           const bucket = bucketOf(a.resource.type);
-          if (bucket) byCode[bucket] += cost;
+          if (bucket) {
+            byCode[bucket] += cost;
+            addDay(dateStr, cost, kind, bucket);
+          }
         }
         const cost = byCode.plant + byCode.attach + byCode.trucks + byCode.hire;
         if (isLive) {
@@ -239,7 +317,11 @@ export const GET = withErrorHandling(async () => {
       ...liveLabour,
     ].sort((a, b) => a.date.localeCompare(b.date));
     const labourTotal = labour.reduce((n, l) => n + (l.cost ?? 0), 0);
+    for (const l of p.labourCosts) addDay(l.date, l.cost, "locked", "ownCrew"); // the historical backfill
+    for (const i of invoiced) addDay(i.weekEnding, i.amountExGst, "invoiced", INVOICE_CAT[i.category] ?? "materials");
     // Registered hire for this project - estimates, to date and to finish.
+    let hireToCome = 0;
+    let hireNoFinish = 0;
     const hireItems = registered
       .filter((r) => r.hireProjectId === p.id)
       .map((r) => {
@@ -249,6 +331,12 @@ export const GET = withErrorHandling(async () => {
           .filter((i) => i.hireResourceId === r.id && i.periodFrom && i.periodTo)
           .map((i) => ({ from: i.periodFrom as string, to: i.periodTo as string }));
         const e = hireEstimate(r, todayIso, billed);
+        for (const d of hireEstimateDays(r, todayIso, billed)) addDay(d.date, d.amount, "estimated", "hire");
+        if (r.hireStatus !== "RETURNED") {
+          const left = hireStillToCome(r, todayIso);
+          if (left == null) hireNoFinish++;
+          else hireToCome += left;
+        }
         return {
           id: r.id, name: r.name, category: r.category, supplier: r.agency, hireRef: r.hireRef, status: r.hireStatus,
           onHireDate: r.onHireDate, offHireDate: r.offHireDate,
@@ -262,6 +350,19 @@ export const GET = withErrorHandling(async () => {
     uncostedCount += hireItems.filter((h) => h.costToDate == null && h.daysToDate - h.daysInvoiced > 0).length;
     const hireLabourEstimateTotal = hireLabourEstimate.reduce((n, l) => n + (l.cost ?? 0), 0);
     const totalCost = byCode.plant + byCode.attach + byCode.trucks + byCode.hire + invoicedTotal + labourTotal;
+
+    // Still to come (redesign): costs already committed but not in totalCost.
+    //  - labour hire worked since the agency's last invoice (board estimate),
+    //  - days already booked on the board after today,
+    //  - hired plant still out, to its expected finish.
+    const lastLabourHireInvoice = invoiced.filter((i) => i.category === "LABOUR_HIRE").reduce((m, i) => (i.weekEnding > m ? i.weekEnding : m), "");
+    const unbilledLabourHire = round2(hireLabourEstimate.filter((l) => l.date > lastLabourHireInvoice).reduce((n, l) => n + (l.cost ?? 0), 0));
+    const booked = bookedByProject.get(p.id) ?? { cost: 0, days: new Set<string>(), uncosted: 0 };
+    const stillToCome = round2(unbilledLabourHire + booked.cost + hireToCome);
+    const forecastCost = round2(totalCost + stillToCome);
+    const days = [...daily.values()].sort((a, b) => a.date.localeCompare(b.date));
+    const sum = (k: "locked" | "estimated" | "invoiced") => round2(days.reduce((n, d) => n + d[k], 0));
+    const health = healthOf(p.status, p.contractValue, forecastCost, p.name);
 
     return {
       id: p.id,
@@ -295,6 +396,22 @@ export const GET = withErrorHandling(async () => {
       uncostedCount,
       unconfirmedCount,
       jobs,
+      // Redesign (24 Oct 2026).
+      daily: days.map((d) => ({ ...d, locked: round2(d.locked), estimated: round2(d.estimated), invoiced: round2(d.invoiced) })),
+      lockedCost: sum("locked"),
+      estimatedTotal: sum("estimated"),
+      unbilledLabourHire,
+      bookedAhead: round2(booked.cost),
+      bookedDays: booked.days.size,
+      bookedUncosted: booked.uncosted,
+      hireToCome: round2(hireToCome),
+      hireNoFinish,
+      stillToCome,
+      forecastCost,
+      health: health.level,
+      healthReason: health.reason,
+      firstDate: days[0]?.date ?? null,
+      lastDate: days[days.length - 1]?.date ?? null,
     };
   });
 
@@ -362,5 +479,60 @@ export const GET = withErrorHandling(async () => {
     items: idleHireItems,
   };
 
-  return NextResponse.json({ projects: out, idleHire });
+  return NextResponse.json({ projects: out, idleHire, attention: attentionList(out, idleHire.totalIdleCost, idleHireItems.length) });
 });
+
+// "$12.3k" style for the attention lines.
+const k = (n: number) => (Math.abs(n) >= 1000 ? `$${(n / 1000).toFixed(1)}k` : `$${Math.round(n)}`);
+
+// What needs looking at, most urgent first (redesign, 24 Oct 2026). Red is
+// kept for cost decisions (Act); data gaps are never red. Each line says why
+// and what to do. Cost issues get a line each; data gaps are grouped into one
+// line per kind, listing the jobs, so the list stays short.
+function attentionList(
+  projects: {
+    id: string; name: string; status: string; contractValue: number | null; totalCost: number; forecastCost: number; health: JobHealth;
+    uncostedCount: number; hireNoFinish: number; lastDate: string | null;
+    hireItems: { name: string; supplier: string | null; status: string | null; daysToDate: number; daysInvoiced: number; costToDate: number | null }[];
+  }[],
+  idleCost: number,
+  idleItems: number,
+): AttentionItemDTO[] {
+  const items: (AttentionItemDTO & { weight: number })[] = [];
+  const noContract: AttentionJobDTO[] = [];
+  const uncosted: AttentionJobDTO[] = [];
+  const noFinish: AttentionJobDTO[] = [];
+  const recent = addDays(todaySydney(), -30);
+  for (const p of projects) {
+    const live = p.status === "ACTIVE" || (p.lastDate != null && p.lastDate >= recent);
+    if (!live) continue;
+    const base = { projectId: p.id, projectName: p.name };
+    if (p.health === "ACT" || p.health === "WATCH") {
+      const pct = Math.round((p.forecastCost / (p.contractValue as number)) * 100);
+      items.push({
+        ...base, level: p.health === "ACT" ? "act" : "watch", weight: p.forecastCost,
+        text: `Forecast ${k(p.forecastCost)} is ${pct}% of the ${k(p.contractValue as number)} contract value.`,
+        hint: p.health === "ACT" ? "Check costs and any variations not yet priced" : "Keep an eye on the next few weeks",
+      });
+    }
+    if (p.health === "CANT_ASSESS" && p.totalCost >= 2000) noContract.push({ id: p.id, name: p.name, detail: `${k(p.totalCost)} spent`, weight: p.totalCost });
+    for (const h of p.hireItems) {
+      const open = h.daysToDate - h.daysInvoiced;
+      if (h.status !== "RETURNED" && open >= 15 && h.costToDate) {
+        const who = h.supplier && !h.name.toLowerCase().includes(h.supplier.toLowerCase()) ? ` (${h.supplier})` : "";
+        items.push({ ...base, level: "watch", weight: h.costToDate, text: `${h.name}${who}: ${open} working days on hire with no invoice yet (~${k(h.costToDate)} est.).`, hint: "Chase the supplier's invoice" });
+      }
+    }
+    if (p.hireNoFinish > 0) noFinish.push({ id: p.id, name: p.name, detail: `${p.hireNoFinish} item${p.hireNoFinish === 1 ? "" : "s"}`, weight: p.hireNoFinish });
+    if (p.uncostedCount > 0) uncosted.push({ id: p.id, name: p.name, detail: String(p.uncostedCount), weight: p.uncostedCount });
+  }
+  if (idleItems > 0) items.push({ projectId: null, projectName: "Hire", level: "watch", weight: idleCost, text: `${idleItems} hired item${idleItems === 1 ? "" : "s"} not on any job${idleCost > 0 ? ` (~${k(idleCost)} so far)` : ""}.`, hint: "Off-hire it or put it on a job" });
+  const group = (jobs: AttentionJobDTO[], text: string, hint: string) => {
+    if (jobs.length) items.push({ projectId: null, projectName: text, level: "data", weight: -1, text, hint, jobs: jobs.sort((a, b) => b.weight - a.weight) });
+  };
+  group(noContract, `${noContract.length} active job${noContract.length === 1 ? " has" : "s have"} no contract value, so they can't be checked`, "Add the contract value on each project");
+  group(uncosted, `${uncosted.reduce((n, j) => n + j.weight, 0)} allocations not costed (rate or hours missing)`, "Fill in rates on the registers, or times on the board");
+  group(noFinish, "Hired plant with no expected finish date, so what's still to come is unknown", "Set the off-hire date on the Hire page");
+  const order = { act: 0, watch: 1, data: 2 };
+  return items.sort((a, b) => order[a.level] - order[b.level] || b.weight - a.weight).map(({ weight: _w, ...i }) => i);
+}

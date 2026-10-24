@@ -71,6 +71,45 @@ function invoicedWeekdays(from: string, to: string, invoiced: { from: string; to
   return n;
 }
 
+// Last day charged so far. Returned: the finish date. Otherwise up to today,
+// never past the expected finish (after that it's "overdue" - flagged, not
+// guessed).
+function hireUntil(r: HireLike, today: string) {
+  const end = r.offHireDate && ISO.test(r.offHireDate) ? r.offHireDate : null;
+  return r.hireStatus === "RETURNED" && end ? end : end && end < today ? end : today;
+}
+
+// The same estimate day by day, for Tracking's spend-over-time: each weekday
+// on hire that no invoice covers at the day rate, plus delivery on the first
+// day and pick-up on the return day. Sums to hireEstimate's costToDate.
+export function hireEstimateDays(r: HireLike, today: string, invoiced: { from: string; to: string }[] = []): { date: string; amount: number }[] {
+  const e = hireEstimate(r, today, invoiced);
+  if (!e || e.dayRate == null || !r.onHireDate || r.onHireDate > today) return [];
+  const out: { date: string; amount: number }[] = [];
+  const until = hireUntil(r, today);
+  for (let t = utc(r.onHireDate); t <= utc(until); t += 86_400_000) {
+    const d = new Date(t);
+    if (d.getUTCDay() === 0 || d.getUTCDay() === 6) continue;
+    const iso = d.toISOString().slice(0, 10);
+    if (!invoiced.some((p) => p.from <= iso && iso <= p.to)) out.push({ date: iso, amount: e.dayRate });
+  }
+  if (!invoiced.length && r.hireDeliveryCost) out.push({ date: r.onHireDate, amount: r.hireDeliveryCost });
+  if (!invoiced.length && r.hireStatus === "RETURNED" && r.hireCollectionCost) out.push({ date: until, amount: r.hireCollectionCost });
+  return out;
+}
+
+// What's still to come on an item before its expected finish (working days
+// after today, plus pick-up). Null when there's no rate or no finish date.
+export function hireStillToCome(r: HireLike, today: string): number | null {
+  const dayRate = hireDayRate(r);
+  if (dayRate == null || r.hireStatus === "RETURNED") return dayRate == null ? null : 0;
+  const end = r.offHireDate && ISO.test(r.offHireDate) ? r.offHireDate : null;
+  if (!end) return null;
+  if (end <= today) return round(r.hireCollectionCost ?? 0);
+  const next = new Date(utc(today) + 86_400_000).toISOString().slice(0, 10);
+  return round(dayRate * weekdaysBetween(next, end) + (r.hireCollectionCost ?? 0));
+}
+
 // `invoiced`: periods a supplier invoice already bills for this item (24 Oct
 // 2026). Those days drop out of the estimate - the invoice is the real cost -
 // and so do delivery / pick-up once any invoice is linked (suppliers bill them
@@ -79,9 +118,7 @@ export function hireEstimate(r: HireLike, today: string, invoiced: { from: strin
   if (!r.onHireDate || !ISO.test(r.onHireDate)) return null;
   const dayRate = hireDayRate(r);
   const end = r.offHireDate && ISO.test(r.offHireDate) ? r.offHireDate : null;
-  // Returned: charged to the finish date. Otherwise up to today, never past
-  // the expected finish (after that it's "overdue" - flagged, not guessed).
-  const until = r.hireStatus === "RETURNED" && end ? end : end && end < today ? end : today;
+  const until = hireUntil(r, today);
   const daysToDate = r.onHireDate <= today ? weekdaysBetween(r.onHireDate, until) : 0;
   const daysInvoiced = r.onHireDate <= today ? invoicedWeekdays(r.onHireDate, until, invoiced) : 0;
   const daysTotal = end ? weekdaysBetween(r.onHireDate, end) : null;

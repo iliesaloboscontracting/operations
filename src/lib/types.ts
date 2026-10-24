@@ -543,4 +543,45 @@ export interface ProjectCostDTO {
   uncostedCount: number; // allocations with RATE_MISSING or HOURS_UNKNOWN
   unconfirmedCount: number; // allocations with RATE_UNCONFIRMED
   jobs: JobCostDTO[]; // only jobs that actually cost something, oldest first
+  // Redesign (24 Oct 2026). daily sums to totalCost; locked + estimated +
+  // invoiced = totalCost.
+  daily: DayCostDTO[];
+  lockedCost: number; // closed days, the historical backfill, and older board days
+  estimatedTotal: number; // open days + hire-register estimates
+  unbilledLabourHire: number; // labour hire worked since the agency's last invoice
+  bookedAhead: number; // days already on the board after today, at today's rates
+  bookedDays: number;
+  bookedUncosted: number;
+  hireToCome: number; // hired plant still out, to its expected finish
+  hireNoFinish: number; // items still out with no finish date (to come unknown)
+  stillToCome: number; // unbilledLabourHire + bookedAhead + hireToCome
+  forecastCost: number; // totalCost + stillToCome
+  health: JobHealth;
+  healthReason: string;
+  firstDate: string | null;
+  lastDate: string | null;
+}
+
+export type CostCatKey = "plant" | "attach" | "trucks" | "hire" | "labourHire" | "tipFees" | "materials" | "ownCrew";
+export interface DayCostDTO {
+  date: string; // YYYY-MM-DD
+  locked: number;
+  estimated: number;
+  invoiced: number;
+  cat: Partial<Record<CostCatKey, number>>;
+}
+export type JobHealth = "ON_TRACK" | "WATCH" | "ACT" | "CANT_ASSESS" | "OVERHEAD" | "CLOSED";
+export interface AttentionItemDTO {
+  projectId: string | null; // null for a grouped line (see jobs) or company-wide
+  projectName: string;
+  level: "act" | "watch" | "data";
+  text: string;
+  hint: string;
+  jobs?: AttentionJobDTO[]; // grouped data gaps: the jobs it applies to
+}
+export interface AttentionJobDTO {
+  id: string;
+  name: string;
+  detail: string;
+  weight: number; // for ordering only
 }

@@ -83,7 +83,7 @@ export default function TopNav() {
 
   // Badge on Calendar: projects starting within a week (refreshed on navigation).
   const refreshBadge = useCallback(() => {
-    if (onePage) return; // the one-page roles: no other badges
+    if (loading || onePage) return; // not known yet, or a one-page role: no badges
     fetch(`/api/alerts?date=${localISODate()}`)
       .then((r) => (r.ok ? r.json() : []))
       .then((a: unknown[]) => setStartingSoon(a.length))
@@ -98,7 +98,7 @@ export default function TopNav() {
       .then((r) => (r.ok ? r.json() : { waiting: 0 }))
       .then((d: { waiting: number }) => setRequests(d.waiting))
       .catch(() => setRequests(0));
-  }, [onePage]);
+  }, [loading, onePage]);
 
   useEffect(refreshBadge, [refreshBadge, path]);
   // The Requests page says when a decision changes the count.
