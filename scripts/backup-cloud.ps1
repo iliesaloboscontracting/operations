@@ -76,12 +76,18 @@ try {
   $db = @($list | Where-Object { $_ -like "dev-*.db.gz" })[0]
   $photos = @($list | Where-Object { $_ -like "tool-photos-*.tar.gz" })[0]
   if (-not $db -or -not $photos) { throw "no backup files found on the server" }
+  # Uploaded supplier invoices (invoices inbox, 24 Oct 2026) - on the server's
+  # backup from that day on, so optional here.
+  $invoices = @($list | Where-Object { $_ -like "invoice-files-*.tar.gz" })[0]
+  $files = @($db, $photos) + @($invoices | Where-Object { $_ })
   # Newest one already downloaded (e.g. before 1:30am, today's isn't made yet).
   if (Test-Path (Join-Path $backupDir ("cloud-" + $db))) { exit 0 }
-  & ssh @sshOpts $server "sudo cp /srv/operations/backups/$db /srv/operations/backups/$photos /tmp/ && sudo chmod 644 /tmp/$db /tmp/$photos"
+  $src = ($files | ForEach-Object { "/srv/operations/backups/$_" }) -join " "
+  $tmp = ($files | ForEach-Object { "/tmp/$_" }) -join " "
+  & ssh @sshOpts $server "sudo cp $src /tmp/ && sudo chmod 644 $tmp"
   if ($LASTEXITCODE -ne 0) { throw "couldn't stage $db on the server" }
   try {
-    foreach ($f in @($db, $photos)) {
+    foreach ($f in $files) {
       $dest = Join-Path $backupDir ("cloud-" + $f)
       $part = "$dest.part"
       & scp @sshOpts -q "${server}:/tmp/$f" $part
@@ -91,7 +97,7 @@ try {
       Write-Log ("OK {0} size={1}" -f $dest, (Get-Item $dest).Length)
     }
   } finally {
-    & ssh @sshOpts $server "sudo rm -f /tmp/$db /tmp/$photos" | Out-Null
+    & ssh @sshOpts $server "sudo rm -f $tmp" | Out-Null
   }
 
   # Keep 30 days of these cloud copies (only this script's own files).

@@ -23,6 +23,8 @@ business, without becoming unnecessarily complicated.
   on 20 Oct and took sign-ins offline. Layout: app in
   `/srv/operations/app` (owned by the `operations` system user, `.env` mode
   600, DB at `prisma/dev.db`), tool photos in `/srv/operations/tool-photos`,
+  uploaded supplier invoices in `/srv/operations/invoice-files`
+  (`INVOICE_FILE_DIR`; in the nightly backup since 2026-10-24),
   Node 24 in `/opt/node`. systemd units: `operations` (`next start` bound to
   **127.0.0.1:3000 only**), `cloudflared-operations` (the tunnel, token in
   `/etc/cloudflared/token`), `operations-backup.timer` (1:30am: SQLite
@@ -52,7 +54,9 @@ business, without becoming unnecessarily complicated.
   plus `TIMESHEETS` (2026-10-22, Alex): review-only weekly timesheets and
   nothing else. It ranks below VIEWER so every `guard()` refuses it; only
   `guardTimesheetViewer()` (timesheets GET) lets it in. Keep it that way -
-  never loosen a guard to admit it.
+  never loosen a guard to admit it. `ACCOUNTS` (2026-10-24, the
+  accounts@loboscontracting.com.au login) works the same way: the invoices
+  inbox only, via `guardInvoiceInbox()`.
   **Owner** (2026-10-23, `src/lib/owner.ts`): Iliesa's account. The directors
   (Yoel, Nick) are full Admins, but only the owner can change the owner's
   account (role, password, name, active). Code, builds and deploys are done
@@ -146,6 +150,24 @@ business, without becoming unnecessarily complicated.
   approved scripts). A plant-hire invoice linked to a hire-register item and
   period takes those days out of the item's estimate (`hireEstimate`), so
   invoice and estimate are never both counted.
+  **Invoices inbox** (`/invoices`, 2026-10-24, `src/lib/invoiceInbox.ts`):
+  accounts (the ACCOUNTS role; Managers/Admins too) upload invoice PDFs /
+  photos or their invoice register spreadsheet (`.xlsx`/`.csv`, read with
+  `exceljs`). Claude reads them and suggests the job and cost type
+  (`src/lib/invoiceReading.ts`, `claude-opus-5-5` - the fourth outbound
+  connection; sends the file plus job names/numbers/clients/addresses, no
+  rates). Plain rules then decide (Ilies: "auto when matched"): clear matches
+  go straight on as `InvoicedCost`; unclear ones, credit notes, rows accounts
+  noted (check / duplicate / credited / quote / query / dispute / TBC),
+  non-Lobos billing and possible hire-estimate overlaps wait for a person;
+  duplicates, Lobos Civil-billed and >5-month-old invoices are not added.
+  A person's job match is remembered (`SiteAlias`).
+  **Tracking page** (redesigned 2026-10-24, research in
+  `reports/Job cost tracking page design.md`): exceptions first, each job as a
+  bar against its contract value (firm / estimate / still to come), job pages
+  at `/tracking/[id]`. Status: Watch at 80% of contract value (forecast), Act
+  at 100% (Ilies confirmed). Forecast = spent + still to come (unbilled
+  labour hire, booked board days, hire to its finish) - not a cost-to-complete.
 - **Money-guard principle:** crew-facing/operational views (day sheets, Day
   Review, the Yard) never carry dollar figures — enforced at both the
   TypeScript type level (narrow DTOs with no money fields) and via a runtime
