@@ -40,7 +40,12 @@ Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction Silent
 $action = New-ScheduledTaskAction -Execute "powershell.exe" `
     -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$scriptPath`""
 
+# 2am, then every 2 hours through the day (24 Oct 2026): the laptop is in
+# standby at 2am most nights and Modern Standby doesn't reliably wake for it,
+# so a later run catches up whenever it's awake. backup-cloud.ps1 does nothing
+# once today's copy is in, so the extra runs are free.
 $trigger = New-ScheduledTaskTrigger -Daily -At 2:00AM
+$trigger.Repetition = (New-ScheduledTaskTrigger -Once -At 2:00AM -RepetitionInterval (New-TimeSpan -Hours 2) -RepetitionDuration (New-TimeSpan -Hours 22)).Repetition
 
 $settings = New-ScheduledTaskSettingsSet `
     -StartWhenAvailable `
@@ -58,7 +63,7 @@ $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccou
 
 Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger `
     -Settings $settings -Principal $principal `
-    -Description "Nightly off-AWS copy of the live Operations data: downloads the cloud server's 1:30am backup (database + tool photos) into OneDrive, checks it, keeps 30 days. Wakes the PC if asleep, retries 3x 10 minutes apart on failure. See scripts/backup-cloud.ps1." `
+    -Description "Nightly off-AWS copy of the live Operations data: downloads the cloud server's 1:30am backup (database + tool photos) into OneDrive, checks it, keeps 30 days. Runs at 2am and every 2 hours after (does nothing once today's copy is in), waits for the network after sleep. See scripts/backup-cloud.ps1." `
     | Out-Null
 
 Write-Host "Registered. Triggering it now to confirm it actually works end-to-end..."

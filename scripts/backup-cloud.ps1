@@ -10,9 +10,19 @@
 # Run by the "Operations DB Backup" Windows Scheduled Task as SYSTEM (see
 # scripts/register-backup-task.ps1), so it uses this PC's SSH key and
 # known_hosts explicitly rather than SYSTEM's own profile.
+#
+# 24 Oct 2026: the laptop is in standby at 2am most nights, so the task mostly
+# runs as a catch-up the moment it wakes - before Wi-Fi is back (23 Oct failed
+# that way; Windows' task retry only covers a task that fails to START). So:
+# the task now also tries every 2 hours, this script does nothing when today's
+# copy is already here, and it waits for the server to be reachable (up to
+# ~15 min) instead of giving up on the first timeout.
+# -BackupDir is for testing into another folder.
+
+param([string]$BackupDir = "C:\Users\ilies\OneDrive\Operations-Backups")
 
 $ErrorActionPreference = "Stop"
-$backupDir = "C:\Users\ilies\OneDrive\Operations-Backups"
+$backupDir = $BackupDir
 $log = Join-Path $backupDir "backup-log.txt"
 # As SYSTEM (the scheduled task) use the copy of the key that
 # register-backup-task.ps1 puts where only SYSTEM and Administrators can read
@@ -40,21 +50,34 @@ function Test-DbGz($path) {
 }
 
 try {
+  # Already have today's copy (the server's 1:30am backup, named by its
+  # Sydney date): nothing to do. Keeps the every-2-hours runs free.
+  if (Get-ChildItem $backupDir -Filter ("cloud-dev-{0}-*.db.gz" -f (Get-Date -Format "yyyyMMdd")) -ErrorAction SilentlyContinue) { exit 0 }
+
   # Newest database and photos backups on the server (root-owned, so copy to
   # /tmp readable, download, then remove the temporary copies). ssh's own
-  # error text is kept for the log if it fails.
-  $ErrorActionPreference = "Continue"
-  $out = & ssh @sshOpts $server "sudo ls -t /srv/operations/backups" 2>&1
-  $code = $LASTEXITCODE
-  $ErrorActionPreference = "Stop"
+  # error text is kept for the log if it fails. A connection failure (ssh
+  # exit 255 - often Wi-Fi still reconnecting after sleep) is retried every
+  # minute, 15 tries.
+  for ($try = 1; $try -le 15; $try++) {
+    $tries = $try
+    $ErrorActionPreference = "Continue"
+    $out = & ssh @sshOpts $server "sudo ls -t /srv/operations/backups" 2>&1
+    $code = $LASTEXITCODE
+    $ErrorActionPreference = "Stop"
+    if ($code -ne 255) { break }
+    if ($try -lt 15) { Start-Sleep -Seconds 60 }
+  }
   $list = @($out | Where-Object { $_ -isnot [Management.Automation.ErrorRecord] } | ForEach-Object { "$_" })
   if ($code -ne 0 -or -not $list) {
     $why = ($out | ForEach-Object { "$_" }) -join " / "
-    throw "couldn't list the server's backups (ssh exit $code as $([Security.Principal.WindowsIdentity]::GetCurrent().Name), key dir $sshDir): $why"
+    throw "couldn't list the server's backups after $tries tries (ssh exit $code as $([Security.Principal.WindowsIdentity]::GetCurrent().Name), key dir $sshDir): $why"
   }
   $db = @($list | Where-Object { $_ -like "dev-*.db.gz" })[0]
   $photos = @($list | Where-Object { $_ -like "tool-photos-*.tar.gz" })[0]
   if (-not $db -or -not $photos) { throw "no backup files found on the server" }
+  # Newest one already downloaded (e.g. before 1:30am, today's isn't made yet).
+  if (Test-Path (Join-Path $backupDir ("cloud-" + $db))) { exit 0 }
   & ssh @sshOpts $server "sudo cp /srv/operations/backups/$db /srv/operations/backups/$photos /tmp/ && sudo chmod 644 /tmp/$db /tmp/$photos"
   if ($LASTEXITCODE -ne 0) { throw "couldn't stage $db on the server" }
   try {
