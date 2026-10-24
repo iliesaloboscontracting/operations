@@ -106,6 +106,7 @@ export interface ProjectDTO {
   name: string;
   client: string | null;
   jobNo: string | null;
+  quoteNo?: string | null;
   address: string | null;
   startDate: string | null;
   status: "ACTIVE" | "INACTIVE" | "COMPLETED";

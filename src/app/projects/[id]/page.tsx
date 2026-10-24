@@ -566,6 +566,7 @@ export default function ProjectFilePage({ params: paramsP }: { params: Promise<{
             >
               <Row label="Client">{project.client || <Unknown />}</Row>
               <Row label="Job number">{project.jobNo || <Unknown />}</Row>
+              <Row label="Quote number">{project.quoteNo || <Unknown />}</Row>
               <Row label="Address">{project.address || <Unknown />}</Row>
               <Row label="Status">{project.status === "ACTIVE" ? "Active" : project.status === "INACTIVE" ? "Inactive" : "Completed"}</Row>
               <Row label="Start date">

@@ -66,7 +66,7 @@ const blank = (s: string | null | undefined) => (s && s.trim() ? s.trim() : null
 async function jobsForMatching(): Promise<JobForMatching[]> {
   return prisma.project.findMany({
     where: { archived: false },
-    select: { id: true, name: true, jobNo: true, client: true, address: true, status: true },
+    select: { id: true, name: true, jobNo: true, quoteNo: true, client: true, address: true, status: true },
     orderBy: { name: "asc" },
   });
 }

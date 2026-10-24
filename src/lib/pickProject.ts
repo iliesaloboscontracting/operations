@@ -1,7 +1,7 @@
 import { normaliseSources, PROJECT_FILE_KEYS } from "./projectFile";
 
 const FIELDS = [
-  "name", "client", "jobNo", "address", "status", "startDate", "dayStart", "dayEnd",
+  "name", "client", "jobNo", "quoteNo", "address", "status", "startDate", "dayStart", "dayEnd",
   "nightStart", "nightEnd", "unpaidBreakMinutes", "notes", "archived",
   "contractValue", "contractValueNotes", "scopeOfWorks",
   "startDateConfidence", "completionConfidence", "completionReviewBy",

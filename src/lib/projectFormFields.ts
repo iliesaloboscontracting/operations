@@ -7,7 +7,8 @@ import type { FieldDef } from "@/components/FormModal";
 export const PROJECT_FORM_FIELDS: FieldDef[] = [
   { key: "name", label: "Job / site name", required: true, full: true },
   { key: "client", label: "Client", placeholder: "e.g. CD Constructions" },
-  { key: "jobNo", label: "Job number" },
+  { key: "jobNo", label: "Job number", placeholder: "Project folder no., e.g. 26_171" },
+  { key: "quoteNo", label: "Quote number", placeholder: "e.g. 26_255" },
   { key: "address", label: "Address", full: true },
   {
     key: "status",

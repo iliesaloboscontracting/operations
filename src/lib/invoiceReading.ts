@@ -20,11 +20,11 @@ function client() {
   return new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 }
 
-export type JobForMatching = { id: string; name: string; jobNo: string | null; client: string | null; address: string | null; status: string };
+export type JobForMatching = { id: string; name: string; jobNo: string | null; quoteNo: string | null; client: string | null; address: string | null; status: string };
 export const CATEGORIES = ["PLANT_HIRE", "LABOUR_HIRE", "TIP_FEES", "MATERIALS", "OTHER"] as const;
 
 const jobList = (jobs: JobForMatching[]) =>
-  jobs.map((j) => `${j.id} | ${j.name}${j.jobNo ? ` | job no ${j.jobNo}` : ""}${j.client ? ` | client ${j.client}` : ""}${j.address ? ` | ${j.address}` : ""} | ${j.status}`).join("\n");
+  jobs.map((j) => `${j.id} | ${j.name}${j.jobNo ? ` | job no ${j.jobNo}` : ""}${j.quoteNo ? ` | quote no ${j.quoteNo}` : ""}${j.client ? ` | client ${j.client}` : ""}${j.address ? ` | ${j.address}` : ""} | ${j.status}`).join("\n");
 
 const CATEGORY_HELP = `Cost types:
 - PLANT_HIRE: hired machines, equipment, tools, lifts, scaffold, hire trucks with or without operator, and their delivery/pick-up/damage charges.

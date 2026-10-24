@@ -18,7 +18,8 @@ model Project {
   id        String   @id @default(cuid())
   name      String // the job/site name, kept separate from who it's for - see `client`
   client    String? // who the work is for, e.g. "CD Constructions"
-  jobNo     String?
+  jobNo     String? // the SharePoint project folder number, e.g. 26_171 - the job number every Lobos app uses (Ilies, 24 Oct 2026)
+  quoteNo   String? // the quote / estimate number the job was won from, e.g. 26_255 - links an estimate to its job
   address   String?
   status    String   @default("ACTIVE") // ACTIVE | STAND_DOWN | ON_HOLD
   startDate String? // YYYY-MM-DD, the first day on site (D12-1, 19 Oct 2026). Before any job exists it is the expected first day; once jobs exist it should equal the first running job date - a mismatch shows as a date exception.
