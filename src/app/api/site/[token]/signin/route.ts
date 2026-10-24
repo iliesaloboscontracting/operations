@@ -15,6 +15,7 @@ import { createHandover, jobLabel, openJob, openJobsFor, ROTATE_SECONDS, rotatin
 // POST { action: "CONFIRM" | "REJECT", attendanceId }
 //      { action: "MANUAL_IN", jobId, resourceId }   (time = now)
 //      { action: "MANUAL_OUT", attendanceId }       (time = now)
+//      { action: "MANUAL_OUT_MANY", attendanceIds } (time = now - several at once, 24 Oct 2026)
 //      { action: "HANDOVER", jobId, resourceId }    -> { url } one-day link
 async function jobsFor(link: ResolvedLink) {
   if (link.kind === "HANDOVER") {
@@ -129,6 +130,14 @@ export const POST = withErrorHandling(async (req: NextRequest, { params }: { par
       await prisma.siteAttendance.update({ where: { id: attendance.id }, data: { signOutAt: new Date(), signOutMethod: "MANUAL" } });
       await syncSignInActualsQuietly([attendance.jobId]);
       return NextResponse.json({ ok: true });
+    }
+    case "MANUAL_OUT_MANY": {
+      const ids = Array.isArray(body.attendanceIds) ? body.attendanceIds.filter((x: unknown): x is string => typeof x === "string").slice(0, 100) : [];
+      const rows = await prisma.siteAttendance.findMany({ where: { id: { in: ids }, jobId: { in: jobIds }, signOutAt: null, status: { not: "REJECTED" } } });
+      if (!rows.length) return bad("Nobody picked is still signed in.");
+      await prisma.siteAttendance.updateMany({ where: { id: { in: rows.map((x) => x.id) } }, data: { signOutAt: new Date(), signOutMethod: "MANUAL" } });
+      await syncSignInActualsQuietly([...new Set(rows.map((x) => x.jobId))]);
+      return NextResponse.json({ ok: true, signedOut: rows.length });
     }
     case "HANDOVER": {
       if (link.kind !== "SUPERVISOR") return bad("Only the supervisor can hand over.");

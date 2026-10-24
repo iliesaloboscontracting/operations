@@ -25,6 +25,8 @@ export default function SignInCrew({ api }: { api: string }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [handTo, setHandTo] = useState("");
   const [handLink, setHandLink] = useState<{ name: string; url: string } | null>(null);
+  // Sign out several at once (24 Oct 2026) - always "now"; the office sets other times.
+  const [picked, setPicked] = useState<Set<string>>(new Set());
 
   const load = useCallback(async () => {
     const res = await fetch(`${api}/signin`);
@@ -108,13 +110,56 @@ export default function SignInCrew({ api }: { api: string }) {
       )}
 
       <section>
-        <h2 className="mb-2 text-sm font-semibold text-gray-200">Crew ({signedIn} on site)</h2>
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <h2 className="text-sm font-semibold text-gray-200">Crew ({signedIn} on site)</h2>
+          {signedIn > 0 && (
+            <button
+              className="text-sm text-brand-300 underline"
+              onClick={() => {
+                const ids = job.crew.filter((c) => c.attendance && !c.attendance.out && c.attendance.status !== "REJECTED").map((c) => c.attendance!.id);
+                setPicked((p) => (ids.every((id) => p.has(id)) ? new Set() : new Set(ids)));
+              }}
+            >
+              Select all on site
+            </button>
+          )}
+        </div>
+        {picked.size > 0 && (
+          <button
+            className={`${btn} mb-2 w-full`}
+            disabled={!!busy}
+            onClick={async () => {
+              if (!confirm(`Sign out ${picked.size} now? Only the office can change a time after this.`)) return;
+              const out = await post("outmany", { action: "MANUAL_OUT_MANY", attendanceIds: [...picked] });
+              if (out) setPicked(new Set());
+            }}
+          >
+            Sign out {picked.size} now
+          </button>
+        )}
         <div className="divide-y divide-edge/60 rounded-2xl border border-edge bg-panel">
           {job.crew.map((c, i) => {
             const a = c.attendance;
             const on = a && !a.out && a.status !== "REJECTED";
             return (
               <div key={c.resourceId ?? `x${i}`} className="flex items-center gap-2 px-3 py-2.5">
+                {signedIn > 0 && (
+                  <input
+                    type="checkbox"
+                    className="h-5 w-5 shrink-0"
+                    disabled={!on}
+                    checked={!!on && picked.has(a!.id)}
+                    onChange={() =>
+                      setPicked((p) => {
+                        const n = new Set(p);
+                        if (n.has(a!.id)) n.delete(a!.id);
+                        else n.add(a!.id);
+                        return n;
+                      })
+                    }
+                    aria-label={`Select ${c.name}`}
+                  />
+                )}
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-base text-gray-100">
                     {c.name}
@@ -139,7 +184,7 @@ export default function SignInCrew({ api }: { api: string }) {
             );
           })}
         </div>
-        <p className="mt-2 text-xs text-gray-500">Tick in / out is for crew without a phone - it uses the time now. Only the office can change a time.</p>
+        <p className="mt-2 text-xs text-gray-500">Tick in / out is for crew without a phone - it uses the time now. Tick boxes sign several out at once, now. Only the office can change a time.</p>
       </section>
 
       {!data.handover && (

@@ -9,6 +9,7 @@ import TodoList from "@/components/site/TodoList";
 import CheckResultView from "@/components/tools/CheckResultView";
 import InstallApp from "@/components/InstallApp";
 import SiteBrand from "@/components/site/SiteBrand";
+import PushToggle from "@/components/PushToggle";
 import { serverErrorMessage } from "@/lib/apiFetch";
 import type { CheckResult } from "@/lib/toolboxCheck";
 
@@ -40,6 +41,13 @@ export default function SitePhotosPage({ params }: { params: { token: string } }
   const [flash, setFlash] = useState<string | null>(null);
   const [who, setWho] = useState("");
   useEffect(() => setWho(getWho()), []);
+  // A tapped alert opens ".../site/<link>?go=signin" - straight to crew sign-in.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("go") === "signin") {
+      setMode("signin");
+      window.history.replaceState(null, "", window.location.pathname);
+    }
+  }, []);
 
   const load = useCallback(async () => {
     const res = await fetch(api);
@@ -100,6 +108,13 @@ export default function SitePhotosPage({ params }: { params: { token: string } }
             </label>
           )}
           <InstallApp appName={info.kind === "OFFICE" && !info.shared ? "Lobos Office" : "Lobos Site"} />
+          {info.kind !== "OFFICE" && (
+            <div className="mb-4 rounded-xl border border-edge bg-panel p-3">
+              <div className="text-sm font-semibold text-gray-100">Sign-out reminders</div>
+              <p className="mb-2 text-xs text-gray-500">An alert 20 minutes before your shift finishes if anyone is still signed in.</p>
+              <PushToggle api={`${api}/push`} sw="/site/sw.js" home={`/site/${params.token}`} align="start" />
+            </div>
+          )}
           {flash && <div className="mb-4 rounded-xl bg-emerald-500/15 px-4 py-3 text-sm text-emerald-300">✓ {flash}</div>}
           <div className="space-y-3">
             {info.kind !== "OFFICE" && (

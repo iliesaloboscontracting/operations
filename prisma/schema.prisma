@@ -597,6 +597,37 @@ model SiteLink {
   lastUsedAt DateTime?
   revokedAt  DateTime? // set = switched off; the link stops working
   submissions SiteSubmission[]
+  pushDevices SiteLinkPushDevice[]
+}
+
+// A supervisor's phone that gets alerts through their site link (24 Oct
+// 2026) - e.g. "4 still signed in, shift finishes in 20 minutes". Same Web
+// Push as the office (lib/push.ts), tied to the link, not a login.
+model SiteLinkPushDevice {
+  id         String    @id @default(cuid())
+  siteLinkId String
+  siteLink   SiteLink  @relation(fields: [siteLinkId], references: [id], onDelete: Cascade)
+  endpoint   String    @unique
+  p256dh     String
+  auth       String
+  label      String?
+  createdAt  DateTime  @default(now())
+  lastSentAt DateTime?
+  failures   Int       @default(0)
+
+  @@index([siteLinkId])
+}
+
+// One row per job per kind of automatic reminder, so each goes out once
+// (24 Oct 2026). kind SIGNOUT_20 = supervisors, 20 min before the finish.
+model ShiftReminder {
+  id     String   @id @default(cuid())
+  jobId  String
+  kind   String
+  sentAt DateTime @default(now())
+  people Int      @default(0) // how many were still signed in
+
+  @@unique([jobId, kind])
 }
 
 // Something sent from site: a tool to register, a toolbox check, or a fault.

@@ -15,31 +15,14 @@ import { prisma } from "./prisma";
 import { pushToAdmins } from "./push";
 import { OPEN_STATUSES, PRIORITY_LABEL, requestNo, typeOf, whenText, type Priority } from "./requestTypes";
 import { addEvent } from "./siteRequests";
+import { fromSydneyLocal } from "./shiftTimes";
 
 const MODEL = "claude-opus-5-5";
 type Req = SiteRequest & { events: SiteRequestEvent[] };
 
 export type ReminderSuggestion = { remindAt: string; note: string; newNeededBy: string | null; reason: string };
 
-// ---- Sydney local time <-> UTC ------------------------------------------------
 const SYD = "Australia/Sydney";
-function sydneyOffsetMs(at: Date) {
-  const p = Object.fromEntries(
-    new Intl.DateTimeFormat("en-AU", { timeZone: SYD, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" })
-      .formatToParts(at)
-      .map((x) => [x.type, x.value]),
-  );
-  return Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second) - at.getTime();
-}
-// "2026-10-26T06:00" (Sydney wall clock) -> the real moment, or null.
-export function fromSydneyLocal(local: string): Date | null {
-  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(local.trim());
-  if (!m) return null;
-  const asUtc = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]);
-  let t = asUtc - sydneyOffsetMs(new Date(asUtc));
-  t = asUtc - sydneyOffsetMs(new Date(t)); // second pass settles daylight-saving edges
-  return new Date(t);
-}
 const sydneyLong = (d: Date) =>
   new Intl.DateTimeFormat("en-AU", { timeZone: SYD, weekday: "long", day: "numeric", month: "long", year: "numeric", hour: "numeric", minute: "2-digit" }).format(d);
 

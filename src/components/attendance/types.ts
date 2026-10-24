@@ -30,6 +30,8 @@ export type AttendanceJob = {
   projectId: string | null;
   shift: string;
   times: string | null;
+  startTime: string | null; // board times as typed - the "sign out selected" default
+  endTime: string | null;
   breakMinutes: number | null;
   allocated: { id: string; name: string }[];
   rows: AttendanceRow[];

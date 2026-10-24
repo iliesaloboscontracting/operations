@@ -6,6 +6,7 @@ import { ShiftBadge } from "@/components/ShiftBadge";
 import { apiFetch, serverErrorMessage } from "@/lib/apiFetch";
 import type { ResourceDTO } from "@/lib/types";
 import { FLAG_LABEL, METHOD_LABEL, type AttendanceJob, type AttendanceRow } from "./types";
+import { jobFinish } from "@/lib/shiftTimes";
 
 const btn = "rounded-lg bg-brand-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-brand-500 disabled:opacity-50";
 const quiet = "rounded-lg border border-edge px-2.5 py-1 text-xs text-gray-300 hover:bg-panel2 disabled:opacity-50";
@@ -47,6 +48,23 @@ export default function AttendanceJobCard({
   const [handTo, setHandTo] = useState("");
   const [handLink, setHandLink] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // "Sign out selected" (24 Oct 2026): tick the ones who forgot, one time for all.
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [outAt, setOutAt] = useState("");
+  const [outReason, setOutReason] = useState("Forgot to sign out");
+  const [outNote, setOutNote] = useState<string | null>(null);
+  const stillIn = job.rows.filter((r) => !r.signOutAt && r.status !== "REJECTED");
+  const toggle = (id: string) =>
+    setPicked((p) => {
+      const n = new Set(p);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+  const defaultOut = () => {
+    const finish = jobFinish(date, job.shift, job.startTime, job.endTime);
+    return toLocal((finish && finish.getTime() <= Date.now() ? finish : new Date()).toISOString());
+  };
 
   async function send(url: string, method: string, body: unknown) {
     setError(null);
@@ -94,6 +112,44 @@ export default function AttendanceJobCard({
 
       {error && <div className="bg-red-900/30 px-3.5 py-1.5 text-xs text-red-300">{error}</div>}
 
+      {canEdit && stillIn.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 border-b border-edge/70 bg-panel2/40 px-3.5 py-2 text-xs">
+          <label className="flex items-center gap-1.5 text-gray-300">
+            <input
+              type="checkbox"
+              checked={picked.size > 0 && stillIn.every((r) => picked.has(r.id))}
+              onChange={(e) => {
+                setPicked(e.target.checked ? new Set(stillIn.map((r) => r.id)) : new Set());
+                if (e.target.checked && !outAt) setOutAt(defaultOut());
+              }}
+            />
+            Select all still signed in ({stillIn.length})
+          </label>
+          {picked.size > 0 && (
+            <>
+              <input type="datetime-local" className={inp} value={outAt} onChange={(e) => setOutAt(e.target.value)} />
+              <input className={`${inp} min-w-0 flex-1`} value={outReason} onChange={(e) => setOutReason(e.target.value)} placeholder="Reason" />
+              <button
+                className={btn}
+                disabled={!outAt || outReason.trim().length < 3}
+                onClick={async () => {
+                  setOutNote(null);
+                  const out = await send("/api/attendance/sign-out", "POST", { ids: [...picked], signOutAt: fromLocal(outAt), reason: outReason });
+                  if (out) {
+                    setPicked(new Set());
+                    const probs = (out.problems ?? []) as { name: string; error: string }[];
+                    setOutNote(`Signed out ${out.signedOut}.${probs.length ? ` Not changed: ${probs.map((p) => `${p.name} (${p.error})`).join(", ")}` : ""}`);
+                  }
+                }}
+              >
+                Sign out {picked.size}
+              </button>
+            </>
+          )}
+          {outNote && <span className="w-full text-gray-400">{outNote}</span>}
+        </div>
+      )}
+
       {handing && canEdit && (
         <div className="border-b border-edge/70 bg-panel2/40 px-3.5 py-2 text-xs">
           <div className="mb-1 text-gray-400">Give someone today&apos;s sign-in for this job (e.g. the supervisor is off). Their link stops working at the end of the day.</div>
@@ -132,6 +188,19 @@ export default function AttendanceJobCard({
           {job.rows.map((r) => (
             <div key={r.id} className="px-3.5 py-2 text-sm">
               <div className="flex items-start gap-3">
+                {canEdit && stillIn.length > 0 && (
+                  <input
+                    type="checkbox"
+                    className="mt-1 shrink-0"
+                    disabled={!!r.signOutAt || r.status === "REJECTED"}
+                    checked={picked.has(r.id)}
+                    onChange={() => {
+                      toggle(r.id);
+                      if (!outAt) setOutAt(defaultOut());
+                    }}
+                    aria-label={`Select ${r.name}`}
+                  />
+                )}
                 <div className="min-w-0 flex-1">
                   <span className={r.status === "REJECTED" ? "text-gray-500 line-through" : "text-gray-200"}>{r.name}</span>
                   {r.company && <span className="text-xs text-gray-400"> ({r.company})</span>}

@@ -4,9 +4,11 @@ import { useCallback, useEffect, useState } from "react";
 import { Bell, BellOff, Loader2 } from "lucide-react";
 import { apiFetch, serverErrorMessage } from "@/lib/apiFetch";
 
-// "Phone alerts" on the Requests page (Admin): turns notifications on or
-// off for THIS phone/browser, and sends a test. Android Chrome works from
-// the normal browser - no app install needed.
+// "Phone alerts": turns notifications on or off for THIS phone/browser, and
+// sends a test. Used on the Requests page (Admins, /api/push, /sw.js) and on
+// supervisors' links (24 Oct 2026: their own api + /site/sw.js, which is told
+// the link's address so a tapped alert opens it). Android Chrome works from
+// the normal browser; an iPhone only once the app is on the Home Screen.
 
 const toKey = (b64: string) => {
   const pad = "=".repeat((4 - (b64.length % 4)) % 4);
@@ -20,7 +22,17 @@ const deviceLabel = () => {
   return `${os} - ${br}`;
 };
 
-export default function PushToggle() {
+export default function PushToggle({
+  api = "/api/push",
+  sw = "/sw.js",
+  home,
+  align = "end",
+}: {
+  api?: string;
+  sw?: string;
+  home?: string; // supervisor link page - remembered by the service worker
+  align?: "start" | "end";
+} = {}) {
   const [supported, setSupported] = useState(true);
   const [on, setOn] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
@@ -28,10 +40,14 @@ export default function PushToggle() {
 
   const check = useCallback(async () => {
     if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) return setSupported(false);
-    const reg = await navigator.serviceWorker.register("/sw.js");
+    const reg = await navigator.serviceWorker.register(sw);
+    if (home) {
+      const ready = await navigator.serviceWorker.ready;
+      ready.active?.postMessage({ home });
+    }
     const sub = await reg.pushManager.getSubscription();
     setOn(!!sub && Notification.permission === "granted");
-  }, []);
+  }, [sw, home]);
   useEffect(() => {
     check().catch(() => setSupported(false));
   }, [check]);
@@ -40,14 +56,14 @@ export default function PushToggle() {
     setBusy(true);
     setMsg(null);
     try {
-      const res = await apiFetch("/api/push");
+      const res = await apiFetch(api);
       if (!res.ok) throw new Error(await serverErrorMessage(res, "Couldn't start alerts."));
       const { publicKey } = (await res.json()) as { publicKey: string | null };
       if (!publicKey) throw new Error("Phone alerts aren't set up on the server yet.");
       if ((await Notification.requestPermission()) !== "granted") throw new Error("Notifications are blocked - allow them for this site in the browser settings, then try again.");
       const reg = await navigator.serviceWorker.ready;
       const sub = (await reg.pushManager.getSubscription()) ?? (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: toKey(publicKey) }));
-      const save = await apiFetch("/api/push", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ subscription: sub.toJSON(), label: deviceLabel() }) });
+      const save = await apiFetch(api, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ subscription: sub.toJSON(), label: deviceLabel() }) });
       if (!save.ok) throw new Error(await serverErrorMessage(save, "Couldn't save this phone."));
       setOn(true);
       setMsg("Alerts are on for this device.");
@@ -65,7 +81,7 @@ export default function PushToggle() {
       const reg = await navigator.serviceWorker.ready;
       const sub = await reg.pushManager.getSubscription();
       if (sub) {
-        await apiFetch("/api/push", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ endpoint: sub.endpoint }) });
+        await apiFetch(api, { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ endpoint: sub.endpoint }) });
         await sub.unsubscribe();
       }
       setOn(false);
@@ -80,14 +96,21 @@ export default function PushToggle() {
   async function test() {
     setBusy(true);
     setMsg(null);
-    const res = await apiFetch("/api/push/test", { method: "POST" });
+    const res = await apiFetch(`${api}/test`, { method: "POST" });
     setMsg(res.ok ? "Test sent - it should arrive in a few seconds." : await serverErrorMessage(res, "Couldn't send the test."));
     setBusy(false);
   }
 
-  if (!supported) return <span className="text-xs text-gray-500">This browser can&apos;t show phone alerts.</span>;
+  if (!supported) {
+    const iPhone = typeof navigator !== "undefined" && /iPhone|iPad|iPod/i.test(navigator.userAgent);
+    return (
+      <span className="text-xs text-gray-500">
+        {iPhone ? "On iPhone: add this app to your Home Screen (Share → Add to Home Screen), open it from there, then turn alerts on." : "This browser can't show phone alerts."}
+      </span>
+    );
+  }
   return (
-    <div className="flex flex-col items-end gap-1">
+    <div className={`flex flex-col gap-1 ${align === "end" ? "items-end" : "items-start"}`}>
       <div className="flex gap-2">
         {on ? (
           <>
@@ -105,7 +128,7 @@ export default function PushToggle() {
           </button>
         )}
       </div>
-      {msg && <span className="max-w-xs text-right text-xs text-gray-400">{msg}</span>}
+      {msg && <span className={`max-w-xs text-xs text-gray-400 ${align === "end" ? "text-right" : ""}`}>{msg}</span>}
     </div>
   );
 }
