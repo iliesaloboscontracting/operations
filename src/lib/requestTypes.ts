@@ -146,7 +146,25 @@ export const OFF_HIRE_TYPE: RequestType = {
   fields: [{ key: "item", label: "Item", required: true }],
   summary: (d) => `Call off hire: ${v(d, "item")}`,
 };
-export const typeOf = (kind: string) => REQUEST_TYPES.find((t) => t.kind === kind) ?? (kind === "OFF_HIRE" ? OFF_HIRE_TYPE : undefined);
+// Also from the hire check (stage 3, 24 Oct 2026): the item isn't on site, or
+// it's still needed after its expected finish (the off-hire date needs moving).
+export const HIRE_MISMATCH_TYPE: RequestType = {
+  kind: "HIRE_MISMATCH",
+  label: "Hire not on site",
+  hint: "The hire register says it's on site; the supervisor says it isn't",
+  fields: [{ key: "item", label: "Item", required: true }],
+  summary: (d) => `Not on site: ${v(d, "item")}`,
+};
+export const HIRE_EXTEND_TYPE: RequestType = {
+  kind: "HIRE_EXTEND",
+  label: "Hire still needed",
+  hint: "Still needed after its expected finish - move the off-hire date",
+  fields: [{ key: "item", label: "Item", required: true }],
+  summary: (d) => `Still needed past finish: ${v(d, "item")}`,
+};
+// Raised by the system, never picked from the request form.
+export const SYSTEM_TYPES = [OFF_HIRE_TYPE, HIRE_MISMATCH_TYPE, HIRE_EXTEND_TYPE];
+export const typeOf = (kind: string) => REQUEST_TYPES.find((t) => t.kind === kind) ?? SYSTEM_TYPES.find((t) => t.kind === kind);
 
 // How each status reads to the supervisor who asked.
 export const STATUS_FOR_SITE: Record<string, string> = {

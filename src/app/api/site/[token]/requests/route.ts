@@ -54,7 +54,7 @@ export const POST = withErrorHandling(async (req: NextRequest, { params: paramsP
     photoFile = saved.fileName;
   }
   const out = await createRequest(link, body, photoFile);
-  if ("error" in out || !out.request) return NextResponse.json({ error: out.error ?? "Couldn't send it." }, { status: 400 });
+  if ("error" in out) return NextResponse.json({ error: out.error }, { status: 400 });
   await notifyNewRequest(out.request);
   suggestInBackground(out.request.id);
   return NextResponse.json({ request: siteView(out.request) }, { status: 201 });

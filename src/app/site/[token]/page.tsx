@@ -1,11 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useState, use } from "react";
-import { ArrowLeft, Camera, ClipboardList, ListChecks, Loader2, QrCode as QrIcon, ScanLine, Send, Wrench } from "lucide-react";
+import { ArrowLeft, Camera, ClipboardList, ListChecks, Loader2, QrCode as QrIcon, ScanLine, Send, Truck, Wrench } from "lucide-react";
 import PhotoPicker from "@/components/tools/PhotoPicker";
 import SignInCrew from "@/components/site/SignInCrew";
 import { MyRequests, RequestForm } from "@/components/site/SiteRequests";
 import TodoList from "@/components/site/TodoList";
+import HireCheck from "@/components/site/HireCheck";
 import CheckResultView from "@/components/tools/CheckResultView";
 import InstallApp from "@/components/InstallApp";
 import SiteBrand from "@/components/site/SiteBrand";
@@ -26,8 +27,10 @@ type SiteInfo = {
   openRequests: number;
   needsAnswer: number;
   todo: number;
+  hireItems: number;
+  hireToCheck: number;
 };
-type Mode = "home" | "register" | "check" | "fault" | "signin" | "request" | "requests" | "todo";
+type Mode = "home" | "register" | "check" | "fault" | "signin" | "request" | "requests" | "todo" | "hire";
 
 const input =
   "w-full rounded-lg border border-edge bg-panel2 px-3 py-2.5 text-base text-gray-200 placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500";
@@ -131,6 +134,16 @@ export default function SitePhotosPage({ params: paramsP }: { params: Promise<{ 
                 alert={info.needsAnswer > 0}
                 onClick={() => { setFlash(null); setMode("requests"); }}
               />
+              {info.hireItems > 0 && (
+                <Big
+                  icon={<Truck size={22} />}
+                  title="Hire on my site"
+                  text={info.hireToCheck ? `${info.hireToCheck} to check - still needed?` : `${info.hireItems} on hire - all checked`}
+                  count={info.hireToCheck}
+                  alert={info.hireToCheck > 0}
+                  onClick={() => { setFlash(null); setMode("hire"); }}
+                />
+              )}
             </>)}
             {info.kind === "OFFICE" && !info.shared && (
               <Big icon={<ListChecks size={22} />} title="My to-do" text={info.todo ? `${info.todo} to action` : "Requests the office hands you"} count={info.todo} onClick={() => { setFlash(null); setMode("todo"); }} />
@@ -159,6 +172,7 @@ export default function SitePhotosPage({ params: paramsP }: { params: Promise<{ 
           {mode === "request" && <RequestForm api={api} who={who} onDone={finished} />}
           {mode === "requests" && <MyRequests api={api} />}
           {mode === "todo" && <TodoList api={api} />}
+          {mode === "hire" && <HireCheck api={api} onChange={load} />}
         </>
       )}
     </div>

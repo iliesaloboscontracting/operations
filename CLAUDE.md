@@ -137,6 +137,14 @@ business, without becoming unnecessarily complicated.
   `public/sw.js`) — the third outbound connection (to the browser's push
   service); Urgent re-alerts every 15 min while unopened (max 3) from
   `src/instrumentation.ts`. No money on requests.
+  **Hire check** (stage 3, 2026-10-24, `src/lib/hireCheck.ts`, `HireCheck`
+  table): "Hire on my site" on a supervisor's link lists hire-register items
+  (not labour hire) on sites they were booked on in the last week or next
+  week; asks daily when due back within 3 days, else weekly. Finished →
+  OFF_HIRE request + status Off-hire requested; Not on site → HIRE_MISMATCH;
+  Still needed past its finish → HIRE_EXTEND. These are system request types
+  (never on the request form); no duplicates while one is open. The Hire
+  page shows each item's latest answer ("From site").
 - **Structure:** `src/app/` — page routes (`command`, `calendar`, `tracking`,
   `day-review`, `hire`, `plant`, `vehicles`, `labour`, `projects`, `users`,
   `bugs`, `notes`, `tools`, `completed`, `setup`, `login`) each generally

@@ -69,6 +69,20 @@ const TAB_GROUPS = [
   { key: "SUBCONTRACT", label: "Subcontractors", hint: "labour, or plant / trucks with an operator" },
 ];
 
+type SiteCheck = { answer: "STILL_NEEDED" | "FINISHED" | "NOT_ON_SITE"; by: string; at: string; note: string | null };
+const CHECK_TEXT = { STILL_NEEDED: "Still needed", FINISHED: "Finished", NOT_ON_SITE: "Not on site" };
+const CHECK_TONE = { STILL_NEEDED: "text-emerald-400", FINISHED: "text-amber-400", NOT_ON_SITE: "text-red-400" };
+function SiteCheckCell({ c }: { c?: SiteCheck }) {
+  if (!c) return <span className="text-gray-500">—</span>;
+  const when = new Date(c.at).toLocaleDateString("en-AU", { timeZone: "Australia/Sydney", day: "numeric", month: "short" });
+  return (
+    <span title={c.note ?? undefined}>
+      <span className={CHECK_TONE[c.answer]}>{CHECK_TEXT[c.answer]}</span>
+      <span className="text-xs text-gray-500"> · {c.by.split(" ")[0]}, {when}</span>
+    </span>
+  );
+}
+
 type OffHireAlertRow = {
   id: string; name: string; category: string | null; supplier: string | null; project: string | null;
   offHireDate: string; level: "OVERDUE" | "TODAY" | "SOON"; daysLeft: number;
@@ -118,6 +132,14 @@ export default function HirePage() {
       .then((r) => (r.ok ? r.json() : []))
       .then(setProjects)
       .catch(() => setProjects([]));
+  }, []);
+  // The supervisor's latest answer from the hire check on their site link.
+  const [checks, setChecks] = useState<Record<string, SiteCheck>>({});
+  useEffect(() => {
+    fetch("/api/hire-checks")
+      .then((r) => (r.ok ? r.json() : { checks: {} }))
+      .then((d) => setChecks(d.checks))
+      .catch(() => setChecks({}));
   }, []);
   const t = TABS.find((x) => x.key === tab)!;
   const isLabour = tab === "LABOUR";
@@ -190,6 +212,7 @@ export default function HirePage() {
             : [
                 { label: "Project", render: (r: ResourceDTO) => projectName(r.hireProjectId) },
                 { label: "Status", render: (r: ResourceDTO) => (r.hireStatus ? HIRE_STATUS_LABEL[r.hireStatus] ?? r.hireStatus : "—") },
+                { label: "From site", render: (r: ResourceDTO) => <SiteCheckCell c={checks[r.id]} /> },
               ]),
           {
             label: "Start",

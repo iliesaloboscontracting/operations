@@ -4,7 +4,7 @@
 import type { SiteRequest, SiteRequestEvent } from "@prisma/client";
 import { prisma } from "./prisma";
 import type { ResolvedLink } from "./siteLinks";
-import { PRIORITIES, typeOf, type Priority } from "./requestTypes";
+import { PRIORITIES, SYSTEM_TYPES, typeOf, type Priority } from "./requestTypes";
 import { todaySydney } from "./today";
 import type { ReminderSuggestion } from "./requestReminders";
 
@@ -25,15 +25,18 @@ export function addEvent(requestId: string, action: string, by: string, note?: s
 
 // The sites a link can ask for: projects the person is booked on from today
 // for the next week (a hand-over link: its one job's project), plus every
-// other active project under "other site".
-export async function sitesFor(link: ResolvedLink) {
+// other active project under "other site". `back` also counts bookings from
+// that many days ago (the hire check: hire runs over the weekend, before next
+// week's board is made).
+export async function sitesFor(link: ResolvedLink, back = 0) {
   const today = new Date(todaySydney() + "T00:00:00.000Z");
+  const from = new Date(today.getTime() - back * 86_400_000);
   const weekOut = new Date(today.getTime() + 8 * 86_400_000);
   const jobs = link.kind === "HANDOVER" && link.jobId
     ? await prisma.job.findMany({ where: { id: link.jobId }, select: { project: { select: { id: true, name: true } } } })
     : link.person.id
       ? await prisma.job.findMany({
-          where: { date: { gte: today, lt: weekOut }, status: { not: "COMPLETED" }, assignments: { some: { resourceId: link.person.id } } },
+          where: { date: { gte: from, lt: weekOut }, status: { not: "COMPLETED" }, assignments: { some: { resourceId: link.person.id } } },
           orderBy: { date: "asc" },
           select: { project: { select: { id: true, name: true } } },
         })
@@ -48,7 +51,7 @@ const clean = (x: unknown, max = 300) => (typeof x === "string" ? x.replace(/\s+
 
 export async function createRequest(link: ResolvedLink, body: Record<string, unknown>, photoFile: string | null) {
   const type = typeOf(String(body.kind));
-  if (!type || type.kind === "OFF_HIRE") return { error: "Pick what you need." };
+  if (!type || SYSTEM_TYPES.includes(type)) return { error: "Pick what you need." };
   const priority = String(body.priority) as Priority;
   if (!PRIORITIES.includes(priority)) return { error: "Pick how urgent it is." };
   const neededBy = new Date(String(body.neededBy));
@@ -65,26 +68,37 @@ export async function createRequest(link: ResolvedLink, body: Record<string, unk
   if (!project) return { error: "Pick the site." };
   const by = link.shared && clean(body.who, 40) ? `${link.person.name} - ${clean(body.who, 40)}` : link.person.name;
 
-  // Next number; retried if two requests arrive at the same moment.
+  return insertRequest({
+    kind: type.kind, priority, neededBy, project, summary: type.summary(details).slice(0, 200) || type.label,
+    details, note: clean(body.note, 500) || null, photoFile, by, byId: link.person.id, siteLinkId: link.id,
+  });
+}
+
+// Saves a request with the next number (retried if two arrive at the same
+// moment). Used by the request form and by the hire check.
+export async function insertRequest(r: {
+  kind: string; priority: Priority; neededBy: Date; project: { id: string; name: string }; summary: string;
+  details: Record<string, string>; note: string | null; photoFile: string | null; by: string; byId: string | null; siteLinkId: string;
+}): Promise<{ request: SiteRequest } | { error: string }> {
   for (let attempt = 0; attempt < 5; attempt++) {
     const last = await prisma.siteRequest.findFirst({ orderBy: { number: "desc" }, select: { number: true } });
     try {
       const req = await prisma.siteRequest.create({
         data: {
           number: (last?.number ?? 0) + 1,
-          kind: type.kind,
-          priority,
-          neededBy,
-          projectId: project.id,
-          siteLabel: project.name,
-          summary: type.summary(details).slice(0, 200) || type.label,
-          details: JSON.stringify(details),
-          note: clean(body.note, 500) || null,
-          photoFile,
-          requestedBy: by,
-          requestedById: link.person.id,
-          siteLinkId: link.id,
-          events: { create: { action: "SENT", by } },
+          kind: r.kind,
+          priority: r.priority,
+          neededBy: r.neededBy,
+          projectId: r.project.id,
+          siteLabel: r.project.name,
+          summary: r.summary,
+          details: JSON.stringify(r.details),
+          note: r.note,
+          photoFile: r.photoFile,
+          requestedBy: r.by,
+          requestedById: r.byId,
+          siteLinkId: r.siteLinkId,
+          events: { create: { action: "SENT", by: r.by } },
         },
       });
       return { request: req };

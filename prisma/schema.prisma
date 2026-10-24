@@ -861,6 +861,24 @@ model SiteRequest {
   @@index([remindAt])
 }
 
+// Hire check (stage 3, 24 Oct 2026): a supervisor's answer about a hire-
+// register item on their site - still needed, finished (call it off), or not
+// on site. Finished / not on site / still needed past its finish each raise a
+// site request (requestId) so the office decides as usual. Kept as history.
+model HireCheck {
+  id         String   @id @default(cuid())
+  resourceId String // the hire-register item
+  projectId  String?
+  siteLinkId String
+  answer     String // STILL_NEEDED | FINISHED | NOT_ON_SITE
+  note       String?
+  by         String
+  requestId  String?
+  createdAt  DateTime @default(now())
+
+  @@index([resourceId, createdAt])
+}
+
 model SiteRequestEvent {
   id        String      @id @default(cuid())
   requestId String

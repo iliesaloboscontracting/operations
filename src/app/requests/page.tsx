@@ -55,6 +55,8 @@ const FOLLOW_UP: Record<string, { href: string; label: string }> = {
   TRUCK: { href: "/command", label: "Allocations" },
   HIRE: { href: "/hire", label: "Hire" },
   OFF_HIRE: { href: "/hire", label: "Hire" },
+  HIRE_MISMATCH: { href: "/hire", label: "Hire" },
+  HIRE_EXTEND: { href: "/hire", label: "Hire" },
   TOOLS: { href: "/tools", label: "Tools" },
 };
 
