@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { effectiveTimes } from "@/lib/shiftTimes";
+import { effectiveTimes, nightOnly } from "@/lib/shiftTimes";
 import { prisma } from "@/lib/prisma";
 import { guard } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
@@ -114,7 +114,11 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
 
   let copied = 0;
   let merged = 0;
-  for (const j of source) {
+  for (const src of source) {
+    // A nights-only project's day job with no times of its own copies forward
+    // as a night shift (Mt Hutton had been carried along as blank day jobs).
+    const asNight = src.shift === "DAY" && nightOnly(src.project) && !src.startTime && !src.endTime;
+    const j = asNight ? { ...src, shift: "NIGHT", colorTag: "purple" } : src;
     const key = `${j.projectId ?? j.title}|${j.shift}`;
     const match = existingByKey.get(key);
     if (match) {

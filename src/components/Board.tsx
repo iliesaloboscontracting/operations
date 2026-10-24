@@ -33,8 +33,7 @@ import { apiFetch, serverErrorMessage } from "@/lib/apiFetch";
 import { Building2, CalendarClock, Download, Eraser, HardHat, Plus, Users } from "lucide-react";
 import StatTile from "./StatTile";
 import { saveWithDateCheck } from "@/lib/dateCheckPrompt";
-
-const nightOnly = (p: { dayStart?: string | null; dayEnd?: string | null; nightStart?: string | null }) => !p.dayStart && !p.dayEnd && !!p.nightStart;
+import { nightOnly } from "@/lib/shiftTimes";
 
 const BOARD_DATE_KEY = "board.selectedDate";
 

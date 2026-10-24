@@ -88,3 +88,8 @@ export function effectiveTimes(job: { shift: string; startTime: string | null; e
   const usual = projectHours(project, job.shift);
   return { start: job.startTime?.trim() || usual.start || null, end: job.endTime?.trim() || usual.end || null };
 }
+// A project that only works nights (night hours set, no day hours) - e.g.
+// Coles, Mt Hutton (Ilies, 24 Oct 2026: "Mt Hutton is night works"). Its jobs
+// go on the board, and copy forward, as night shifts.
+export const nightOnly = (p: { dayStart?: string | null; dayEnd?: string | null; nightStart?: string | null } | null | undefined) =>
+  !!p && !p.dayStart && !p.dayEnd && !!p.nightStart;
