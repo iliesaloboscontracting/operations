@@ -63,7 +63,14 @@ business, without becoming unnecessarily complicated.
   `guardTimesheetViewer()` (timesheets GET) lets it in. Keep it that way -
   never loosen a guard to admit it. `ACCOUNTS` (2026-10-24, the
   accounts@loboscontracting.com.au login) works the same way: the invoices
-  inbox only, via `guardInvoiceInbox()`.
+  inbox only, via `guardInvoiceInbox()`. `DIRECTOR` (25 Oct 2026, Ilies:
+  directors get their own screen, no Operations access) works the same way:
+  the Directors pages only (`/directors`, `/directors/kpis`,
+  `/directors/jobs/[id]` - a read-only copy of the Tracking job page via
+  `guardDirector()`), lands on `/directors`, and links into Operations are
+  shown as plain text (`directorHref()`). Only the owner creates, sets or
+  removes a DIRECTOR login. Yoel gets DIRECTOR only; Nick gets a DIRECTOR
+  login plus a separate ADMIN login to run Operations when Ilies is away.
   **Owner** (2026-10-23, `src/lib/owner.ts`): Iliesa's account. The directors
   (Yoel, Nick) are full Admins, but only the owner can change the owner's
   account (role, password, name, active). Code, builds and deploys are done
@@ -147,7 +154,9 @@ business, without becoming unnecessarily complicated.
   see live status. **Admins decide** (Ilies; since 2026-10-23 also the
   directors, who are Admins) — approve onto a person's
   to-do (Alex's OFFICE link "My to-do"), do it himself, ask, decline;
-  Managers can view only. Alex never decides. Phone alerts to Admins via
+  Managers can view only. Alex never decides. Once Nick and Yoel move to
+  DIRECTOR logins (25 Oct 2026) they no longer decide - Ilies does, and
+  Nick's separate ADMIN login when covering for him. Phone alerts to Admins via
   **Web Push** (`src/lib/push.ts`, `web-push`, keys `VAPID_*` in `.env`,
   `public/sw.js`) — the third outbound connection (to the browser's push
   service); Urgent re-alerts every 15 min while unopened (max 3) from

@@ -17,7 +17,7 @@ import { CAT_LABELS, change, short } from "@/lib/trackingView";
 import type { CostCatKey } from "@/lib/types";
 import type { DirectorOverviewDTO } from "@/lib/insights/load";
 import { Card, HEALTH, moneyTip, tooltipStyle } from "@/components/tracking/parts";
-import { ConfidenceBadge, Figure, Help, PriorityPill, Section, pct } from "@/components/directors/parts";
+import { ConfidenceBadge, DLink, Figure, Help, PriorityPill, Section, pct } from "@/components/directors/parts";
 
 const day = (iso: string) => fmtDay(iso, { day: "numeric", month: "short" });
 const weekday = (iso: string) => fmtDay(iso, { weekday: "short", day: "numeric" });
@@ -91,14 +91,14 @@ function Overview({ o, showAll, setShowAll }: { o: DirectorOverviewDTO; showAll:
                 <PriorityPill p={a.priority} />
                 <div className="min-w-0 flex-1 text-sm">
                   <div className="text-gray-200">
-                    {a.href ? <Link href={a.href} className="hover:underline">{a.title}</Link> : a.title}
+                    {a.href ? <DLink href={a.href} className="hover:underline">{a.title}</DLink> : a.title}
                   </div>
                   {a.links && a.links.length > 0 && (
                     <div className="mt-1 flex flex-wrap gap-1.5">
                       {a.links.slice(0, 12).map((l, j) => (
-                        <Link key={j} href={l.href} className="rounded-full border border-edge px-2 py-0.5 text-[11px] text-gray-300 hover:bg-panel2">
+                        <DLink key={j} href={l.href} className="rounded-full border border-edge px-2 py-0.5 text-[11px] text-gray-300 hover:bg-panel2">
                           {l.label}{l.detail && <span className="text-gray-500"> · {l.detail}</span>}
-                        </Link>
+                        </DLink>
                       ))}
                       {a.links.length > 12 && <span className="px-1 text-[11px] text-gray-500">+{a.links.length - 12} more</span>}
                     </div>
@@ -128,7 +128,7 @@ function Overview({ o, showAll, setShowAll }: { o: DirectorOverviewDTO; showAll:
             <Figure label="Still to come" kpi="F2" value={short(c.stillToCome)} sub="Booked, not spent yet (active jobs)" />
           </div>
           <div className="mt-3 flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider text-gray-500">Active jobs vs contract value <Help id="F3" /></div>
-          <Link href="/tracking" className="mt-1 flex flex-wrap gap-1.5">
+          <DLink href="/tracking" className="mt-1 flex flex-wrap gap-1.5">
             {([["ACT", c.health.act], ["WATCH", c.health.watch], ["ON_TRACK", c.health.onTrack], ["CANT_ASSESS", c.health.cantAssess]] as const).map(([h, n]) => {
               const s = HEALTH[h];
               return (
@@ -137,7 +137,7 @@ function Overview({ o, showAll, setShowAll }: { o: DirectorOverviewDTO; showAll:
                 </span>
               );
             })}
-          </Link>
+          </DLink>
           <p className="mt-2 text-[11px] text-gray-500">Cost against contract value - not margin. Revenue isn&apos;t connected yet. Labour hire only counts once the agency invoices, so recent weeks read low.</p>
         </Section>
 
@@ -158,10 +158,10 @@ function Overview({ o, showAll, setShowAll }: { o: DirectorOverviewDTO; showAll:
             <Figure label="Completing ≤ 30 days" kpi="O4" value={o.workload.completing.length} sub={o.workload.completing.slice(0, 2).map((p) => `${p.name} ${day(p.date)}`).join(", ") || "None due"} />
             <Figure label="Starts not ready" kpi="O3" value={o.workload.notReady} tone={o.workload.notReady ? "bad" : "good"} sub={o.workload.notReady ? "No supervisor on day one" : "All covered"} href="/calendar" />
           </div>
-          <Link href="/requests" className="mt-3 flex items-center justify-between rounded-lg border border-edge px-3 py-2 text-sm hover:bg-panel2">
+          <DLink href="/requests" className="mt-3 flex items-center justify-between rounded-lg border border-edge px-3 py-2 text-sm hover:bg-panel2">
             <span className="text-gray-300">Site requests</span>
             <span className={`whitespace-nowrap text-[12px] tabular-nums ${o.requests.overdue ? "text-red-400" : "text-gray-400"}`}>{o.requests.open} open · {o.requests.urgent} urgent · {o.requests.overdue} overdue</span>
-          </Link>
+          </DLink>
         </Section>
 
         <Section title="Crew capacity · next 2 weeks" kpi="P3">
@@ -217,10 +217,10 @@ function Overview({ o, showAll, setShowAll }: { o: DirectorOverviewDTO; showAll:
       <Section title="How far to trust these numbers" kpi="DQ">
         <div className="grid grid-cols-1 gap-x-6 sm:grid-cols-2">
           {o.dataQuality.map((d) => (
-            <Link key={d.id} href={d.href} className="flex items-center justify-between gap-3 border-b border-edge/60 py-1.5 text-sm hover:bg-panel2">
+            <DLink key={d.id} href={d.href} className="flex items-center justify-between gap-3 border-b border-edge/60 py-1.5 text-sm hover:bg-panel2">
               <span className="text-gray-300">{d.label}</span>
               <span className={`tabular-nums ${d.count ? "text-amber-300" : "text-emerald-400"}`}>{d.count}</span>
-            </Link>
+            </DLink>
           ))}
         </div>
         <div className="mt-3 text-[11px] font-semibold uppercase tracking-wider text-gray-500">Not available yet - no source connected</div>

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { guard, hashPassword, MIN_PASSWORD, normaliseEmail, ROLES } from "@/lib/auth";
+import { getCurrentUser, guard, hashPassword, MIN_PASSWORD, normaliseEmail, ROLES } from "@/lib/auth";
+import { isOwner } from "@/lib/owner";
 import { withErrorHandling } from "@/lib/apiHandler";
 
 const PUBLIC_FIELDS = {
@@ -31,6 +32,10 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   }
   if (!ROLES.includes(role as (typeof ROLES)[number])) {
     return NextResponse.json({ error: "Invalid role" }, { status: 400 });
+  }
+  // Directors-only logins (25 Oct 2026): only the owner creates them.
+  if (role === "DIRECTOR" && !isOwner((await getCurrentUser())?.email)) {
+    return NextResponse.json({ error: "Only Iliesa can create a Director login." }, { status: 403 });
   }
   if (password.length < MIN_PASSWORD) {
     return NextResponse.json({ error: `Password must be at least ${MIN_PASSWORD} characters` }, { status: 400 });

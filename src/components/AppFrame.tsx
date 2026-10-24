@@ -37,10 +37,11 @@ export default function AppFrame({ children }: { children: React.ReactNode }) {
 // (accounts). Every other page sends them back to theirs. The data routes
 // refuse them anyway - this keeps the screen tidy.
 function OnePageGate({ path, children }: { path: string; children: React.ReactNode }) {
-  const { timesheetsOnly, accountsOnly } = useAuth();
+  const { timesheetsOnly, accountsOnly, directorOnly } = useAuth();
   const router = useRouter();
-  const home = timesheetsOnly ? "/timesheets" : accountsOnly ? "/invoices" : null;
-  const elsewhere = !!home && path !== home;
+  const home = timesheetsOnly ? "/timesheets" : accountsOnly ? "/invoices" : directorOnly ? "/directors" : null;
+  // Directors-only logins (25 Oct 2026) have a small section: /directors and the pages under it.
+  const elsewhere = !!home && path !== home && !(directorOnly && path.startsWith("/directors/"));
   useEffect(() => {
     if (elsewhere && home) router.replace(home);
   }, [elsewhere, home, router]);

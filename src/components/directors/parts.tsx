@@ -9,6 +9,24 @@ import Link from "next/link";
 import { CircleHelp } from "lucide-react";
 import type { Priority } from "@/lib/insights/kpis";
 import { Card } from "@/components/tracking/parts";
+import { useAuth } from "@/components/AuthProvider";
+
+// Where a link on the Directors screen goes (25 Oct 2026). Directors-only
+// logins can't open Operations pages, so a job's Tracking link becomes its
+// Directors job page and any other Operations link becomes plain text.
+// Everyone else (Ilies, ticked Admins) keeps the Operations links.
+export function directorHref(href: string, directorOnly: boolean): string | null {
+  if (!directorOnly || href.startsWith("/directors")) return href;
+  const job = href.match(/^\/tracking\/([^/?#]+)$/);
+  return job ? `/directors/jobs/${job[1]}` : null;
+}
+
+// A Link that follows directorHref - plain text (same styling) when there's nowhere to go.
+export function DLink({ href, className, title, children }: { href: string; className?: string; title?: string; children: React.ReactNode }) {
+  const { directorOnly } = useAuth();
+  const to = directorHref(href, directorOnly);
+  return to ? <Link href={to} className={className} title={title}>{children}</Link> : <span className={className?.replace(/hover:\S+/g, "")} title={title}>{children}</span>;
+}
 
 export const PRIORITY: Record<Priority, { label: string; cls: string }> = {
   CRITICAL: { label: "Critical", cls: "bg-red-500/15 text-red-400" },
@@ -53,7 +71,9 @@ export function Section({ title, kpi, right, children, className = "" }: { title
 
 // One figure inside a section: label, big value, a line underneath. A linked
 // figure leaves its "?" out (no link inside a link) - its section has one.
-export function Figure({ label, value, sub, kpi, tone, href }: { label: string; value: React.ReactNode; sub?: React.ReactNode; kpi?: string; tone?: "bad" | "good"; href?: string }) {
+export function Figure({ label, value, sub, kpi, tone, href: rawHref }: { label: string; value: React.ReactNode; sub?: React.ReactNode; kpi?: string; tone?: "bad" | "good"; href?: string }) {
+  const { directorOnly } = useAuth();
+  const href = rawHref ? directorHref(rawHref, directorOnly) : null;
   const body = (
     <>
       <div className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider text-gray-500">{label}{kpi && !href && <Help id={kpi} />}</div>

@@ -28,6 +28,10 @@ export const PATCH = withErrorHandling(async (
 
   if (body.role !== undefined) {
     if (!ROLES.includes(body.role)) return NextResponse.json({ error: "Invalid role" }, { status: 400 });
+    // Directors-only logins (25 Oct 2026): only the owner gives or takes away the DIRECTOR role.
+    if ((body.role === "DIRECTOR") !== (target.role === "DIRECTOR") && !isOwner(me?.email)) {
+      return NextResponse.json({ error: "Only Iliesa can change a Director login." }, { status: 403 });
+    }
     data.role = body.role;
   }
   if (body.active !== undefined) data.active = Boolean(body.active);

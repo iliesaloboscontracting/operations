@@ -11,7 +11,7 @@ interface UserRow {
   id: string;
   email: string;
   name: string;
-  role: "ADMIN" | "MANAGER" | "VIEWER" | "TIMESHEETS" | "ACCOUNTS";
+  role: "ADMIN" | "MANAGER" | "VIEWER" | "TIMESHEETS" | "ACCOUNTS" | "DIRECTOR";
   active: boolean;
   directorAccess: boolean;
   lastLoginAt: string | null;
@@ -25,6 +25,8 @@ const ROLE_OPTIONS = [
   { value: "TIMESHEETS", label: "Timesheets — review only, nothing else" },
   { value: "ACCOUNTS", label: "Accounts — upload invoices, nothing else" },
 ];
+// Directors-only login (25 Oct 2026) - only the owner can give or take it away.
+const DIRECTOR_OPTION = { value: "DIRECTOR", label: "Director — company overview only, no Operations" };
 
 const ROLE_STYLE: Record<string, string> = {
   ADMIN: "bg-purple-900/60 text-purple-300",
@@ -32,6 +34,7 @@ const ROLE_STYLE: Record<string, string> = {
   VIEWER: "bg-gray-700 text-gray-300",
   TIMESHEETS: "bg-emerald-900/50 text-emerald-300",
   ACCOUNTS: "bg-amber-900/50 text-amber-300",
+  DIRECTOR: "bg-sky-900/50 text-sky-300",
 };
 
 function when(iso: string | null) {
@@ -69,7 +72,14 @@ export default function UsersPage() {
   const fields: FieldDef[] = [
     { key: "name", label: "Name", required: true, full: !isNew },
     ...(isNew ? ([{ key: "email", label: "Email", required: true }] as FieldDef[]) : []),
-    { key: "role", label: "Role", type: "select", options: ROLE_OPTIONS, full: true },
+    {
+      key: "role",
+      label: "Role",
+      type: "select",
+      // The owner can pick Director; anyone else only sees it on someone who already has it (and can't change it).
+      options: isOwner(me?.email) || (editing as UserRow | null)?.role === "DIRECTOR" ? [...ROLE_OPTIONS, DIRECTOR_OPTION] : ROLE_OPTIONS,
+      full: true,
+    },
     ...(!isNew
       ? ([
           {

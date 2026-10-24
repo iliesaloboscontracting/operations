@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 
-export type Role = "ADMIN" | "MANAGER" | "VIEWER" | "TIMESHEETS" | "ACCOUNTS";
+export type Role = "ADMIN" | "MANAGER" | "VIEWER" | "TIMESHEETS" | "ACCOUNTS" | "DIRECTOR";
 export interface Me {
   id: string;
   email: string;
@@ -19,6 +19,7 @@ interface AuthCtx {
   timesheetsOnly: boolean; // review-only timesheets access (Alex) - nothing else
   accountsOnly: boolean; // the invoices inbox (accounts) - nothing else
   isDirector: boolean; // sees the Directors overview (the API checks this too)
+  directorOnly: boolean; // a directors-only login (Nick, Yoel) - the Directors pages and nothing else
   signOut: () => Promise<void>;
 }
 
@@ -30,6 +31,7 @@ const Ctx = createContext<AuthCtx>({
   timesheetsOnly: false,
   accountsOnly: false,
   isDirector: false,
+  directorOnly: false,
   signOut: async () => {},
 });
 
@@ -69,6 +71,7 @@ export default function AuthProvider({
         timesheetsOnly: user?.role === "TIMESHEETS",
         accountsOnly: user?.role === "ACCOUNTS",
         isDirector: !!user?.directorAccess,
+        directorOnly: user?.role === "DIRECTOR",
         signOut,
       }}
     >

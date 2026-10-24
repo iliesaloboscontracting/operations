@@ -73,8 +73,8 @@ const Divider = () => <span className="mx-1.5 h-5 w-px shrink-0 self-center bg-w
 
 export default function TopNav() {
   const path = usePathname() ?? "";
-  const { user, loading, canEdit, isAdmin, isDirector, timesheetsOnly, accountsOnly, signOut } = useAuth();
-  const onePage = timesheetsOnly ? "/timesheets" : accountsOnly ? "/invoices" : null;
+  const { user, loading, canEdit, isAdmin, isDirector, directorOnly, timesheetsOnly, accountsOnly, signOut } = useAuth();
+  const onePage = timesheetsOnly ? "/timesheets" : accountsOnly ? "/invoices" : directorOnly ? "/directors" : null;
   const [changingPw, setChangingPw] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [startingSoon, setStartingSoon] = useState(0);
@@ -118,7 +118,12 @@ export default function TopNav() {
       </Link>
 
       <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto py-1.5">
-        {loading ? null : onePage ? (
+        {loading ? null : directorOnly ? (
+          <>
+            <NavTab href="/directors" label="Overview" active={path === "/directors" || path.startsWith("/directors/jobs")} />
+            <NavTab href="/directors/kpis" label="How the numbers work" active={isActive("/directors/kpis")} />
+          </>
+        ) : onePage ? (
           <NavTab href={onePage} label={accountsOnly ? "Invoices" : "Timesheets"} active={isActive(onePage)} />
         ) : (<>
         {isDirector && (

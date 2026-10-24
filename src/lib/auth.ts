@@ -14,9 +14,12 @@ const scrypt = promisify(scryptCb) as (pw: string, salt: Buffer, len: number) =>
 // ACCOUNTS (24 Oct 2026): the invoices inbox and nothing else - accounts
 // upload supplier invoices. Same idea: below VIEWER, only guardInvoiceInbox()
 // lets it in.
-export type Role = "ADMIN" | "MANAGER" | "VIEWER" | "TIMESHEETS" | "ACCOUNTS";
-export const ROLES: Role[] = ["ADMIN", "MANAGER", "VIEWER", "TIMESHEETS", "ACCOUNTS"];
-const RANK: Record<Role, number> = { TIMESHEETS: 0, ACCOUNTS: 0, VIEWER: 1, MANAGER: 2, ADMIN: 3 };
+// DIRECTOR (25 Oct 2026, Ilies: directors get their own screen and no
+// Operations access): the Directors pages and nothing else. Same pattern -
+// below VIEWER, only guardDirector() lets it in. Only the owner sets it.
+export type Role = "ADMIN" | "MANAGER" | "VIEWER" | "TIMESHEETS" | "ACCOUNTS" | "DIRECTOR";
+export const ROLES: Role[] = ["ADMIN", "MANAGER", "VIEWER", "TIMESHEETS", "ACCOUNTS", "DIRECTOR"];
+const RANK: Record<Role, number> = { TIMESHEETS: 0, ACCOUNTS: 0, DIRECTOR: 0, VIEWER: 1, MANAGER: 2, ADMIN: 3 };
 
 export interface AuthUser {
   id: string;
@@ -30,7 +33,7 @@ export interface AuthUser {
 // one-page roles, even if ticked by mistake.
 export function hasDirectorAccess(u: { email: string; role: string; directorAccess: boolean }) {
   if (u.role === "TIMESHEETS" || u.role === "ACCOUNTS") return false;
-  return isOwner(u.email) || u.directorAccess;
+  return u.role === "DIRECTOR" || isOwner(u.email) || u.directorAccess;
 }
 
 // ---------- passwords ----------
@@ -128,7 +131,7 @@ export async function guardDirector(): Promise<NextResponse | null> {
 
 // Where a role lands after signing in - the limited roles only have one page.
 export function homeFor(role: Role) {
-  return role === "TIMESHEETS" ? "/timesheets" : role === "ACCOUNTS" ? "/invoices" : "/command";
+  return role === "TIMESHEETS" ? "/timesheets" : role === "ACCOUNTS" ? "/invoices" : role === "DIRECTOR" ? "/directors" : "/command";
 }
 
 export function normaliseEmail(email: string) {
