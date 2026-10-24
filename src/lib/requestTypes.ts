@@ -162,8 +162,28 @@ export const HIRE_EXTEND_TYPE: RequestType = {
   fields: [{ key: "item", label: "Item", required: true }],
   summary: (d) => `Still needed past finish: ${v(d, "item")}`,
 };
+// Phase 2 (24 Oct 2026): a management action from a finding or a director,
+// and a query - a question to one person to fill an information gap. Office
+// work, never on the site form; links only ever see operational ones.
+export const ACTION_TYPE: RequestType = {
+  kind: "ACTION",
+  label: "Management action",
+  hint: "Something to do, raised from a finding or by a director",
+  fields: [{ key: "what", label: "What", required: true }],
+  summary: (d) => v(d, "what"),
+};
+export const QUERY_TYPE: RequestType = {
+  kind: "QUERY",
+  label: "Query",
+  hint: "A question to one person to fill an information gap",
+  fields: [{ key: "question", label: "Question", required: true }],
+  summary: (d) => v(d, "question"),
+};
+// Office work from Phase 2 - routed to its assignee, never to all Admins.
+export const OFFICE_KINDS = [ACTION_TYPE.kind, QUERY_TYPE.kind];
+
 // Raised by the system, never picked from the request form.
-export const SYSTEM_TYPES = [OFF_HIRE_TYPE, HIRE_MISMATCH_TYPE, HIRE_EXTEND_TYPE];
+export const SYSTEM_TYPES = [OFF_HIRE_TYPE, HIRE_MISMATCH_TYPE, HIRE_EXTEND_TYPE, ACTION_TYPE, QUERY_TYPE];
 export const typeOf = (kind: string) => REQUEST_TYPES.find((t) => t.kind === kind) ?? SYSTEM_TYPES.find((t) => t.kind === kind);
 
 // How each status reads to the supervisor who asked.
@@ -178,6 +198,7 @@ export const STATUS_FOR_SITE: Record<string, string> = {
   CANT_DO: "Approved - being actioned",
   DECLINED: "Declined",
   CANCELLED: "Cancelled",
+  ANSWERED: "Answered",
 };
 // And to the office.
 export const STATUS_FOR_OFFICE: Record<string, string> = {
@@ -191,13 +212,15 @@ export const STATUS_FOR_OFFICE: Record<string, string> = {
   CANT_DO: "Can't do - back to you",
   DECLINED: "Declined",
   CANCELLED: "Cancelled",
+  ANSWERED: "Answered - to close",
 };
 // ACTIONING (22 Oct 2026): the person it was handed to has started on it.
-export const OPEN_STATUSES = ["SENT", "SEEN", "NEEDS_INFO", "TODO", "ACTIONING", "MINE", "CANT_DO"];
+// ANSWERED (24 Oct 2026): a query's answer is in - waiting on Ilies to close it.
+export const OPEN_STATUSES = ["SENT", "SEEN", "NEEDS_INFO", "TODO", "ACTIONING", "MINE", "CANT_DO", "ANSWERED"];
 // On the assignee's to-do list (Alex): handed over, started, or waiting on his question.
 export const ON_TODO = ["TODO", "ACTIONING", "NEEDS_INFO"];
 // Waiting on Ilies to act (the menu badge).
-export const NEEDS_ILIES = ["SENT", "SEEN", "CANT_DO"];
+export const NEEDS_ILIES = ["SENT", "SEEN", "CANT_DO", "ANSWERED"];
 
 const RANK: Record<string, number> = { URGENT: 0, HIGH: 1, LOW: 2 };
 // Most urgent first, then the soonest needed-by.
@@ -223,4 +246,22 @@ export function defaultNeededBy(p: Priority, now = new Date()) {
   d.setDate(d.getDate() + (p === "HIGH" ? 1 : 7));
   d.setHours(7, 0, 0, 0);
   return d;
+}
+
+// Who a request alert goes to (Phase 2, 24 Oct 2026). Site and system
+// requests keep exactly today's behaviour: every Admin's phone. Actions and
+// queries never go to "all Admins": a new one alerts only its assignee (a
+// login's phone if they've turned alerts on, or the register person's link
+// when it's operational - links never carry commercial detail); an update
+// that needs Ilies (a query answered, "can't do") alerts only the owner.
+export type AlertRoute = "ADMINS" | "ASSIGNEE_USER" | "ASSIGNEE_LINKS" | "OWNER" | "NONE";
+export function alertRouteFor(
+  r: { kind: string; status: string; audience: string; assigneeUserId: string | null; assigneeId: string | null },
+  when: "NEW" | "UPDATE",
+): AlertRoute {
+  if (!OFFICE_KINDS.includes(r.kind)) return "ADMINS";
+  if (when === "UPDATE") return NEEDS_ILIES.includes(r.status) ? "OWNER" : "NONE";
+  if (r.assigneeUserId) return "ASSIGNEE_USER";
+  if (r.assigneeId && r.audience === "OPERATIONAL") return "ASSIGNEE_LINKS";
+  return "NONE";
 }
