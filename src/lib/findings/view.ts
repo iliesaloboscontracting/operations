@@ -23,7 +23,7 @@ export const RULE_LABEL: Record<string, string> = {
   DATE_NO_START: "projects with no start date",
   DATE_TBC_REVIEW_DUE: "projects whose TBC completion is due for review",
   DATE_JOBS_NO_TIMES: "projects with upcoming jobs missing times",
-  DATA_PLANT_NOT_BOOKED: "plant not booked on the board",
+  DATA_PLANT_NOT_BOOKED: "data gap: owned plant isn't being booked on the board",
 };
 
 export type FindingDTO = {

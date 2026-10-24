@@ -22,6 +22,8 @@ import { groupForDisplay } from "@/lib/findings/view";
 
 const day = (iso: string) => fmtDay(iso, { day: "numeric", month: "short" });
 const weekday = (iso: string) => fmtDay(iso, { weekday: "short", day: "numeric" });
+// A stored timestamp as a Sydney calendar day ("25 Oct").
+const sydDay = (ts: string) => new Date(ts).toLocaleDateString("en-AU", { timeZone: "Australia/Sydney", day: "numeric", month: "short" });
 
 // The cost trend shows the four biggest categories over the 12 weeks and
 // folds the rest into "Other" - more series than that stop being readable.
@@ -357,8 +359,8 @@ function FindingsAttention({ o, showAll, setShowAll }: { o: DirectorOverviewDTO;
               <div className="min-w-0 flex-1 text-sm">
                 <div className="text-gray-200">{f.href ? <Link href={f.href} className="hover:underline">{f.title}</Link> : f.title}</div>
                 <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-gray-500">
-                  <span>Open since {day(f.firstSeenAt.slice(0, 10))}</span>
-                  {f.signalClearedAt && <span className="text-emerald-400">No longer showing since {day(f.signalClearedAt.slice(0, 10))} - to close</span>}
+                  <span>Open since {sydDay(f.firstSeenAt)}</span>
+                  {f.signalClearedAt && <span className="text-emerald-400">No longer showing since {sydDay(f.signalClearedAt)} - to close</span>}
                   {f.status !== "OPEN" && <span>{f.status === "ACKNOWLEDGED" ? "Acknowledged" : "Being actioned"}{f.ownerName ? ` · ${f.ownerName}` : ""}</span>}
                   {f.provisional && <span>Data incomplete</span>}
                   <Help id={f.kpi} />
