@@ -6,7 +6,7 @@
 // and how far the numbers can be trusted. Every figure says what it is
 // (locked / estimate / booked) and its "?" opens the KPI dictionary. Plan:
 // director-insights-plan/. Director access only - the API checks it too.
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import PageShell from "@/components/PageShell";
@@ -19,6 +19,7 @@ import type { DirectorOverviewDTO } from "@/lib/insights/load";
 import { Card, HEALTH, moneyTip, tooltipStyle } from "@/components/tracking/parts";
 import { ConfidenceBadge, DLink, Figure, Help, PriorityPill, Section, pct } from "@/components/directors/parts";
 import { groupForDisplay } from "@/lib/findings/view";
+import FindingPanel from "@/components/directors/FindingPanel";
 
 const day = (iso: string) => fmtDay(iso, { day: "numeric", month: "short" });
 const weekday = (iso: string) => fmtDay(iso, { weekday: "short", day: "numeric" });
@@ -35,12 +36,15 @@ export default function DirectorsPage() {
   const [error, setError] = useState<string | null>(null);
   const [showAll, setShowAll] = useState(false);
 
-  useEffect(() => {
-    if (authLoading || !isDirector) return;
+  const load = useCallback(() => {
     apiFetch("/api/directors/overview")
       .then(async (r) => (r.ok ? setO(await r.json()) : setError(r.status === 403 ? "denied" : "Couldn't load the overview.")))
       .catch(() => setError("Couldn't load the overview."));
-  }, [authLoading, isDirector]);
+  }, []);
+  useEffect(() => {
+    if (authLoading || !isDirector) return;
+    load();
+  }, [authLoading, isDirector, load]);
 
   if (authLoading) return null;
   if (!isDirector || error === "denied") {
@@ -64,13 +68,13 @@ export default function DirectorsPage() {
       ) : !o ? (
         <p className="py-10 text-center text-sm text-gray-500">Loading...</p>
       ) : (
-        <Overview o={o} showAll={showAll} setShowAll={setShowAll} />
+        <Overview o={o} showAll={showAll} setShowAll={setShowAll} onRefresh={load} />
       )}
     </PageShell>
   );
 }
 
-function Overview({ o, showAll, setShowAll }: { o: DirectorOverviewDTO; showAll: boolean; setShowAll: (fn: (v: boolean) => boolean) => void }) {
+function Overview({ o, showAll, setShowAll, onRefresh }: { o: DirectorOverviewDTO; showAll: boolean; setShowAll: (fn: (v: boolean) => boolean) => void; onRefresh: () => void }) {
   const c = o.cost;
   const vsLast = change(c.monthSoFar.total, c.lastMonthSameDays);
   const firmPct = c.monthSoFar.total > 0 ? c.monthSoFar.firm / c.monthSoFar.total : null;
@@ -79,7 +83,7 @@ function Overview({ o, showAll, setShowAll }: { o: DirectorOverviewDTO; showAll:
     <>
       {/* 1. Needs attention: stored findings once the engine has run, else the computed list */}
       {o.findingsMeta.checkedAt
-        ? <FindingsAttention o={o} showAll={showAll} setShowAll={setShowAll} />
+        ? <FindingsAttention o={o} showAll={showAll} setShowAll={setShowAll} onRefresh={onRefresh} />
         : <ComputedAttention o={o} showAll={showAll} setShowAll={setShowAll} />}
 
       {/* 2-4. Cost, workload, capacity */}
@@ -325,8 +329,9 @@ function ComputedAttention({ o, showAll, setShowAll }: { o: DirectorOverviewDTO;
 // whether its rule has stopped firing. Critical / high / medium one by one;
 // information-only gaps bundled per kind. Overdue site requests come straight
 // from Requests (they're work items, not findings).
-function FindingsAttention({ o, showAll, setShowAll }: { o: DirectorOverviewDTO; showAll: boolean; setShowAll: (fn: (v: boolean) => boolean) => void }) {
+function FindingsAttention({ o, showAll, setShowAll, onRefresh }: { o: DirectorOverviewDTO; showAll: boolean; setShowAll: (fn: (v: boolean) => boolean) => void; onRefresh: () => void }) {
   const { singles, infoGroups } = groupForDisplay(o.findings);
+  const [openId, setOpenId] = useState<string | null>(null);
   const requests = o.alerts.filter((a) => a.kpi === "O6");
   const m = o.findingsMeta;
   const urgent = (m.bySeverity.CRITICAL ?? 0) + (m.bySeverity.HIGH ?? 0);
@@ -364,6 +369,7 @@ function FindingsAttention({ o, showAll, setShowAll }: { o: DirectorOverviewDTO;
                   {f.status !== "OPEN" && <span>{f.status === "ACKNOWLEDGED" ? "Acknowledged" : "Being actioned"}{f.ownerName ? ` · ${f.ownerName}` : ""}</span>}
                   {f.provisional && <span>Data incomplete</span>}
                   <Help id={f.kpi} />
+                  <button onClick={() => setOpenId(f.id)} className="text-brand-300 hover:underline">Details</button>
                 </div>
               </div>
             </div>
@@ -375,7 +381,7 @@ function FindingsAttention({ o, showAll, setShowAll }: { o: DirectorOverviewDTO;
                 <div className="text-gray-200">{g.items.length} {g.label}</div>
                 <div className="mt-1 flex flex-wrap gap-1.5">
                   {g.items.slice(0, 12).map((f) => (
-                    <DLink key={f.id} href={f.href ?? "#"} className="rounded-full border border-edge px-2 py-0.5 text-[11px] text-gray-300 hover:bg-panel2">{f.subjectName}</DLink>
+                    <button key={f.id} onClick={() => setOpenId(f.id)} className="rounded-full border border-edge px-2 py-0.5 text-[11px] text-gray-300 hover:bg-panel2">{f.subjectName}</button>
                   ))}
                   {g.items.length > 12 && <span className="px-1 text-[11px] text-gray-500">+{g.items.length - 12} more</span>}
                 </div>
@@ -390,6 +396,7 @@ function FindingsAttention({ o, showAll, setShowAll }: { o: DirectorOverviewDTO;
           {showAll ? "Show fewer" : `Show all ${singles.length}`}
         </button>
       )}
+      {openId && <FindingPanel id={openId} onClose={() => setOpenId(null)} onChanged={onRefresh} />}
     </Card>
   );
 }

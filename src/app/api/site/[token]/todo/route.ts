@@ -15,7 +15,8 @@ export const GET = withErrorHandling(async (_req: NextRequest, { params: paramsP
   if (!link || link.kind !== "OFFICE" || !link.person.id) return NextResponse.json({ error: "No to-do list on this link." }, { status: 404 });
   const since = new Date(Date.now() - 7 * 86_400_000);
   const rows = await prisma.siteRequest.findMany({
-    where: { assigneeId: link.person.id, ...LINK_WHERE, OR: [{ status: { in: ON_TODO } }, { status: "DONE", doneAt: { gte: since } }] },
+    // Queries have their own "Questions from the office" list on the link.
+    where: { assigneeId: link.person.id, ...LINK_WHERE, kind: { not: "QUERY" }, OR: [{ status: { in: ON_TODO } }, { status: "DONE", doneAt: { gte: since } }] },
     orderBy: { neededBy: "asc" },
     take: 100,
     include: { events: { orderBy: { at: "asc" } } },

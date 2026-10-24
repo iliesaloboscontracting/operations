@@ -244,6 +244,8 @@ function Detail({
   const closed = ["DONE", "DECLINED", "CANCELLED"].includes(r.status);
   const type = typeOf(r.kind);
   const follow = FOLLOW_UP[r.kind];
+  // A query (Phase 2): one question to one person - close it, ask a follow-up, or decline.
+  const isQuery = r.kind === "QUERY";
 
   useEffect(() => {
     setAction(null);
@@ -276,7 +278,13 @@ function Detail({
     if (action === "DONE") return send({ action, outcome: text });
   }
 
-  const PROMPT: Record<Action, { label: string; placeholder: string; button: string }> = {
+  const PROMPT: Record<Action, { label: string; placeholder: string; button: string }> = isQuery ? {
+    APPROVE: { label: "", placeholder: "", button: "" },
+    MINE: { label: "", placeholder: "", button: "" },
+    ASK: { label: `Follow-up question for ${r.assigneeName ?? "them"}`, placeholder: "e.g. Which revision of the quote is that from?", button: "Ask follow-up" },
+    DECLINE: { label: "Why it's being closed without an answer", placeholder: "e.g. Found it in the contract folder", button: "Decline" },
+    DONE: { label: "Closing note - closing never changes a record", placeholder: "e.g. Thanks - I'll propose the contract value change", button: "Close query" },
+  } : {
     APPROVE: { label: "Note for them (optional)", placeholder: "e.g. Use Coates, PO 1234. Call Sam on site.", button: `Send to ${assignees.find((a) => a.id === assigneeId)?.name ?? "them"}` },
     MINE: { label: "Note (optional)", placeholder: "e.g. Calling Hire Express", button: "I'll do it" },
     ASK: { label: "Question for the supervisor", placeholder: "e.g. How many days do you need it for?", button: "Ask" },
@@ -315,7 +323,11 @@ function Detail({
         {r.note && <p className="mb-2 rounded-lg bg-panel2 px-3 py-2 text-sm text-gray-300">Supervisor: “{r.note}”</p>}
         {r.question && <p className="mb-1 text-sm text-amber-300">{r.askedBy && r.askedBy !== "You" ? `${r.askedBy} asked` : "You asked"}: {r.question}</p>}
         {r.update && <p className="mb-2 text-sm text-emerald-300">Latest update ({r.update.by}, {whenText(r.update.at)}): {r.update.note}</p>}
-        {r.answer && <p className="mb-2 text-sm text-sky-300">Answer: {r.answer}</p>}
+        {r.answer && <p className="mb-2 text-sm text-sky-300">Answer{isQuery && r.assigneeName ? ` from ${r.assigneeName}` : ""}: {r.answer}</p>}
+        {isQuery && r.office?.hasAnswerFile && <a href={`/api/queries/${r.id}/file`} target="_blank" rel="noreferrer" className="mb-2 inline-block text-sm text-gray-300 underline">Open the attached file</a>}
+        {isQuery && r.status === "ANSWERED" && (
+          <p className="mb-2 rounded-lg bg-panel2 px-3 py-2 text-xs text-gray-400">If the answer means a record should change (a contract value, a date, a rate), propose the change and apply it the usual way - closing this query changes nothing by itself.</p>
+        )}
         {r.officeNote && <p className="mb-2 text-sm text-brand-200">Your note: {r.officeNote}</p>}
         {r.outcome && <p className={`mb-2 text-sm ${r.status === "CANT_DO" ? "text-amber-300" : "text-emerald-300"}`}>{r.status === "CANT_DO" ? "Can't do: " : "Outcome: "}{r.outcome}</p>}
         {r.declineReason && r.status === "DECLINED" && <p className="mb-2 text-sm text-red-300">Declined: {r.declineReason}</p>}
@@ -332,6 +344,12 @@ function Detail({
         {isAdmin ? (
           closed ? (
             <button disabled={busy} onClick={() => send({ action: "REOPEN" })} className="mb-4 rounded-lg border border-edge px-3 py-2 text-sm text-gray-300 hover:bg-panel2">Reopen</button>
+          ) : !action && isQuery ? (
+            <div className="mb-4 grid grid-cols-2 gap-2 [&>button]:py-3 sm:[&>button]:py-2">
+              <button onClick={() => setAction("DONE")} className="col-span-2 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white">Close query</button>
+              <button onClick={() => setAction("ASK")} className="rounded-lg border border-edge px-3 py-2 text-sm text-gray-200 hover:bg-panel2">Ask a follow-up</button>
+              <button onClick={() => setAction("DECLINE")} className="rounded-lg border border-red-500/40 px-3 py-2 text-sm text-red-300 hover:bg-red-500/10">Decline</button>
+            </div>
           ) : !action ? (
             <div className="mb-4 grid grid-cols-2 gap-2 [&>button]:py-3 sm:[&>button]:py-2">
               <button onClick={() => setAction("APPROVE")} disabled={!assignees.length} className="rounded-lg bg-brand-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-40">

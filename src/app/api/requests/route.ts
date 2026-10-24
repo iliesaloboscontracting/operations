@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { guard } from "@/lib/auth";
+import { getCurrentUser, guard } from "@/lib/auth";
+import { audiencesFor } from "@/lib/findings/actions";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { officeView } from "@/lib/siteRequests";
 import { NEEDS_ILIES, OPEN_STATUSES } from "@/lib/requestTypes";
@@ -13,17 +14,21 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
   const denied = await guard("MANAGER");
   if (denied) return denied;
   const q = req.nextUrl.searchParams;
+  // Actions and queries carry an audience (Phase 2): Managers see operational
+  // and commercial ones, director-only ones only reach directors. Every
+  // site request is operational, so this list is unchanged for them.
+  const seen = { audience: { in: audiencesFor((await getCurrentUser())!) } };
   if (q.get("count")) {
     // Waiting on a decision, plus reminders that have come due (23 Oct 2026).
     const [decide, reminders] = await Promise.all([
-      prisma.siteRequest.count({ where: { status: { in: NEEDS_ILIES } } }),
-      prisma.siteRequest.count({ where: { status: { in: OPEN_STATUSES }, remindAt: { lte: new Date() } } }),
+      prisma.siteRequest.count({ where: { ...seen, status: { in: NEEDS_ILIES } } }),
+      prisma.siteRequest.count({ where: { ...seen, status: { in: OPEN_STATUSES }, remindAt: { lte: new Date() } } }),
     ]);
     return NextResponse.json({ waiting: decide + reminders, decide, reminders });
   }
   const since = new Date(Date.now() - 14 * 86_400_000);
   const rows = await prisma.siteRequest.findMany({
-    where: q.get("all") ? {} : { OR: [{ status: { in: OPEN_STATUSES } }, { updatedAt: { gte: since } }] },
+    where: q.get("all") ? seen : { ...seen, OR: [{ status: { in: OPEN_STATUSES } }, { updatedAt: { gte: since } }] },
     include: { events: { orderBy: { at: "asc" } } },
     orderBy: { createdAt: "desc" },
     take: 500,

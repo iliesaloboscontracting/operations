@@ -20,7 +20,7 @@ export const PATCH = withErrorHandling(async (req: NextRequest, { params: params
   const link = await resolveLink(params.token);
   if (!link || link.kind !== "OFFICE" || !link.person.id) return NextResponse.json({ error: "No to-do list on this link." }, { status: 404 });
   const r = await prisma.siteRequest.findUnique({ where: { id: params.id } });
-  if (!r || r.assigneeId !== link.person.id || !linkVisible(r)) return NextResponse.json({ error: "Not found." }, { status: 404 });
+  if (!r || r.assigneeId !== link.person.id || r.kind === "QUERY" || !linkVisible(r)) return NextResponse.json({ error: "Not found." }, { status: 404 });
   if (!ON_TODO.includes(r.status)) return NextResponse.json({ error: "This one isn't on your list any more." }, { status: 409 });
   const body = await req.json().catch(() => ({}));
   const raw = [body.note, body.question, body.outcome, body.reason].find((x) => typeof x === "string") ?? "";
