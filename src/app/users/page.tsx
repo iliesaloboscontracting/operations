@@ -13,6 +13,7 @@ interface UserRow {
   name: string;
   role: "ADMIN" | "MANAGER" | "VIEWER" | "TIMESHEETS" | "ACCOUNTS";
   active: boolean;
+  directorAccess: boolean;
   lastLoginAt: string | null;
   createdAt: string;
 }
@@ -63,6 +64,8 @@ export default function UsersPage() {
   }
 
   const isNew = editing === "new";
+  // Director access: only the owner hands it out, and the owner always has it.
+  const canSetDirector = isOwner(me?.email) && !isNew && !isOwner((editing as UserRow | null)?.email);
   const fields: FieldDef[] = [
     { key: "name", label: "Name", required: true, full: !isNew },
     ...(isNew ? ([{ key: "email", label: "Email", required: true }] as FieldDef[]) : []),
@@ -77,6 +80,20 @@ export default function UsersPage() {
               { value: "yes", label: "Active" },
               { value: "no", label: "Deactivated (cannot sign in)" },
             ],
+          },
+        ] as FieldDef[])
+      : []),
+    ...(canSetDirector
+      ? ([
+          {
+            key: "directorAccess",
+            label: "Directors overview",
+            type: "select",
+            options: [
+              { value: "no", label: "No access" },
+              { value: "yes", label: "Yes - sees company costs and contract values" },
+            ],
+            full: true,
           },
         ] as FieldDef[])
       : []),
@@ -101,6 +118,7 @@ export default function UsersPage() {
       });
     } else {
       body.active = v.active !== "no";
+      if (canSetDirector) body.directorAccess = v.directorAccess === "yes";
       res = await fetch(`/api/users/${(editing as UserRow).id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -147,6 +165,7 @@ export default function UsersPage() {
               <span className="truncate">{u.name}</span>
               {u.id === me?.id && <span className="ml-1 shrink-0 text-[10px] text-gray-500">(you)</span>}
               {isOwner(u.email) && <span className="ml-1.5 shrink-0 rounded bg-amber-500/15 px-1 py-0.5 text-[9px] font-semibold uppercase text-amber-300">Owner</span>}
+              {u.directorAccess && !isOwner(u.email) && <span className="ml-1.5 shrink-0 rounded bg-sky-500/15 px-1 py-0.5 text-[9px] font-semibold uppercase text-sky-300">Director</span>}
             </div>
             <div className="truncate">{u.email}</div>
             <div>
@@ -165,7 +184,12 @@ export default function UsersPage() {
           initial={
             isNew
               ? { role: "VIEWER" }
-              : { ...(editing as UserRow), active: (editing as UserRow).active ? "yes" : "no", password: "" }
+              : {
+                  ...(editing as UserRow),
+                  active: (editing as UserRow).active ? "yes" : "no",
+                  directorAccess: (editing as UserRow).directorAccess ? "yes" : "no",
+                  password: "",
+                }
           }
           onSave={save}
           onClose={() => setEditing(null)}

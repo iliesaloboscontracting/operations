@@ -32,6 +32,19 @@ export const PATCH = withErrorHandling(async (
   }
   if (body.active !== undefined) data.active = Boolean(body.active);
 
+  // Director access (24 Oct 2026): the company overview carries contract
+  // values and every job's cost, so only the owner hands it out.
+  if (body.directorAccess !== undefined && Boolean(body.directorAccess) !== target.directorAccess) {
+    if (!isOwner(me?.email)) {
+      return NextResponse.json({ error: "Only Iliesa can change director access." }, { status: 403 });
+    }
+    const role = (data.role as string | undefined) ?? target.role;
+    if (body.directorAccess && (role === "TIMESHEETS" || role === "ACCOUNTS")) {
+      return NextResponse.json({ error: "Timesheets and Accounts logins can't have director access" }, { status: 400 });
+    }
+    data.directorAccess = Boolean(body.directorAccess);
+  }
+
   if (body.password !== undefined) {
     if (String(body.password).length < MIN_PASSWORD) {
       return NextResponse.json({ error: `Password must be at least ${MIN_PASSWORD} characters` }, { status: 400 });
@@ -56,7 +69,7 @@ export const PATCH = withErrorHandling(async (
   const user = await prisma.user.update({
     where: { id: params.id },
     data,
-    select: { id: true, email: true, name: true, role: true, active: true, lastLoginAt: true, createdAt: true },
+    select: { id: true, email: true, name: true, role: true, active: true, lastLoginAt: true, createdAt: true, directorAccess: true },
   });
   return NextResponse.json(user);
 });
