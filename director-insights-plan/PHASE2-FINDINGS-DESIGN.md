@@ -140,17 +140,22 @@ The content is immutable once written. A correction is a new row with `supersede
    ▼                     ▼               ▼
 ACKNOWLEDGED ──────► ACTIONED        DISMISSED ── suppressUntil passes or severity escalates ──► new OPEN (linked)
    │                     │
-   └──────── resolve (resolution note) ─────► RESOLVED ── check period (14 days) ──► VERIFIED (EFFECTIVE / NOT_EFFECTIVE)
+   └──────── resolve (resolution note) ─────► RESOLVED ── signal stays clear for the rule's verify window ──► VERIFIED
+                                                │                                                         (automatic, §1.4)
+                                                ├── still firing when the check is due ──► back to OPEN ("fix didn't take")
                                                 │
-                                                └── same problem fires again inside the period ──► REOPENED (same finding,
-                                                    status back to OPEN, outcomeResult RECURRED)
+                       RESOLVED or VERIFIED ────┴── same dedupeKey fires again within 30 days ──► REOPENED (same finding,
+                                                    status back to OPEN, outcomeResult RECURRED; after 30 days a new finding)
 ```
 
 - **Acknowledged**: "seen, it's mine". Sets the owner if there isn't one.
 - **Actioned**: an ACTION request exists and is with someone, or the owner records what was done. When the linked request is marked DONE, the finding gets an event and a "ready to resolve?" prompt. It is never closed silently.
 - **Resolved**: needs a resolution note.
 - **Dismissed**: needs a reason, as either `FALSE_ALARM` or `ACCEPTED_RISK until <date>`.
-- **Verified**: after the check period, if the rule hasn't fired again, a director confirms the outcome.
+- **Verified** (Ilies: "asap", the lead set the windows; see §1.4):
+  - **Automatic**, as soon as the signal has stayed clear for the rule's verify window. If it's still firing when the check is due, the finding goes back to Open with a "fix didn't take" event.
+  - A finding a person resolved **while its signal was still firing** is never auto-verified. A person verifies it, and for HIGH/CRITICAL that person isn't the one who resolved it.
+- **Recurred**: a separate 30-day window. The same problem firing again within 30 days of being resolved or verified reopens the same finding (a RECURRED event), so a quick verification never hides a comeback.
 
 ### 1.2 When the signal stops firing (no silent disappearance)
 
@@ -168,7 +173,7 @@ ACKNOWLEDGED ──────► ACTIONED        DISMISSED ── suppressUnti
 | Assign owner, create ACTION | yes | yes | no (Managers can action requests assigned to them, as today) | no | no |
 | Resolve | yes | yes | ones they own, except CRITICAL | no | no |
 | Dismiss | yes | yes | OPERATIONAL INFO only | no | no |
-| Verify outcome | yes | yes, not the person who resolved it, for HIGH / CRITICAL | no | no | no |
+| Verify outcome | automatic (§1.4); by hand when resolved while still firing | same; by hand not the person who resolved it, for HIGH / CRITICAL | no | no | no |
 | Record a DECISION | yes | yes | no | no | no |
 | Request an APPROVAL (A3) | yes | yes | yes (OPERATIONAL changes, e.g. move an off-hire date) | no | no |
 | **Approve** | yes, **not their own request** | yes, **not their own request** | no | no | no |
@@ -180,6 +185,18 @@ ACKNOWLEDGED ──────► ACTIONED        DISMISSED ── suppressUnti
 - A system-proposed change counts "System" as the requester. A person must still approve it.
 
 **Append-only:** FindingEvidence, FindingEvent, Decision (content; only status moves forward), DirectorReview, KpiSnapshot (already) and SiteRequestEvent (already). The Finding row itself changes status, but every change is in FindingEvent.
+
+### 1.4 Settings (one config object, decided 24 Oct 2026)
+
+All of these live in one `FINDINGS_CONFIG` object (`src/lib/findings/config.ts`) with the defaults below. They are not scattered literals, and the tests read them from the object.
+
+| Setting | Default | Decided by |
+|---|---|---|
+| `verifyAfterClearRuns` per rule | **1** daily run: DATA_*, DATE_*, NO_SUPERVISOR, START_NOT_READY, DAYS_NOT_CLOSED. **2** consecutive runs: HIRE_*, CREW_SHORT (they flicker with board edits). COST_VS_CONTRACT: **7 days** (invoices land late) | Ilies ("asap, building agent to confirm"), set by the lead |
+| `recurrenceWindowDays` | **30** | Lead |
+| `criticalAlertRecipients` | **Ilies only** (owner) | Ilies told this agent "just me" and the lead "me and Nick". The lead is confirming with him; until then, owner only |
+| `pushSeverities` | CRITICAL (HIGH shown in the app, not pushed) | Design default |
+| Audience visibility | OPERATIONAL Viewer+, **COMMERCIAL Manager+** ("operations and above"), DIRECTOR directors and owner | Ilies |
 
 ---
 
@@ -235,7 +252,7 @@ A **findings run** (`src/lib/insights/findings.ts`, every 30 min from the `instr
 |---|---|
 | "Create action" on a finding | `insertRequest({kind:"ACTION", origin:"FINDING", findingId, audience: finding.audience, priority from severity, neededBy = due date, requestedBy = the director, project if any})` then the existing APPROVE (assign) step. The finding gets an ACTION_CREATED event and status ACTIONED |
 | Action done | The existing PATCH `DONE {outcome}`. A small hook adds an ACTIONED event to the finding with that outcome and prompts "resolve?" |
-| A director with no office link | `assigneeUserId` → shows in **Directors → My actions** (a filter of requests). No new queue |
+| A director with no office link | Actions: `assigneeUserId` → shows in **Directors → My actions** (a filter of requests). No new queue. **Links** (Ilies, Q3): Nick, Yoel and accounts get links **for answering gap-filling questions only, for now** (the Query variant, `PHASE2-SCHEMA-PROPOSAL.md` §3). What else the links do is decided later |
 | Supervisors | Never see ACTION requests: they have no `siteLinkId`, and site links only list their own |
 | Managers | `GET /api/requests` filters `audience`: COMMERCIAL and OPERATIONAL yes, DIRECTOR no |
 | Requests page | A filter: **From site / Actions / All**. One list, one count badge |
@@ -294,7 +311,7 @@ Order on the server: back up → `db push` on a copy → row counts the same →
 **Risks:**
 | Risk | Mitigation |
 |---|---|
-| Alert fatigue (about 40–50 findings at start) | INFO grouped and never pushed. Only CRITICAL/HIGH push, and only on open or escalate, not on every run |
+| Alert fatigue (about 40–50 findings at start; 50 signals on the 24 Oct copy) | INFO grouped and never pushed. Only CRITICAL pushes, only to `criticalAlertRecipients` (Ilies alone for now), and only on open or escalate, not on every run |
 | A finding vanishes when data changes | No silent close for MEDIUM+ (signalClearedAt) |
 | Duplicates on repeat runs or races | `openKey` unique; tested |
 | Commercial detail leaking to Viewers or site links | `audience` on Finding and SiteRequest, filtered on the server, plus `assertNoMoney` on OPERATIONAL text; tested |
@@ -310,7 +327,8 @@ Order on the server: back up → `db push` on a copy → row counts the same →
   - auto-resolve for INFO only;
   - signal-cleared for MEDIUM+;
   - dismissal suppression and escalation override;
-  - recurrence within the check period → REOPENED;
+  - auto-verify after each rule's clear window; "fix didn't take" back to Open; resolved-while-firing never auto-verified;
+  - recurrence within 30 days → REOPENED (same finding); after 30 days → a new finding;
   - dateExceptions codes;
   - severity mapping per rule.
 - **Approvals:**
@@ -348,8 +366,8 @@ Per LCI v2, the lead owns phases 3–4. I'd suggest:
 - **Director Insights agent:** 1, 3, 4, 6;
 - piece 5 by whoever the lead picks, reviewed by the other.
 
-**Open questions for Ilies / the lead:**
-1. Do Managers see COMMERCIAL findings? They see the same money on Tracking today. If Ilies wants findings to be directors-only, the default audience becomes DIRECTOR.
-2. Check period before outcome verification: 14 days?
-3. Should directors without an office link get one (a site link for "My to-do"), or is Directors → My actions enough?
-4. Push: CRITICAL to all three approvers, or to the finding owner only?
+**Decisions on the open questions (Ilies, 24 Oct 2026; settings in §1.4):**
+1. **Managers see COMMERCIAL findings: yes.** Ilies: "operations above to see". DIRECTOR stays director-only.
+2. **Check period: "asap"**, with the windows set by the lead. Auto-verify after 1 run (data gaps, dates, readiness, days not closed), 2 runs (hire, crew) or 7 days (cost). Plus a separate 30-day recurrence window.
+3. **Links for Nick, Yoel and accounts**, for answering gap-filling questions only, for now. Ilies: "theyre links should be to answer various questions to fill the information gaps for the moment. then we can think about what it looks like after." Actions for directors stay in Directors → My actions.
+4. **CRITICAL alerts: Ilies alone for now** ("just me"). He told the lead "me and Nick", and the lead is confirming. The recipients list is a setting.
