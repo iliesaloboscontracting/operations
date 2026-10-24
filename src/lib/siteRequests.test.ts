@@ -77,6 +77,9 @@ test("actions and queries never go to all Admins", () => {
     assert.equal(alertRouteFor(req({ kind, status: "ANSWERED" }), "UPDATE"), "OWNER");
     assert.equal(alertRouteFor(req({ kind, status: "CANT_DO" }), "UPDATE"), "OWNER");
     assert.equal(alertRouteFor(req({ kind, status: "DONE" }), "UPDATE"), "NONE");
+    // a follow-up question goes back to the person asked, nobody else
+    assert.equal(alertRouteFor(req({ kind, status: "NEEDS_INFO", assigneeUserId: "u-accounts", assigneeId: null }), "UPDATE"), "ASSIGNEE_USER");
+    assert.equal(alertRouteFor(req({ kind, status: "NEEDS_INFO", assigneeUserId: null, assigneeId: "res-tom" }), "UPDATE"), "ASSIGNEE_LINKS");
   }
 });
 

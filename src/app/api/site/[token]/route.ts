@@ -32,7 +32,7 @@ export const GET = withErrorHandling(async (_req: NextRequest, { params: paramsP
   const [openRequests, needsAnswer, todo, hire] = await Promise.all([
     link.kind === "OFFICE" ? 0 : prisma.siteRequest.count({ where: { siteLinkId: link.id, ...LINK_WHERE, status: { in: OPEN_STATUSES } } }),
     link.kind === "OFFICE" ? 0 : prisma.siteRequest.count({ where: { siteLinkId: link.id, ...LINK_WHERE, status: "NEEDS_INFO" } }),
-    link.kind === "OFFICE" && link.person.id ? prisma.siteRequest.count({ where: { assigneeId: link.person.id, ...LINK_WHERE, status: "TODO" } }) : 0,
+    link.kind === "OFFICE" && link.person.id ? prisma.siteRequest.count({ where: { assigneeId: link.person.id, ...LINK_WHERE, kind: { not: "QUERY" }, status: "TODO" } }) : 0,
     link.kind === "OFFICE" ? [] : hireForLink(link),
   ]);
   return NextResponse.json({ person: link.person.name, kind: link.kind, shared: link.shared, toolboxes, openRequests, needsAnswer, todo, hireItems: hire.length, hireToCheck: hire.filter((h) => h.askNow).length });

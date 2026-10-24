@@ -253,14 +253,18 @@ export function defaultNeededBy(p: Priority, now = new Date()) {
 // queries never go to "all Admins": a new one alerts only its assignee (a
 // login's phone if they've turned alerts on, or the register person's link
 // when it's operational - links never carry commercial detail); an update
-// that needs Ilies (a query answered, "can't do") alerts only the owner.
+// that needs Ilies (a query answered, "can't do") alerts only the owner; one
+// back with the assignee (a follow-up question) alerts only the assignee.
 export type AlertRoute = "ADMINS" | "ASSIGNEE_USER" | "ASSIGNEE_LINKS" | "OWNER" | "NONE";
 export function alertRouteFor(
   r: { kind: string; status: string; audience: string; assigneeUserId: string | null; assigneeId: string | null },
   when: "NEW" | "UPDATE",
 ): AlertRoute {
   if (!OFFICE_KINDS.includes(r.kind)) return "ADMINS";
-  if (when === "UPDATE") return NEEDS_ILIES.includes(r.status) ? "OWNER" : "NONE";
+  if (when === "UPDATE") {
+    if (NEEDS_ILIES.includes(r.status)) return "OWNER";
+    if (r.status !== "NEEDS_INFO" && r.status !== "TODO") return "NONE";
+  }
   if (r.assigneeUserId) return "ASSIGNEE_USER";
   if (r.assigneeId && r.audience === "OPERATIONAL") return "ASSIGNEE_LINKS";
   return "NONE";

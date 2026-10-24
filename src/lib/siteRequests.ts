@@ -1,10 +1,10 @@
 // Site requests (21 Oct 2026) - server side: creating a request from a site
 // link, the sites a supervisor can ask for, and what each person gets to see.
 // Names, sites, dates and what's asked for only - no rates or costs anywhere.
-import type { SiteRequest, SiteRequestEvent } from "@prisma/client";
+import type { Prisma, SiteRequest, SiteRequestEvent } from "@prisma/client";
 import { prisma } from "./prisma";
 import type { ResolvedLink } from "./siteLinks";
-import { PRIORITIES, SYSTEM_TYPES, typeOf, type Priority } from "./requestTypes";
+import { OFFICE_KINDS, PRIORITIES, SYSTEM_TYPES, typeOf, type Priority } from "./requestTypes";
 import { todaySydney } from "./today";
 import { assertNoMoney } from "./moneyGuard";
 import type { ReminderSuggestion } from "./requestReminders";
@@ -76,10 +76,12 @@ export async function createRequest(link: ResolvedLink, body: Record<string, unk
 }
 
 // Saves a request with the next number (retried if two arrive at the same
-// moment). Used by the request form and by the hire check.
+// moment). Used by the request form, the hire check and queries (Phase 2:
+// no site link, maybe no project, plus origin / finding / audience / assignee in extra).
 export async function insertRequest(r: {
-  kind: string; priority: Priority; neededBy: Date; project: { id: string; name: string }; summary: string;
-  details: Record<string, string>; note: string | null; photoFile: string | null; by: string; byId: string | null; siteLinkId: string;
+  kind: string; priority: Priority; neededBy: Date; project: { id: string | null; name: string }; summary: string;
+  details: Record<string, string>; note: string | null; photoFile: string | null; by: string; byId: string | null; siteLinkId: string | null;
+  extra?: Partial<Pick<Prisma.SiteRequestUncheckedCreateInput, "origin" | "findingId" | "audience" | "status" | "seenAt" | "assigneeId" | "assigneeName" | "assigneeUserId">>;
 }): Promise<{ request: SiteRequest } | { error: string }> {
   for (let attempt = 0; attempt < 5; attempt++) {
     const last = await prisma.siteRequest.findFirst({ orderBy: { number: "desc" }, select: { number: true } });
@@ -99,6 +101,7 @@ export async function insertRequest(r: {
           requestedBy: r.by,
           requestedById: r.byId,
           siteLinkId: r.siteLinkId,
+          ...r.extra,
           events: { create: { action: "SENT", by: r.by } },
         },
       });
@@ -207,6 +210,10 @@ export const officeView = (r: Req) => ({
   aiSuggestion: parseSuggestion(r.aiSuggestion),
   aiSuggestedAt: iso(r.aiSuggestedAt),
   events: (r.events ?? []).map((e) => ({ action: e.action, by: e.by, note: e.note, at: e.at.toISOString() })),
+  // Actions and queries only (Phase 2) - site requests carry exactly the fields they always had.
+  ...(OFFICE_KINDS.includes(r.kind)
+    ? { office: { origin: r.origin, findingId: r.findingId, audience: r.audience, assigneeUserId: r.assigneeUserId, hasAnswerFile: !!r.answerFile } }
+    : {}),
 });
 export type SiteRequestView = ReturnType<typeof siteView>;
 export type TodoView = ReturnType<typeof todoView>;

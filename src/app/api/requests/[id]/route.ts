@@ -5,6 +5,10 @@ import { withErrorHandling } from "@/lib/apiHandler";
 import { addEvent, officeView } from "@/lib/siteRequests";
 import { PRIORITIES, type Priority } from "@/lib/requestTypes";
 import { suggestInBackground, suggestReminder } from "@/lib/requestReminders";
+import { notifyRequestUpdate } from "@/lib/requestAlerts";
+import { audiencesFor, canActOnFindings } from "@/lib/findings/actions";
+import { recordQueryDecision } from "@/lib/findings/queries";
+import { QUERY_TYPE } from "@/lib/requestTypes";
 
 // PATCH /api/requests/:id - Ilies deciding on a site request. Admin only:
 // Alex (and any other Manager) can see requests but never decides on them.
@@ -30,8 +34,14 @@ export const PATCH = withErrorHandling(async (req: NextRequest, { params: params
   if (denied) return denied;
   const user = (await getCurrentUser())!;
   const r = await prisma.siteRequest.findUnique({ where: { id: params.id } });
-  if (!r) return NextResponse.json({ error: "Not found." }, { status: 404 });
+  // Director-only actions and queries never reach an Admin without director access (Phase 2).
+  if (!r || !audiencesFor(user).includes(r.audience)) return NextResponse.json({ error: "Not found." }, { status: 404 });
   const body = await req.json().catch(() => ({}));
+  // Queries (Phase 2): Ilies (or a director) closes them - done, a follow-up
+  // question, or declined. They go to one person, so no approving or "mine".
+  const isQuery = r.kind === QUERY_TYPE.kind;
+  if (isQuery && !canActOnFindings(user)) return NextResponse.json({ error: "Only Iliesa or a director closes a query." }, { status: 403 });
+  if (isQuery && (body.action === "APPROVE" || body.action === "MINE")) return bad("A query goes to one person - close it, ask a follow-up, or decline it.");
   const text = (x: unknown, max = 500) => (typeof x === "string" ? x.trim().slice(0, max) : "");
   const open = DECIDABLE.includes(r.status);
   let data: Record<string, unknown>;
@@ -129,8 +139,13 @@ export const PATCH = withErrorHandling(async (req: NextRequest, { params: params
     default:
       return bad("Unknown action.");
   }
-  await prisma.siteRequest.update({ where: { id: r.id }, data });
+  const updated = await prisma.siteRequest.update({ where: { id: r.id }, data });
   if (body.action !== "DISMISS_SUGGESTION") await addEvent(r.id, EVENT_NAME[body.action] ?? body.action, user.name, note);
+  if (isQuery) {
+    // Recorded on the finding; closing never changes any other record.
+    await recordQueryDecision(r, body.action, note, user);
+    if (body.action === "ASK") await notifyRequestUpdate(updated, "Follow-up question").catch(() => undefined);
+  }
   // A decision with a note can change when things happen - re-read the thread.
   if (["APPROVE", "MINE", "ASK"].includes(body.action)) suggestInBackground(r.id);
   return done(r.id);
