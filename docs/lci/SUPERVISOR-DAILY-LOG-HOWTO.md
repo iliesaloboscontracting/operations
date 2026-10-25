@@ -15,7 +15,7 @@ At the end of each day, spend **about a minute** telling the office what the cre
 
 ## Every day (about 60 seconds)
 
-Open your usual link (the one you use for sign-ins and requests) and tap **Daily log**.
+Open your usual link (the Lobos Site page you use for sign-ins and requests) and tap **Daily log**.
 
 1. **Crew:** check the list. It's taken from today's sign-ins, with the total hours shown. If it looks wrong (someone
    missing, someone who left early), tap **Something's wrong** and say what. The office will fix the sign-ins.
@@ -31,8 +31,8 @@ Open your usual link (the one you use for sign-ins and requests) and tap **Daily
    asbestos.
 5. Add a note or photos of the day if you want, then tap **Submit**. The card turns green: "Logged ✓".
 
-**Made a mistake?** Open the log again the same day and fix it. It saves a new version, and the office sees the
-latest.
+**Made a mistake, or forgot?** Open the log again and fix it - the same day, or before midday the next morning. It
+saves a new version, and the office sees the latest.
 
 ## Once a week (Friday)
 
@@ -41,8 +41,10 @@ it is (e.g. 60%). It starts at last week's number. If you move one **down**, say
 
 ## Reminders
 
-If a job ran and there's no log by **7pm**, you'll get **one** reminder on your phone. Make sure notifications are on
-for your link: the bell on the link's home page. There's no second nag the same night.
+If a job ran and there's no log by **7pm**, you'll get **one** reminder on your phone. Make sure phone alerts are
+switched on for your link: the **Reminders** box near the top of its home page (the same switch as the sign-out
+reminders).
+There's no second nag the same night.
 
 ## Good to know
 

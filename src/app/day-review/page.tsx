@@ -306,7 +306,8 @@ export default function DayReviewPage() {
   const activeResources = useMemo(() => resources.filter((r) => r.active), [resources]);
 
   return (
-    <PageShell title="Day Review" subtitle="Compare what was planned against what actually happened on site.">
+    <PageShell title="Day Review" subtitle="Compare what was planned against what actually happened on site."
+      actions={canEdit ? <a href="/site-log-howto" className="text-xs text-brand-400 hover:underline">Daily log how-to (print)</a> : undefined}>
       <div className="mb-4 space-y-2">
         <DateTabs selected={date} onSelect={setDate} />
         <input

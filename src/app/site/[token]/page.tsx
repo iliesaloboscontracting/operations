@@ -120,8 +120,11 @@ export default function SitePhotosPage({ params: paramsP }: { params: Promise<{ 
           <InstallApp appName={info.kind === "OFFICE" && !info.shared ? "Lobos Office" : "Lobos Site"} />
           {info.kind !== "OFFICE" && (
             <div className="mb-4 rounded-xl border border-edge bg-panel p-3">
-              <div className="text-sm font-semibold text-gray-100">Sign-out reminders</div>
-              <p className="mb-2 text-xs text-gray-500">An alert 20 minutes before your shift finishes if anyone is still signed in.</p>
+              <div className="text-sm font-semibold text-gray-100">{info.dailyLog ? "Reminders" : "Sign-out reminders"}</div>
+              <p className="mb-2 text-xs text-gray-500">
+                An alert 20 minutes before your shift finishes if anyone is still signed in
+                {info.dailyLog ? ", and at 7pm if a job has no daily log." : "."}
+              </p>
               <PushToggle api={`${api}/push`} sw="/site/sw.js" home={`/site/${params.token}`} align="start" />
             </div>
           )}
