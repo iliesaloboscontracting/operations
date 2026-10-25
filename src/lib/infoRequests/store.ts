@@ -15,7 +15,7 @@ import { QUERY_TYPE, requestNo } from "../requestTypes";
 import { todaySydney } from "../today";
 import { queryTargetError, recordQueryDecision } from "../findings/queries";
 import type { Actor } from "../findings/actions";
-import { OPEN_STATUSES, canBeAsked, daysWaiting, parseDraftFile, parseInfoItem, readDetails, resolveTo, type InfoItem } from "./rules";
+import { OPEN_STATUSES, canBeAsked, daysWaiting, parseDraftFile, parseInfoItem, readDetails, resolveTo, whyUnresolved, type InfoItem } from "./rules";
 
 const ASKABLE_SELECT = { id: true, name: true, email: true, role: true, directorAccess: true, active: true } as const;
 const DECIDABLE = ["SENT", "SEEN", "TODO", "NEEDS_INFO", "ANSWERED"];
@@ -70,7 +70,7 @@ export async function loadDraftFile(json: unknown, createdBy: string) {
         question: it.item.question, need: it.item.need, why: it.item.why, dueDate: it.item.dueDate, createdBy,
       },
     });
-    rows.push({ to: it.to, id: d.id, resolvedTo: who?.name ?? null });
+    rows.push({ to: it.to, id: d.id, resolvedTo: who?.name ?? null, whyNot: who ? null : whyUnresolved(it.to, users, OWNER_EMAIL) });
   }
   return { batch: parsed.batch, rows };
 }
@@ -78,10 +78,10 @@ export async function loadDraftFile(json: unknown, createdBy: string) {
 export async function listDrafts() {
   const [drafts, users] = await Promise.all([
     prisma.infoRequestDraft.findMany({ where: { status: "DRAFT" }, orderBy: [{ createdAt: "asc" }] }),
-    prisma.user.findMany({ select: { id: true, name: true, role: true } }),
+    prisma.user.findMany({ select: ASKABLE_SELECT }),
   ]);
   const name = new Map(users.map((u) => [u.id, `${u.name}${u.role === "DIRECTOR" ? " (director login)" : u.role === "ACCOUNTS" ? " (accounts)" : ""}`]));
-  return drafts.map((d) => ({ ...d, toName: d.assigneeUserId ? name.get(d.assigneeUserId) ?? null : null }));
+  return drafts.map((d) => ({ ...d, toName: d.assigneeUserId ? name.get(d.assigneeUserId) ?? null : null, whyNot: d.assigneeUserId ? null : whyUnresolved(d.toText, users, OWNER_EMAIL) }));
 }
 
 export async function discardDraft(id: string, by: string) {

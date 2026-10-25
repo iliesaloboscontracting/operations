@@ -13,7 +13,7 @@ import { useAuth } from "@/components/AuthProvider";
 import { apiFetch, serverErrorMessage } from "@/lib/apiFetch";
 import { isOwner } from "@/lib/owner";
 
-type Draft = { id: string; batch: string; toText: string; toName: string | null; assigneeUserId: string | null; infoType: string; title: string; question: string; need: string | null; why: string | null; dueDate: string | null };
+type Draft = { id: string; batch: string; toText: string; toName: string | null; assigneeUserId: string | null; infoType: string; title: string; question: string; need: string | null; why: string | null; dueDate: string | null; whyNot: string | null };
 
 export default function DraftQuestionsPage() {
   const { user, loading } = useAuth();
@@ -71,8 +71,8 @@ export default function DraftQuestionsPage() {
       const res = await apiFetch("/api/info-requests/drafts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(json) });
       const r = await res.json();
       if (!res.ok) throw new Error(r.error ?? "Couldn't read that file.");
-      const bad = (r.rows as { to: string; error?: string; resolvedTo?: string | null }[]).filter((x) => x.error || !x.resolvedTo);
-      setMsg({ ok: !bad.length, text: `Loaded "${r.batch}": ${r.rows.length} draft${r.rows.length === 1 ? "" : "s"}${bad.length ? ` - ${bad.length} need fixing` : ""}.`, list: bad.map((x) => `${x.to || "(no name)"}: ${x.error ?? "doesn't match one login"}`) });
+      const bad = (r.rows as { to: string; error?: string; resolvedTo?: string | null; whyNot?: string | null }[]).filter((x) => x.error || !x.resolvedTo);
+      setMsg({ ok: !bad.length, text: `Loaded "${r.batch}": ${r.rows.length} draft${r.rows.length === 1 ? "" : "s"}${bad.length ? ` - ${bad.length} need fixing` : ""}.`, list: bad.map((x) => `${x.to || "(no name)"}: ${x.error ?? x.whyNot ?? "doesn't match one login"}`) });
       load();
     } catch (e) { setMsg({ ok: false, text: e instanceof SyntaxError ? "That isn't a draft file (JSON)." : (e as Error).message }); }
     finally { if (file.current) file.current.value = ""; }
@@ -109,7 +109,7 @@ export default function DraftQuestionsPage() {
                       <div className="text-sm font-semibold text-gray-100">{d.title} <span className="text-[12px] font-normal text-gray-500">· {d.infoType === "FYI" ? "FYI" : "Question"} · to {d.toName ?? d.toText}</span></div>
                       {!d.assigneeUserId && (
                         <div className="mt-1 flex flex-wrap items-center gap-2 text-[12px] text-red-300">
-                          Can&apos;t send yet: &quot;{d.toText}&quot; doesn&apos;t match exactly one login.
+                          Can&apos;t send yet: {d.whyNot ?? "choose who it's for."}
                           <select defaultValue="" onChange={(e) => assign(d.id, e.target.value)} className="rounded border border-edge bg-panel2 px-2 py-1 text-[12px] text-gray-200" aria-label={`Who ${d.title} is for`}>
                             <option value="">Choose who it&apos;s for…</option>
                             {people.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.kind})</option>)}

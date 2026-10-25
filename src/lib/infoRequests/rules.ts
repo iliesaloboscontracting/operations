@@ -85,3 +85,18 @@ export const readDetails = (details: string | null): InfoDetails => { try { retu
 
 export const OPEN_STATUSES = ["SENT", "SEEN", "TODO", "NEEDS_INFO"]; // waiting on the person asked
 export const daysWaiting = (since: Date, now: Date) => Math.max(0, Math.floor((now.getTime() - since.getTime()) / 86_400_000));
+
+// Why a drafted "to" doesn't resolve - said plainly on the draft list.
+export function whyUnresolved(to: string, users: Askable[], ownerEmail: string): string {
+  const t = to.trim().toLowerCase();
+  if (!t) return "No name given.";
+  if (t === "accounts") {
+    return users.some((u) => u.role === "ACCOUNTS" && u.active) ? "More than one Accounts login - choose one." : "No Accounts login yet: create it on Users.";
+  }
+  const named = users.filter((u) => u.name.trim().toLowerCase() === t || u.email.toLowerCase() === t);
+  if (!named.length) return `No login called "${to}" - choose who it's for.`;
+  if (named.some((u) => u.email.toLowerCase() === ownerEmail.toLowerCase())) return "That's the owner - questions go to accounts or the directors.";
+  const askable = named.filter((u) => canBeAsked(u, ownerEmail));
+  if (!askable.length) return `${to} has no director login (or director tick) yet - set it on Users, or choose who it's for.`;
+  return "More than one login matches - choose who it's for.";
+}

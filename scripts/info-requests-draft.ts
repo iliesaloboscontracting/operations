@@ -40,7 +40,7 @@ if ((/(^|[\\/])dev\.db$/i.test(db.replace(/^file:/, "")) || /\/srv\//.test(db)) 
     console.log(`Loaded "${r.batch}" as drafts (nothing sent):`);
     for (const row of r.rows) {
       const line = "error" in row && row.error ? `  x ${row.to || "(no name)"}: ${row.error} (not loaded)`
-        : row.resolvedTo ? `  - ${row.to} -> ${row.resolvedTo}` : `  ! ${row.to}: doesn't match exactly one login - loaded as "can't send"`;
+        : row.resolvedTo ? `  - ${row.to} -> ${row.resolvedTo}` : `  ! ${row.to}: ${"whyNot" in row && row.whyNot ? row.whyNot : "no single login matches"} (loaded as "can't send")`;
       console.log(line);
     }
   }
