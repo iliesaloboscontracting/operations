@@ -111,7 +111,10 @@ export default function ReceiptRow({ r, jobs, trucks, onChanged }: { r: ReceiptO
         <div className="text-gray-300">{r.for}</div>
         {read.length > 0 && <div className="text-gray-200">{read.join(" · ")}</div>}
         {r.reasons.length > 0 && r.status !== "CONFIRMED" && r.status !== "REJECTED" && (
-          <ul className="mt-1 list-disc pl-4 text-xs text-amber-300">{r.reasons.map((x, i) => <li key={i}>{x}</li>)}</ul>
+          <div className="mt-1 text-xs text-amber-300">
+            {r.corrections.length > 0 && <div className="text-gray-500">When it was read (before the corrections):</div>}
+            <ul className="list-disc pl-4">{r.reasons.map((x, i) => <li key={i}>{x}</li>)}</ul>
+          </div>
         )}
         {r.rejected && <div className="mt-1 text-xs text-red-300">Set aside by {r.rejected.by}: {r.rejected.reason}</div>}
         <div className="text-xs text-gray-500">
