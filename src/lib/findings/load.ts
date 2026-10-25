@@ -7,6 +7,7 @@ import { boardDatesByProject, dateExceptionList } from "../dateExceptions";
 import { ACT_AT, ATTENTION_RECENT_DAYS, HIRE_UNINVOICED_DAYS, NO_CONTRACT_MIN_SPEND, WATCH_AT } from "../trackingData";
 import { gatherDirectorInputs } from "../insights/load";
 import { loadWonMatches } from "../insights/pipelineFeed";
+import { loadXeroHealth } from "../xero/imports";
 import { buildSignals, notChecked, type TrackingRules } from "./signals";
 
 export const TRACKING_RULES: TrackingRules = {
@@ -28,7 +29,8 @@ export async function loadSignals() {
     .map((p) => ({ projectId: p.id, projectName: p.name, exceptions: dateExceptionList(p, board.get(p.id), d.today) }))
     .filter((r) => r.exceptions.length > 0);
   // Won tenders from Estimating (G5); null when it didn't answer - then that check is skipped this run.
-  const won = await loadWonMatches();
+  // The current Xero invoice upload (G2) for the "not tied to a job" finding.
+  const [won, xero] = await Promise.all([loadWonMatches(), loadXeroHealth(d.today)]);
   const wonTenders = won ? won.rows : null;
 
   return {
@@ -49,6 +51,7 @@ export async function loadSignals() {
       daysNotClosed: d.open,
       plant: { ...d.plant, machines: d.plant.items.length },
       wonTenders,
+      xeroUnmatched: xero.invoices,
     }),
   };
 }

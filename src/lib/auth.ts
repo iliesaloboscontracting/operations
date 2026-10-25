@@ -129,6 +129,18 @@ export async function guardDirector(): Promise<NextResponse | null> {
   return null;
 }
 
+// Xero exports (G2, 25 Oct 2026): the ACCOUNTS login uploads them and ties
+// invoices to jobs; director access does the same and sees the figures.
+// Never Managers, Viewers or Timesheets - revenue is directors-only.
+export async function guardXeroUpload(): Promise<{ denied: NextResponse } | { user: AuthUser }> {
+  const user = await getCurrentUser();
+  if (!user) return { denied: NextResponse.json({ error: "Not signed in" }, { status: 401 }) };
+  if (user.role !== "ACCOUNTS" && !user.directorAccess) {
+    return { denied: NextResponse.json({ error: "You don't have permission to do that" }, { status: 403 }) };
+  }
+  return { user };
+}
+
 // Where a role lands after signing in - the limited roles only have one page.
 export function homeFor(role: Role) {
   return role === "TIMESHEETS" ? "/timesheets" : role === "ACCOUNTS" ? "/invoices" : role === "DIRECTOR" ? "/directors" : "/command";

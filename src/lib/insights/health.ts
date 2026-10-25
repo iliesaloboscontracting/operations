@@ -30,6 +30,7 @@ export interface HealthTile {
   missing: string | null; // what would make it better / complete
   kpi?: string; // dictionary entry for the "?"
   href?: string; // a Directors page with the detail
+  asAtLabel?: string; // shown instead of the time when the source is as at a day (a manual export)
 }
 
 export interface HealthInput {
@@ -44,6 +45,8 @@ export interface HealthInput {
   activeCrew: number;
   hours: { week: string; staff: number; hire: number; partial: boolean; incomplete: boolean }[];
   pipeline?: HealthTile; // G5: Estimating's pipeline (lib/insights/pipeline.ts); "not connected" without it
+  revenue?: HealthTile; // G2: Xero exports uploaded by accounts (lib/xero/summary.ts)
+  cash?: HealthTile;
 }
 
 const money = (n: number) => {
@@ -151,8 +154,8 @@ export function companyHealth(i: HealthInput): HealthTile[] {
     i.pipeline ?? notConnected("pipeline", "Pipeline", "Lobos Estimating tender register", "Estimating's pipeline feed to this screen", "C1"),
     workInHand,
     costVsContract,
-    notConnected("revenue", "Revenue & P&L", "Accounting (Xero)", "Accounts connection or monthly export", "F9"),
-    notConnected("cash", "Cash & receivables", "Accounting (Xero)", "Accounts connection or monthly export", "F10"),
+    i.revenue ?? notConnected("revenue", "Revenue & P&L", "Accounting (Xero)", "Accounts connection or monthly export", "F9"),
+    i.cash ?? notConnected("cash", "Cash & receivables", "Accounting (Xero)", "Accounts connection or monthly export", "F10"),
     people,
   ];
 }

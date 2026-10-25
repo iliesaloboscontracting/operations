@@ -1055,3 +1055,95 @@ model BudgetDecision {
   @@index([estimateId, revision])
   @@index([at])
 }
+
+// ---- Xero data (G2 upload now, G3 API later), approved by the lead 25 Oct 2026 ----
+// One append-only mirror: an import (upload or sync run) is kept whole; only
+// the job-match fields on XeroInvoice / XeroLine are refreshed when a person
+// decides (XeroJobMatch). DIRECTOR audience - never on a link. See
+// director-insights-plan/G2-G3-XERO-PROPOSAL.md.
+// One Xero upload (G2) or one API sync run (G3). Kept whole; never edited.
+model XeroImport {
+  id           String    @id @default(cuid())
+  source       String    // UPLOAD | API
+  kind         String    // INVOICES | BILLS | PNL | AGED | SYNC
+  status       String    @default("READING") // READING | DONE | FAILED
+  error        String?
+  fileName     String?   // stored name (uploads)
+  originalName String?
+  asAt         String?   // YYYY-MM-DD the data is as at (export date / sync day)
+  periodFrom   String?   // P&L: first month covered
+  periodTo     String?
+  rows         Int       @default(0)
+  uploadedBy   String?
+  byUserId     String?
+  createdAt    DateTime  @default(now())
+  finishedAt   DateTime?
+  invoices     XeroInvoice[]
+  pnl          XeroPnlLine[]
+  @@index([kind, createdAt])
+}
+
+// A sales invoice, credit note or bill as Xero had it at that import.
+model XeroInvoice {
+  id          String     @id @default(cuid())
+  importId    String
+  import      XeroImport @relation(fields: [importId], references: [id], onDelete: Restrict)
+  xeroId      String?    // API only (G3) - also gives the "open in Xero" link
+  type        String     // SALE | SALE_CREDIT | BILL | BILL_CREDIT
+  number      String
+  reference   String?
+  contact     String
+  date        String     // YYYY-MM-DD
+  dueDate     String?
+  status      String     // as Xero says: AUTHORISED | PAID | VOIDED | DRAFT ...
+  totalExGst  Float
+  gst         Float?
+  amountPaid  Float?
+  amountDue   Float?
+  projectId   String?    // the job it's tied to, when matched (invoice level)
+  matchMethod String?    // TRACKING | REFERENCE | XERO_PROJECT | SITE_TEXT | PERSON | NONE
+  matchNote   String?
+  lines       XeroLine[]
+  @@index([importId])
+  @@index([projectId])
+  @@index([type, number])
+}
+
+// A line item - option A (a "Job" tracking category) tags lines, not invoices.
+model XeroLine {
+  id          String      @id @default(cuid())
+  invoiceId   String
+  invoice     XeroInvoice @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  description String?
+  amountExGst Float
+  accountCode String?
+  tracking1   String?     // "Job: 26_168" (category: option) as exported
+  tracking2   String?
+  projectId   String?
+  matchMethod String?
+  @@index([invoiceId])
+  @@index([projectId])
+}
+
+// Profit and Loss: one account line for one month, exactly as Xero reported it.
+model XeroPnlLine {
+  id       String     @id @default(cuid())
+  importId String
+  import   XeroImport @relation(fields: [importId], references: [id], onDelete: Restrict)
+  month    String     // YYYY-MM
+  section  String     // e.g. Income | Less Cost of Sales | Less Operating Expenses (Xero's headings)
+  account  String
+  amount   Float
+  @@index([importId, month])
+}
+
+// A person's decision that an invoice belongs to a job - survives re-imports.
+model XeroJobMatch {
+  id        String   @id @default(cuid())
+  key       String   @unique // "SALE|INV-0412" (type + number)
+  projectId String?  // null = "not a job" (e.g. a deposit, an overhead recharge)
+  note      String?
+  by        String
+  byUserId  String
+  at        DateTime @default(now())
+}

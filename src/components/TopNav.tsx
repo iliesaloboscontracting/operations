@@ -123,6 +123,7 @@ export default function TopNav() {
             <NavTab href="/directors" label="Overview" active={path === "/directors" || path.startsWith("/directors/jobs")} />
             <NavTab href="/directors/pipeline" label="Pipeline" active={isActive("/directors/pipeline")} />
             <NavTab href="/directors/budgets" label="Budgets to approve" active={isActive("/directors/budgets")} />
+            <NavTab href="/directors/accounts" label="Accounts data" active={isActive("/directors/accounts")} />
             <NavTab href="/directors/kpis" label="How the numbers work" active={isActive("/directors/kpis")} />
             <NavTab href="/directors/queries" label="My queries" active={isActive("/directors/queries")} />
           </>

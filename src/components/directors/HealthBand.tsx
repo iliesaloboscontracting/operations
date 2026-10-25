@@ -48,7 +48,7 @@ function Tile({ t }: { t: HealthTile }) {
       )}
       {off && t.missing && <p className="mt-1 text-[12px] text-gray-500">Needs: {t.missing}</p>}
       <div className="mt-auto flex flex-wrap items-center gap-x-2 gap-y-1 pt-3 text-[10px] text-gray-500">
-        <span>{t.source}{t.asAt ? ` · as at ${time(t.asAt)}` : ""}</span>
+        <span>{t.source}{t.asAt ? ` · as at ${t.asAtLabel ?? time(t.asAt)}` : ""}</span>
         {t.confidence && <ConfidenceBadge level={t.confidence} why={t.confidenceWhy} />}
       </div>
     </div>

@@ -58,10 +58,12 @@ function tableFrom(sheetName: string, grid: string[][]): SheetTable | null {
   return { sheetName, headers, rows };
 }
 
-async function readXlsx(buf: Buffer): Promise<SheetTable[]> {
+export type SheetGrid = { sheetName: string; grid: string[][] };
+
+async function readXlsxGrids(buf: Buffer): Promise<SheetGrid[]> {
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.load(buf as unknown as ArrayBuffer);
-  const tables: SheetTable[] = [];
+  const out: SheetGrid[] = [];
   wb.eachSheet((ws) => {
     const grid: string[][] = [];
     ws.eachRow({ includeEmpty: true }, (row, n) => {
@@ -69,14 +71,13 @@ async function readXlsx(buf: Buffer): Promise<SheetTable[]> {
       row.eachCell({ includeEmpty: true }, (cell, c) => { vals[c - 1] = cellText(cell.value); });
       grid[n - 1] = Array.from(vals, (v) => v ?? "");
     });
-    const t = tableFrom(ws.name, Array.from(grid, (r) => r ?? []));
-    if (t) tables.push(t);
+    out.push({ sheetName: ws.name, grid: Array.from(grid, (r) => r ?? []) });
   });
-  return tables;
+  return out;
 }
 
 // Plain CSV with quoted fields ("a, b" and "" for a quote).
-function readCsv(text: string): SheetTable[] {
+function readCsvGrid(text: string): string[][] {
   const grid: string[][] = [];
   let row: string[] = [], field = "", quoted = false;
   for (let i = 0; i < text.length; i++) {
@@ -93,11 +94,22 @@ function readCsv(text: string): SheetTable[] {
     } else field += ch;
   }
   if (field || row.length) { row.push(field.trim()); grid.push(row); }
-  const t = tableFrom("CSV", grid);
-  return t ? [t] : [];
+  return grid;
+}
+
+// Every sheet as a raw grid of text (the Xero exports reader needs the rows a
+// table would drop, such as P&L section headings).
+export async function readSheetGrids(buf: Buffer, fileName: string): Promise<SheetGrid[]> {
+  return fileName.endsWith(".csv")
+    ? [{ sheetName: "CSV", grid: readCsvGrid(buf.toString("utf8").replace(/^﻿/, "")) }]
+    : readXlsxGrids(buf);
+}
+
+export function tableFromGrid(g: SheetGrid): SheetTable | null {
+  return tableFrom(g.sheetName, g.grid);
 }
 
 export async function readInvoiceSheet(buf: Buffer, fileName: string): Promise<SheetTable | null> {
-  const tables = fileName.endsWith(".csv") ? readCsv(buf.toString("utf8").replace(/^﻿/, "")) : await readXlsx(buf);
+  const tables = (await readSheetGrids(buf, fileName)).map(tableFromGrid).filter((t): t is SheetTable => t != null);
   return bestTable(tables);
 }

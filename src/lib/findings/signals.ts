@@ -24,7 +24,7 @@ export type SignalKind =
   | "HIRE_UNINVOICED" | "HIRE_IDLE" | "HIRE_NO_FINISH" | "HIRE_OVERDUE"
   | DateExceptionCode
   | "START_NOT_READY" | "NO_SUPERVISOR" | "DAYS_NOT_CLOSED" | "CREW_SHORT" | "DATA_PLANT_NOT_BOOKED"
-  | "TENDER_WON_NO_PROJECT";
+  | "TENDER_WON_NO_PROJECT" | "XERO_UNMATCHED";
 
 // Who may see it (design §1): OPERATIONAL = Viewer+, never a dollar figure;
 // COMMERCIAL = Manager+ (the money Tracking already shows Managers);
@@ -300,6 +300,25 @@ export function wonNoProjectSignals(rows: WonTenderInput[], today: string): Sign
     });
 }
 
+// ---------- Xero uploads (G2) ----------
+
+// Sales invoices in the current Xero upload not tied to a job yet - so
+// revenue per job is understated. One company-wide finding, INFO (closes
+// itself once they're sorted), directors only; "Ask accounts" goes through
+// the query flow. Nothing when no invoice export has been uploaded.
+export type XeroUnmatchedInput = { asAt: string | null; reviewCount: number; reviewValue: number };
+
+export function xeroUnmatchedSignal(x: XeroUnmatchedInput | null): Signal[] {
+  if (!x || x.reviewCount === 0) return [];
+  return [{
+    kind: "XERO_UNMATCHED", subject: { type: "COMPANY", id: "xero", name: "Xero sales invoices" }, projectId: null,
+    dedupeKey: dedupeKeyOf("XERO_UNMATCHED", "COMPANY", "xero"), severity: "INFO", audience: "DIRECTOR",
+    title: `${plural(x.reviewCount, "sales invoice")} in the Xero upload ${x.reviewCount === 1 ? "isn't" : "aren't"} tied to a job yet`,
+    provisional: false, confidence: "LOW", evidence: [], href: "/directors/accounts",
+    values: { invoices: x.reviewCount, valueExGst: x.reviewValue, asAt: x.asAt },
+  }];
+}
+
 // ---------- all of them ----------
 
 export type SignalInputs = {
@@ -317,6 +336,7 @@ export type SignalInputs = {
   plant: PlantUse;
   // null = Estimating didn't answer: the check wasn't run (see NOT_CHECKED), not "nothing found"
   wonTenders?: WonTenderInput[] | null;
+  xeroUnmatched?: XeroUnmatchedInput | null; // G2: the current Xero invoice upload
 };
 
 // Which signal kinds weren't looked at this run, so the engine leaves their
@@ -338,6 +358,7 @@ export function buildSignals(i: SignalInputs): Signal[] {
     ...daysNotClosedSignal(i.daysNotClosed),
     ...plantSignal(i.plant),
     ...(i.wonTenders ? wonNoProjectSignals(i.wonTenders, i.today) : []),
+    ...xeroUnmatchedSignal(i.xeroUnmatched ?? null),
   ].sort((a, b) => RANK[a.severity] - RANK[b.severity] || a.dedupeKey.localeCompare(b.dedupeKey));
 }
 
