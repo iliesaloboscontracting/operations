@@ -23,12 +23,12 @@ const alex = u({ id: "al", name: "Alex", role: "MANAGER" });
 const viewer = u({ id: "vi", name: "Crew", role: "VIEWER" });
 const accounts = u({ id: "ac", name: "Accounts", role: "ACCOUNTS" });
 
-test("the approved list: four kinds, expiry 3 / 14 days, contract value COMMERCIAL and approved by director logins (owner off by default)", () => {
+test("the approved list: four kinds, expiry 3 / 14 days; contract values by Nick and Yoel only, lessons by the owner only (Ilies, 25 Oct)", () => {
   assert.deepEqual(CHANGE_KINDS, ["HIRE_OFF_HIRE_DATE", "PROJECT_CONTRACT_VALUE", "PROJECT_JOB_NO", "PROJECT_QUOTE_NO"]);
   assert.deepEqual(CHANGE_KINDS.map((k) => A3_RULES[k].expiryDays), [3, 14, 14, 14]);
   assert.equal(A3_RULES.PROJECT_CONTRACT_VALUE.audience, "COMMERCIAL");
   assert.deepEqual(A3_RULES.PROJECT_CONTRACT_VALUE.approvers, { roles: ["DIRECTOR"], ownerMayApprove: false });
-  assert.deepEqual(LESSON_PUBLISHERS, { owner: true, roles: ["DIRECTOR"] });
+  assert.deepEqual(LESSON_PUBLISHERS, { owner: true, roles: [] }, "Ilies (25 Oct 2026): only he publishes lessons");
 });
 
 test("the fingerprint is canonical: key order and spacing don't matter, any change of payload does", () => {

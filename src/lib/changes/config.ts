@@ -27,8 +27,8 @@ export const A3_RULES: Record<ChangeKind, KindRule> = {
     approvers: { roles: ["ADMIN"], ownerMayApprove: true }, expiryDays: 3, audience: "OPERATIONAL",
     alsoMoves: "The hire estimate and Tracking's still-to-come for the job recalculate; the site hire check stops asking if it's more than 3 days out.",
   },
-  // Ilies (25 Oct 2026): approved on screen, by Nick and Yoel (their DIRECTOR logins).
-  // Whether the owner may also approve is still to be answered - the lead sets ownerMayApprove.
+  // Ilies (25 Oct 2026): approved on screen, by Nick and Yoel (their DIRECTOR logins) only -
+  // "nick and yoel do the tenders and approve them the budgets". The owner may propose, never approve.
   PROJECT_CONTRACT_VALUE: {
     enabled: true, label: "Contract value", recordType: "Project", field: "contractValue",
     approvers: { roles: ["DIRECTOR"], ownerMayApprove: false }, expiryDays: 14, audience: "COMMERCIAL",
@@ -52,6 +52,7 @@ export const CHANGE_KINDS = Object.keys(A3_RULES) as ChangeKind[];
 // (the lead's MANAGER login) - its proposals always go to a person.
 export const NEVER_APPROVE = ["iliesa+agent@loboscontracting.com.au"];
 
-// Who may publish a lesson (phase 5a, not built yet): the owner and DIRECTOR
-// logins by default - the lead sets this from Ilies's answer.
-export const LESSON_PUBLISHERS = { owner: true, roles: ["DIRECTOR"] };
+// Who may publish a lesson (phase 5a, not built yet): the owner only (Ilies,
+// 25 Oct 2026: "thats me"). No separate-reviewer rule - he publishes and
+// resolves most findings himself. Directors still read published lessons.
+export const LESSON_PUBLISHERS: { owner: boolean; roles: string[] } = { owner: true, roles: [] };
