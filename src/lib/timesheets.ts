@@ -49,10 +49,19 @@ export function weekStartOf(date: string) {
 export const weekDates = (weekStart: string) => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
 export const weekEnd = (weekStart: string) => addDays(weekStart, 6);
 
-const shortTime = (d: Date | null) => (d ? sydneyTime(d) : null);
-const FIELD = { signInAt: "sign-in", signOutAt: "sign-out", status: "status" } as Record<string, string>;
-const show = (field: string, v: string | null) =>
-  v == null ? "none" : field === "status" ? v.toLowerCase().replace("_", " ") : shortTime(new Date(v)) ?? v;
+// A stored time as Sydney time; anything that isn't a valid time is shown as it is
+// (an invalid date used to throw and take the whole week's timesheets down - 26 Oct 2026).
+const timeText = (v: string) => {
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? v : sydneyTime(d) ?? v;
+};
+const FIELD = { signInAt: "sign-in", signOutAt: "sign-out", status: "status", added: "added by the office" } as Record<string, string>;
+// "added" (a sign-in the office put in by hand) is stored as "<in> - <out|open>".
+export const showEditValue = (field: string, v: string | null) =>
+  v == null ? "none"
+  : field === "status" ? v.toLowerCase().replace("_", " ")
+  : field === "added" ? v.split(" - ").map((p) => (p === "open" ? "open" : timeText(p))).join(" - ")
+  : timeText(v);
 
 // Every non-rejected staff sign-in for the week, as timesheet lines.
 export async function timesheetLines(weekStart: string): Promise<TimesheetLine[]> {
@@ -83,7 +92,7 @@ export async function timesheetLines(weekStart: string): Promise<TimesheetLine[]
       status: a.status,
       allocated: a.allocated,
       changedByOffice: a.edits.length
-        ? a.edits.map((e) => `${FIELD[e.field] ?? e.field} ${show(e.field, e.before)} -> ${show(e.field, e.after)} (${e.reason})`).join("; ")
+        ? a.edits.map((e) => `${FIELD[e.field] ?? e.field} ${showEditValue(e.field, e.before)} -> ${showEditValue(e.field, e.after)} (${e.reason})`).join("; ")
         : null,
     };
   });
