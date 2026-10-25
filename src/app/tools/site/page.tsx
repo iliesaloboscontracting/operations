@@ -111,13 +111,16 @@ export default function FromSitePage() {
   // (crew sign-in, requests, toolbox), anyone else an office / yard link.
   const supervisorIds = new Set(supervisors.map((p) => p.id));
   const officeStaff = people.filter((p) => p.category === "Office" && p.active !== false).sort((a, b) => a.name.localeCompare(b.name));
-  // Truck drivers who aren't supervisors get a driver link: receipts only (26 Oct 2026).
-  const drivers = people.filter((p) => p.category === "Truck Driver" && !supervisorIds.has(p.id) && p.active !== false).sort((a, b) => a.name.localeCompare(b.name));
+  // Driver links - receipts only (26 Oct 2026, Ilies: Turori and Arvin): any truck driver, including
+  // one who also has a supervisor link (the two links are separate). Picked as "driver:<id>".
+  const drivers = people.filter((p) => p.category === "Truck Driver" && p.active !== false).sort((a, b) => a.name.localeCompare(b.name));
+  const isDriverPick = newLinkFor.startsWith("driver:");
+  const pickedId = isDriverPick ? newLinkFor.slice(7) : newLinkFor;
   const others = people.filter((p) => p.category !== "Office" && p.category !== "Truck Driver" && !supervisorIds.has(p.id) && p.active !== false).sort((a, b) => a.name.localeCompare(b.name));
   const linkKind: "SUPERVISOR" | "OFFICE" | "YARD" | "DRIVER" =
     newLinkFor === "YARD" ? "YARD"
+      : isDriverPick ? "DRIVER"
       : supervisorIds.has(newLinkFor) && !officeStaff.some((p) => p.id === newLinkFor) ? "SUPERVISOR"
-      : drivers.some((p) => p.id === newLinkFor) ? "DRIVER"
       : "OFFICE";
   const linkPeople: { id: string; name: string }[] = [...officeStaff, ...supervisors, ...drivers, ...others];
 
@@ -264,7 +267,7 @@ export default function FromSitePage() {
                   )}
                   {drivers.length > 0 && (
                     <optgroup label="Drivers (receipts link)">
-                      {drivers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                      {drivers.map((p) => <option key={p.id} value={`driver:${p.id}`}>{p.name}</option>)}
                     </optgroup>
                   )}
                   <optgroup label="Shared">
@@ -282,11 +285,11 @@ export default function FromSitePage() {
                   onClick={async () => {
                     if (linkKind === "YARD" && links.some((l) => !l.resource && !l.revokedAt) && !confirm("Make a new Yard link? The old one stops working - everyone in the yard will need the new one.")) return;
                     const out = await act(
-                      () => json("/api/site-links", "POST", linkKind === "YARD" ? { shared: "Yard" } : { resourceId: newLinkFor, kind: linkKind }),
+                      () => json("/api/site-links", "POST", linkKind === "YARD" ? { shared: "Yard" } : { resourceId: pickedId, kind: linkKind }),
                       "Couldn't make the link."
                     );
                     if (out) {
-                      const who = linkPeople.find((p) => p.id === newLinkFor)?.name ?? "";
+                      const who = linkPeople.find((p) => p.id === pickedId)?.name ?? "";
                       setMadeLink({ name: linkKind === "YARD" ? "the Yard" : linkKind === "OFFICE" ? `${who} (office link)` : linkKind === "DRIVER" ? `${who} (driver link)` : who, url: out.url });
                       setCopied(false);
                       setNewLinkFor("");

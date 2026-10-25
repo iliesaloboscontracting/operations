@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState, use } from "react";
-import { ArrowLeft, Camera, ClipboardList, ListChecks, Loader2, NotebookPen, QrCode as QrIcon, Receipt, ReceiptText, ScanLine, Send, Truck, Wrench } from "lucide-react";
+import { ArrowLeft, Camera, ClipboardList, ListChecks, Loader2, NotebookPen, QrCode as QrIcon, ImagePlus, ReceiptText, ScanLine, Send, Truck, Wrench } from "lucide-react";
 import PhotoPicker from "@/components/tools/PhotoPicker";
 import DailyLog from "@/components/site/DailyLog";
 import type { LogCardDTO } from "@/lib/dailyLog/types";
@@ -138,7 +138,7 @@ export default function SitePhotosPage({ params: paramsP }: { params: Promise<{ 
           {!info.shared && info.kind !== "HANDOVER" && !driver && <SiteQuestions api={api} />}
           <div className="space-y-3">
             {sendsReceipts && (<>
-              <Big icon={<Receipt size={22} />} title="Add receipt" text="Tip docket or fuel - a photo when you get it" onClick={() => { setFlash(null); setMode("receipt"); }} />
+              <Big icon={<ImagePlus size={22} />} title="Add receipt" text="Tip docket or fuel - a photo when you get it" onClick={() => { setFlash(null); setMode("receipt"); }} />
               <Big icon={<ReceiptText size={22} />} title="My receipts" text={info.receiptsToday ? `${info.receiptsToday} sent today` : "What you sent today"} onClick={() => { setFlash(null); setMode("receipts"); }} />
             </>)}
             {info.kind !== "OFFICE" && !driver && (

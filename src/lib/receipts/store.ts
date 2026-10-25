@@ -111,11 +111,11 @@ export async function createReceipt(link: ReceiptLink, body: Record<string, unkn
   return { receipt: dto, message: `${KIND_LABEL[input.kind]} sent - thanks. It'll be read for you.` };
 }
 
-// ---------- "My receipts" (what this link sent today) ----------
+// ---------- "My receipts" (what this person sent today - from any of their links) ----------
 
-async function linkRows(ids?: string[], linkId?: string): Promise<ReceiptLinkDTO[]> {
+async function linkRows(ids?: string[], personId?: string): Promise<ReceiptLinkDTO[]> {
   const rows = await prisma.receipt.findMany({
-    where: ids ? { id: { in: ids } } : { siteLinkId: linkId, sentAt: { gte: sydneyMidnight() } },
+    where: ids ? { id: { in: ids } } : { sentByResourceId: personId, sentAt: { gte: sydneyMidnight() } },
     select: { id: true, kind: true, jobId: true, vehicleId: true, asbestos: true, status: true, sentAt: true, _count: { select: { photos: true } } },
     orderBy: { sentAt: "desc" },
   });
@@ -129,8 +129,8 @@ async function linkRows(ids?: string[], linkId?: string): Promise<ReceiptLinkDTO
     at: sydneyTime(r.sentAt) ?? "", asbestos: r.asbestos, photos: r._count.photos, status: STATUS_LABEL[r.status] ?? "Sent",
   }));
 }
-export const myReceiptsToday = (link: ReceiptLink) => linkRows(undefined, link.id);
-export const receiptsSentToday = (linkId: string) => prisma.receipt.count({ where: { siteLinkId: linkId, sentAt: { gte: sydneyMidnight() } } });
+export const myReceiptsToday = (link: ReceiptLink) => linkRows(undefined, link.person.id);
+export const receiptsSentToday = (personId: string) => prisma.receipt.count({ where: { sentByResourceId: personId, sentAt: { gte: sydneyMidnight() } } });
 
 // For the daily log: dockets sent today (by anyone) for each job.
 export async function docketsSentFor(jobIds: string[]): Promise<Map<string, number>> {
@@ -206,10 +206,12 @@ export async function officeList(f: ReceiptFilters): Promise<{ rows: ReceiptOffi
       : [],
   ]);
   const jobIds = [...new Set(receipts.map((r) => r.jobId).filter((x): x is string => !!x))];
-  const [jobRows, trucks, people] = await Promise.all([
+  const recent = { sentAt: { gte: new Date(Date.now() - 60 * 86_400_000) } };
+  const [jobRows, trucks, senders, odoSenders] = await Promise.all([
     prisma.job.findMany({ where: { id: { in: jobIds } }, select: { id: true, title: true, shift: true, date: true, project: { select: { name: true } } } }),
     lobosTrucks(),
-    prisma.receipt.findMany({ where: { sentAt: { gte: new Date(Date.now() - 60 * 86_400_000) } }, select: { sentBy: true }, distinct: ["sentBy"] }),
+    prisma.receipt.findMany({ where: recent, select: { sentBy: true }, distinct: ["sentBy"] }),
+    prisma.odometerReading.findMany({ where: recent, select: { sentBy: true }, distinct: ["sentBy"] }),
   ]);
   const jobName = (id: string | null) => { const j = jobRows.find((x) => x.id === id); return j ? `${jobLabel(j)} · ${j.date.toISOString().slice(5, 10).split("-").reverse().join("/")}` : "a job"; };
   const truckName = (id: string | null) => trucks.find((t) => t.id === id)?.name ?? "a truck";
@@ -227,6 +229,6 @@ export async function officeList(f: ReceiptFilters): Promise<{ rows: ReceiptOffi
     rows,
     jobs: jobRows.map((j) => ({ id: j.id, label: jobName(j.id) })).sort((a, b) => a.label.localeCompare(b.label)),
     trucks: trucks.map((t) => ({ id: t.id, label: t.name })),
-    people: people.map((p) => p.sentBy).sort(),
+    people: [...new Set([...senders, ...odoSenders].map((p) => p.sentBy))].sort(),
   };
 }

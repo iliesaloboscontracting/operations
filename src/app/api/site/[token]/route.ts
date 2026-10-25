@@ -17,7 +17,7 @@ export const GET = withErrorHandling(async (_req: NextRequest, { params: paramsP
   if (!link) {
     // A DRIVER link (Receipts, 26 Oct 2026): receipts only - nothing else is reachable from it.
     const driver = await resolveReceiptLink(params.token);
-    if (driver?.kind === "DRIVER") return NextResponse.json({ person: driver.person.name, kind: "DRIVER", shared: false, toolboxes: [], openRequests: 0, needsAnswer: 0, todo: 0, hireItems: 0, hireToCheck: 0, receiptsToday: await receiptsSentToday(driver.id) });
+    if (driver?.kind === "DRIVER") return NextResponse.json({ person: driver.person.name, kind: "DRIVER", shared: false, toolboxes: [], openRequests: 0, needsAnswer: 0, todo: 0, hireItems: 0, hireToCheck: 0, receiptsToday: await receiptsSentToday(driver.person.id) });
     return NextResponse.json({ error: "This link isn't active. Ask the office for a new one." }, { status: 404 });
   }
   const toolboxes = await prisma.toolbox.findMany({
@@ -45,6 +45,6 @@ export const GET = withErrorHandling(async (_req: NextRequest, { params: paramsP
   // The Daily log card (Task K) - only on pilot links (DAILY_LOG_PILOT_LINKS); others get exactly what they got before.
   const dailyLog = (await isPilotLink(link)) ? await logCard(link, new Date()) : undefined;
   // Receipts sent today - supervisors send tip dockets and fuel receipts too.
-  const receipts = link.kind === "SUPERVISOR" ? { receiptsToday: await receiptsSentToday(link.id) } : {};
+  const receipts = link.kind === "SUPERVISOR" && link.person.id ? { receiptsToday: await receiptsSentToday(link.person.id) } : {};
   return NextResponse.json({ person: link.person.name, kind: link.kind, shared: link.shared, toolboxes, openRequests, needsAnswer, todo, hireItems: hire.length, hireToCheck: hire.filter((h) => h.askNow).length, ...(dailyLog ? { dailyLog } : {}), ...receipts });
 });
