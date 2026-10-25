@@ -130,6 +130,8 @@ function AskForm({ people, onDone }: { people: Person[]; onDone: () => void }) {
 }
 
 function RequestRow({ r, onDone }: { r: Row; onDone: () => void }) {
+  // Managers and Admins (Ilies) may propose any project change; a DIRECTOR login only the contract value.
+  const { canEdit } = useAuth();
   const [mode, setMode] = useState<"ASK" | null>(null);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
@@ -183,7 +185,7 @@ function RequestRow({ r, onDone }: { r: Row; onDone: () => void }) {
       {changeFlash && <p className="mt-1 text-sm text-emerald-300">{changeFlash}</p>}
       {/* Controlled changes (LCI phase 4): contract value, job or quote number - approved by someone else, never the person who answered. */}
       {proposing && (
-        <ProposeChange kinds={["PROJECT_CONTRACT_VALUE", "PROJECT_JOB_NO", "PROJECT_QUOTE_NO"]} fromRequestId={r.id} sourceNote={`${r.ref} - ${r.title}, answered by ${r.to}`}
+        <ProposeChange kinds={canEdit ? ["PROJECT_CONTRACT_VALUE", "PROJECT_JOB_NO", "PROJECT_QUOTE_NO"] : ["PROJECT_CONTRACT_VALUE"]} fromRequestId={r.id} sourceNote={`${r.ref} - ${r.title}, answered by ${r.to}`}
           onClose={() => setProposing(false)} onDone={(m) => { setChangeFlash(m); setProposing(false); }} />
       )}
       {mode === "ASK" && (

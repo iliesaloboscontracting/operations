@@ -81,7 +81,7 @@ export async function createRequest(link: ResolvedLink, body: Record<string, unk
 export async function insertRequest(r: {
   kind: string; priority: Priority; neededBy: Date; project: { id: string | null; name: string }; summary: string;
   details: Record<string, string>; note: string | null; photoFile: string | null; by: string; byId: string | null; siteLinkId: string | null;
-  extra?: Partial<Pick<Prisma.SiteRequestUncheckedCreateInput, "origin" | "findingId" | "audience" | "status" | "seenAt" | "assigneeId" | "assigneeName" | "assigneeUserId">>;
+  extra?: Partial<Pick<Prisma.SiteRequestUncheckedCreateInput, "origin" | "findingId" | "audience" | "status" | "seenAt" | "assigneeId" | "assigneeName" | "assigneeUserId" | "hireResourceId">>;
 }): Promise<{ request: SiteRequest } | { error: string }> {
   for (let attempt = 0; attempt < 5; attempt++) {
     const last = await prisma.siteRequest.findFirst({ orderBy: { number: "desc" }, select: { number: true } });

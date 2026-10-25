@@ -28,12 +28,15 @@ export const samePerson = (a: string | null | undefined, b: string | null | unde
 const staff = (u: ChangeUser) => u.role === "ADMIN" || u.role === "MANAGER";
 
 // Seeing a proposal: Managers and Admins see every kind (Managers already see
-// contract values on Tracking); director logins see the project kinds (they
-// propose from answered queries and approve contract values). Nobody else.
-export const canViewKind = (u: ChangeUser, kind: ChangeKind) => staff(u) || (u.directorAccess && kind.startsWith("PROJECT_"));
+// contract values on Tracking); other director-access logins (Nick's and
+// Yoel's DIRECTOR logins) see the COMMERCIAL kinds only - the contract values
+// they approve - never an operational change (the lead, 25 Oct 2026). Nobody else.
+export const canViewKind = (u: ChangeUser, kind: ChangeKind) => staff(u) || (u.directorAccess && A3_RULES[kind].audience === "COMMERCIAL");
 
-// Proposing: Managers and Admins, any kind; director logins, the project kinds.
-export const canProposeKind = canViewKind;
+// Proposing: Managers and Admins, any kind; director logins, the commercial
+// kinds; the system only off-hire dates, from a supervisor's hire check (4e).
+export const SYSTEM_ACTOR: ChangeUser = { id: "", name: "System", email: "system@lci", role: "SYSTEM", directorAccess: false };
+export const canProposeKind = (u: ChangeUser, kind: ChangeKind) => (u.role === "SYSTEM" ? kind === "HIRE_OFF_HIRE_DATE" : canViewKind(u, kind));
 
 // Why this person can't approve this proposal, or null when they can.
 export function cannotApprove(u: ChangeUser, p: { kind: ChangeKind; requestedBy: string; sourcePerson: string | null }): string | null {

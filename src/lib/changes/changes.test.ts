@@ -9,7 +9,7 @@ import { createHash } from "crypto";
 import { A3_RULES, CHANGE_KINDS, LESSON_PUBLISHERS } from "./config";
 import {
   canProposeKind, canViewKind, cannotApprove, canonical, expiryFor, fingerprintPayload, isExpired, kindEnabled, noChange,
-  openKeyOf, parseAfter, parseSources, pickValue, proposalRef, samePerson, type ChangeUser,
+  openKeyOf, parseAfter, parseSources, pickValue, proposalRef, samePerson, SYSTEM_ACTOR, type ChangeUser,
 } from "./rules";
 
 const OWNER = "iliesa@loboscontracting.com.au";
@@ -73,10 +73,13 @@ test("contract values: director logins approve; the owner only when ownerMayAppr
   } finally { A3_RULES.PROJECT_CONTRACT_VALUE.approvers.ownerMayApprove = saved; }
 });
 
-test("who sees and proposes: Managers and Admins all kinds; director logins the project kinds; nobody else", () => {
+test("who sees and proposes: Managers and Admins all kinds; DIRECTOR logins the contract value only (never an operational change); nobody else", () => {
   for (const k of CHANGE_KINDS) { assert.ok(canViewKind(alex, k)); assert.ok(canProposeKind(ilies, k)); assert.ok(!canViewKind(viewer, k)); assert.ok(!canViewKind(accounts, k)); }
-  assert.ok(canViewKind(yoel, "PROJECT_CONTRACT_VALUE") && canProposeKind(yoel, "PROJECT_JOB_NO"));
-  assert.ok(!canViewKind(yoel, "HIRE_OFF_HIRE_DATE"));
+  assert.ok(canViewKind(yoel, "PROJECT_CONTRACT_VALUE") && canProposeKind(yoel, "PROJECT_CONTRACT_VALUE"));
+  for (const k of ["HIRE_OFF_HIRE_DATE", "PROJECT_JOB_NO", "PROJECT_QUOTE_NO"] as const) {
+    assert.equal(A3_RULES[k].audience, "OPERATIONAL");
+    assert.ok(!canViewKind(yoel, k) && !canProposeKind(nickDir, k), k);
+  }
 });
 
 test("values: a real date; a positive contract value (with $ and commas allowed); a sensible job / quote number", () => {
@@ -112,4 +115,11 @@ test("kill switches: CONTROLLED_CHANGES=off stops all; CONTROLLED_CHANGES_OFF st
   assert.equal(kindEnabled("PROJECT_JOB_NO", { off: "PROJECT_CONTRACT_VALUE" }), true);
   A3_RULES.PROJECT_QUOTE_NO.enabled = false;
   try { assert.equal(kindEnabled("PROJECT_QUOTE_NO", {}), false); } finally { A3_RULES.PROJECT_QUOTE_NO.enabled = true; }
+});
+
+test("the system proposes only off-hire dates (from a supervisor's hire check), and never approves", () => {
+  assert.ok(canProposeKind(SYSTEM_ACTOR, "HIRE_OFF_HIRE_DATE"));
+  for (const k of ["PROJECT_CONTRACT_VALUE", "PROJECT_JOB_NO", "PROJECT_QUOTE_NO"] as const) assert.ok(!canProposeKind(SYSTEM_ACTOR, k), k);
+  assert.ok(cannotApprove(SYSTEM_ACTOR, { kind: "HIRE_OFF_HIRE_DATE", requestedBy: "Alex", sourcePerson: null }));
+  assert.equal(cannotApprove(ilies, { kind: "HIRE_OFF_HIRE_DATE", requestedBy: "System", sourcePerson: "Tom" }), null, "any Admin approves a system proposal");
 });

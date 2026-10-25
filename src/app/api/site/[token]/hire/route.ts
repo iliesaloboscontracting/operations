@@ -5,7 +5,7 @@ import { answerHire, hireForLink } from "@/lib/hireCheck";
 
 // Hire check from a supervisor's link (or a one-day hand-over link) - 24 Oct 2026.
 // GET  -> the hire-register items on their sites (names, sites, dates - no money)
-// POST { itemId, answer: STILL_NEEDED | FINISHED | NOT_ON_SITE, note? }
+// POST { itemId, answer: STILL_NEEDED | FINISHED | NOT_ON_SITE, note?, neededUntil? (YYYY-MM-DD, "still needed" past its finish) }
 async function linkFor(token: string) {
   const link = await resolveLink(token);
   if (!link) return { res: NextResponse.json({ error: "This link isn't active. Ask the office for a new one." }, { status: 404 }) };

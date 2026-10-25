@@ -10,7 +10,7 @@ import PageShell from "@/components/PageShell";
 import { useAuth } from "@/components/AuthProvider";
 import { apiFetch, serverErrorMessage } from "@/lib/apiFetch";
 import { fmtDay } from "@/lib/dates";
-import type { BudgetListItem } from "@/lib/budgets/rules";
+import { BUDGET_APPROVERS_NOTE, type BudgetListItem } from "@/lib/budgets/rules";
 import { BudgetStatusPill, adjustmentText, aud } from "@/components/directors/BudgetParts";
 
 type Row = BudgetListItem & { cannotDecide: string | null };
@@ -97,7 +97,9 @@ function Group({ title, rows, empty }: { title?: string; rows: Row[]; empty?: st
               </div>
               <div className="flex w-full justify-end gap-2 sm:w-auto">
                 <BudgetStatusPill status={r.status} />
-                {r.status === "SUBMITTED" && r.cannotDecide && <span className="text-[11px] text-gray-500" title={r.cannotDecide}>Another director decides</span>}
+                {r.status === "SUBMITTED" && r.cannotDecide && (
+                  <span className="text-[11px] text-gray-500" title={r.cannotDecide}>{r.cannotDecide === BUDGET_APPROVERS_NOTE ? "Nick or Yoel approve" : "Another director decides"}</span>
+                )}
               </div>
             </Link>
           ))}

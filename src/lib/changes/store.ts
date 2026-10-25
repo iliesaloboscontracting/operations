@@ -11,7 +11,7 @@ import { applyProjectPatch, applyResourcePatch } from "../recordPatch";
 import { OPEN_STATUSES, requestNo } from "../requestTypes";
 import { A3_RULES, type ChangeKind } from "./config";
 import {
-  SWITCHED_OFF, canProposeKind, canViewKind, cannotApprove, expiryFor, fingerprintPayload, isExpired, isKind, kindEnabled,
+  SWITCHED_OFF, SYSTEM_ACTOR, canProposeKind, canViewKind, cannotApprove, expiryFor, fingerprintPayload, isExpired, isKind, kindEnabled,
   noChange, openKeyOf, parseAfter, parseSources, pickValue, proposalRef, samePerson, sameValue,
   type ChangeUser, type ChangeValue, type SourceRef,
 } from "./rules";
@@ -61,8 +61,11 @@ async function fromRequest(kind: ChangeKind, id: unknown, by: ChangeUser): Promi
   const directorsOnly = r.audience === "DIRECTOR";
   if (directorsOnly && !by.directorAccess) return { error: "That request isn't there any more." };
   if (kind === "HIRE_OFF_HIRE_DATE") {
-    if (r.kind !== "HIRE_EXTEND" || !r.hireResourceId) return { error: "Only a \"still needed\" hire request can propose an off-hire date." };
-    return { recordId: r.hireResourceId, source: { type: "SiteRequest", id: r.id, label: `${requestNo(r.number)}: ${r.summary} (${r.requestedBy})` } };
+    // The item: the request's own hireResourceId, or - for requests raised before
+    // that was recorded - the hire check answer that raised it.
+    const itemId = r.hireResourceId ?? (await prisma.hireCheck.findFirst({ where: { requestId: r.id }, select: { resourceId: true } }))?.resourceId ?? null;
+    if (r.kind !== "HIRE_EXTEND" || !itemId) return { error: "Only a \"still needed\" hire request can propose an off-hire date." };
+    return { recordId: itemId, source: { type: "SiteRequest", id: r.id, label: `${requestNo(r.number)}: ${r.summary} (${r.requestedBy})` } };
   }
   if (r.kind !== "QUERY" || !r.answer) return { error: "Only an answered query can propose this change." };
   const who = r.assigneeName ?? null;
@@ -74,9 +77,14 @@ async function fromRequest(kind: ChangeKind, id: unknown, by: ChangeUser): Promi
 // any open "still needed" request, so the approver sees the whole picture.
 async function linkedSources(kind: ChangeKind, recordId: string, skipId?: string): Promise<SourceRef[]> {
   if (kind !== "HIRE_OFF_HIRE_DATE") return [];
+  // Requests raised before hireResourceId was recorded are found through the hire check answer that raised them.
+  const viaChecks = (await prisma.hireCheck.findMany({ where: { resourceId: recordId, requestId: { not: null } }, select: { requestId: true } })).map((c) => c.requestId as string);
   const [finding, extend] = await Promise.all([
     prisma.finding.findFirst({ where: { ruleCode: "HIRE_OVERDUE", subjectId: recordId, openKey: { not: null } }, select: { id: true, title: true } }),
-    prisma.siteRequest.findFirst({ where: { kind: "HIRE_EXTEND", hireResourceId: recordId, status: { in: OPEN_STATUSES } }, orderBy: { createdAt: "desc" }, select: { id: true, number: true, summary: true, requestedBy: true } }),
+    prisma.siteRequest.findFirst({
+      where: { kind: "HIRE_EXTEND", status: { in: OPEN_STATUSES }, OR: [{ hireResourceId: recordId }, { id: { in: viaChecks } }] },
+      orderBy: { createdAt: "desc" }, select: { id: true, number: true, summary: true, requestedBy: true },
+    }),
   ]);
   return [
     ...(finding ? [{ type: "Finding" as const, id: finding.id, label: finding.title.slice(0, 200) }] : []),
@@ -106,9 +114,9 @@ export async function createProposal(
   const parsed = parseAfter(kind, body);
   if ("error" in parsed) return { error: parsed.error, status: 400 };
   const after = parsed.value;
-  // A contract value proposed without notes keeps the notes already on the project.
-  if (kind === "PROJECT_CONTRACT_VALUE" && !("contractValueNotes" in body)) after.contractValueNotes = rec.value.contractValueNotes ?? null;
-  if (noChange(rec.value, after)) return { error: "That's already the value - nothing to change.", status: 400 };
+  // Nothing to propose when the value itself is already that (notes alone aren't a change).
+  const field = A3_RULES[kind].field;
+  if (noChange({ [field]: rec.value[field] ?? null }, { [field]: after[field] ?? null })) return { error: "That's already the value - nothing to change.", status: 400 };
   const taken = await numberTaken(kind, recordId, after);
   if (taken) return { error: taken, status: 409 };
   const given = parseSources(body.sources);
@@ -117,6 +125,9 @@ export async function createProposal(
   // person types. Items linked automatically (an overdue finding) add context but don't count.
   if (!from?.source && "error" in given) return { error: given.error, status: 400 };
   const sources = [...derived, ...("error" in given ? [] : given)];
+  // A new contract value with no notes typed gets "Per <where it came from>" - the project's old
+  // notes describe the old figure, so they aren't carried over.
+  if (kind === "PROJECT_CONTRACT_VALUE" && !("contractValueNotes" in body)) after.contractValueNotes = `Per ${sources[0].label}`.slice(0, 200);
   const reason = typeof body.reason === "string" ? body.reason.trim().slice(0, 500) : "";
   if (reason.length < 3) return { error: "Say why, in a few words.", status: 400 };
   const sourcePerson = from?.sourcePerson ?? (typeof body.sourcePerson === "string" && body.sourcePerson.trim() ? body.sourcePerson.trim().slice(0, 120) : null);
@@ -134,8 +145,8 @@ export async function createProposal(
       data: {
         number: (last?.number ?? 0) + 1, kind, recordType: rule.recordType, recordId, recordName: rec.name, field: rule.field,
         before: JSON.stringify(rec.value), after: JSON.stringify(after), reason, sourceRefs: JSON.stringify(sources), audience: rule.audience,
-        requestedBy: by.name, requestedByUserId: by.id, sourcePerson, fingerprint, expiresAt, openKey, undoOfId: extra.undoOfId ?? null,
-        events: { create: { action: "PROPOSED", by: by.name, byUserId: by.id, fingerprint, note: reason } },
+        requestedBy: by.name, requestedByUserId: by.id || null, sourcePerson, fingerprint, expiresAt, openKey, undoOfId: extra.undoOfId ?? null,
+        events: { create: { action: "PROPOSED", by: by.name, byUserId: by.id || null, fingerprint, note: reason } },
       },
     });
   };
@@ -262,6 +273,19 @@ export function describe(kind: ChangeKind, v: ChangeValue | null): string {
   return x == null || x === "" ? "empty" : String(x);
 }
 
+// ---------- the system's own proposals (4e) ----------
+
+// A supervisor answered the hire check "Still needed - until about <date>":
+// the system proposes that off-hire date, citing the HIRE_EXTEND request, for
+// an Admin to approve. Switched off, already waiting, or not a valid date ->
+// nothing is proposed (the request still reaches the office as before).
+export async function proposeFromHireCheck(requestId: string, neededUntil: string, supervisor: string, now = new Date()): Promise<{ proposal: Proposal } | Problem> {
+  return createProposal(SYSTEM_ACTOR, {
+    kind: "HIRE_OFF_HIRE_DATE", fromRequestId: requestId, offHireDate: neededUntil,
+    reason: `${supervisor} says it's still needed until about ${neededUntil} (site hire check).`,
+  }, now);
+}
+
 // ---------- expiry (instrumentation tick) ----------
 
 export async function expireProposals(now = new Date()): Promise<number> {
@@ -280,9 +304,9 @@ export type ChangeDTO = {
   events: { action: string; by: string; note: string | null; at: string }[];
 };
 
-export async function listChanges(by: ChangeUser, opts: { open?: boolean; recordId?: string } = {}): Promise<ChangeDTO[]> {
+export async function listChanges(by: ChangeUser, opts: { open?: boolean; recordId?: string; audience?: string } = {}): Promise<ChangeDTO[]> {
   const rows = await prisma.changeProposal.findMany({
-    where: { ...(opts.open ? { status: "PROPOSED" } : {}), ...(opts.recordId ? { recordId: opts.recordId } : {}) },
+    where: { ...(opts.open ? { status: "PROPOSED" } : {}), ...(opts.recordId ? { recordId: opts.recordId } : {}), ...(opts.audience ? { audience: opts.audience } : {}) },
     orderBy: { number: "desc" }, take: opts.open ? 200 : 300, include: { events: { orderBy: { at: "asc" } } },
   });
   const numbers = new Map(rows.map((r) => [r.id, r.number]));

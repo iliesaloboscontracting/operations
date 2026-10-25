@@ -7,9 +7,13 @@
 //  - Finished       -> an Off-hire request; the item shows "off-hire requested"
 //  - Not on site    -> a "Hire not on site" request (register mismatch)
 //  - Still needed on or after its expected finish -> a "Hire still needed"
-//                      request, so the off-hire date gets moved
+//                      request, so the off-hire date gets moved; with an
+//                      "until about when?" date (LCI phase 4, 4e) the system
+//                      also proposes that off-hire date for an Admin to
+//                      approve on Changes - nothing changes until they do
 // Names, sites and dates only - no rates or costs reach the site link.
 import { prisma } from "./prisma";
+import { proposeFromHireCheck } from "./changes/store";
 import type { ResolvedLink } from "./siteLinks";
 import { insertRequest, sitesFor } from "./siteRequests";
 import { HIRE_EXTEND_TYPE, HIRE_MISMATCH_TYPE, OFF_HIRE_TYPE, OPEN_STATUSES, type Priority, type RequestType } from "./requestTypes";
@@ -96,6 +100,8 @@ export async function answerHire(link: ResolvedLink, body: Record<string, unknow
   if (!item) return { error: "That item isn't on your sites any more - pull down to refresh." };
   const note = clean(body.note, 300) || null;
   const by = link.person.name;
+  // "Still needed - until about when?" (LCI phase 4, 4e): an optional date, today to a year out.
+  const neededUntil = answer === "STILL_NEEDED" ? untilDate(body.neededUntil) : null;
   const resource = await prisma.resource.findUnique({ where: { id: item.id }, select: { hireProjectId: true } });
   const projectId = resource?.hireProjectId ?? null;
 
@@ -121,11 +127,13 @@ export async function answerHire(link: ResolvedLink, body: Record<string, unknow
       if (item.supplier) details.supplier = item.supplier;
       if (item.ref) details.ref = item.ref;
       if (item.offHireDate) details.due = item.offHireDate;
+      if (neededUntil && raise.type.kind === "HIRE_EXTEND") details.neededUntil = neededUntil;
       const made = await insertRequest({
         kind: raise.type.kind, priority: raise.priority, neededBy: raise.neededBy,
         project: { id: projectId, name: item.site }, summary: raise.type.summary(details).slice(0, 200),
         details, note: note ? `From the hire check: ${note}` : "From the hire check.", photoFile: null,
         by, byId: link.person.id, siteLinkId: link.id,
+        extra: { hireResourceId: item.id }, // which hire-register item it's about (was never recorded before 25 Oct 2026)
       });
       if ("error" in made) return made;
       requestId = made.request.id;
@@ -135,7 +143,22 @@ export async function answerHire(link: ResolvedLink, body: Record<string, unknow
     }
   }
   await prisma.hireCheck.create({ data: { resourceId: item.id, projectId, siteLinkId: link.id, answer, note, by, requestId } });
+  // With a date, the system proposes the new off-hire date for an Admin to
+  // approve (Changes) - it never changes the hire register by itself.
+  if (neededUntil && raise?.type.kind === "HIRE_EXTEND" && requestId) {
+    const p = await proposeFromHireCheck(requestId, neededUntil, by).catch(() => null);
+    if (p && "proposal" in p) message = `Noted - the office will be asked to move its off-hire date to about ${fmtDate(neededUntil)}.`;
+  }
   return { message };
+}
+
+const fmtDate = (iso: string) => new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-AU", { day: "numeric", month: "short", timeZone: "UTC" });
+// A real date from today (Sydney) to a year out, or null.
+function untilDate(v: unknown): string | null {
+  if (typeof v !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(v) || Number.isNaN(Date.parse(v))) return null;
+  const today = todaySydney();
+  const yearOut = new Date(Date.parse(`${today}T00:00:00Z`) + 365 * DAY_MS).toISOString().slice(0, 10);
+  return v >= today && v <= yearOut ? v : null;
 }
 
 // For the office Hire page: each item's latest answer from site.

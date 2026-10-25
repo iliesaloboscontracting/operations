@@ -5,9 +5,11 @@
 // fetch / Prisma so `npm test` can check them. The network side is
 // estimating.ts.
 //
-// Ilies: "nick and yoel" approve budgets. So anyone with director access
-// decides (the DIRECTOR role, the director tick, and the owner), except the
-// person who submitted that revision - Estimating refuses that too.
+// Ilies: "nick and yoel" approve budgets (24 Oct; confirmed 25 Oct: "nick and
+// yoel do the tenders and approve them the budgets"). So only DIRECTOR-role
+// logins decide - not the owner or a ticked Admin, who see the budgets with a
+// note - and never the person who submitted that revision (compared by name;
+// Estimating refuses that too).
 
 export const DECISIONS = ["APPROVED", "REJECTED"] as const;
 export type Decision = (typeof DECISIONS)[number];
@@ -104,14 +106,21 @@ export interface BudgetStatus {
 
 // ---------- who decides ----------
 
-export interface Decider { name: string; directorAccess: boolean }
+export interface Decider { name: string; role: string; directorAccess: boolean }
 
-const same = (a: string | null | undefined, b: string | null | undefined) =>
-  (a ?? "").trim().toLowerCase() === (b ?? "").trim().toLowerCase();
+// The same person, whichever login or system they used (Nick has a DIRECTOR
+// login, an ADMIN login and an Estimating name) - compared by name.
+const person = (s: string | null | undefined) => (s ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+const same = (a: string | null | undefined, b: string | null | undefined) => !!person(a) && person(a) === person(b);
+
+// Ilies (25 Oct 2026): "nick and yoel do the tenders and approve them the
+// budgets" - so only the directors' DIRECTOR logins decide; the owner and
+// ticked Admins see the budgets but get this note instead of a button.
+export const BUDGET_APPROVERS_NOTE = "Nick or Yoel approve budgets, from their director logins.";
 
 // Why this person can't decide this revision, or null when they can.
 export function cannotDecide(u: Decider, b: { status: string; submitted_by: string }): string | null {
-  if (!u.directorAccess) return "Only directors approve budgets.";
+  if (u.role !== "DIRECTOR") return BUDGET_APPROVERS_NOTE;
   if (b.status !== "SUBMITTED") return `This revision is ${b.status.toLowerCase()} - only a submitted budget can be decided.`;
   if (same(u.name, b.submitted_by)) return "You submitted this budget, so another director has to approve or reject it.";
   return null;

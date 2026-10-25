@@ -22,6 +22,7 @@ import FindingsList, { type ExtraRow } from "@/components/findings/FindingsList"
 import { useMyQueries } from "@/components/queries/MyQueries";
 import HealthBand from "@/components/directors/HealthBand";
 import QuestionsBanner from "@/components/queries/QuestionsBanner";
+import DirectorChanges from "@/components/changes/DirectorChanges";
 
 const day = (iso: string) => fmtDay(iso, { day: "numeric", month: "short" });
 const weekday = (iso: string) => fmtDay(iso, { weekday: "short", day: "numeric" });
@@ -80,6 +81,8 @@ export default function DirectorsPage() {
         <>
           {/* Information requests (Task I): questions waiting on this login. */}
           <QuestionsBanner />
+          {/* Controlled changes (LCI phase 4): contract values waiting for Nick or Yoel. */}
+          <DirectorChanges />
           <Overview o={o} showAll={showAll} setShowAll={setShowAll} onRefresh={load} />
         </>
       )}
@@ -356,11 +359,20 @@ function ComputedAttention({ o, showAll, setShowAll }: { o: DirectorOverviewDTO;
 function FindingsAttention({ o, onRefresh }: { o: DirectorOverviewDTO; showAll: boolean; setShowAll: (fn: (v: boolean) => boolean) => void; onRefresh: () => void }) {
   const [budgetsWaiting, setBudgetsWaiting] = useState(0);
   const { waiting: questionsWaiting } = useMyQueries();
+  // Budgets this login can decide (Nick's and Yoel's DIRECTOR logins); anyone else sees them as waiting for Nick or Yoel.
+  const [budgetsMine, setBudgetsMine] = useState(0);
   useEffect(() => {
-    apiFetch("/api/directors/budgets").then(async (r) => r.ok && setBudgetsWaiting((await r.json()).waiting ?? 0)).catch(() => undefined);
+    apiFetch("/api/directors/budgets").then(async (r) => {
+      if (!r.ok) return;
+      const d = await r.json();
+      setBudgetsWaiting(d.waiting ?? 0);
+      setBudgetsMine(((d.budgets ?? []) as { status: string; cannotDecide: string | null }[]).filter((b) => b.status === "SUBMITTED" && !b.cannotDecide).length);
+    }).catch(() => undefined);
   }, []);
+  const plural = (n: number) => `${n} budget${n === 1 ? "" : "s"}`;
   const extra: ExtraRow[] = [
-    ...(budgetsWaiting ? [{ key: "budgets", priority: "HIGH" as const, title: `${budgetsWaiting} budget${budgetsWaiting === 1 ? "" : "s"} waiting for a decision`, href: "/directors/budgets", hint: "Budgets to approve - from Estimating" }] : []),
+    ...(budgetsMine ? [{ key: "budgets", priority: "HIGH" as const, title: `${plural(budgetsMine)} waiting for your decision`, href: "/directors/budgets", hint: "Budgets to approve - from Estimating" }]
+      : budgetsWaiting ? [{ key: "budgets", priority: "INFO" as const, title: `${plural(budgetsWaiting)} waiting for Nick or Yoel`, href: "/directors/budgets", hint: "Nick or Yoel approve budgets" }] : []),
     ...(questionsWaiting ? [{ key: "queries", priority: "MEDIUM" as const, title: `${questionsWaiting} question${questionsWaiting === 1 ? "" : "s"} waiting on you`, href: "/directors/queries", hint: "My queries - Ilies is waiting on your answer" }] : []),
   ];
   return (
