@@ -6,7 +6,8 @@ import { prisma } from "../prisma";
 import { boardDatesByProject, dateExceptionList } from "../dateExceptions";
 import { ACT_AT, ATTENTION_RECENT_DAYS, HIRE_UNINVOICED_DAYS, NO_CONTRACT_MIN_SPEND, WATCH_AT } from "../trackingData";
 import { gatherDirectorInputs } from "../insights/load";
-import { buildSignals, type TrackingRules } from "./signals";
+import { loadWonMatches } from "../insights/pipelineFeed";
+import { buildSignals, notChecked, type TrackingRules } from "./signals";
 
 export const TRACKING_RULES: TrackingRules = {
   watchAt: WATCH_AT, actAt: ACT_AT, recentDays: ATTENTION_RECENT_DAYS,
@@ -26,10 +27,14 @@ export async function loadSignals() {
   const dates = projects
     .map((p) => ({ projectId: p.id, projectName: p.name, exceptions: dateExceptionList(p, board.get(p.id), d.today) }))
     .filter((r) => r.exceptions.length > 0);
+  // Won tenders from Estimating (G5); null when it didn't answer - then that check is skipped this run.
+  const won = await loadWonMatches();
+  const wonTenders = won ? won.rows : null;
 
   return {
     today: d.today,
     asAt: d.now.toISOString(),
+    notChecked: notChecked({ wonTenders }),
     signals: buildSignals({
       today: d.today,
       rules: TRACKING_RULES,
@@ -43,6 +48,7 @@ export async function loadSignals() {
       crewAvailable: d.capacity.available,
       daysNotClosed: d.open,
       plant: { ...d.plant, machines: d.plant.items.length },
+      wonTenders,
     }),
   };
 }

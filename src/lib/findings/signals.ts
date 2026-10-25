@@ -9,7 +9,7 @@
 import type { HireItemCostDTO, JobHealth, StartAlertDTO } from "../types";
 import type { DateException, DateExceptionCode } from "../dateExceptions";
 import type { Confidence, Priority } from "../insights/kpis";
-import { addDays } from "../dates";
+import { addDays, daysBetween } from "../dates";
 import { assertNoMoney } from "../moneyGuard";
 import { THRESHOLDS } from "../insights/dictionary";
 
@@ -23,13 +23,14 @@ export type SignalKind =
   | "COST_VS_CONTRACT" | "DATA_NO_CONTRACT_VALUE" | "DATA_UNCOSTED"
   | "HIRE_UNINVOICED" | "HIRE_IDLE" | "HIRE_NO_FINISH" | "HIRE_OVERDUE"
   | DateExceptionCode
-  | "START_NOT_READY" | "NO_SUPERVISOR" | "DAYS_NOT_CLOSED" | "CREW_SHORT" | "DATA_PLANT_NOT_BOOKED";
+  | "START_NOT_READY" | "NO_SUPERVISOR" | "DAYS_NOT_CLOSED" | "CREW_SHORT" | "DATA_PLANT_NOT_BOOKED"
+  | "TENDER_WON_NO_PROJECT";
 
 // Who may see it (design §1): OPERATIONAL = Viewer+, never a dollar figure;
 // COMMERCIAL = Manager+ (the money Tracking already shows Managers);
-// DIRECTOR = directors and the owner (none of today's signals).
+// DIRECTOR = directors and the owner (won tenders, G5).
 export type Audience = "OPERATIONAL" | "COMMERCIAL" | "DIRECTOR";
-export type SubjectType = "PROJECT" | "RESOURCE" | "JOB" | "COMPANY";
+export type SubjectType = "PROJECT" | "RESOURCE" | "JOB" | "COMPANY" | "TENDER";
 export type EvidenceRef = { recordType: string; recordId: string; label: string };
 export type SignalValue = number | string | boolean | null;
 
@@ -265,6 +266,40 @@ export function plantSignal(p: PlantUse): Signal[] {
   }];
 }
 
+// ---------- won tenders (G5) ----------
+
+// A won tender (from Estimating's won-tenders.v1, imported ones already left
+// out) that matches no Operations project after a few days. Directors only -
+// it carries the awarded value. Matching: lib/insights/pipeline.ts matchWon.
+export type WonTenderInput = {
+  tender_id: string; quoteNo: string; jobNo: string | null; name: string; builder_awarded: string;
+  won_date: string | null; awarded_value_ex_gst: number | null; project: { id: string; name: string } | null;
+};
+
+export function wonNoProjectSignals(rows: WonTenderInput[], today: string): Signal[] {
+  const grace = THRESHOLDS.wonNoProjectDays;
+  return rows
+    .filter((r) => !r.project && (r.won_date == null || daysBetween(r.won_date, today) >= grace))
+    .map((r) => {
+      const days = r.won_date ? daysBetween(r.won_date, today) : null;
+      const label = `${r.quoteNo}${r.name ? ` ${r.name}` : ""}`;
+      return {
+        kind: "TENDER_WON_NO_PROJECT", subject: { type: "TENDER", id: r.tender_id, name: label }, projectId: null,
+        dedupeKey: dedupeKeyOf("TENDER_WON_NO_PROJECT", "TENDER", r.tender_id), severity: "MEDIUM", audience: "DIRECTOR",
+        title: `Won tender ${label} has no Operations project${days != null ? ` (won ${plural(days, "day")} ago)` : ""}`,
+        provisional: r.won_date == null || !r.jobNo,
+        confidence: r.jobNo ? "MEDIUM" : "LOW",
+        evidence: [{ recordType: "Tender", recordId: r.tender_id, label }],
+        href: "/directors/pipeline",
+        values: {
+          quoteNo: r.quoteNo, jobNo: r.jobNo, wonDate: r.won_date, daysSinceWon: days, builder: r.builder_awarded || null,
+          awardedValue: r.awarded_value_ex_gst, graceDays: grace, draftThreshold: true,
+          missing: [r.jobNo ? "" : "job number in Estimating", r.won_date ? "" : "won date"].filter(Boolean).join(", ") || null,
+        },
+      } satisfies Signal;
+    });
+}
+
 // ---------- all of them ----------
 
 export type SignalInputs = {
@@ -280,7 +315,15 @@ export type SignalInputs = {
   crewAvailable: number;
   daysNotClosed: string[];
   plant: PlantUse;
+  // null = Estimating didn't answer: the check wasn't run (see NOT_CHECKED), not "nothing found"
+  wonTenders?: WonTenderInput[] | null;
 };
+
+// Which signal kinds weren't looked at this run, so the engine leaves their
+// findings exactly as they are instead of treating them as cleared.
+export function notChecked(i: Pick<SignalInputs, "wonTenders">): SignalKind[] {
+  return i.wonTenders == null ? ["TENDER_WON_NO_PROJECT"] : [];
+}
 
 const RANK: Record<Priority, number> = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, INFO: 3 };
 
@@ -294,6 +337,7 @@ export function buildSignals(i: SignalInputs): Signal[] {
     ...crewSignals(i.crewShortDays, i.crewAvailable),
     ...daysNotClosedSignal(i.daysNotClosed),
     ...plantSignal(i.plant),
+    ...(i.wonTenders ? wonNoProjectSignals(i.wonTenders, i.today) : []),
   ].sort((a, b) => RANK[a.severity] - RANK[b.severity] || a.dedupeKey.localeCompare(b.dedupeKey));
 }
 

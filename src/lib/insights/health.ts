@@ -29,6 +29,7 @@ export interface HealthTile {
   confidenceWhy: string;
   missing: string | null; // what would make it better / complete
   kpi?: string; // dictionary entry for the "?"
+  href?: string; // a Directors page with the detail
 }
 
 export interface HealthInput {
@@ -42,6 +43,7 @@ export interface HealthInput {
   supervisorGaps: number;
   activeCrew: number;
   hours: { week: string; staff: number; hire: number; partial: boolean; incomplete: boolean }[];
+  pipeline?: HealthTile; // G5: Estimating's pipeline (lib/insights/pipeline.ts); "not connected" without it
 }
 
 const money = (n: number) => {
@@ -146,7 +148,7 @@ export function companyHealth(i: HealthInput): HealthTile[] {
   };
 
   return [
-    notConnected("pipeline", "Pipeline", "Lobos Estimating tender register", "Estimating's pipeline feed to this screen", "C1"),
+    i.pipeline ?? notConnected("pipeline", "Pipeline", "Lobos Estimating tender register", "Estimating's pipeline feed to this screen", "C1"),
     workInHand,
     costVsContract,
     notConnected("revenue", "Revenue & P&L", "Accounting (Xero)", "Accounts connection or monthly export", "F9"),

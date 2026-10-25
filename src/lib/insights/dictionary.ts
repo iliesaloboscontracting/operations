@@ -15,6 +15,7 @@ export const THRESHOLDS = {
   actAt: 1.0,
   lookaheadDays: 14, // crew demand + supervisor coverage
   startsWindowDays: 30, // starting / completing soon
+  wonNoProjectDays: 7, // a won tender with no Operations project after this many days -> finding (draft)
 } as const;
 
 export type KpiStatus = "READY" | "CONFIRM" | "BLOCKED";
@@ -60,13 +61,15 @@ export const KPIS: KpiDef[] = [
   { id: "PL1", name: "Owned plant use", meaning: "Are we using what we own?", formula: "Days on a job ÷ working days, last 28 days (Mon-Fri plus Saturdays worked), per machine and for the fleet", units: "%", source: "Board allocations, plant register", refresh: "Live", thresholds: "Idle below 30%", draft: true, status: "CONFIRM", notes: "Only counts days a machine is on the board. Under 10% across the fleet is shown as low confidence: it usually means plant on site isn't being booked day to day, not that it's idle." },
   { id: "PL2", name: "Plant down", meaning: "Breakdown impact", formula: "Plant marked Down", units: "count", source: "Plant register", refresh: "Live", status: "READY" },
   { id: "PL3", name: "Hire overdue off-hire", meaning: "Hire cost leakage", formula: "Hired items still out past their expected finish (the Hire page alert rule)", units: "count", source: "Hire register", refresh: "Live", thresholds: "High when any", status: "READY" },
+  // Pipeline (Estimating's tender register, G5)
+  { id: "C1", name: "Pipeline and tenders", meaning: "Work coming in, and how much of it we win", formula: "Estimating's pipeline.v1 summary: tenders by status; submitted and waiting on an outcome (value counted once per tender - the same price goes to every builder); won and lost in the last 12 months; win rate = won ÷ (won + lost) decided in the period", units: "count, $ ex GST, %", source: "Lobos Estimating tender register", refresh: "Live, each time the page loads", status: "READY", notes: "Imported tenders that never got an outcome are not counted as open. Pipeline value is never revenue or work in hand. Low confidence while outcomes are missing - the win rate can't be trusted until they're filled in. 'Estimating not reachable' means no figures, never zero." },
+  { id: "C2", name: "Won tenders not in Operations", meaning: "Won work that hasn't been set up as a job", formula: "Won tenders (not from the one-off register import) whose job or quote number matches no Operations project's job or quote number", units: "tenders", source: "Estimating won-tenders.v1, Operations projects", refresh: "Live; the finding is checked every 30 minutes", thresholds: "A finding after 7 days with no project", draft: true, status: "READY" },
   // Data confidence
   { id: "DQ", name: "Data confidence", meaning: "Gaps that make the numbers less certain", formula: "Active jobs with no contract value or dates, uncosted / unconfirmed lines, days not closed, invoices waiting for a person, hire with no finish date or rate", units: "count per check", source: "As listed", refresh: "Live", status: "READY" },
   // Not available yet - shown so a missing number is never read as zero
   { id: "F9", name: "Revenue, gross profit, margin", meaning: "Are we making money?", formula: "-", units: "-", source: "Accounting system (not connected)", refresh: "-", status: "BLOCKED" },
   { id: "F10", name: "Receivables, overdue payments, cash", meaning: "Who owes us, cash pressure", formula: "-", units: "-", source: "Accounting system (not connected)", refresh: "-", status: "BLOCKED" },
   { id: "F11", name: "Variations", meaning: "Approved and pending variations", formula: "-", units: "-", source: "No variation register yet", refresh: "-", status: "BLOCKED" },
-  { id: "C1", name: "Pipeline and tenders", meaning: "Work coming, win rate", formula: "-", units: "-", source: "Lobos Estimating's tender register (not connected to this screen yet)", refresh: "-", status: "BLOCKED" },
   { id: "S2", name: "Incidents and near misses", meaning: "Safety trend", formula: "-", units: "-", source: "No incident register yet", refresh: "-", status: "BLOCKED" },
 ];
 

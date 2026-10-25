@@ -24,7 +24,7 @@ export async function runFindings(opts: { force?: boolean; now?: Date } = {}): P
   running = true;
   try {
     const now = opts.now ?? new Date();
-    const { signals, today } = await loadSignals();
+    const { signals, today, notChecked } = await loadSignals();
     const rows = await prisma.finding.findMany({
       select: {
         id: true, dedupeKey: true, ruleCode: true, severity: true, status: true, currentValue: true, signalClearedAt: true, clearRuns: true,
@@ -32,7 +32,7 @@ export async function runFindings(opts: { force?: boolean; now?: Date } = {}): P
       },
     });
     const latest = latestByKey(rows as (FindingState & { createdAt: Date })[]);
-    const ops = planRun(signals, latest, { now, today, sydneyDay });
+    const ops = planRun(signals, latest, { now, today, sydneyDay }, notChecked);
     await apply(ops, now);
     await alert(ops);
     return { ...summarise(ops), today, signals: signals.length };

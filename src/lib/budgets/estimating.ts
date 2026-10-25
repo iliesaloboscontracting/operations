@@ -8,27 +8,11 @@
 // BudgetDecision, append-only.
 import { prisma } from "@/lib/prisma";
 import type { AuthUser } from "@/lib/auth";
+import { estimatingCall as call, type Answer } from "@/lib/estimatingClient";
 import {
   ESTIMATING_DOWN, SECRET_NOT_SET, approvalSecret, cannotDecide, decisionOutcome,
   type BudgetListItem, type BudgetStatus, type BudgetV1, type DecisionBody,
 } from "./rules";
-
-const TARGET = () => process.env.ESTIMATING_URL || "http://127.0.0.1:4310";
-
-type Answer<T> = { ok: true; data: T } | { ok: false; status: number; error: string };
-
-async function call<T>(path: string, init: { method?: string; headers?: Record<string, string>; body?: string } = {}, who?: string) {
-  const headers: Record<string, string> = { host: "127.0.0.1", ...(who ? { "x-lobos-user": who } : {}), ...init.headers };
-  let res: Response;
-  try {
-    res = await fetch(TARGET() + path, { method: init.method ?? "GET", headers, body: init.body, cache: "no-store", redirect: "manual" });
-  } catch {
-    return { status: 0, body: null as (T & { error?: string; code?: string }) | null };
-  }
-  let body: (T & { error?: string; code?: string }) | null = null;
-  try { body = await res.json(); } catch { /* not JSON */ }
-  return { status: res.status, body };
-}
 
 export async function listBudgets(): Promise<Answer<BudgetListItem[]>> {
   const r = await call<{ schema_version: string; budgets: BudgetListItem[] }>("/api/budgets");

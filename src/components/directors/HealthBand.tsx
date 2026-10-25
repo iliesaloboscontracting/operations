@@ -4,6 +4,7 @@
 // Directors overview. Each says a status word (never colour alone), its
 // source, "as at" and how sure it is; a source that isn't connected says so
 // and shows no number. Figures come from lib/insights/health.ts.
+import Link from "next/link";
 import { AlertOctagon, AlertTriangle, CheckCircle2, Info, PlugZap } from "lucide-react";
 import type { HealthStatus, HealthTile } from "@/lib/insights/health";
 import { ConfidenceBadge, Help } from "@/components/directors/parts";
@@ -33,7 +34,7 @@ function Tile({ t }: { t: HealthTile }) {
     <div className={`flex min-w-0 flex-col rounded-2xl border p-4 ${off ? "border-dashed border-edge bg-transparent" : "border-edge bg-panel"}`}>
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-gray-500">
-          {t.title}{t.kpi && <Help id={t.kpi} />}
+          {t.href ? <Link href={t.href} className="hover:text-gray-300 hover:underline">{t.title}</Link> : t.title}{t.kpi && <Help id={t.kpi} />}
         </div>
         <span className={`inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ${s.cls}`}>
           <s.Icon size={12} aria-hidden /> {t.statusWord}

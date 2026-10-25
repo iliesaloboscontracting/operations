@@ -220,7 +220,10 @@ export function latestByKey<T extends FindingState & { createdAt: Date }>(rows: 
   return out;
 }
 
-export function planRun(signals: Signal[], latest: Map<string, FindingState>, ctx: RunContext): Op[] {
+// notChecked: rule codes not evaluated this run (their source didn't answer,
+// e.g. Estimating for won tenders) - their findings are left exactly as they
+// are, never treated as "the rule no longer fires".
+export function planRun(signals: Signal[], latest: Map<string, FindingState>, ctx: RunContext, notChecked: readonly string[] = []): Op[] {
   const ops: Op[] = [];
   const seen = new Set<string>();
   for (const s of signals) {
@@ -230,7 +233,7 @@ export function planRun(signals: Signal[], latest: Map<string, FindingState>, ct
     if (op) ops.push(op);
   }
   for (const [key, f] of latest) {
-    if (seen.has(key)) continue;
+    if (seen.has(key) || notChecked.includes(f.ruleCode)) continue;
     const op = planKey(null, f, ctx);
     if (op) ops.push(op);
   }

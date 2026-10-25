@@ -64,6 +64,7 @@ export default function DirectorsPage() {
       subtitle={asAt ? `As at ${asAt} · live from Operations · ex GST` : undefined}
       actions={
         <div className="flex shrink-0 gap-2">
+          {!directorOnly && <Link href="/directors/pipeline" className="rounded-md border border-edge px-3 py-1.5 text-sm text-gray-300 hover:bg-panel2">Pipeline</Link>}
           {!directorOnly && <Link href="/directors/budgets" className="rounded-md border border-edge px-3 py-1.5 text-sm text-gray-300 hover:bg-panel2">Budgets to approve</Link>}
           <Link href="/directors/kpis" className="rounded-md border border-edge px-3 py-1.5 text-sm text-gray-300 hover:bg-panel2">How the numbers work</Link>
         </div>

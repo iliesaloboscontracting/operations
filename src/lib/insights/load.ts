@@ -14,6 +14,8 @@ import type { ProjectCostDTO } from "../types";
 import { NOT_YET_AVAILABLE, THRESHOLDS } from "./dictionary";
 import { toFindingDTO, sortFindings } from "../findings/view";
 import { companyHealth } from "./health";
+import { pipelineTile } from "./pipeline";
+import { loadPipelineState } from "./pipelineFeed";
 import {
   costConfidence, costPosition, crewDemand, daysNotClosed, daysNotClosedAlert, hiredPlantOut, hoursByWeek,
   isLeadRole, offHireAlerts, plantUse, requestAlerts, requestSummary, sortAlerts, startAlerts, supervisorAlerts,
@@ -163,10 +165,12 @@ export async function loadDirectorOverview() {
 
   // Stored findings (Phase 2 step 3): the open ones, and when the engine last
   // looked (its latest sighting). The computed alerts stay alongside.
-  const [openFindings, lastSeen, closedThisWeek] = await Promise.all([
+  // Estimating's pipeline (G5) is fetched alongside; it never holds the page up past its timeout.
+  const [openFindings, lastSeen, closedThisWeek, pipelineState] = await Promise.all([
     prisma.finding.findMany({ where: { status: { in: ["OPEN", "ACKNOWLEDGED", "ACTIONED"] } } }),
     prisma.finding.aggregate({ _max: { lastSeenAt: true } }),
     prisma.finding.count({ where: { status: { in: ["RESOLVED", "VERIFIED"] }, resolvedAt: { gte: new Date(now.getTime() - 7 * 86_400_000) } } }),
+    loadPipelineState(),
   ]);
   const findings = sortFindings(openFindings.map(toFindingDTO));
 
@@ -223,7 +227,7 @@ export async function loadDirectorOverview() {
     // Company health band (G1): the same figures as the sections below, summed up.
     health: companyHealth({
       asAt: now.toISOString(), projects, workload: wl, cost, costConfidence: costConfidence(cost),
-      capacity, supervisorGaps: gaps.length, activeCrew: crewCount, hours,
+      capacity, supervisorGaps: gaps.length, activeCrew: crewCount, hours, pipeline: pipelineTile(pipelineState),
     }),
     findings,
     findingsMeta: {
