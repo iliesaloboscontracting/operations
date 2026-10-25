@@ -109,3 +109,24 @@ test("a directors-only answer file opens for the person asked, Ilies and directo
   assert.equal(canSeeAnswerFile({ assigneeUserId: "acc", audience: "DIRECTOR" }, { ...a, email: OWNER }), true);
   assert.equal(canSeeAnswerFile({ assigneeUserId: "acc", audience: "DIRECTOR" }, { ...a, role: "MANAGER" }), false);
 });
+
+test("the invoices inbox still refuses Word and old Excel files (answers only take them)", async () => {
+  const { saveInvoiceFile } = await import("../invoiceFiles");
+  const xls = await saveInvoiceFile(`data:application/vnd.ms-excel;base64,${Buffer.from([0xd0, 0xcf, 0x11, 0xe0]).toString("base64")}`, "register.xls");
+  const docx = await saveInvoiceFile(`data:application/vnd.openxmlformats-officedocument.wordprocessingml.document;base64,${Buffer.from([0x50, 0x4b, 0x03, 0x04]).toString("base64")}`, "letter.docx");
+  const exe = await saveInvoiceFile(`data:application/octet-stream;base64,${Buffer.from("MZ").toString("base64")}`, "x.exe", { allow: ANSWER_EXTS, checkContent: true });
+  assert.ok("error" in xls && /PDF, a photo/.test(xls.error), JSON.stringify(xls));
+  assert.ok("error" in docx && /PDF, a photo/.test(docx.error), JSON.stringify(docx));
+  assert.ok("error" in exe && /can't be sent/.test(exe.error), JSON.stringify(exe));
+});
+
+test("a draft that can't be sent says why, plainly", async () => {
+  const { whyUnresolved } = await import("./rules");
+  const noAccounts = people.filter((p) => p.role !== "ACCOUNTS");
+  assert.equal(whyUnresolved("Accounts", noAccounts, OWNER), "No Accounts login yet: create it on Users.");
+  assert.match(whyUnresolved("Alex", people, OWNER), /has no director login/);
+  assert.match(whyUnresolved("Iliesa", people, OWNER), /owner/);
+  assert.match(whyUnresolved("Nobody Here", people, OWNER), /No login called/);
+  const twins = [u({ id: "a", name: "Sam", role: "DIRECTOR" }), u({ id: "b", name: "Sam", role: "DIRECTOR" })];
+  assert.match(whyUnresolved("Sam", twins, OWNER), /More than one/);
+});
