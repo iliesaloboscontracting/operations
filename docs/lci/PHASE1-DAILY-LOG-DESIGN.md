@@ -112,7 +112,8 @@ There are three options:
   `lib/activity-codes.js` and carries no prices. A test pins the code count (61) and the waste classes, so a
   change is deliberate.
 - **(c)** Ask the Estimating agent for `GET api/activity-codes` (an `activity-codes.v1` contract: the same fields,
-  no rates). Operations then checks its pinned VERSION against it nightly and raises an INFO finding if they differ.
+  no rates). Operations then checks its pinned VERSION against it nightly; if they differ, it logs a warning and
+  shows a note on the Day Review site-log panel.
 - **Codes are stable:** never renamed or reused (review §3). So a log stays readable even after the list moves on.
   Each log stores the codes VERSION it used.
 
@@ -268,13 +269,21 @@ pilot shouldn't block closing a day.
 
 ---
 
-## 7. New findings (signals for the existing engine)
+## 7. Missing logs and log problems: Day Review and the reminder only
 
-| Kind | When | Severity / audience / screen | Notes |
-|---|---|---|---|
-| `DAILY_LOG_MISSING` | A pilot supervisor's job ran today (sign-ins, or board crew) and there's no log by 19:00 Sydney | INFO on the day, MEDIUM from the next morning; OPERATIONAL; **Attention** | It closes itself when the log arrives (INFO auto-resolves; MEDIUM gets "signal cleared"). The dedupeKey is per job and date |
-| `LABOUR_HOURS_VS_BUDGET` | Job has an approved budget.v1. For each code: logged labour hours ÷ budgeted labour hours, minus the latest weekly % complete for its package, is more than 15 points (WATCH) or more than 30 points (ACT) | MEDIUM / HIGH; OPERATIONAL (hours, not money); **Attention**, with a decision for the lead (see §11) | Draft thresholds, marked draft. It needs at least 2 logs and one weekly %. Budget hours come from budget.v1 `hours.labour_hrs` per package |
-| `LOG_SPLIT_MISMATCH` (data gap) | Signed hours changed after the log, by more than 0.5 h | INFO; OPERATIONAL; Attention | "Supervisor's split no longer matches sign-ins". Closes itself after a new log revision |
+*Revised 25 Oct 2026: Ilies removed the Operations Attention tab (main bf47b2f). Operational findings are still
+stored but not listed, and they don't push alerts. So the daily log adds **no new list and no new findings**.
+Missing logs and log problems show in exactly two places: **Day Review** and **the supervisor's own reminder**.*
+
+| What | Where it shows | Rule |
+|---|---|---|
+| **Missing log** | Day Review: a red "No site log" badge on the job card once it's past 19:00, plus the close-the-day line "2 jobs have no site log" (information only during the pilot). **The supervisor:** the 19:00 reminder below | A pilot supervisor's job ran that day (sign-ins, or crew on the board) and there's no log. Worked out when Day Review loads, so nothing is stored or listed. It clears as soon as the log arrives |
+| **Split no longer matches sign-ins** | Day Review site-log panel: "split 46.5 h, signed now 48.0 h", amber | Signed hours changed by more than 0.5 h after the latest log revision. Clears when the supervisor re-logs (a new revision) or the office accepts it as is |
+| **Crew entered by hand / "something's wrong"** | Day Review site-log panel: a grey "entered by hand" tag, and the supervisor's note | From the log itself (crewOk = false) |
+| **Labour hours vs budget** (once a job has an approved budget.v1) | **Not a list item.** A small "hours vs budget" table per code on the Day Review job card (week to date) and on the job's Tracking page / Directors job page. Each code is marked Ahead / On track / Watch / Act | Hours used % (logged labour ÷ budget labour_hrs for the package) minus the latest weekly % complete: more than 15 points = Watch, more than 30 = Act (draft). Needs at least 2 logs and one weekly %. Whether it should *also* be a Directors finding is a decision for Ilies (§11) |
+
+Nothing here goes through the findings engine. These are plain read-time checks (`src/lib/dailyLog/checks.ts`,
+unit-tested), the same way Day Review already flags uncosted lines.
 
 **The A2 reminder** (Ilies approved automatic internal reminders, on an approved list, with rate limits and a kill
 switch):
@@ -283,7 +292,7 @@ switch):
   `pushToSiteLinks`, the same as the sign-out reminder.
 - **Rate limits:** at most one reminder per job per day (`ShiftReminder` kind `DAILY_LOG`), and none after 21:00
   (the next morning's 7:00 brief carries it instead).
-- **Kill switch:** `A2_RULES.DAILY_LOG_REMINDER.enabled` in config (off = no pushes, findings still raised).
+- **Kill switch:** `A2_RULES.DAILY_LOG_REMINDER.enabled` in config (off = no pushes; Day Review still shows the badge).
 - **Approved list:** `A2_RULES` lists only this rule. A new reminder type is a code change with Ilies's OK.
 
 ---
@@ -309,10 +318,10 @@ Photos are uploaded as data URLs, shrunk in the browser (as site requests do), u
   - ACM needs a photo;
   - a progress drop needs a reason;
   - revision numbering;
-  - the DAILY_LOG_MISSING timing (19:00, night shifts, after 21:00 none);
-  - LABOUR_HOURS_VS_BUDGET maths and thresholds;
-  - the mismatch signal;
-  - which screen each new kind goes to (it extends the Task J test; the typed table forces it).
+  - the missing-log rule and the reminder timing (19:00, night shifts, none after 21:00);
+  - the hours-vs-budget maths and thresholds;
+  - the split-mismatch check;
+  - that the daily log adds no findings kinds (the engine's signal list is unchanged).
 - **Money guard:** every link response from `log` and `progress` passes `assertNoMoney`, and the link DTO types have
   no money fields. Budget hours and costs never reach the link; only package names and codes do.
 - **Role / link matrix:**
@@ -325,7 +334,7 @@ Photos are uploaded as data URLs, shrunk in the browser (as site requests do), u
 - **The reminder:** exactly one push per job per day, with the kill switch honoured. Push keys are blank on the test
   copy, so nothing really sends.
 - **A copy run:** a script submits a week of logs for a pilot job, with dockets, a delay, a correction (v2) and a
-  weekly %. Day Review shows it; the missing-log finding opens and then closes.
+  weekly %. Day Review shows it: the "No site log" badge appears after 19:00 and clears when the log arrives.
 
 ---
 
@@ -336,9 +345,9 @@ Photos are uploaded as data URLs, shrunk in the browser (as site requests do), u
 | 1 | Pinned codes v0.2 (`activityCodes.ts`) + the 7 tables + validation rules + unit tests | S–M | Lead OKs the schema |
 | 2 | Link: Daily log card, steps 1–4, submit, corrections (revisions), photos | M–L | 1 |
 | 3 | Day Review "Site log" panel + the close-the-day line | S–M | 1 |
-| 4 | 19:00 A2 reminder + `DAILY_LOG_MISSING` + `LOG_SPLIT_MISMATCH` (Attention screen) | S | 1, 2 |
+| 4 | 19:00 A2 reminder + the Day Review checks (missing log, split mismatch, entered by hand) | S | 1, 2 |
 | 5 | Weekly % complete (codes basis first) | M | 2 |
-| 6 | Budget packages on the link and in the weekly %; `LABOUR_HOURS_VS_BUDGET` | M | An approved budget.v1 for the pilot job (Task H is live); the lead's LCI phase 2 import when it lands |
+| 6 | Budget packages on the link and in the weekly %; the hours-vs-budget table (Day Review + job page) | M | An approved budget.v1 for the pilot job (Task H is live); the lead's LCI phase 2 import when it lands |
 | 7 | Pilot report: completeness (logs ÷ jobs run, per supervisor per day), median time to log, codes used, dockets per job | S | 2 weeks of pilot data |
 | 8 | (Later) Estimating `GET api/activity-codes` + nightly version check | S (Estimating agent) | - |
 
@@ -351,8 +360,9 @@ The phase-1 exit test from the plan is **"pilot supervisors log 2 weeks; complet
 
 1. **Schema (§4):** the 7 additive tables, append-only by revision. OK?
 2. **Codes source (§3):** a pinned copy now, then an Estimating endpoint. OK, or wait for the endpoint?
-3. **Labour hours vs budget screen:** it's hours, not money, so the proposal puts it on **Attention**
-   (operations). If Ilies wants it on the Directors screen too, add it to `DIRECTOR_KINDS` (a one-line change).
+3. **Labour hours vs budget:** shown on the Day Review job card and the job page only (proposed). Should a job at
+   "Act" *also* appear on the Directors "Needs attention" box? That would be a director-level finding kind and a
+   one-line `DIRECTOR_KINDS` addition.
 4. **Thresholds:** 15 / 30 points over % complete, and 19:00 for the reminder. These are drafts, marked draft.
 5. **Closing a day without a log:** information only during the pilot (proposed), or should it block?
 6. **Pilot jobs:** which of Damien's and Tom's jobs. Ideally one with an approved budget.v1 soon, so piece 6 can be
