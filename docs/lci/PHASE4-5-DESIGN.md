@@ -39,7 +39,7 @@ approval, and one switch turns it all off.
 | Kind | Changes | Comes from | Who drafts the proposal | Who may approve (proposed, §6) |
 |---|---|---|---|---|
 | `HIRE_OFF_HIRE_DATE` | `Resource.offHireDate` of a hire-register item | (1) a **HIRE_EXTEND** request (supervisor: "still needed"); (2) a **HIRE_OVERDUE** finding | **System**, when the supervisor gave a "needed until" date (§1.6); otherwise a **person**, who types the date and says where it came from (e.g. "Hire Express, phone, 25 Oct") | An **Admin** (Ilies; Nick's ADMIN login when covering), as for site requests today |
-| `PROJECT_CONTRACT_VALUE` | `Project.contractValue` (+ `contractValueNotes`) | An **answered information request** (QUERY) asking for it | A **person** (the lead as Building Agent, or Ilies) types the figure from the answer, linking the query. Free-text answers are never parsed into money automatically | The **owner**, or a login with **director access**, and never the person who gave the answer |
+| `PROJECT_CONTRACT_VALUE` | `Project.contractValue` (+ `contractValueNotes`) | An **answered information request** (QUERY) asking for it | A **person** (the lead as Building Agent, or Ilies) types the figure from the answer, linking the query. Free-text answers are never parsed into money automatically | **Nick and Yoel** (Ilies, 25 Oct; whether the owner may too is to confirm), and never the person who gave the answer |
 | `PROJECT_JOB_NO` / `PROJECT_QUOTE_NO` | `Project.jobNo` / `Project.quoteNo` | An **answered information request** | A **person**, linking the query | An **Admin** |
 
 **Why not more yet:** these are exactly the changes the lead makes by hand today. Each is a single field, has an
@@ -461,3 +461,16 @@ model BenchmarkOffer {
    bar is met? The estimator decides either way.
 10. **Estimating's side:** suggestions go into a new **production library** (hours per unit), not the supplier rate
     library. This needs the Estimating agent's design and your OK.
+
+### Answers so far (Ilies, 25 Oct 2026, in this session)
+
+Ilies answered four questions, put to him in plain words. His replies are quoted as written, with how they read:
+
+| Question | Ilies | Reads as |
+|---|---|---|
+| Decision 2: approve the contract value on screen (A3), or keep it a manual change? | "nick and yoel" | On screen (A3), approved by Nick and Yoel |
+| Decision 3: who approves contract values, only Ilies or also Nick's and Yoel's director logins? | "nick and yoel" | **Nick and Yoel approve contract values.** *Still to confirm: whether Ilies (the owner) may also approve them, or only the two directors.* |
+| Decision 6: may the hire check's "Still needed" answer ask "until about when?" | "yes" | Yes: an optional date, so the system can propose the off-hire date itself |
+| Decision 9: offering a benchmark to Estimating, deliberate tap or automatic? | "deliberate tap until other wise said so" | A deliberate "Offer to Estimating" tap, until Ilies says otherwise |
+
+Still open: 1, 4, 5, 7, 8, 10, and the owner question in 3.
