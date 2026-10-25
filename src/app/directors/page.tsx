@@ -20,6 +20,7 @@ import { Card, HEALTH, moneyTip, tooltipStyle } from "@/components/tracking/part
 import { ConfidenceBadge, DLink, Figure, Help, PriorityPill, Section, pct } from "@/components/directors/parts";
 import { groupForDisplay } from "@/lib/findings/view";
 import FindingPanel from "@/components/directors/FindingPanel";
+import HealthBand from "@/components/directors/HealthBand";
 
 const day = (iso: string) => fmtDay(iso, { day: "numeric", month: "short" });
 const weekday = (iso: string) => fmtDay(iso, { weekday: "short", day: "numeric" });
@@ -86,6 +87,9 @@ function Overview({ o, showAll, setShowAll, onRefresh }: { o: DirectorOverviewDT
 
   return (
     <>
+      {/* 0. Company health band (G1) */}
+      <HealthBand tiles={o.health} />
+
       {/* 1. Needs attention: stored findings once the engine has run, else the computed list */}
       {o.findingsMeta.checkedAt
         ? <FindingsAttention o={o} showAll={showAll} setShowAll={setShowAll} onRefresh={onRefresh} />

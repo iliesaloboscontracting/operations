@@ -13,6 +13,7 @@ import { LABOUR_BACKFILL_CUTOFF, loadTracking } from "../trackingData";
 import type { ProjectCostDTO } from "../types";
 import { NOT_YET_AVAILABLE, THRESHOLDS } from "./dictionary";
 import { toFindingDTO, sortFindings } from "../findings/view";
+import { companyHealth } from "./health";
 import {
   costConfidence, costPosition, crewDemand, daysNotClosed, daysNotClosedAlert, hiredPlantOut, hoursByWeek,
   isLeadRole, offHireAlerts, plantUse, requestAlerts, requestSummary, sortAlerts, startAlerts, supervisorAlerts,
@@ -219,6 +220,11 @@ export async function loadDirectorOverview() {
     ],
     notYetAvailable: NOT_YET_AVAILABLE,
     snapshotsSince: firstSnapshot,
+    // Company health band (G1): the same figures as the sections below, summed up.
+    health: companyHealth({
+      asAt: now.toISOString(), projects, workload: wl, cost, costConfidence: costConfidence(cost),
+      capacity, supervisorGaps: gaps.length, activeCrew: crewCount, hours,
+    }),
     findings,
     findingsMeta: {
       checkedAt: lastSeen._max.lastSeenAt?.toISOString() ?? null,
