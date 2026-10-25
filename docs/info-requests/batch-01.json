@@ -20,10 +20,10 @@
     {
       "to": "Nick Giannopoulos",
       "type": "QUESTION",
-      "title": "Bellevue Hill - which project folder?",
-      "question": "Bellevue Hill (quote 24_459 Rev01) has two live project folders: 24_091 (holds the quote) and 24_094. Operations uses 24_094. Which is the real project number?",
+      "title": "Bellevue Hill (12 March St) - which project folder?",
+      "question": "12 March St, Bellevue Hill (Struct, quote 24_459 Rev01) has two live project folders: 24_091 (holds the quote) and 24_094 (only the departures draft). Which is the real project number? Also 60 Gilbert Ave, Dover Heights (project 24_088) - is either job still running? Neither is in Operations yet.",
       "need": "24_091 or 24_094.",
-      "why": "Every app now uses one job number per job."
+      "why": "So the tender register and Operations use one job number per job."
     },
     {
       "to": "Nick Giannopoulos",
