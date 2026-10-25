@@ -19,6 +19,7 @@ const OPERATIONS = [
   { href: "/changes", label: "Changes" },
   { href: "/completed", label: "Completed" },
   { href: "/day-review", label: "Day Review" },
+  { href: "/receipts", label: "Receipts" },
   { href: "/attendance", label: "Sign-ins" },
   { href: "/timesheets", label: "Timesheets" },
   { href: "/tracking", label: "Project Tracking" },
@@ -154,7 +155,7 @@ export default function TopNav() {
             <Divider />
           </>
         )}
-        {OPERATIONS.filter((i) => (i.href !== "/tracking" && i.href !== "/invoices" && i.href !== "/assistant" && i.href !== "/attendance" && i.href !== "/timesheets" && i.href !== "/requests" && i.href !== "/office-requests" && i.href !== "/changes") || canEdit).map((i) => (
+        {OPERATIONS.filter((i) => (i.href !== "/tracking" && i.href !== "/invoices" && i.href !== "/assistant" && i.href !== "/attendance" && i.href !== "/timesheets" && i.href !== "/requests" && i.href !== "/office-requests" && i.href !== "/changes" && i.href !== "/receipts") || canEdit).map((i) => (
           <NavTab
             key={i.href}
             href={i.href}

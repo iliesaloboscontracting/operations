@@ -1376,3 +1376,84 @@ model Lesson {
   @@index([ruleCode])
   @@index([status])
 }
+
+// ---------- Receipts (docs/receipts/RECEIPTS-DESIGN.md, approved by Ilies 25 Oct 2026) ----------
+// Tip dockets and fuel receipts photographed from a phone (a SUPERVISOR or DRIVER link), and an odometer
+// photo after a truck sign-in. R1 (capture) only stores the photos (status SENT); R2 reads them (READ /
+// CHECK / CONFIRMED / REJECTED) into the nullable fields below; R3 matches tip dockets to invoices.
+// Links to existing rows are plain ids, so no existing table changes. Money stays office-side: never on a link.
+model Receipt {
+  id               String         @id @default(cuid())
+  kind             String // TIP | FUEL
+  siteLinkId       String // the phone link it came from
+  sentBy           String // the person's name when sent
+  sentByResourceId String?
+  sentAt           DateTime       @default(now())
+  jobId            String? // TIP: the job (prefilled with their job today)
+  projectId        String? // TIP: the job's project
+  vehicleId        String? // FUEL: the truck (a Lobos-owned VEHICLE resource)
+  asbestos         Boolean? // TIP: the Yes / No tap; null for fuel
+  status           String         @default("SENT") // SENT (waiting to be read) | READ | CHECK | CONFIRMED | REJECTED
+  // R2 - what Claude read (JSON) and why a person must check it (JSON list); the fields it fills.
+  reading          String?
+  checkReasons     String?
+  docketNo         String?
+  docketAt         DateTime?
+  tipSite          String?
+  wasteType        String?
+  tonnes           Float?
+  priceExGst       Float?
+  priceIncGst      Float?
+  litres           Float?
+  pricePerLitre    Float?
+  fuelTotal        Float?
+  station          String?
+  rego             String?
+  correctedBy      String?
+  correctedAt      DateTime?
+  // R3 - the tip invoice (InvoicedCost) that replaced this docket's estimate.
+  invoicedCostId   String?
+  photos           ReceiptPhoto[]
+
+  @@index([jobId])
+  @@index([vehicleId])
+  @@index([sentAt])
+  @@index([siteLinkId])
+  @@index([docketNo])
+}
+
+// The odometer photo asked for after signing in on a truck's QR (or "Can't now" - SKIPPED).
+model OdometerReading {
+  id               String         @id @default(cuid())
+  vehicleId        String
+  siteAttendanceId String         @unique // the truck sign-in it follows
+  siteLinkId       String // the truck's poster link
+  sentBy           String
+  sentByResourceId String?
+  sentAt           DateTime       @default(now())
+  status           String         @default("SENT") // SENT | SKIPPED; R2: READ | CHECK | CONFIRMED | REJECTED
+  km               Float? // R2
+  reading          String? // R2 - JSON
+  correctedBy      String?
+  correctedAt      DateTime?
+  photos           ReceiptPhoto[]
+
+  @@index([vehicleId])
+  @@index([sentAt])
+}
+
+// One uploaded photo (file in RECEIPT_FILE_DIR). Uploaded first, attached when the receipt / reading is sent.
+model ReceiptPhoto {
+  id                String           @id @default(cuid())
+  fileName          String           @unique
+  siteLinkId        String?
+  takenBy           String
+  createdAt         DateTime         @default(now())
+  receiptId         String?
+  receipt           Receipt?         @relation(fields: [receiptId], references: [id], onDelete: SetNull)
+  odometerReadingId String?
+  odometerReading   OdometerReading? @relation(fields: [odometerReadingId], references: [id], onDelete: SetNull)
+
+  @@index([siteLinkId, createdAt])
+  @@index([receiptId])
+}

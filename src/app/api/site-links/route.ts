@@ -13,7 +13,7 @@ export const GET = withErrorHandling(async () => {
   if (denied) return denied;
   // Phone links only - site posters and one-day hand-overs live on Sign-ins.
   const links = await prisma.siteLink.findMany({
-    where: { kind: { in: ["SUPERVISOR", "OFFICE"] } },
+    where: { kind: { in: ["SUPERVISOR", "OFFICE", "DRIVER"] } },
     orderBy: { createdAt: "desc" },
     select: {
       id: true, kind: true, label: true, createdAt: true, createdBy: true, lastUsedAt: true, revokedAt: true,
@@ -28,6 +28,7 @@ export const GET = withErrorHandling(async () => {
 // kind SUPERVISOR (default): for someone in charge of a toolbox.
 // kind OFFICE: for office / yard staff capturing tools into the inventory -
 // anyone in the Personnel register.
+// kind DRIVER: a truck driver's link for tip dockets and fuel receipts only.
 // shared "Yard" (19 Oct 2026): one office/yard link not tied to a person -
 // anyone working in the yard uses it and types their name on the phone.
 // The full link is returned ONCE, to be sent to them; it can't be looked up
@@ -60,7 +61,8 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
       })
     : null;
   if (!person || person.type !== "PERSONNEL") return NextResponse.json({ error: "Pick someone from the Personnel register." }, { status: 400 });
-  const kind = body.kind === "OFFICE" ? "OFFICE" : "SUPERVISOR";
+  // kind DRIVER (Receipts, 26 Oct 2026): a driver's link - Add receipt and My receipts, nothing else.
+  const kind = body.kind === "OFFICE" ? "OFFICE" : body.kind === "DRIVER" ? "DRIVER" : "SUPERVISOR";
   // Supervisor links: anyone in charge of a toolbox, or a Site Manager /
   // supervisor (they run crew sign-in even without a toolbox).
   const leads = person.toolboxes.length > 0 || isLead(person);

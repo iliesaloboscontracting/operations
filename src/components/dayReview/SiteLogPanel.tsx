@@ -66,7 +66,7 @@ export default function SiteLogPanel({ log, budget }: { log: DayReviewSiteLogDTO
                 Docket: {d.wasteClass} · {d.quantity} {UNIT_LABEL[d.unit] ?? d.unit}{d.docketNo ? ` · #${d.docketNo}` : ""} · {d.code}
                 {d.photo && <a href={photo(d.photo)} target="_blank" rel="noreferrer" className="ml-1 text-brand-400 underline">photo</a>}
               </div>
-            )) : <div>No tip dockets</div>}
+            )) : null /* tip dockets now arrive as receipts (Receipts R1), not on the log */}
           </div>
           {l.note && <p className="text-gray-300">&ldquo;{l.note}&rdquo;</p>}
           {l.photos.length > 0 && (

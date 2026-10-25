@@ -111,9 +111,15 @@ export default function FromSitePage() {
   // (crew sign-in, requests, toolbox), anyone else an office / yard link.
   const supervisorIds = new Set(supervisors.map((p) => p.id));
   const officeStaff = people.filter((p) => p.category === "Office" && p.active !== false).sort((a, b) => a.name.localeCompare(b.name));
-  const others = people.filter((p) => p.category !== "Office" && !supervisorIds.has(p.id) && p.active !== false).sort((a, b) => a.name.localeCompare(b.name));
-  const linkKind: "SUPERVISOR" | "OFFICE" | "YARD" = newLinkFor === "YARD" ? "YARD" : supervisorIds.has(newLinkFor) && !officeStaff.some((p) => p.id === newLinkFor) ? "SUPERVISOR" : "OFFICE";
-  const linkPeople: { id: string; name: string }[] = [...officeStaff, ...supervisors, ...others];
+  // Truck drivers who aren't supervisors get a driver link: receipts only (26 Oct 2026).
+  const drivers = people.filter((p) => p.category === "Truck Driver" && !supervisorIds.has(p.id) && p.active !== false).sort((a, b) => a.name.localeCompare(b.name));
+  const others = people.filter((p) => p.category !== "Office" && p.category !== "Truck Driver" && !supervisorIds.has(p.id) && p.active !== false).sort((a, b) => a.name.localeCompare(b.name));
+  const linkKind: "SUPERVISOR" | "OFFICE" | "YARD" | "DRIVER" =
+    newLinkFor === "YARD" ? "YARD"
+      : supervisorIds.has(newLinkFor) && !officeStaff.some((p) => p.id === newLinkFor) ? "SUPERVISOR"
+      : drivers.some((p) => p.id === newLinkFor) ? "DRIVER"
+      : "OFFICE";
+  const linkPeople: { id: string; name: string }[] = [...officeStaff, ...supervisors, ...drivers, ...others];
 
   return (
     <PageShell title="From site" subtitle="Tools added from site, faults reported, and everyone's private phone links.">
@@ -239,8 +245,8 @@ export default function FromSitePage() {
           <section className="min-w-0">
             <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-gray-200"><Link2 size={14} /> Phone links</h2>
             <p className="mb-3 text-xs text-gray-500">
-              <b className="text-gray-300">Supervisor link</b>: add tools to their toolbox, check it, report faults. <b className="text-gray-300">Office link</b>: requests to-do list and adding tools
-              to the inventory. Pick the person - the right kind of link is chosen for you. Each person gets their own private link; making a new one switches their old one of that kind off.
+              <b className="text-gray-300">Supervisor link</b>: add tools to their toolbox, check it, report faults, send receipts. <b className="text-gray-300">Office link</b>: requests to-do list and adding tools
+              to the inventory. <b className="text-gray-300">Driver link</b>: tip dockets and fuel receipts only. Pick the person - the right kind of link is chosen for you. Each person gets their own private link; making a new one switches their old one of that kind off.
             </p>
             {canEdit && (
               <div className="mb-3 flex flex-wrap gap-2">
@@ -254,6 +260,11 @@ export default function FromSitePage() {
                   {supervisors.length > 0 && (
                     <optgroup label="Supervisors">
                       {supervisors.filter((p) => !officeStaff.some((o) => o.id === p.id)).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </optgroup>
+                  )}
+                  {drivers.length > 0 && (
+                    <optgroup label="Drivers (receipts link)">
+                      {drivers.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                     </optgroup>
                   )}
                   <optgroup label="Shared">
@@ -276,7 +287,7 @@ export default function FromSitePage() {
                     );
                     if (out) {
                       const who = linkPeople.find((p) => p.id === newLinkFor)?.name ?? "";
-                      setMadeLink({ name: linkKind === "YARD" ? "the Yard" : linkKind === "OFFICE" ? `${who} (office link)` : who, url: out.url });
+                      setMadeLink({ name: linkKind === "YARD" ? "the Yard" : linkKind === "OFFICE" ? `${who} (office link)` : linkKind === "DRIVER" ? `${who} (driver link)` : who, url: out.url });
                       setCopied(false);
                       setNewLinkFor("");
                     }
@@ -287,7 +298,9 @@ export default function FromSitePage() {
                 {newLinkFor && (
                   <p className="w-full text-xs text-gray-500">
                     {linkKind === "SUPERVISOR"
-                      ? "Supervisor link: crew sign-in QR, site requests, their toolbox."
+                      ? "Supervisor link: crew sign-in QR, site requests, receipts, their toolbox."
+                      : linkKind === "DRIVER"
+                        ? "Driver link: tip dockets and fuel receipts - nothing else."
                       : linkKind === "YARD"
                         ? "Shared yard link: tools into the inventory; each person types their name."
                         : "Office link: their requests to-do list and adding tools. No allocation needed."}
@@ -324,7 +337,7 @@ export default function FromSitePage() {
                   <div className="min-w-0 flex-1">
                     <div className="text-gray-200">
                       {l.resource?.name ?? l.label}
-                      <span className="ml-1.5 rounded-full bg-gray-700 px-1.5 py-0.5 text-[10px] text-gray-300">{!l.resource ? "Shared" : l.kind === "OFFICE" ? "Office / yard" : "Supervisor"}</span>
+                      <span className="ml-1.5 rounded-full bg-gray-700 px-1.5 py-0.5 text-[10px] text-gray-300">{!l.resource ? "Shared" : l.kind === "OFFICE" ? "Office / yard" : l.kind === "DRIVER" ? "Driver" : "Supervisor"}</span>
                     </div>
                     <div className="text-gray-500">
                       Made {when(l.createdAt)}{l.lastUsedAt ? ` · last used ${when(l.lastUsedAt)}` : " · not used yet"} · {l._count.submissions} sent

@@ -61,6 +61,22 @@ export async function resolveLink(secret: unknown): Promise<ResolvedLink | null>
   return { id: link.id, kind, jobId: link.jobId, person, shared: !link.resource, toolboxes };
 }
 
+// Receipts (26 Oct 2026): a supervisor's link, or a DRIVER link - a person's
+// link that can only send receipts. resolveLink above never accepts DRIVER,
+// so a driver's link reaches none of the other site routes.
+export type ReceiptLink = { id: string; kind: "SUPERVISOR" | "DRIVER"; person: { id: string; name: string } };
+export async function resolveReceiptLink(secret: unknown): Promise<ReceiptLink | null> {
+  if (typeof secret !== "string" || !/^[A-Za-z0-9_-]{20,64}$/.test(secret)) return null;
+  const link = await prisma.siteLink.findUnique({
+    where: { tokenHash: hashSecret(secret) },
+    select: { id: true, kind: true, revokedAt: true, resource: { select: { id: true, name: true, active: true } } },
+  });
+  if (!link || link.revokedAt || (link.kind !== "SUPERVISOR" && link.kind !== "DRIVER")) return null;
+  if (!link.resource || !link.resource.active) return null;
+  await prisma.siteLink.update({ where: { id: link.id }, data: { lastUsedAt: new Date() } });
+  return { id: link.id, kind: link.kind, person: { id: link.resource.id, name: link.resource.name } };
+}
+
 export async function photosSentToday(linkId: string) {
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
   return prisma.toolPhoto.count({ where: { siteLinkId: linkId, createdAt: { gte: since } } });

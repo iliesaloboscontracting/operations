@@ -16,7 +16,7 @@ export default function PhotoPicker({
   uploadUrl = "/api/tools/photos",
   big,
 }: {
-  kind: "PLATE" | "CONDITION" | "FAULT" | "CHECK";
+  kind: "PLATE" | "CONDITION" | "FAULT" | "CHECK" | "RECEIPT"; // RECEIPT: a tip docket / fuel receipt (its own upload route)
   label: string;
   hint?: string;
   photoId: string | null;

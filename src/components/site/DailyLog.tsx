@@ -5,14 +5,16 @@ import { Camera, Check, Loader2, Minus, Plus, Search, X } from "lucide-react";
 import { resizePhoto } from "@/lib/imageResize";
 import { serverErrorMessage } from "@/lib/apiFetch";
 import { fmtDay } from "@/lib/dates";
-import { CODES, BY_CODE, WASTE_CLASSES } from "@/lib/activityCodes";
-import { ACM, DELAY_CODES, DELAY_LABEL, DOCKET_UNITS, SPLIT_TOLERANCE, UNIT_LABEL, type DelayCode } from "@/lib/dailyLog/rules";
+import { CODES, BY_CODE } from "@/lib/activityCodes";
+import { DELAY_CODES, DELAY_LABEL, SPLIT_TOLERANCE, type DelayCode } from "@/lib/dailyLog/rules";
 import type { LinkLogDTO, LogJobDTO, ProgressFormDTO } from "@/lib/dailyLog/types";
 
 // The daily site log on a pilot supervisor's link (Task K, 25 Oct 2026):
 // about 60 seconds at the end of the day. 1) the crew and signed hours (from
 // sign-ins - read-only), 2) split those hours across what they worked on,
-// 3) anything that held them up, 4) tip dockets, then a note and Submit. Once
+// 3) anything that held them up, then a note and Submit. Tip dockets come in as
+// receipts from whoever has them (Receipts, 26 Oct 2026) - the log shows how
+// many were sent for the job. Once
 // a week, the same screen asks for % complete. Re-opening a logged day saves a
 // new version - the office keeps the earlier ones. No money anywhere here.
 
@@ -50,7 +52,7 @@ export default function DailyLog({ api, onDone }: { api: string; onDone: (messag
   return (
     <div>
       <h2 className="mb-1 text-lg font-semibold text-gray-100">Daily log</h2>
-      <p className="mb-4 text-sm text-gray-500">About a minute: who worked, what they did, any hold-ups and tip dockets.</p>
+      <p className="mb-4 text-sm text-gray-500">About a minute: who worked, what they did and any hold-ups.</p>
       {data.jobs.length === 0 && <p className="mb-4 rounded-xl border border-edge bg-panel p-4 text-sm text-gray-400">You&apos;re not on a job to log today.</p>}
       <div className="space-y-3">
         {data.jobs.map((j) => (
@@ -109,8 +111,9 @@ function LogSteps({ api, job, onBack, onSaved }: { api: string; job: LogJobDTO; 
   }));
   const [delays, setDelays] = useState<Delay[]>(prev ? prev.delays.map((d) => ({ delayCode: d.delayCode as DelayCode, hoursLost: d.hoursLost == null ? "" : String(d.hoursLost), affects: d.affects, note: d.note ?? "", photos: d.photos })) : []);
   const [noDelays, setNoDelays] = useState(prev ? prev.noDelays : false);
-  const [dockets, setDockets] = useState<Docket[]>(prev ? prev.dockets.map((d) => ({ code: d.code, wasteClass: d.wasteClass, quantity: String(d.quantity), unit: d.unit, docketNo: d.docketNo ?? "", photo: d.photo })) : []);
-  const [noDockets, setNoDockets] = useState(prev ? prev.noDockets : false);
+  // Dockets from an older log (before receipts) are kept as they were when it's corrected.
+  const dockets: Docket[] = prev ? prev.dockets.map((d) => ({ code: d.code, wasteClass: d.wasteClass, quantity: String(d.quantity), unit: d.unit, docketNo: d.docketNo ?? "", photo: d.photo })) : [];
+  const noDockets = dockets.length === 0;
   const [note, setNote] = useState(prev?.note ?? "");
   const [photos, setPhotos] = useState<string[]>(prev?.photos ?? []);
   const [busy, setBusy] = useState(false);
@@ -143,12 +146,13 @@ function LogSteps({ api, job, onBack, onSaved }: { api: string; job: LogJobDTO; 
     onSaved(`Daily log saved for ${job.label}${log.revision > 1 ? ` (version ${log.revision})` : ""}`);
   }
 
-  const steps = ["Who and how long", "What did the crew do?", "Anything hold you up?", "Tip dockets today", "Done?"];
+  const steps = ["Who and how long", "What did the crew do?", "Anything hold you up?", "", "Done?"];
+  const docketsText = job.docketsSent ? `${job.docketsSent} tip docket${job.docketsSent === 1 ? "" : "s"} sent today` : "no tip dockets sent yet";
   return (
     <div>
       <div className="mb-1 flex items-baseline justify-between gap-2">
         <h2 className="text-lg font-semibold text-gray-100">{steps[step]}</h2>
-        <span className="text-xs text-gray-500">{step < 4 ? `Step ${step + 1} of 4` : "Review"}</span>
+        <span className="text-xs text-gray-500">{step < 3 ? `Step ${step + 1} of 3` : "Review"}</span>
       </div>
       <p className="mb-4 text-sm text-gray-500">{job.label} · {dayLabel(job.date)}{prev ? ` · correcting the ${prev.atLabel} log (saves version ${prev.revision + 1})` : ""}</p>
 
@@ -237,7 +241,7 @@ function LogSteps({ api, job, onBack, onSaved }: { api: string; job: LogJobDTO; 
       {step === 2 && (
         <div className="space-y-3">
           <div className="flex flex-wrap gap-2">
-            <button className={chip(noDelays && delays.length === 0)} onClick={() => { setNoDelays(true); setDelays([]); setStep(3); }}>No</button>
+            <button className={chip(noDelays && delays.length === 0)} onClick={() => { setNoDelays(true); setDelays([]); setStep(4); }}>No</button>
             {DELAY_CODES.map((c) => (
               <button key={c} className={chip(false)} onClick={() => { setNoDelays(false); setDelays([...delays, { delayCode: c, hoursLost: "", affects: "CREW", note: "", photos: [] }]); }}>{DELAY_LABEL[c]}</button>
             ))}
@@ -256,20 +260,8 @@ function LogSteps({ api, job, onBack, onSaved }: { api: string; job: LogJobDTO; 
               <Photos photos={d.photos} max={4} onChange={(ps) => setDelays(delays.map((x, k) => (k === i ? { ...x, photos: ps } : x)))} />
             </div>
           ))}
-          {delays.length > 0 && <button className={primary} onClick={() => { setNoDelays(false); setStep(3); }}>Next →</button>}
+          {delays.length > 0 && <button className={primary} onClick={() => { setNoDelays(false); setStep(4); }}>Next →</button>}
           <button className="w-full text-sm text-gray-400" onClick={() => setStep(1)}>← Back</button>
-        </div>
-      )}
-
-      {step === 3 && (
-        <div className="space-y-3">
-          {dockets.map((d, i) => (
-            <DocketEditor key={i} d={d} onChange={(x) => setDockets(dockets.map((y, k) => (k === i ? x : y)))} onRemove={() => setDockets(dockets.filter((_, k) => k !== i))} />
-          ))}
-          <button className={secondary} onClick={() => { setNoDockets(false); setDockets([...dockets, { code: "DEM-10", wasteClass: "", quantity: "", unit: "t", docketNo: "", photo: null }]); }}><Plus size={16} /> Add a docket</button>
-          {dockets.length === 0 ? <button className={primary} onClick={() => { setNoDockets(true); setStep(4); }}>None today →</button>
-            : <button className={primary} disabled={dockets.some((d) => !d.wasteClass || !(Number(d.quantity) > 0) || (d.wasteClass === ACM && !d.photo))} onClick={() => { setNoDockets(false); setStep(4); }}>Next →</button>}
-          <button className="w-full text-sm text-gray-400" onClick={() => setStep(2)}>← Back</button>
         </div>
       )}
 
@@ -278,14 +270,14 @@ function LogSteps({ api, job, onBack, onSaved }: { api: string; job: LogJobDTO; 
           <div className="rounded-xl border border-edge bg-panel p-3 text-sm text-gray-300">
             <div>{crewOk ? `${job.crew.count} crew · ${h(signed)}` : `Crew by hand${handHours ? `: ${handCrew} · ${h(Number(handHours))}` : ""}`}</div>
             <div className="text-gray-400">{rows.map((r) => `${r.code} ${h(r.hours)}`).join(" · ")}</div>
-            <div className="text-gray-400">{noDelays || !delays.length ? "No delays" : delays.map((d) => DELAY_LABEL[d.delayCode]).join(", ")} · {noDockets || !dockets.length ? "no dockets" : `${dockets.length} docket${dockets.length === 1 ? "" : "s"}`}</div>
+            <div className="text-gray-400">{noDelays || !delays.length ? "No delays" : delays.map((d) => DELAY_LABEL[d.delayCode]).join(", ")} · {docketsText}{dockets.length ? ` (${dockets.length} on the earlier log)` : ""}</div>
           </div>
           <label className="block"><span className="mb-1 block text-sm text-gray-300">Note for the office (optional)</span>
             <textarea className={input} rows={3} value={note} onChange={(e) => setNote(e.target.value)} /></label>
           <Photos photos={photos} max={4} label="Add photos of the day" onChange={setPhotos} />
           {error && <p className="rounded-lg bg-red-500/15 px-3 py-2 text-sm text-red-300">{error}</p>}
           <button className={primary} disabled={busy} onClick={submit}>{busy ? <Loader2 size={18} className="animate-spin" /> : <Check size={18} />} Submit</button>
-          <button className="w-full text-sm text-gray-400" onClick={() => setStep(3)}>← Back</button>
+          <button className="w-full text-sm text-gray-400" onClick={() => setStep(2)}>← Back</button>
         </div>
       )}
       {step === 0 && <button className="mt-4 w-full text-sm text-gray-400" onClick={onBack}>← All jobs</button>}
@@ -321,30 +313,6 @@ function CodePicker({ suggested, taken, onPick }: { suggested: LogJobDTO["sugges
   );
 }
 
-function DocketEditor({ d, onChange, onRemove }: { d: Docket; onChange: (d: Docket) => void; onRemove: () => void }) {
-  const acm = d.wasteClass === ACM;
-  return (
-    <div className={`space-y-2 rounded-xl border bg-panel p-3 ${acm ? "border-red-500/60" : "border-edge"}`}>
-      <div className="flex items-center justify-between">
-        <div className="flex gap-2">
-          <button className={chip(d.code === "DEM-10")} onClick={() => onChange({ ...d, code: "DEM-10" })}>Waste load-out</button>
-          <button className={chip(d.code === "CIV-02")} onClick={() => onChange({ ...d, code: "CIV-02" })}>Spoil export</button>
-        </div>
-        <button className="p-1 text-gray-500" aria-label="Remove" onClick={onRemove}><X size={16} /></button>
-      </div>
-      <div className="flex flex-wrap gap-2">{WASTE_CLASSES.map((w) => <button key={w} className={chip(d.wasteClass === w)} onClick={() => onChange({ ...d, wasteClass: w })}>{w}</button>)}</div>
-      <div className="grid grid-cols-[1fr_auto] gap-2">
-        <input className={input} inputMode="decimal" placeholder="Amount" value={d.quantity} onChange={(e) => onChange({ ...d, quantity: e.target.value })} />
-        <select className={input} value={d.unit} onChange={(e) => onChange({ ...d, unit: e.target.value })}>{DOCKET_UNITS.map((u) => <option key={u} value={u}>{UNIT_LABEL[u]}</option>)}</select>
-      </div>
-      <input className={input} placeholder="Docket number (optional)" value={d.docketNo} onChange={(e) => onChange({ ...d, docketNo: e.target.value })} />
-      <Photos photos={d.photo ? [d.photo] : []} max={1} label={acm ? "Photo of the docket (needed for asbestos)" : "Photo of the docket"} onChange={(ps) => onChange({ ...d, photo: ps[0] ?? null })} />
-    </div>
-  );
-}
-
-// Photos: new ones are shrunk on the phone and sent with the log; ones from
-// an earlier version are kept by name (shown as "kept").
 function Photos({ photos, max, label = "Add a photo (optional)", onChange }: { photos: string[]; max: number; label?: string; onChange: (p: string[]) => void }) {
   const ref = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<string | null>(null);

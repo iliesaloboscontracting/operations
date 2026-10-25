@@ -16,6 +16,7 @@ import { DELAY_LABEL, LIMITS, nextRevision, parseLog, parseProgress, pilotLinkId
 import {
   hoursVsBudget, isMissingLog, logDueAt, pickApprovedBudget, progressDue, splitMismatch, sydneyDay, weekStartOf, type BudgetPackageHours,
 } from "./checks";
+import { docketsSentFor } from "../receipts/store";
 import type { DayReviewSiteLogDTO, DayReviewSiteLogsDTO, HoursVsBudgetDTO, LinkLogDTO, LogCardDTO, LogDetailDTO, LogJobDTO, ProgressFormDTO } from "./types";
 
 const dateOnly = (day: string) => new Date(`${day}T00:00:00.000Z`);
@@ -230,12 +231,14 @@ export async function linkLogView(link: ResolvedLink, now: Date): Promise<LinkLo
   const budgets = new Map<string, BudgetState>();
   for (const j of jobs) if (j.project && !budgets.has(j.project.id)) budgets.set(j.project.id, await approvedBudgetFor(j.project));
   const out: LogJobDTO[] = [];
+  // Tip dockets now come in as receipts from whoever has them (Receipts R1) - the log just counts them.
+  const dockets = await docketsSentFor(jobs.map((j) => j.id));
   for (const j of jobs) {
     const [crew, plant, latest] = await Promise.all([crewFor(j.id, now), plantFor(j), latestLogRow(j.id)]);
     out.push({
       jobId: j.id, date: isoDay(j.date), shift: j.shift, label: jobLabel(j), closed: closed.has(isoDay(j.date)),
       crew, plant, suggested: await suggestedCodes(j.projectId, j.project ? budgets.get(j.project.id)! : { state: "NONE" }),
-      latest: latest ? await toDetail(latest) : null,
+      latest: latest ? await toDetail(latest) : null, docketsSent: dockets.get(j.id) ?? 0,
     });
   }
   const progress = await progressForms(link, now, budgets);

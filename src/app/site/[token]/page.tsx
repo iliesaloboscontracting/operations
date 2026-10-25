@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState, use } from "react";
-import { ArrowLeft, Camera, ClipboardList, ListChecks, Loader2, NotebookPen, QrCode as QrIcon, ScanLine, Send, Truck, Wrench } from "lucide-react";
+import { ArrowLeft, Camera, ClipboardList, ListChecks, Loader2, NotebookPen, QrCode as QrIcon, Receipt, ReceiptText, ScanLine, Send, Truck, Wrench } from "lucide-react";
 import PhotoPicker from "@/components/tools/PhotoPicker";
 import DailyLog from "@/components/site/DailyLog";
 import type { LogCardDTO } from "@/lib/dailyLog/types";
@@ -9,6 +9,7 @@ import SignInCrew from "@/components/site/SignInCrew";
 import { MyRequests, RequestForm } from "@/components/site/SiteRequests";
 import TodoList from "@/components/site/TodoList";
 import HireCheck from "@/components/site/HireCheck";
+import { AddReceipt, MyReceipts } from "@/components/site/Receipts";
 import SiteQuestions from "@/components/site/SiteQuestions";
 import CheckResultView from "@/components/tools/CheckResultView";
 import InstallApp from "@/components/InstallApp";
@@ -24,7 +25,7 @@ import type { CheckResult } from "@/lib/toolboxCheck";
 type SiteTool = { id: string; tag: string; name: string; brand: string | null; model: string | null; serialNumber: string | null; condition: string };
 type SiteInfo = {
   person: string;
-  kind: "SUPERVISOR" | "OFFICE" | "HANDOVER";
+  kind: "SUPERVISOR" | "OFFICE" | "HANDOVER" | "DRIVER"; // DRIVER: receipts only (26 Oct 2026)
   shared?: boolean;
   toolboxes: { id: string; name: string; tools: SiteTool[] }[];
   openRequests: number;
@@ -33,8 +34,9 @@ type SiteInfo = {
   hireItems: number;
   hireToCheck: number;
   dailyLog?: LogCardDTO; // only on the daily log pilot's links (Task K)
+  receiptsToday?: number; // supervisor and driver links (Receipts)
 };
-type Mode = "home" | "register" | "check" | "fault" | "signin" | "request" | "requests" | "todo" | "hire" | "log";
+type Mode = "home" | "register" | "check" | "fault" | "signin" | "request" | "requests" | "todo" | "hire" | "log" | "receipt" | "receipts";
 
 const input =
   "w-full rounded-lg border border-edge bg-panel2 px-3 py-2.5 text-base text-gray-200 placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500";
@@ -70,6 +72,8 @@ export default function SitePhotosPage({ params: paramsP }: { params: Promise<{ 
 
   // Tool features need a toolbox (or the office link); a hand-over link only runs sign-in.
   const hasTools = !!info && info.kind === "SUPERVISOR" && info.toolboxes.length > 0;
+  const driver = info?.kind === "DRIVER";
+  const sendsReceipts = !!info && (info.kind === "SUPERVISOR" || info.kind === "DRIVER");
 
   const finished = (message: string) => {
     setFlash(message);
@@ -91,7 +95,7 @@ export default function SitePhotosPage({ params: paramsP }: { params: Promise<{ 
         <div className="py-16 text-center text-sm text-gray-500"><Loader2 className="mx-auto animate-spin" /></div>
       ) : mode === "home" ? (
         <>
-          <h1 className="mb-1 text-xl font-semibold text-gray-100">{info.kind === "OFFICE" ? (info.shared ? "Tools capture" : "Office") : info.kind === "HANDOVER" ? "Crew sign-in" : "Site"}</h1>
+          <h1 className="mb-1 text-xl font-semibold text-gray-100">{info.kind === "OFFICE" ? (info.shared ? "Tools capture" : "Office") : info.kind === "HANDOVER" ? "Crew sign-in" : driver ? "Receipts" : "Site"}</h1>
           <p className="mb-4 text-sm text-gray-500">
             {info.kind === "OFFICE"
               ? info.shared
@@ -99,6 +103,8 @@ export default function SitePhotosPage({ params: paramsP }: { params: Promise<{ 
                 : "Your to-do from site requests, and adding tools to the inventory."
               : info.kind === "HANDOVER"
                 ? "You're running sign-in for today - this link stops working tonight."
+                : driver
+                  ? "Photograph tip dockets and fuel receipts when you get them."
                 : hasTools
                   ? `Crew sign-in, requests, and tools for ${info.toolboxes.map((b) => b.name).join(", ")}.`
                   : "Crew sign-in and requests for your jobs."}
@@ -118,7 +124,7 @@ export default function SitePhotosPage({ params: paramsP }: { params: Promise<{ 
             </label>
           )}
           <InstallApp appName={info.kind === "OFFICE" && !info.shared ? "Lobos Office" : "Lobos Site"} />
-          {info.kind !== "OFFICE" && (
+          {info.kind !== "OFFICE" && !driver && (
             <div className="mb-4 rounded-xl border border-edge bg-panel p-3">
               <div className="text-sm font-semibold text-gray-100">{info.dailyLog ? "Reminders" : "Sign-out reminders"}</div>
               <p className="mb-2 text-xs text-gray-500">
@@ -129,9 +135,13 @@ export default function SitePhotosPage({ params: paramsP }: { params: Promise<{ 
             </div>
           )}
           {flash && <div className="mb-4 rounded-xl bg-emerald-500/15 px-4 py-3 text-sm text-emerald-300">✓ {flash}</div>}
-          {!info.shared && info.kind !== "HANDOVER" && <SiteQuestions api={api} />}
+          {!info.shared && info.kind !== "HANDOVER" && !driver && <SiteQuestions api={api} />}
           <div className="space-y-3">
-            {info.kind !== "OFFICE" && (
+            {sendsReceipts && (<>
+              <Big icon={<Receipt size={22} />} title="Add receipt" text="Tip docket or fuel - a photo when you get it" onClick={() => { setFlash(null); setMode("receipt"); }} />
+              <Big icon={<ReceiptText size={22} />} title="My receipts" text={info.receiptsToday ? `${info.receiptsToday} sent today` : "What you sent today"} onClick={() => { setFlash(null); setMode("receipts"); }} />
+            </>)}
+            {info.kind !== "OFFICE" && !driver && (
               <Big icon={<QrIcon size={22} />} title="Sign in crew" text="Show the QR - crew scan it to sign in or out" onClick={() => { setFlash(null); setMode("signin"); }} />
             )}
             {info.dailyLog && info.dailyLog.jobs > 0 && (
@@ -149,7 +159,7 @@ export default function SitePhotosPage({ params: paramsP }: { params: Promise<{ 
             {info.dailyLog && info.dailyLog.jobs === 0 && info.dailyLog.progressDue && (
               <Big icon={<NotebookPen size={22} />} title="Progress this week" text="% complete for your jobs - due this week" alert onClick={() => { setFlash(null); setMode("log"); }} />
             )}
-            {info.kind !== "OFFICE" && (<>
+            {info.kind !== "OFFICE" && !driver && (<>
               <Big icon={<Send size={22} />} title="Make a request" text="Labour, trucks, hire, tools, materials - straight to the office" onClick={() => { setFlash(null); setMode("request"); }} />
               <Big
                 icon={<ClipboardList size={22} />}
@@ -199,6 +209,8 @@ export default function SitePhotosPage({ params: paramsP }: { params: Promise<{ 
           {mode === "todo" && <TodoList api={api} />}
           {mode === "hire" && <HireCheck api={api} onChange={load} />}
           {mode === "log" && <DailyLog api={api} onDone={finished} />}
+          {mode === "receipt" && <AddReceipt api={api} onDone={finished} />}
+          {mode === "receipts" && <MyReceipts api={api} />}
         </>
       )}
     </div>

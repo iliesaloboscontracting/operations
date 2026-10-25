@@ -25,6 +25,7 @@ export type LogJobDTO = {
   plant: LogPlantDTO[];
   suggested: SuggestedCodeDTO[];
   latest: LogDetailDTO | null;
+  docketsSent: number; // tip dockets sent as receipts for this job (Receipts R1)
 };
 
 export type ProgressFormDTO = {

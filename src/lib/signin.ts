@@ -70,6 +70,20 @@ export function readTicket(ticket: unknown, now = Date.now()): Ticket | null {
   return { jobIds: jobs.split(","), method, linkId };
 }
 
+// --- the odometer photo after a truck sign-in (Receipts R1, 26 Oct 2026) -----
+// Signing in on a truck's QR returns this token, tied to the new sign-in; the
+// next screen sends the odometer photo (or "Can't now") with it. 30 minutes.
+const ODOMETER_MS = 30 * 60_000;
+export function makeOdometerToken(attendanceId: string, now = Date.now()) {
+  return sign(`O|${attendanceId}|${now + ODOMETER_MS}`);
+}
+export function readOdometerToken(token: unknown, now = Date.now()): string | null {
+  const p = unsign(token);
+  if (!p) return null;
+  const [kind, attendanceId, exp] = p.split("|");
+  return kind === "O" && attendanceId && Number(exp) >= now ? attendanceId : null;
+}
+
 // --- which jobs are open for sign-in -----------------------------------------
 // Today's running jobs, plus last night's night shift (crew sign out after
 // midnight). Stood-down / inactive / completed jobs don't take sign-ins.

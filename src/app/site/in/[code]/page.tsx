@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState, use } from "react";
+import { useCallback, useEffect, useRef, useState, use } from "react";
 import SiteBrand from "@/components/site/SiteBrand";
-import { Loader2, LogIn, LogOut } from "lucide-react";
+import { Camera, Loader2, LogIn, LogOut } from "lucide-react";
 import { serverErrorMessage } from "@/lib/apiFetch";
+import { resizePhoto } from "@/lib/imageResize";
 
 // Crew sign-in: the page a worker's phone opens after scanning the
 // supervisor's QR or the site poster. First time they pick their name (or
@@ -48,6 +49,8 @@ export default function CrewSignInPage({ params: paramsP }: { params: Promise<{ 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
+  // Signed in on a truck: the odometer photo comes next (Receipts R1).
+  const [odometer, setOdometer] = useState<string | null>(null);
 
   useEffect(() => {
     setMe(store<Me>(ME_KEY));
@@ -85,6 +88,7 @@ export default function CrewSignInPage({ params: paramsP }: { params: Promise<{ 
     try {
       const r = await send(action, me!);
       setDone(r.message);
+      if (typeof r.odometer === "string") setOdometer(r.odometer);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -104,6 +108,8 @@ export default function CrewSignInPage({ params: paramsP }: { params: Promise<{ 
         <Box>{dead}</Box>
       ) : !scan ? (
         <div className="py-16 text-center text-gray-500"><Loader2 className="mx-auto animate-spin" /></div>
+      ) : done && odometer ? (
+        <Odometer token={odometer} signedIn={done} onDone={(m) => { setOdometer(null); setDone(`${done} ${m}`); }} />
       ) : done ? (
         <div className="space-y-4 text-center">
           <div className="rounded-2xl bg-emerald-500/15 px-4 py-6 text-lg font-semibold text-emerald-300">✓ {done}</div>
@@ -153,6 +159,39 @@ export default function CrewSignInPage({ params: paramsP }: { params: Promise<{ 
           {scan.method === "POSTER" && <p className="text-center text-xs text-gray-500">Signed in from the site poster - your supervisor confirms it.</p>}
         </div>
       )}
+    </div>
+  );
+}
+
+// After signing in on a truck's QR: a photo of the odometer, or "Can't now".
+function Odometer({ token, signedIn, onDone }: { token: string; signedIn: string; onDone: (message: string) => void }) {
+  const file = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  async function send(body: Record<string, unknown>) {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/site/in/odometer", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token, ...body }) });
+      if (!res.ok) throw new Error(await serverErrorMessage(res, "Couldn't send - check your signal and try again."));
+      onDone((await res.json()).message);
+    } catch (e) {
+      setError((e as Error).message);
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="space-y-4">
+      <div className="rounded-2xl bg-emerald-500/15 px-4 py-4 text-center text-base font-semibold text-emerald-300">✓ {signedIn}</div>
+      <h1 className="text-xl font-semibold text-gray-100">Odometer photo</h1>
+      <p className="text-sm text-gray-400">A photo of the odometer, so the office can track the truck&apos;s km.</p>
+      <button className={`${big} bg-brand-600`} disabled={busy} onClick={() => file.current?.click()}>
+        {busy ? <Loader2 className="animate-spin" /> : <Camera />} Take the photo
+      </button>
+      <input ref={file} type="file" accept="image/*" capture="environment" className="hidden"
+        onChange={async (e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) send({ dataUrl: await resizePhoto(f) }); }} />
+      {error && <div className="rounded-lg bg-red-900/30 px-3 py-2 text-sm text-red-300">{error}</div>}
+      <button className="w-full py-2 text-sm text-gray-400" disabled={busy} onClick={() => send({ skip: true })}>Can&apos;t now</button>
     </div>
   );
 }

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { withErrorHandling } from "@/lib/apiHandler";
-import { jobLabel, openJob, pointOf, readTicket, sydneyTime, takesSignIns } from "@/lib/signin";
+import { jobLabel, makeOdometerToken, openJob, pointOf, readTicket, sydneyTime, takesSignIns } from "@/lib/signin";
 import { todaySydney } from "@/lib/today";
 import { syncSignInActualsQuietly } from "@/lib/signInActuals";
 
@@ -106,7 +106,7 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
         data: { signOutAt: now, signOutMethod: "MOVED", ...(e.jobId ? { status: "TO_CONFIRM" } : {}) },
       });
     }
-    await prisma.siteAttendance.create({
+    const signedIn = await prisma.siteAttendance.create({
       data: {
         jobId: where.jobId,
         place: where.place,
@@ -127,6 +127,8 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
     return NextResponse.json({
       ok: true,
       message: `Signed in at ${sydneyTime(now)} - ${where.label}.${toConfirm ? " Your supervisor will confirm it." : ""}`,
+      // On a truck: the next screen asks for an odometer photo (Receipts R1).
+      ...(where.place === "VEHICLE" ? { odometer: makeOdometerToken(signedIn.id) } : {}),
     });
   }
 
