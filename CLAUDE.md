@@ -261,6 +261,22 @@ business, without becoming unnecessarily complicated.
   accounts' Invoices → Queries), never on a link when they carry money.
   Answers never change data - the lead picks them up and applies changes
   through propose-then-apply.
+- **Controlled changes** (LCI phase 4, 25 Oct 2026; `src/lib/changes/`,
+  `/changes` Manager+, the Directors overview "Changes to approve" box):
+  a change to an off-hire date, contract value, job number or quote number
+  can be proposed (record, before → after, why, source) and runs only when a
+  different, eligible person approves the exact proposal they saw
+  (fingerprint, "before" re-checked, then applied through
+  `lib/recordPatch.ts`). Approvers in `config.ts`: contract values = DIRECTOR
+  logins only (Ilies: "nick and yoel ... approve them the budgets" - never
+  the owner); hire dates and job/quote numbers = an Admin. Same person =
+  same name, across logins (Nick's two); the Building Agent never approves.
+  Directors see commercial kinds only. Undo = a new proposal. A supervisor's
+  hire-check "still needed until about <date>" makes a System proposal.
+  Kill switch `CONTROLLED_CHANGES=off`. The ordinary edit screens and the
+  Building Agent's approved PATCHes still work as before. Budgets
+  (Estimating) are likewise decided by DIRECTOR logins only, never by the
+  submitter. Lessons (phase 5a, not built): published by the owner only.
 - **Money-guard principle:** crew-facing/operational views (day sheets, Day
   Review, the Yard) never carry dollar figures — enforced at both the
   TypeScript type level (narrow DTOs with no money fields) and via a runtime
