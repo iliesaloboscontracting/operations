@@ -4,10 +4,11 @@ import { getCurrentUser, guard } from "@/lib/auth";
 import { audiencesFor } from "@/lib/findings/actions";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { officeView } from "@/lib/siteRequests";
-import { NEEDS_ILIES, OPEN_STATUSES } from "@/lib/requestTypes";
+import { NEEDS_ILIES, OFFICE_KINDS, OPEN_STATUSES } from "@/lib/requestTypes";
 
 // GET /api/requests           -> open requests, plus anything closed in the last 14 days
 // GET /api/requests?count=1   -> { waiting } for the menu badge (new / seen / can't-do)
+// &scope=office on any of these -> the directors & accounts board instead of site requests
 // GET /api/requests?all=1     -> everything (history, newest first, up to 500)
 // Manager+ can look; only an Admin decides (see [id]).
 export const GET = withErrorHandling(async (req: NextRequest) => {
@@ -17,7 +18,10 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
   // Actions and queries carry an audience (Phase 2): Managers see operational
   // and commercial ones, director-only ones only reach directors. Every
   // site request is operational, so this list is unchanged for them.
-  const seen = { audience: { in: audiencesFor((await getCurrentUser())!) } };
+  // ?scope=office -> queries and actions to and from the directors and accounts;
+  // otherwise (site) everything else. Each board and badge counts only its own.
+  const kinds = q.get("scope") === "office" ? { in: OFFICE_KINDS } : { notIn: OFFICE_KINDS };
+  const seen = { audience: { in: audiencesFor((await getCurrentUser())!) }, kind: kinds };
   if (q.get("count")) {
     // Waiting on a decision, plus reminders that have come due (23 Oct 2026).
     const [decide, reminders] = await Promise.all([

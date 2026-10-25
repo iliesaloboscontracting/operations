@@ -186,6 +186,12 @@ export const OFFICE_KINDS = [ACTION_TYPE.kind, QUERY_TYPE.kind];
 export const SYSTEM_TYPES = [OFF_HIRE_TYPE, HIRE_MISMATCH_TYPE, HIRE_EXTEND_TYPE, ACTION_TYPE, QUERY_TYPE];
 export const typeOf = (kind: string) => REQUEST_TYPES.find((t) => t.kind === kind) ?? SYSTEM_TYPES.find((t) => t.kind === kind);
 
+// OFFICE_KINDS aren't from a site: they live on their own board
+// (/office-requests, "Directors & accounts"), never on Site requests (Ilies,
+// 25 Oct 2026). Everything else is a site request.
+export const isOfficeKind = (kind: string) => OFFICE_KINDS.includes(kind);
+export const requestHref = (r: { id: string; kind: string }) => `${isOfficeKind(r.kind) ? "/office-requests" : "/requests"}?open=${r.id}`;
+
 // How each status reads to the supervisor who asked.
 export const STATUS_FOR_SITE: Record<string, string> = {
   SENT: "Sent",

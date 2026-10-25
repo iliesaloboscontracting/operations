@@ -149,7 +149,10 @@ business, without becoming unnecessarily complicated.
   and no job). Office lists Personnel category "Office" — no board
   allocation needed; these count straight away and odd ones are flagged.
 - **Site requests** (added 2026-10-21, `/requests`, `src/lib/siteRequests.ts`,
-  `requestTypes.ts`): supervisors ask for labour, trucks, hire, tools etc.
+  `requestTypes.ts`; since 25 Oct 2026 the queries and actions to and from
+  the directors and accounts (`OFFICE_KINDS`) have their own board,
+  `/office-requests` "Directors & accounts", with its own badge - Ilies:
+  keep them apart from site requests): supervisors ask for labour, trucks, hire, tools etc.
   from their site link (Low / High / Urgent + needed-by, optional photo) and
   see live status. **Admins decide** (Ilies; since 2026-10-23 also the
   directors, who are Admins) — approve onto a person's

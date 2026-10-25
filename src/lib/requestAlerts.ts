@@ -5,11 +5,11 @@
 import type { SiteRequest } from "@prisma/client";
 import { prisma } from "./prisma";
 import { pushToAdmins, pushToSiteLinks, pushToUsers, type PushMessage } from "./push";
-import { NEEDS_ILIES, OFFICE_KINDS, PRIORITY_DOT, PRIORITY_LABEL, alertRouteFor, requestNo, whenText, type Priority } from "./requestTypes";
+import { NEEDS_ILIES, OFFICE_KINDS, PRIORITY_DOT, PRIORITY_LABEL, alertRouteFor, requestHref, requestNo, whenText, type Priority } from "./requestTypes";
 import { OWNER_EMAIL } from "./owner";
 import { addEvent } from "./siteRequests";
 
-const urlOf = (r: SiteRequest) => `/requests?open=${r.id}`;
+const urlOf = (r: SiteRequest) => requestHref(r);
 
 // Actions and queries (Phase 2): only their assignee, or only the owner -
 // never every Admin (requestTypes.ts alertRouteFor). Nothing to do = no push.

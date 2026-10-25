@@ -13,7 +13,7 @@ import { betaJSONSchemaOutputFormat } from "@anthropic-ai/sdk/helpers/beta/json-
 import type { SiteRequest, SiteRequestEvent } from "@prisma/client";
 import { prisma } from "./prisma";
 import { pushToAdmins } from "./push";
-import { OPEN_STATUSES, PRIORITY_LABEL, requestNo, typeOf, whenText, type Priority } from "./requestTypes";
+import { OPEN_STATUSES, PRIORITY_LABEL, requestHref, requestNo, typeOf, whenText, type Priority } from "./requestTypes";
 import { addEvent } from "./siteRequests";
 import { fromSydneyLocal } from "./shiftTimes";
 
@@ -141,7 +141,7 @@ export async function alertDueReminders() {
       {
         title: `⏰ Reminder - ${r.siteLabel}`,
         body: `${r.remindNote || r.summary}\n${requestNo(r.number)} · needed by ${whenText(r.neededBy)}`,
-        url: `/requests?open=${r.id}`,
+        url: requestHref(r),
         tag: `req-${r.number}`,
       },
       "high",

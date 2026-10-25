@@ -17,6 +17,7 @@ import { lessonHints } from "../lessons/store";
 import { companyHealth } from "./health";
 import { screenFor } from "../findings/config";
 import { pipelineTile } from "./pipeline";
+import { OFFICE_KINDS } from "../requestTypes";
 import { loadPipelineState } from "./pipelineFeed";
 import { loadXeroHealth } from "../xero/imports";
 import {
@@ -69,7 +70,8 @@ export async function gatherDirectorInputs() {
       select: { id: true, name: true, agency: true, offHireDate: true, hireStatus: true, onHireDate: true, hireRate: true, hireRateUnit: true, dailyRateExGst: true, hireProject: { select: { id: true, name: true } } },
     }),
     prisma.siteRequest.findMany({
-      where: { status: { notIn: ["DONE", "DECLINED", "CANCELLED", "CANT_DO"] } },
+      // Site requests only - directors' and accounts' queries and actions have their own board.
+      where: { status: { notIn: ["DONE", "DECLINED", "CANCELLED", "CANT_DO"] }, kind: { notIn: OFFICE_KINDS } },
       select: { id: true, number: true, priority: true, status: true, neededBy: true, summary: true, siteLabel: true },
     }),
     // Past running jobs with allocations: plant use window and days not closed.
