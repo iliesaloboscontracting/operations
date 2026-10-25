@@ -294,8 +294,10 @@ business, without becoming unnecessarily complicated.
   `resolveReceiptLink`; `resolveLink` never accepts DRIVER), and an odometer
   photo after a truck-QR sign-in. Photos in `RECEIPT_FILE_DIR`
   (`/srv/operations/receipt-files`, nightly backup + off-site). No price ever
-  reaches a link (`linkSafe`). R1 (capture) live 26 Oct; R2 Claude reading,
-  R3 tip costs (tip rates, estimate replaced by the tip invoice), R4 truck /
+  reaches a link (`linkSafe`). R1 (capture) and R2 (Claude reads every
+  photo - `src/lib/receipts/reading.ts`, the sixth outbound connection, sends
+  the photo + our regos + tip-site names only; plain rules in `checks.ts`
+  decide READ or CHECK; kill switch `RECEIPT_READING=off`) live 26 Oct; R3 tip costs (tip rates, estimate replaced by the tip invoice), R4 truck /
   job indicators follow. Fuel is never a job cost (truck day rate includes
   it - Ilies). The daily log's docket step is replaced by "N dockets sent".
 - **Money-guard principle:** crew-facing/operational views (day sheets, Day
