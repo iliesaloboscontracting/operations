@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Loader2, Plus, ScanLine } from "lucide-react";
+import { Loader2, Plus, ScanLine, Trash2 } from "lucide-react";
 import PageShell from "@/components/PageShell";
 import ToolsTabs from "@/components/tools/ToolsTabs";
 import PhotoPicker from "@/components/tools/PhotoPicker";
@@ -132,9 +132,22 @@ function ToolboxCard({
           )}
         </div>
         {canEdit && (
-          <button onClick={onCheck} className="flex items-center gap-1.5 rounded-lg border border-brand-500 px-3 py-1.5 text-xs font-medium text-brand-300 hover:bg-brand-600/20">
-            <ScanLine size={14} /> Check by photo
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button onClick={onCheck} className="flex items-center gap-1.5 rounded-lg border border-brand-500 px-3 py-1.5 text-xs font-medium text-brand-300 hover:bg-brand-600/20">
+              <ScanLine size={14} /> Check by photo
+            </button>
+            {/* For someone no longer with us (25 Oct 2026): the box goes, its tools go back to the Yard. */}
+            <button
+              onClick={() => {
+                const n = box.tools.length;
+                if (!window.confirm(`Remove ${box.name}?${n ? ` Its ${n} tool${n === 1 ? "" : "s"} go back to the Yard (each move is recorded).` : ""}`)) return;
+                act(() => json(`/api/toolboxes/${box.id}`, "PATCH", { active: false, toolsToYard: true }), "Couldn't remove the toolbox.");
+              }}
+              className="flex items-center gap-1.5 rounded-lg border border-edge px-3 py-1.5 text-xs text-gray-400 hover:border-red-500/60 hover:text-red-300"
+            >
+              <Trash2 size={14} /> Remove toolbox
+            </button>
+          </div>
         )}
       </div>
 

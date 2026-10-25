@@ -38,7 +38,7 @@ export async function resolveLink(secret: unknown): Promise<ResolvedLink | null>
       jobId: true,
       expiresAt: true,
       resource: {
-        select: { id: true, name: true, toolboxes: { where: { active: true }, select: { id: true, name: true }, orderBy: { name: "asc" } } },
+        select: { id: true, name: true, active: true, toolboxes: { where: { active: true }, select: { id: true, name: true }, orderBy: { name: "asc" } } },
       },
     },
   });
@@ -48,6 +48,8 @@ export async function resolveLink(secret: unknown): Promise<ResolvedLink | null>
   if (kind === "HANDOVER" && (!link.expiresAt || link.expiresAt < new Date() || !link.jobId)) return null;
   // A shared link (no person) can only be an office/yard link.
   if (kind !== "OFFICE" && !link.resource) return null;
+  // Someone archived (no longer with us) - their links stop working too (25 Oct 2026).
+  if (link.resource && !link.resource.active) return null;
   const toolboxes =
     kind === "OFFICE"
       ? await prisma.toolbox.findMany({ where: { active: true }, select: { id: true, name: true }, orderBy: { name: "asc" } })
