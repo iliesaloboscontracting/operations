@@ -1,52 +1,36 @@
 {
-  "batch": "01 - first information gaps (drafted by the lead, 25 Oct 2026; nothing sent until Ilies ticks and sends)",
+  "batch": "01 - first information gaps (drafted by the lead 25 Oct 2026, trimmed the same day after a read-only SharePoint search answered the rest; nothing sent until Ilies ticks and sends)",
   "items": [
     {
       "to": "Nick Giannopoulos",
       "type": "QUESTION",
       "title": "Master tender register spreadsheet",
-      "question": "There are two 'LIVE' tender register spreadsheets for 2024-25: (A) 02_2 Tenders - Estimates & Quotes (2025) / 1. ESTIMATING PROCESS / 1. Lobos_Tender Schedule_2024-2025_LIVE.xlsx (last changed 19 Dec 2025, about 1,357 rows) and (B) a copy named '... 2024-2025_LIVE - 24_04_26.xlsx' (about 1,620 rows, location unknown). Which one is the master?",
-      "need": "Say A or B, and upload the '2024 - 2025 - Tender Register' sheet exported as CSV (File > Save As > CSV).",
+      "question": "We think the master tender register is '1. Lobos_Tender Schedule_2024-2025_LIVE - 24_04_26.xlsx' in 02_3 Tenders - Estimates & Quotes (2026) / 00_Tender Register & Procedure (last changed 19 May 2026, about 1,624 rows). The older copy in 02_2 (2025) / 1. ESTIMATING PROCESS stopped at 19 Dec 2025. Is that right? Neither has changed since mid-May - is there a newer register somewhere?",
+      "need": "Yes / no (and where the newer one is, if any), and upload the '2024 - 2025 - Tender Register' sheet exported as CSV (File > Save As > CSV). Our document reader can't see past row 866.",
       "why": "So the old tenders can be imported into the new tender register in Estimating."
     },
     {
       "to": "Nick Giannopoulos",
       "type": "QUESTION",
-      "title": "Which quote was Myers won from?",
-      "question": "Myers' notes say quote 26_263 R04, but 26_263 is also the number on ALDI Newtown in Operations, and one Myer file is named 26_261. Which quote number (and revision) was the Myers (Myer Westfields) job won from?",
-      "need": "The quote number and revision; upload the signed quote if easy.",
-      "why": "So the job links to the right estimate and its budget."
+      "title": "Contract values to confirm (8 jobs)",
+      "question": "From the documents we found: Swissotel $169,000 lump sum (Chroma contract SCS00227, 12 Mar 26). Football ID - Gregory Hills $7,150 (DNP PO-0465, matches quote 26_169 R3). Vaucluse - Old South Head Rd $435,930 incl. variations (progress claim 16; main works $195,780 on the claim vs $195,880 on quote 24_414 R6). Thales Zone 4 $96,064 (subcontract 'for signing' copy - was it signed at this price? quote 26_273 Rev C was $116,850). Shellharbour WH1 $74,900.01 (quote 26_120 Rev 1) plus variation V02 $23,738.10 - your 9 Oct forecast says $108,268.11 in total. Rivkin House $55,900 (quote 26_419 R2; options $14,400 and $6,768) - accepted, and were any options taken? Bronte - do-and-charge at $75/hr, no fixed value? 2 Roslyn St - $25,000 schedule of rates, now billed as monthly day labour - treat as do-and-charge?",
+      "need": "For each: the value to use (ex GST), or 'do-and-charge'.",
+      "why": "Without a contract value the Directors screen shows these jobs as 'can't assess'."
     },
     {
       "to": "Nick Giannopoulos",
       "type": "QUESTION",
-      "title": "Project numbers for four live jobs",
-      "question": "No SharePoint project folder was found for these active jobs: Bronte (CD Constructions), 2 Roslyn Street Potts Point (Decode), Vaucluse - Old South Head Rd (Vivid Build), Rivkin House - Potts Point (Ryser). What is each one's project (job) number, and the quote it was won from? Bronte also has no quote found.",
-      "need": "Job number and quote number for each.",
+      "title": "Bellevue Hill - which project folder?",
+      "question": "Bellevue Hill (quote 24_459 Rev01) has two live project folders: 24_091 (holds the quote) and 24_094. Operations uses 24_094. Which is the real project number?",
+      "need": "24_091 or 24_094.",
       "why": "Every app now uses one job number per job."
     },
     {
       "to": "Nick Giannopoulos",
       "type": "QUESTION",
-      "title": "Contract values missing on 8 active jobs",
-      "question": "These active jobs have no contract value in Operations, so their cost can't be checked against it: Vaucluse - Old South Head Rd, Swiss Hotel, 2 Roslyn Street Potts Point, Shellharbour WH1, Bronte, Football ID - Gregory Hills, Thales Zone 4 - Rydalmere, Rivkin House - Potts Point.",
-      "need": "The agreed contract value (ex GST) for each, or 'schedule of rates / do-and-charge' if there isn't one. Upload the subcontract or accepted quote if easy.",
-      "why": "Without it the Directors screen shows these jobs as 'can't assess'."
-    },
-    {
-      "to": "Nick Giannopoulos",
-      "type": "QUESTION",
-      "title": "Job numbers that don't match in the documents",
-      "question": "Documents show different numbers for the same job: Football ID (tender 26_169, job 26_170 - and 26_169 was also used for a Randwick quote); Swissotel (variations say job 26_017, folder is 26_015); Mt Hutton (progress claim 1 says project 26_008, folder is 26_174); Dover Heights (job 24_088, quote 24_454); Bellevue Hill (job 24_094, quote 24_459). Which numbers are correct?",
-      "need": "The correct job and quote number for each.",
-      "why": "So claims, invoices and costs land on the right job."
-    },
-    {
-      "to": "Nick Giannopoulos",
-      "type": "QUESTION",
       "title": "Rooster's day rate",
-      "question": "Rooster's invoices come through Example Consultants at $470/day. Is $470/day ex GST the agreed rate?",
-      "need": "Yes, or the correct rate and from when.",
+      "question": "Rooster (Jeao Ineson) is now billed through Example Consultants. Operations uses $470/day, but that is an estimate from one invoice ($2,362.50 for 5 days). When he came through Project 71 (Jan-May 2026) he was $577-$600/day. What is the agreed rate now?",
+      "need": "The day rate ex GST and from when.",
       "why": "His labour cost is currently marked unconfirmed."
     },
     {
