@@ -13,6 +13,7 @@ import { LABOUR_BACKFILL_CUTOFF, loadTracking } from "../trackingData";
 import type { ProjectCostDTO } from "../types";
 import { NOT_YET_AVAILABLE, THRESHOLDS } from "./dictionary";
 import { toFindingDTO, sortFindings } from "../findings/view";
+import { lessonHints } from "../lessons/store";
 import { companyHealth } from "./health";
 import { screenFor } from "../findings/config";
 import { pipelineTile } from "./pipeline";
@@ -177,7 +178,10 @@ export async function loadDirectorOverview() {
     loadXeroHealth(today),
   ]);
   // Task J: the directors' box shows director-level findings only; the rest are on Operations -> Attention.
-  const findings = sortFindings(openFindings.filter((f) => screenFor(f) === "DIRECTORS").map(toFindingDTO));
+  const directorFindings = openFindings.filter((f) => screenFor(f) === "DIRECTORS");
+  // Lessons (phase 5a): "last time on this ..." - added only to findings that have one.
+  const hints = await lessonHints(directorFindings);
+  const findings = sortFindings(directorFindings.map((f) => { const d = toFindingDTO(f); const h = hints.get(f.id); return h ? { ...d, lesson: h } : d; }));
 
   const alerts = sortAlerts([
     ...trackingAlerts(tracking.attention),

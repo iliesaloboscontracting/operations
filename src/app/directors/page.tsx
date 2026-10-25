@@ -69,6 +69,7 @@ export default function DirectorsPage() {
           {!directorOnly && <Link href="/directors/budgets" className="rounded-md border border-edge px-3 py-1.5 text-sm text-gray-300 hover:bg-panel2">Budgets to approve</Link>}
           {!directorOnly && <Link href="/directors/accounts" className="rounded-md border border-edge px-3 py-1.5 text-sm text-gray-300 hover:bg-panel2">Accounts data</Link>}
           {!directorOnly && <Link href="/directors/requests" className="rounded-md border border-edge px-3 py-1.5 text-sm text-gray-300 hover:bg-panel2">Info requests</Link>}
+          {!directorOnly && <Link href="/directors/lessons" className="rounded-md border border-edge px-3 py-1.5 text-sm text-gray-300 hover:bg-panel2">Lessons</Link>}
           <Link href="/directors/kpis" className="rounded-md border border-edge px-3 py-1.5 text-sm text-gray-300 hover:bg-panel2">How the numbers work</Link>
         </div>
       }
