@@ -276,7 +276,15 @@ business, without becoming unnecessarily complicated.
   Kill switch `CONTROLLED_CHANGES=off`. The ordinary edit screens and the
   Building Agent's approved PATCHes still work as before. Budgets
   (Estimating) are likewise decided by DIRECTOR logins only, never by the
-  submitter. Lessons (phase 5a, not built): published by the owner only.
+  submitter.
+- **Lessons** (LCI phase 5a, 25 Oct 2026; `src/lib/lessons/`,
+  `/directors/lessons`): a finding that was verified (or verified as not
+  working, or came back) can become a lesson, prefilled from its own record
+  only - no AI, no outside call. Published by the owner only (Ilies: "thats
+  me", including findings he resolved); published text is never edited
+  (retire / replace, history in FindingEvent). Directors read the ones on
+  their screen; an open finding with the same rule and subject shows
+  "Last time: …".
 - **Money-guard principle:** crew-facing/operational views (day sheets, Day
   Review, the Yard) never carry dollar figures — enforced at both the
   TypeScript type level (narrow DTOs with no money fields) and via a runtime
