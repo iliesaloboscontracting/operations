@@ -26,7 +26,7 @@ const OPENISH = ["OPEN", "ACKNOWLEDGED", "ACTIONED"];
 const plusDays = (n: number) => new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10);
 const valueText = (v: unknown) => (typeof v === "number" ? (Math.abs(v) < 2 && !Number.isInteger(v) ? `${Math.round(v * 100)}%` : v.toLocaleString("en-AU", { maximumFractionDigits: 2 })) : String(v));
 
-export default function FindingPanel({ id, onClose, onChanged }: { id: string; onClose: () => void; onChanged: () => void }) {
+export default function FindingPanel({ id, onClose, onChanged, lesson }: { id: string; onClose: () => void; onChanged: () => void; lesson?: { title: string; lesson: string } }) {
   const [d, setD] = useState<FindingDetail | null>(null);
   const [people, setPeople] = useState<People | null>(null);
   const [mode, setMode] = useState<Mode>(null);
@@ -95,6 +95,8 @@ export default function FindingPanel({ id, onClose, onChanged }: { id: string; o
               {f!.href && <DLink href={f!.href} className="text-brand-300 hover:underline">Open the record</DLink>}
               <Help id={f!.kpi} />
             </div>
+            {/* Lessons (phase 5a): what was learned last time the same thing happened here. */}
+            {lesson && <p className="mb-2 rounded-lg bg-sky-500/10 px-3 py-2 text-sm text-sky-200">Last time: <b>{lesson.title}</b> - {lesson.lesson}</p>}
             {f!.resolution && <p className="mb-2 text-sm text-emerald-300">Resolved by {f!.resolvedBy}: {f!.resolution}</p>}
             {f!.dismissReason && <p className="mb-2 text-sm text-gray-400">Dismissed ({f!.dismissKind === "ACCEPTED_RISK" ? `accepted risk until ${f!.suppressUntil}` : "false alarm"}): {f!.dismissReason}</p>}
 

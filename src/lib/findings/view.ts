@@ -32,6 +32,7 @@ export type FindingDTO = {
   id: string; ruleCode: string; kpi: string; severity: Priority; audience: string; status: string; title: string;
   href: string | null; subjectName: string; projectId: string | null; provisional: boolean;
   firstSeenAt: string; lastSeenAt: string; signalClearedAt: string | null; ownerName: string | null;
+  lesson?: { id: string; title: string; lesson: string }; // phase 5a: a published lesson from last time (same rule and subject) - only when there is one
 };
 
 const RANK: Record<string, number> = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, INFO: 3 };

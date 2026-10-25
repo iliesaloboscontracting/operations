@@ -136,6 +136,7 @@ export default function TopNav() {
             <NavTab href="/directors/requests" label="Info requests" active={isActive("/directors/requests")} />
             <NavTab href="/directors/kpis" label="How the numbers work" active={isActive("/directors/kpis")} />
             <NavTab href="/directors/queries" label="My queries" active={isActive("/directors/queries")} />
+            <NavTab href="/directors/lessons" label="Lessons" active={isActive("/directors/lessons")} />
           </>
         ) : onePage ? (
           <NavTab href={onePage} label={accountsOnly ? "Invoices" : "Timesheets"} active={isActive(onePage)} />

@@ -62,6 +62,8 @@ export default function FindingsList({ title, findings, meta, extra = [], emptyT
                   {help && <Help id={f.kpi} />}
                   <button onClick={() => setOpenId(f.id)} className="text-brand-300 hover:underline">Details</button>
                 </div>
+                {/* Lessons (phase 5a): what was learned last time the same thing happened here. */}
+                {f.lesson && <div className="mt-1 rounded-md bg-sky-500/10 px-2 py-1 text-[11px] text-sky-200">Last time: <b>{f.lesson.title}</b> - {f.lesson.lesson}</div>}
               </div>
             </div>
           ))}
@@ -72,7 +74,7 @@ export default function FindingsList({ title, findings, meta, extra = [], emptyT
                 <div className="text-gray-200">{g.items.length} {g.label}</div>
                 <div className="mt-1 flex flex-wrap gap-1.5">
                   {g.items.slice(0, 12).map((f) => (
-                    <button key={f.id} onClick={() => setOpenId(f.id)} className="rounded-full border border-edge px-2 py-0.5 text-[11px] text-gray-300 hover:bg-panel2">{f.subjectName}</button>
+                    <button key={f.id} onClick={() => setOpenId(f.id)} className="rounded-full border border-edge px-2 py-0.5 text-[11px] text-gray-300 hover:bg-panel2">{f.subjectName}{f.lesson ? " · lesson from last time" : ""}</button>
                   ))}
                   {g.items.length > 12 && <span className="px-1 text-[11px] text-gray-500">+{g.items.length - 12} more</span>}
                 </div>
@@ -87,7 +89,7 @@ export default function FindingsList({ title, findings, meta, extra = [], emptyT
           {showAll ? "Show fewer" : `Show all ${singles.length}`}
         </button>
       )}
-      {openId && <FindingPanel id={openId} onClose={() => setOpenId(null)} onChanged={onRefresh} />}
+      {openId && <FindingPanel id={openId} onClose={() => setOpenId(null)} onChanged={onRefresh} lesson={findings.find((f) => f.id === openId)?.lesson} />}
     </Card>
   );
 }

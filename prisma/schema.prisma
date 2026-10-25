@@ -1344,3 +1344,35 @@ model ChangeProposalEvent {
   @@index([proposalId])
   @@index([at])
 }
+
+// ---------- Lessons (LCI phase 5a; schema approved by the lead 25 Oct 2026) ----------
+// Design: docs/lci/PHASE4-5-DESIGN.md §2. A short lesson from a VERIFIED finding (or one verified as not
+// effective / recurred), published by the owner only (Ilies: "thats me"). Published text is never edited:
+// a wrong lesson is retired with a reason and a corrected one can replace it (supersedesId). Its history
+// goes in FindingEvent (LESSON_DRAFTED / LESSON_PUBLISHED / LESSON_RETIRED). Never deleted.
+model Lesson {
+  id            String    @id @default(cuid())
+  findingId     String // the finding it came from
+  ruleCode      String
+  projectId     String?
+  title         String
+  situation     String
+  action        String
+  result        String // EFFECTIVE | NOT_EFFECTIVE | RECURRED (copied from the finding)
+  lesson        String
+  tags          String    @default("[]") // JSON: rule, activity codes, client, job type
+  audience      String // as the finding's (DIRECTOR / COMMERCIAL / OPERATIONAL)
+  status        String    @default("DRAFT") // DRAFT | PUBLISHED | RETIRED
+  draftedBy     String // a person, or "Draft from the finding"
+  reviewedBy    String? // who published it
+  reviewedById  String?
+  publishedAt   DateTime?
+  retiredAt     DateTime?
+  retiredBy     String?
+  retiredReason String?
+  supersedesId  String?
+  createdAt     DateTime  @default(now())
+
+  @@index([ruleCode])
+  @@index([status])
+}
