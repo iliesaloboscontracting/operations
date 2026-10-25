@@ -3,7 +3,8 @@
 // Add or correct a supplier invoice on Project Tracking (24 Oct 2026). A plant
 // hire invoice can be linked to the project's hire-register item and the days
 // it covers - Tracking then stops estimating those days, so the invoice
-// replaces the estimate instead of being added on top of it.
+// replaces the estimate instead of being added on top of it. A tip invoice can list the docket
+// numbers it bills (Receipts R3) - those dockets' estimates stop, the invoice replaces them.
 import FormModal, { type FieldDef } from "./FormModal";
 import { apiFetch, serverErrorMessage } from "@/lib/apiFetch";
 import type { HireItemCostDTO, InvoicedCostDTO } from "@/lib/types";
@@ -49,6 +50,7 @@ export default function InvoiceModal({
     },
     { key: "periodFrom", label: "Period from", type: "date", section: "Plant hire - replaces the estimate" },
     { key: "periodTo", label: "Period to", type: "date", section: "Plant hire - replaces the estimate" },
+    { key: "docketNos", label: "Docket numbers on the invoice", section: "Tip fees - replaces the dockets' estimate", placeholder: "e.g. A123, A124 - blank matches by tip, job and dates", full: true },
     { key: "notes", label: "Notes", type: "textarea", placeholder: "What it's for, where the invoice is kept" },
   ];
 
@@ -56,9 +58,9 @@ export default function InvoiceModal({
     ? {
         category: invoice.category, vendor: invoice.vendor, invoiceNo: invoice.invoiceNo ?? "", weekEnding: invoice.weekEnding,
         amountExGst: invoice.amountExGst, gst: invoice.gst, hireResourceId: invoice.hireResourceId ?? "",
-        periodFrom: invoice.periodFrom ?? "", periodTo: invoice.periodTo ?? "", notes: invoice.notes ?? "",
+        periodFrom: invoice.periodFrom ?? "", periodTo: invoice.periodTo ?? "", notes: invoice.notes ?? "", docketNos: (invoice.docketNos ?? []).join(", "),
       }
-    : { category: "PLANT_HIRE", vendor: "", invoiceNo: "", weekEnding: "", amountExGst: "", gst: "", hireResourceId: "", periodFrom: "", periodTo: "", notes: "" };
+    : { category: "PLANT_HIRE", vendor: "", invoiceNo: "", weekEnding: "", amountExGst: "", gst: "", hireResourceId: "", periodFrom: "", periodTo: "", notes: "", docketNos: "" };
 
   async function save(values: Record<string, any>) {
     const res = await apiFetch(invoice ? `/api/invoiced-costs/${invoice.id}` : "/api/invoiced-costs", {

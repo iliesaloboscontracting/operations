@@ -8,6 +8,8 @@ import { costAllocation } from "@/lib/costAllocation";
 import { fmtDay, parseISO, parseLooseDate, addDays } from "@/lib/dates";
 import { todaySydney } from "@/lib/today";
 import { hireEstimate, hireEstimateDays, hireStillToCome } from "@/lib/hireEstimate";
+import { tipDocketsByProject } from "@/lib/receipts/tipStore";
+import { docketNosOf, isUninvoiced } from "@/lib/receipts/tipCosts";
 import type { AttentionItemDTO, AttentionJobDTO, CostCatKey, DayCostDTO, JobHealth } from "@/lib/types";
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -123,6 +125,8 @@ export async function loadTracking({ withPeople }: { withPeople: boolean }) {
       hireDeliveryCost: true, hireCollectionCost: true,
     },
   });
+  // Tip dockets (Receipts R3): read / confirmed dockets with their cost (price, else tonnes x rate).
+  const tipByProject = await tipDocketsByProject();
   const isRegisteredHire = (r: { type: string; category: string | null; hireProjectId?: string | null }) =>
     r.type === "HIRE" && r.category !== "LABOUR" && !!r.hireProjectId;
 
@@ -302,6 +306,7 @@ export async function loadTracking({ withPeople }: { withPeople: boolean }) {
       hireResourceId: i.hireResourceId,
       periodFrom: i.periodFrom,
       periodTo: i.periodTo,
+      docketNos: docketNosOf(i.docketNos),
     }));
     const invoicedTotal = invoiced.reduce((n, i) => n + i.amountExGst, 0);
     const labourHireInvoicedTotal = invoiced
@@ -355,8 +360,22 @@ export async function loadTracking({ withPeople }: { withPeople: boolean }) {
     byCode.hire += hireEstimateToDate;
     estimatedCost += hireEstimateToDate;
     uncostedCount += hireItems.filter((h) => h.costToDate == null && h.daysToDate - h.daysInvoiced > 0).length;
+    // Tip dockets (Receipts R3): an estimate in the same layer as hire until the tip invoice that
+    // bills them arrives - a docket matched to one of this project's invoices stops counting, since
+    // the invoice (in invoicedTotal) replaces it. Live-only; closed days and the ledger are untouched.
+    const invoiceIds = new Set(invoiced.map((i) => i.id));
+    const tipDockets = (tipByProject.get(p.id) ?? []).map((t) => ({ ...t, billed: !!t.invoicedCostId && invoiceIds.has(t.invoicedCostId) }));
+    const tipOpen = tipDockets.filter((t) => !t.billed);
+    for (const t of tipOpen) if (t.amount != null) addDay(t.day, t.amount, "estimated", "tipFees");
+    const tipEstimateToDate = round2(tipOpen.reduce((n, t) => n + (t.amount ?? 0), 0));
+    const tipUnpriced = tipOpen.filter((t) => t.amount == null).length;
+    // The two mismatch flags, per job: dockets not invoiced 35 days on, tip invoices billing no docket.
+    const tipUninvoiced = tipOpen.filter((t) => isUninvoiced({ day: t.day, invoicedCostId: null }, todayIso)).length;
+    const billedIds = new Set(tipDockets.filter((t) => t.billed).map((t) => t.invoicedCostId));
+    const tipInvoicesNoDocket = invoiced.filter((i) => i.category === "TIP_FEES" && i.amountExGst > 0 && !billedIds.has(i.id)).length;
+    estimatedCost += tipEstimateToDate;
     const hireLabourEstimateTotal = hireLabourEstimate.reduce((n, l) => n + (l.cost ?? 0), 0);
-    const totalCost = byCode.plant + byCode.attach + byCode.trucks + byCode.hire + invoicedTotal + labourTotal;
+    const totalCost = byCode.plant + byCode.attach + byCode.trucks + byCode.hire + invoicedTotal + labourTotal + tipEstimateToDate;
 
     // Still to come (redesign): costs already committed but not in totalCost.
     //  - labour hire worked since the agency's last invoice (board estimate),
@@ -399,6 +418,12 @@ export async function loadTracking({ withPeople }: { withPeople: boolean }) {
       // Hire register estimates (included in byCode.hire / totalCost above).
       hireEstimateToDate,
       hireItems,
+      // Tip dockets (Receipts R3): estimates not yet billed (in totalCost), and every counted docket.
+      tipEstimateToDate,
+      tipUnpriced,
+      tipUninvoiced,
+      tipInvoicesNoDocket,
+      tipDockets: tipDockets.sort((a, b) => b.day.localeCompare(a.day)).map((t) => ({ id: t.id, day: t.day, docketNo: t.docketNo, tipSite: t.tipSite, wasteType: t.wasteType, tonnes: t.tonnes, asbestos: t.asbestos, amount: t.amount, basis: t.basis, billed: t.billed })),
       hireLabourEstimate: isAdmin ? hireLabourEstimate : [],
       uncostedCount,
       unconfirmedCount,

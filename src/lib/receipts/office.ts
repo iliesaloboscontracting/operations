@@ -5,6 +5,7 @@ import { prisma } from "../prisma";
 import { jobLabel, signinDates } from "../signin";
 import { docketDate, normRego, num } from "./checks";
 import { MAX_TRIES, logOf, readOdometer, readReceipt, readingEnabled, type ReadingLog } from "./runner";
+import { syncTipMatchesSoon, truckRegos, vehicleForRego } from "./tipStore";
 
 type Problem = { error: string; status: number };
 type Who = { name: string };
@@ -63,15 +64,19 @@ export async function receiptAction(who: Who, id: string, body: Record<string, u
       data[field] = value;
     }
     if (!Object.keys(data).length && body.confirm !== true) return { error: "Nothing changed.", status: 400 };
+    // A corrected rego on a tip docket re-links it to our truck (or unlinks it).
+    if (!isOdo && (row as { kind: string }).kind === "TIP" && "rego" in data) data.vehicleId = vehicleForRego(data.rego as string | null, await truckRegos());
     const confirm = body.confirm === true && row.status !== "REJECTED";
     // Typed in from an unreadable photo without confirming: it stays on the list to check.
     const status = confirm ? "CONFIRMED" : unreadable ? "CHECK" : row.status;
     await save({ ...data, ...(Object.keys(data).length ? { correctedBy: who.name, correctedAt: now, reading: JSON.stringify({ ...log, corrections }) } : {}), status });
+    if (!isOdo) syncTipMatchesSoon();
     return { ok: true, status };
   }
   if (op === "CONFIRM") {
     if (row.status !== "READ" && row.status !== "CHECK") return { error: row.status === "CONFIRMED" ? "Already confirmed." : "Only a read receipt can be confirmed.", status: 409 };
     await save({ status: "CONFIRMED" });
+    if (!isOdo) syncTipMatchesSoon();
     return { ok: true, status: "CONFIRMED" };
   }
   if (op === "REJECT") {
@@ -79,6 +84,7 @@ export async function receiptAction(who: Who, id: string, body: Record<string, u
     if (reason.length < 3) return { error: "Say why it's set aside.", status: 400 };
     if (row.status === "REJECTED") return { error: "Already set aside.", status: 409 };
     await save({ status: "REJECTED", reading: JSON.stringify({ ...log, rejected: { at: now.toISOString(), by: who.name, reason } }) });
+    if (!isOdo) syncTipMatchesSoon(); // a docket set aside no longer counts towards an invoice
     return { ok: true, status: "REJECTED" };
   }
   if (op === "READ_AGAIN") {

@@ -16,6 +16,7 @@ export async function register() {
     const { remindDailyLogs } = await import("./lib/dailyLog/reminders");
     const { expireProposals } = await import("./lib/changes/store");
     const { readWaiting } = await import("./lib/receipts/runner");
+    const { tipTick } = await import("./lib/receipts/tipStore");
     setInterval(() => {
       // Xero (read-only, G3): once a day from 2am Sydney, after the backup. Does nothing until set up and connected.
       nightlyXeroSync().catch((e) => console.error("xero nightly", e instanceof Error ? e.message : "failed"));
@@ -34,6 +35,8 @@ export async function register() {
       expireProposals().catch((e) => console.error("change proposal expiry", e));
       // Receipts (R2): read any receipt / odometer photo still waiting. Off with RECEIPT_READING=off.
       readWaiting().catch((e) => console.error("receipt reading", e instanceof Error ? e.message : "failed"));
+      // Receipts (R3): every ten minutes, late tip dockets meet their invoices and dockets meet their trucks.
+      tipTick().catch((e) => console.error("tip matching", e instanceof Error ? e.message : "failed"));
     }, 60_000);
   }
 }

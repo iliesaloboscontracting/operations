@@ -76,11 +76,12 @@ const DOC_SCHEMA = {
           gst: S("GST amount as plain digits. Empty if not shown."),
           totalIncGst: S("Total including GST as plain digits. Empty if not shown."),
           category: { type: "string", enum: [...CATEGORIES] },
+          docketNos: { type: "array", items: { type: "string" }, description: "Tip / weighbridge docket numbers listed on a tip-fees invoice, exactly as printed. Empty for anything else." },
           projectId: S("Id of the matching job from the list, or empty."),
           confidence: { type: "string", enum: ["high", "low", "none"] },
           reason: S("One short line: why this job (or why none)."),
         },
-        required: ["documentType", "supplier", "entityBilled", "invoiceNo", "invoiceDate", "periodFrom", "periodTo", "description", "siteText", "hireRef", "amountExGst", "gst", "totalIncGst", "category", "projectId", "confidence", "reason"],
+        required: ["documentType", "supplier", "entityBilled", "invoiceNo", "invoiceDate", "periodFrom", "periodTo", "description", "siteText", "hireRef", "amountExGst", "gst", "totalIncGst", "category", "docketNos", "projectId", "confidence", "reason"],
         additionalProperties: false,
       },
     },
@@ -94,6 +95,7 @@ export type ReadInvoice = {
   supplier: string; entityBilled: string; invoiceNo: string; invoiceDate: string; periodFrom: string; periodTo: string;
   description: string; siteText: string; hireRef: string; amountExGst: string; gst: string; totalIncGst: string;
   category: (typeof CATEGORIES)[number]; projectId: string; confidence: "high" | "low" | "none"; reason: string;
+  docketNos?: string[]; // tip fees: the dockets it bills (Receipts R3)
 };
 
 export async function readInvoiceDocument(file: Buffer, mime: string, jobs: JobForMatching[]): Promise<ReadInvoice[]> {

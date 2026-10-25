@@ -4,6 +4,7 @@
 // period that ends before it starts.
 import { prisma } from "./prisma";
 import { isISODate } from "./dateRules";
+import { docketNosOf, parseDocketNos } from "./receipts/tipCosts";
 
 export const INVOICE_CATEGORIES = ["PLANT_HIRE", "LABOUR_HIRE", "TIP_FEES", "MATERIALS"] as const;
 
@@ -20,6 +21,7 @@ export type InvoiceInput = {
   hireResourceId: string | null;
   periodFrom: string | null;
   periodTo: string | null;
+  docketNos: string | null; // tip fees (Receipts R3): JSON list of the docket numbers it bills
 };
 
 const text = (v: unknown, max: number) => (typeof v === "string" && v.trim() ? v.trim().slice(0, max) : null);
@@ -61,6 +63,11 @@ export async function readInvoice(body: Record<string, unknown>, existingId?: st
   if (periodTo && !isISODate(periodTo)) return { error: "Period to must be a real date." };
   if (periodFrom && periodTo && periodTo < periodFrom) return { error: "The period ends before it starts." };
 
+  // Tip invoices: the docket numbers printed on it, so it replaces exactly those dockets' estimates
+  // (a typed list "A123, A124", or the stored JSON when a correction doesn't touch it).
+  const raw = typeof body.docketNos === "string" && body.docketNos.trim().startsWith("[") ? docketNosOf(body.docketNos) : body.docketNos;
+  const nos = category === "TIP_FEES" ? parseDocketNos(raw) : [];
+
   if (invoiceNo) {
     const dup = await prisma.invoicedCost.findFirst({
       where: { projectId, invoiceNo, vendor, ...(existingId ? { id: { not: existingId } } : {}) },
@@ -73,7 +80,7 @@ export async function readInvoice(body: Record<string, unknown>, existingId?: st
     data: {
       projectId, category, vendor, invoiceNo, weekEnding,
       amountExGst: round(ex), gst, totalIncGst: round(ex + gst),
-      notes: text(body.notes, 1000), hireResourceId, periodFrom, periodTo,
+      notes: text(body.notes, 1000), hireResourceId, periodFrom, periodTo, docketNos: nos.length ? JSON.stringify(nos) : null,
     },
   };
 }

@@ -13,6 +13,7 @@ import { invoiceMimeOf, readInvoiceFile } from "./invoiceFiles";
 import { readInvoiceSheet } from "./invoiceSheet";
 import { mapSheetColumns, matchInvoiceRows, readInvoiceDocument, ReadingNotConfigured, type JobForMatching, type ReadInvoice } from "./invoiceReading";
 import { readInvoice } from "./invoicedCosts";
+import { syncTipMatchesSoon } from "./receipts/tipStore";
 import { todaySydney } from "./today";
 
 export type DraftStatus = "ADDED" | "NEEDS_REVIEW" | "NO_JOB" | "DUPLICATE" | "SKIPPED";
@@ -59,6 +60,7 @@ type Raw = {
   periodFrom: string | null; periodTo: string | null; description: string | null; siteText: string | null; hireRef: string | null;
   amountExGst: number | null; gst: number | null; totalIncGst: number | null;
   category: string | null; projectId: string | null; confidence: "HIGH" | "LOW" | null; matchReason: string | null;
+  docketNos?: string[]; // tip invoices read from a file (Receipts R3) - matched to the dockets sent from site
 };
 
 const blank = (s: string | null | undefined) => (s && s.trim() ? s.trim() : null);
@@ -82,6 +84,7 @@ async function rawFromDocument(fileName: string, jobs: JobForMatching[]): Promis
     description: blank(r.description), siteText: blank(r.siteText), hireRef: blank(r.hireRef),
     amountExGst: money(r.amountExGst), gst: money(r.gst), totalIncGst: money(r.totalIncGst),
     category: r.category, projectId: blank(r.projectId), confidence: conf(r.confidence), matchReason: blank(r.reason),
+    docketNos: r.category === "TIP_FEES" ? r.docketNos ?? [] : [],
   }));
 }
 
@@ -207,16 +210,18 @@ async function decide(r: Raw, seen: Set<string>, existing: Set<string>, jobIds: 
 async function addToTracking(
   d: { projectId: string | null; category: string | null; supplier: string | null; invoiceNo: string | null; invoiceDate: string | null;
        amountExGst: number | null; gst: number | null; periodFrom: string | null; periodTo: string | null; hireResourceId: string | null;
-       description: string | null; siteText: string | null },
+       description: string | null; siteText: string | null; docketNos?: string[] },
   source: string, enteredBy: string,
 ): Promise<{ id: string } | { error: string }> {
   const out = await readInvoice({
     projectId: d.projectId, category: d.category, vendor: d.supplier, invoiceNo: d.invoiceNo, weekEnding: d.invoiceDate,
     amountExGst: d.amountExGst, gst: d.gst ?? "", hireResourceId: d.hireResourceId, periodFrom: d.periodFrom, periodTo: d.periodTo,
     notes: [d.description, d.siteText && `Site: ${d.siteText}`, source].filter(Boolean).join(". "),
+    docketNos: d.docketNos ?? [],
   });
   if ("error" in out) return out;
   const row = await prisma.invoicedCost.create({ data: { ...out.data, enteredBy } });
+  if (row.category === "TIP_FEES") syncTipMatchesSoon(); // it replaces the dockets it bills (Receipts R3)
   return { id: row.id };
 }
 

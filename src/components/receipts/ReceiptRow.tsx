@@ -107,6 +107,7 @@ export default function ReceiptRow({ r, jobs, trucks, onChanged }: { r: ReceiptO
           <span className="font-semibold text-gray-100">{r.label}</span>
           {r.asbestos && <span className="rounded-full bg-red-500/20 px-2 py-0.5 text-[11px] font-semibold text-red-300">Asbestos</span>}
           <span className={`rounded-full px-2 py-0.5 text-[11px] ${s.tone}`}>{r.unreadable ? "Couldn't be read" : s.text}</span>
+          {r.onInvoice && <span className="rounded-full bg-sky-500/20 px-2 py-0.5 text-[11px] text-sky-300">On a tip invoice</span>}
         </div>
         <div className="text-gray-300">{r.for}</div>
         {read.length > 0 && <div className="text-gray-200">{read.join(" · ")}</div>}

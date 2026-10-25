@@ -24,7 +24,8 @@ export type SignalKind =
   | "HIRE_UNINVOICED" | "HIRE_IDLE" | "HIRE_NO_FINISH" | "HIRE_OVERDUE"
   | DateExceptionCode
   | "START_NOT_READY" | "NO_SUPERVISOR" | "DAYS_NOT_CLOSED" | "CREW_SHORT" | "DATA_PLANT_NOT_BOOKED"
-  | "TENDER_WON_NO_PROJECT" | "XERO_UNMATCHED" | "XERO_REAUTH" | "LABOUR_HOURS_VS_BUDGET";
+  | "TENDER_WON_NO_PROJECT" | "XERO_UNMATCHED" | "XERO_REAUTH" | "LABOUR_HOURS_VS_BUDGET"
+  | "TIP_DOCKET_UNINVOICED" | "TIP_INVOICE_NO_DOCKET";
 
 // Who may see it (design §1): OPERATIONAL = Viewer+, never a dollar figure;
 // COMMERCIAL = Manager+ (the money Tracking already shows Managers);
@@ -357,6 +358,35 @@ export function labourVsBudgetSignals(rows: LabourVsBudgetInput[]): Signal[] {
   } satisfies Signal)));
 }
 
+// ---------- tip dockets vs tip invoices (Receipts R3) ----------
+
+// Both ways (design §Costs): a tip docket sent from site still on no invoice 35 days after its date
+// (the invoice may be lost or billed to the wrong job), and a tip invoice with no docket from site
+// (a load nobody photographed, or the wrong job). Operations side - never on the Directors screen.
+export type TipMismatchInput = {
+  uninvoiced: { id: string; projectId: string; projectName: string; day: string; docketNo: string | null; tipSite: string | null; tonnes: number | null }[];
+  invoicesWithoutDockets: { id: string; projectId: string; projectName: string; vendor: string; invoiceNo: string | null; weekEnding: string; amountExGst: number }[];
+};
+export function tipMismatchSignals(t: TipMismatchInput | null): Signal[] {
+  if (!t) return [];
+  return [
+    ...t.uninvoiced.map((d) => ({
+      kind: "TIP_DOCKET_UNINVOICED", subject: { type: "PROJECT", id: d.projectId, name: d.projectName }, projectId: d.projectId,
+      dedupeKey: dedupeKeyOf("TIP_DOCKET_UNINVOICED", "PROJECT", d.projectId, d.id), severity: "MEDIUM", audience: "COMMERCIAL",
+      title: `${d.projectName}: tip docket ${d.docketNo ? `#${d.docketNo} ` : ""}from ${d.tipSite ?? "the tip"} (${d.day}) is on no tip invoice after 35 days`,
+      provisional: false, confidence: "MEDIUM", evidence: [{ recordType: "Receipt", recordId: d.id, label: d.docketNo ?? "tip docket" }, projectRef(d.projectId, d.projectName)], href: "/receipts",
+      values: { docketNo: d.docketNo, tipSite: d.tipSite, docketDate: d.day, tonnes: d.tonnes },
+    } satisfies Signal)),
+    ...t.invoicesWithoutDockets.map((i) => ({
+      kind: "TIP_INVOICE_NO_DOCKET", subject: { type: "PROJECT", id: i.projectId, name: i.projectName }, projectId: i.projectId,
+      dedupeKey: dedupeKeyOf("TIP_INVOICE_NO_DOCKET", "PROJECT", i.projectId, i.id), severity: "MEDIUM", audience: "COMMERCIAL",
+      title: `${i.projectName}: ${i.vendor} tip invoice${i.invoiceNo ? ` ${i.invoiceNo}` : ""} (${i.weekEnding}) has no tip docket from site`,
+      provisional: false, confidence: "MEDIUM", evidence: [{ recordType: "InvoicedCost", recordId: i.id, label: i.invoiceNo ?? i.vendor }, projectRef(i.projectId, i.projectName)], href: "/receipts",
+      values: { vendor: i.vendor, invoiceNo: i.invoiceNo, invoiceDate: i.weekEnding, amountExGst: i.amountExGst },
+    } satisfies Signal)),
+  ];
+}
+
 // ---------- all of them ----------
 
 export type SignalInputs = {
@@ -378,6 +408,7 @@ export type SignalInputs = {
   xeroConnection?: XeroConnectionInput | null; // G3: the live connection, if one was ever made
   // Task K: null = Estimating didn't answer for a job with logs (that check is skipped this run)
   labourVsBudget?: LabourVsBudgetInput[] | null;
+  tipMismatches?: TipMismatchInput | null; // Receipts R3
 };
 
 // Which signal kinds weren't looked at this run, so the engine leaves their
@@ -405,6 +436,7 @@ export function buildSignals(i: SignalInputs): Signal[] {
     ...xeroUnmatchedSignal(i.xeroUnmatched ?? null),
     ...xeroReauthSignal(i.xeroConnection ?? null),
     ...labourVsBudgetSignals(i.labourVsBudget ?? []),
+    ...tipMismatchSignals(i.tipMismatches ?? null),
   ].sort((a, b) => RANK[a.severity] - RANK[b.severity] || a.dedupeKey.localeCompare(b.dedupeKey));
 }
 

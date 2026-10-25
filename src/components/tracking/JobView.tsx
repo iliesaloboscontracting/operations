@@ -98,12 +98,16 @@ export default function JobView({ id, mode }: { id: string; mode: "ops" | "direc
           <Legend />
         </div>
         <SpendBar confirmed={confirmed} estimated={p.estimatedTotal} toCome={p.stillToCome} contract={p.contractValue} height={16} />
-        {(p.uncostedCount > 0 || p.unconfirmedCount > 0 || p.hireNoFinish > 0 || p.bookedUncosted > 0) && (
+        {(p.uncostedCount > 0 || p.unconfirmedCount > 0 || p.hireNoFinish > 0 || p.bookedUncosted > 0 || p.tipUnpriced > 0 || p.tipUninvoiced > 0 || p.tipInvoicesNoDocket > 0) && (
           <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-amber-400">
             {p.uncostedCount > 0 && <span>+ {p.uncostedCount} allocation{p.uncostedCount === 1 ? "" : "s"} not costed (rate or hours missing)</span>}
             {p.unconfirmedCount > 0 && <span>{p.unconfirmedCount} on an unconfirmed rate</span>}
             {p.hireNoFinish > 0 && <span>{p.hireNoFinish} hired item{p.hireNoFinish === 1 ? "" : "s"} with no finish date - still to come excludes them</span>}
             {p.bookedUncosted > 0 && <span>{p.bookedUncosted} booked allocation{p.bookedUncosted === 1 ? "" : "s"} not costed</span>}
+            {/* Tip dockets (Receipts R3) */}
+            {p.tipUnpriced > 0 && <span>+ {p.tipUnpriced} tip docket{p.tipUnpriced === 1 ? "" : "s"} not priced - {director ? "a tip rate is needed" : <Link href="/receipts" className="underline">add a tip rate</Link>}</span>}
+            {p.tipUninvoiced > 0 && <span>{p.tipUninvoiced} tip docket{p.tipUninvoiced === 1 ? "" : "s"} still not invoiced after 35 days</span>}
+            {p.tipInvoicesNoDocket > 0 && <span>{p.tipInvoicesNoDocket} tip invoice{p.tipInvoicesNoDocket === 1 ? "" : "s"} with no docket from site</span>}
           </div>
         )}
       </Card>
@@ -221,6 +225,21 @@ function Behind({ p, cat, isAdmin, onEdit }: { p: ProjectCostDTO; cat: CostCatKe
           ))}
         </div>
       )}
+      {cat === "tipFees" && p.tipDockets.length > 0 && (
+        <div className="mb-2">
+          <div className="mb-1 text-[11px] uppercase tracking-wide text-gray-500">Tip dockets from site (estimate until the tip invoice arrives)</div>
+          {p.tipDockets.slice(0, 60).map((t) => (
+            <div key={t.id} className="flex flex-wrap items-baseline gap-x-2 py-0.5 text-sm">
+              <span className="w-14 text-[11px] text-gray-500">{day(t.day)}</span>
+              <span className="min-w-0 flex-1 truncate text-gray-200">{t.tipSite ?? "Tip"}{t.docketNo && <span className="text-gray-500"> #{t.docketNo}</span>}{t.asbestos && <span className="text-red-300"> · asbestos</span>}</span>
+              <span className="text-[11px] text-gray-500">{[t.wasteType, t.tonnes != null && `${t.tonnes} t`].filter(Boolean).join(" · ")}</span>
+              <span className="w-28 text-right tabular-nums text-gray-100">
+                {t.billed ? <span className="text-gray-500">on an invoice</span> : t.amount != null ? <>{money(t.amount)}{t.basis === "RATE" && <span className="text-[10px] text-gray-500"> rate</span>}</> : <span className="text-amber-400">no tip rate</span>}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
       {invoices.length > 0 && (<><div className="mb-1 text-[11px] uppercase tracking-wide text-gray-500">Invoices</div><InvoiceList rows={invoices} onEdit={onEdit} /></>)}
       {days.length > 0 && (
         <div>
@@ -234,7 +253,7 @@ function Behind({ p, cat, isAdmin, onEdit }: { p: ProjectCostDTO; cat: CostCatKe
           ))}
         </div>
       )}
-      {cat !== "ownCrew" && !invoices.length && !days.length && !(cat === "hire" && p.hireItems.length) && <p className="text-xs text-gray-500">No records.</p>}
+      {cat !== "ownCrew" && !invoices.length && !days.length && !(cat === "hire" && p.hireItems.length) && !(cat === "tipFees" && p.tipDockets.length) && <p className="text-xs text-gray-500">No records.</p>}
     </div>
   );
 }

@@ -2,12 +2,15 @@
 
 // Receipts (26 Oct 2026): tip dockets and fuel receipts photographed from phones, and the odometer
 // photos taken after a truck sign-in. Claude reads each one (R2); plain rules put it straight in
-// (Read) or on "Check these" for a person to confirm, correct or set aside. Tip rates and costs come
-// in R3. Managers and Admins (prices show here, never on a link). Design: docs/receipts/RECEIPTS-DESIGN.md.
+// (Read) or on "Check these" for a person to confirm, correct or set aside. Tip rates price dockets
+// with no printed price; Mismatches lists dockets and tip invoices that don't meet (R3). Managers and
+// Admins (prices show here, never on a link). Design: docs/receipts/RECEIPTS-DESIGN.md.
 import { useCallback, useEffect, useState } from "react";
 import PageShell from "@/components/PageShell";
 import { useAuth } from "@/components/AuthProvider";
 import ReceiptRow from "@/components/receipts/ReceiptRow";
+import TipRates from "@/components/receipts/TipRates";
+import TipMismatches from "@/components/receipts/TipMismatches";
 import { apiFetch, serverErrorMessage } from "@/lib/apiFetch";
 import type { ReceiptOfficeDTO } from "@/lib/receipts/store";
 
@@ -17,8 +20,8 @@ type Filters = Partial<Record<(typeof FILTERS)[number], string>>;
 const select = "rounded-lg border border-edge bg-panel2 px-2.5 py-1.5 text-xs text-gray-200";
 
 export default function ReceiptsPage() {
-  const { canEdit, loading } = useAuth();
-  const [tab, setTab] = useState<"check" | "all">("check");
+  const { canEdit, isAdmin, loading } = useAuth();
+  const [tab, setTab] = useState<"check" | "all" | "rates" | "mismatch">("check");
   const [f, setF] = useState<Filters>({});
   const [data, setData] = useState<Data | null>(null);
   const [moveTo, setMoveTo] = useState<{ id: string; label: string }[]>([]);
@@ -26,6 +29,7 @@ export default function ReceiptsPage() {
   const [flash, setFlash] = useState<string | null>(null);
 
   const load = useCallback(() => {
+    if (tab === "rates" || tab === "mismatch") return;
     const q = new URLSearchParams(Object.entries(f).filter(([, v]) => v) as [string, string][]);
     if (tab === "check") q.set("check", "1");
     apiFetch(`/api/receipts?${q}`).then(async (r) => (r.ok ? (setError(null), setData(await r.json())) : setError(await serverErrorMessage(r, "Couldn't load the receipts."))));
@@ -46,7 +50,10 @@ export default function ReceiptsPage() {
       <div className="mb-3 flex gap-1">
         <button className={tabBtn(tab === "check")} onClick={() => setTab("check")}>Check these{data?.toCheck ? ` (${data.toCheck})` : ""}</button>
         <button className={tabBtn(tab === "all")} onClick={() => setTab("all")}>All receipts</button>
+        <button className={tabBtn(tab === "rates")} onClick={() => setTab("rates")}>Tip rates</button>
+        <button className={tabBtn(tab === "mismatch")} onClick={() => setTab("mismatch")}>Mismatches</button>
       </div>
+      {tab === "rates" ? <TipRates isAdmin={isAdmin} /> : tab === "mismatch" ? <TipMismatches /> : (<>
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <input type="date" className={select} value={f.day ?? ""} onChange={set("day")} aria-label="Day" />
         <select className={select} value={f.kind ?? ""} onChange={set("kind")} aria-label="Kind">
@@ -79,6 +86,7 @@ export default function ReceiptsPage() {
             {data.rows.map((r) => <ReceiptRow key={`${r.type}-${r.id}`} r={r} jobs={jobsForRow(r)} trucks={data.trucks} onChanged={(m) => { setFlash(m); load(); }} />)}
           </ul>
         )}
+      </>)}
     </PageShell>
   );
 }

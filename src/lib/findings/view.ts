@@ -25,6 +25,8 @@ export const RULE_LABEL: Record<string, string> = {
   DATE_TBC_REVIEW_DUE: "projects whose TBC completion is due for review",
   DATE_JOBS_NO_TIMES: "projects with upcoming jobs missing times",
   DATA_PLANT_NOT_BOOKED: "data gap: owned plant isn't being booked on the board",
+  TIP_DOCKET_UNINVOICED: "tip dockets on no tip invoice after 35 days",
+  TIP_INVOICE_NO_DOCKET: "tip invoices with no docket from site",
   XERO_UNMATCHED: "Xero upload: sales invoices not tied to a job",
 };
 

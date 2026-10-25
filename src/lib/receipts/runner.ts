@@ -7,7 +7,8 @@ import { prisma } from "../prisma";
 import { ReadingNotConfigured } from "../invoiceReading";
 import { readReceiptPhoto, receiptMimeOf } from "./files";
 import { claudeReader, type Photo, type ReadContext, type Reader } from "./reading";
-import { decideFuel, decideOdometer, decideTip, fuelFields, normDocket, normRego, tipFields } from "./checks";
+import { decideFuel, decideOdometer, decideTip, fuelFields, normDocket, tipFields } from "./checks";
+import { syncTipMatchesSoon, truckRegos, vehicleForRego } from "./tipStore";
 
 export const readingEnabled = () => process.env.RECEIPT_READING !== "off";
 export const MAX_TRIES = 3;
@@ -26,13 +27,14 @@ async function photosOf(rows: { fileName: string }[]): Promise<Photo[]> {
 }
 
 async function context(): Promise<ReadContext & { trucks: { id: string; rego: string }[] }> {
-  const [trucks, sites] = await Promise.all([
-    prisma.resource.findMany({ where: { type: "VEHICLE", ownership: "OWNED", NOT: { category: "Other" } }, select: { id: true, identifier: true, name: true } }),
+  const [list, sites, rateSites] = await Promise.all([
+    truckRegos(),
     prisma.receipt.findMany({ where: { kind: "TIP", status: { in: ["READ", "CONFIRMED"] }, tipSite: { not: null }, sentAt: { gte: new Date(Date.now() - 180 * 86_400_000) } }, select: { tipSite: true }, distinct: ["tipSite"], take: 60 }),
+    // The tip-rate list's site names too (R3), so the reader spells a site the way its rate does.
+    prisma.tipRate.findMany({ where: { retiredAt: null }, select: { tipSite: true }, distinct: ["tipSite"], take: 60 }),
   ]);
-  // A truck's rego is its register identifier, or the rego at the end of its name ("Tipper - DD50LV").
-  const list = trucks.map((t) => ({ id: t.id, rego: normRego(t.identifier || t.name.split(" - ").pop()) })).filter((t) => t.rego.length >= 4);
-  return { trucks: list, regos: list.map((t) => t.rego), tipSites: sites.map((s) => s.tipSite!).filter(Boolean) };
+  const tipSites = [...new Set([...rateSites.map((s) => s.tipSite), ...sites.map((s) => s.tipSite!)].filter(Boolean))];
+  return { trucks: list, regos: list.map((t) => t.rego), tipSites };
 }
 
 async function failed(kind: "receipt" | "odometer", id: string, prior: ReadingLog, e: unknown) {
@@ -63,14 +65,18 @@ export async function readReceipt(id: string, reader: Reader = claudeReader): Pr
               .find((o) => normDocket(o.docketNo) === key)
           : undefined;
         decision = decideTip(x, { sentAt: r.sentAt, asbestosTap: r.asbestos, ourRegos: ctx.regos, duplicateOf: earlier ? `by ${earlier.sentBy} on ${earlier.sentAt.toLocaleDateString("en-AU", { timeZone: "Australia/Sydney" })}` : null });
-        data = { ...fields, reading: JSON.stringify({ ...prior, result: x, reasons: decision.reasons, readAt: new Date().toISOString(), tries: (prior.tries ?? 0) + 1, lastError: undefined }) };
+        // The docket's rego, when it's one of our trucks, links it to that truck (R3; R4 uses it).
+        const vehicleId = vehicleForRego(fields.rego, ctx.trucks);
+        data = { ...fields, ...(vehicleId ? { vehicleId } : {}), reading: JSON.stringify({ ...prior, result: x, reasons: decision.reasons, readAt: new Date().toISOString(), tries: (prior.tries ?? 0) + 1, lastError: undefined }) };
       } else {
         const x = await reader.fuel(photos, ctx);
         const picked = ctx.trucks.find((t) => t.id === r.vehicleId)?.rego ?? null;
         decision = decideFuel(x, { sentAt: r.sentAt, ourRegos: ctx.regos, pickedRego: picked });
         data = { ...fuelFields(x), reading: JSON.stringify({ ...prior, result: x, reasons: decision.reasons, readAt: new Date().toISOString(), tries: (prior.tries ?? 0) + 1, lastError: undefined }) };
       }
-      await prisma.receipt.updateMany({ where: { id: r.id, status: "SENT" }, data: { ...data, status: decision.status, checkReasons: JSON.stringify(decision.reasons) } });
+      const saved = await prisma.receipt.updateMany({ where: { id: r.id, status: "SENT" }, data: { ...data, status: decision.status, checkReasons: JSON.stringify(decision.reasons) } });
+      // A tip docket that now counts may be one an invoice already bills (R3).
+      if (saved.count && r.kind === "TIP" && decision.status === "READ") syncTipMatchesSoon();
     } catch (e) {
       await failed("receipt", r.id, prior, e);
     }

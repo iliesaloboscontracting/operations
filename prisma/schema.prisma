@@ -143,6 +143,9 @@ model InvoicedCost {
   periodFrom     String? // YYYY-MM-DD
   periodTo       String? // YYYY-MM-DD
   enteredBy      String? // who added / last corrected it on Tracking (null = imported)
+  // Tip invoices (Receipts R3, 26 Oct 2026): the docket numbers printed on it (JSON array), so it can
+  // be matched to the tip dockets it bills. Null for everything else.
+  docketNos      String?
 
   @@index([projectId])
   @@index([hireResourceId])
@@ -1456,4 +1459,25 @@ model ReceiptPhoto {
 
   @@index([siteLinkId, createdAt])
   @@index([receiptId])
+}
+
+// Tip rates (Receipts R3, 26 Oct 2026): the office's rate per tonne ex GST for each tip site and waste
+// type. A docket with a weight but no price is costed from the rate in force on its date. A change of
+// price is a new row with a later validFrom; a mistyped rate is retired, never deleted. Admins edit;
+// money - never on a link, never for a Viewer.
+model TipRate {
+  id                String    @id @default(cuid())
+  tipSite           String
+  wasteType         String    @default("") // "" = any waste at that site
+  ratePerTonneExGst Float
+  validFrom         String // YYYY-MM-DD
+  source            String // the quote / invoice / email it came from
+  note              String?
+  createdBy         String
+  createdAt         DateTime  @default(now())
+  retiredAt         DateTime?
+  retiredBy         String?
+  retiredReason     String?
+
+  @@index([tipSite])
 }

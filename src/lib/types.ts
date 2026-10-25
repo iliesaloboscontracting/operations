@@ -351,6 +351,7 @@ export interface InvoicedCostDTO {
   hireResourceId: string | null; // plant hire: the hire-register item it bills
   periodFrom: string | null;
   periodTo: string | null;
+  docketNos: string[]; // tip fees: the docket numbers it bills (Receipts R3)
 }
 
 // One of these per costed allocation - so an uncosted one is never silently
@@ -541,6 +542,14 @@ export interface ProjectCostDTO {
   // byCode.hire and totalCost.
   hireEstimateToDate: number;
   hireItems: HireItemCostDTO[];
+  // Tip dockets (Receipts R3): read / confirmed dockets not yet billed by a tip invoice, estimated
+  // from their printed price or tonnes x the tip rate - included in totalCost. Unpriced ones (no
+  // price, no rate) are counted but add nothing until a rate is added.
+  tipEstimateToDate: number;
+  tipUnpriced: number;
+  tipUninvoiced: number; // dockets not on any invoice 35 days after their date
+  tipInvoicesNoDocket: number; // tip invoices that bill no docket sent from site
+  tipDockets: TipDocketCostDTO[];
   uncostedCount: number; // allocations with RATE_MISSING or HOURS_UNKNOWN
   unconfirmedCount: number; // allocations with RATE_UNCONFIRMED
   jobs: JobCostDTO[]; // only jobs that actually cost something, oldest first
@@ -561,6 +570,11 @@ export interface ProjectCostDTO {
   healthReason: string;
   firstDate: string | null;
   lastDate: string | null;
+}
+
+export interface TipDocketCostDTO {
+  id: string; day: string; docketNo: string | null; tipSite: string | null; wasteType: string | null; tonnes: number | null; asbestos: boolean | null;
+  amount: number | null; basis: "PRICE" | "RATE" | "UNPRICED"; billed: boolean; // billed = a tip invoice replaced it
 }
 
 export type CostCatKey = "plant" | "attach" | "trucks" | "hire" | "labourHire" | "tipFees" | "materials" | "ownCrew";

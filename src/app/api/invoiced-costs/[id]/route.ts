@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { guard, getCurrentUser } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { readInvoice } from "@/lib/invoicedCosts";
+import { syncTipMatchesSoon } from "@/lib/receipts/tipStore";
 
 // PATCH /api/invoiced-costs/:id - correct an entered invoice (Manager+). The
 // whole invoice is re-checked as one, same rules as adding it.
@@ -17,6 +18,7 @@ export const PATCH = withErrorHandling(async (req: NextRequest, { params: params
   const out = await readInvoice({ ...existing, ...body }, existing.id);
   if ("error" in out) return NextResponse.json({ error: out.error }, { status: 400 });
   const row = await prisma.invoicedCost.update({ where: { id: existing.id }, data: { ...out.data, enteredBy: user?.name ?? null } });
+  if (row.category === "TIP_FEES" || existing.category === "TIP_FEES") syncTipMatchesSoon(); // re-match its dockets (Receipts R3)
   return NextResponse.json(row);
 });
 
@@ -26,8 +28,9 @@ export const DELETE = withErrorHandling(async (_req: NextRequest, { params: para
   const params = await paramsP;
   const denied = await guard("ADMIN");
   if (denied) return denied;
-  const existing = await prisma.invoicedCost.findUnique({ where: { id: params.id }, select: { id: true } });
+  const existing = await prisma.invoicedCost.findUnique({ where: { id: params.id }, select: { id: true, category: true } });
   if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
   await prisma.invoicedCost.delete({ where: { id: existing.id } });
+  if (existing.category === "TIP_FEES") syncTipMatchesSoon(); // its dockets count as estimates again
   return NextResponse.json({ ok: true });
 });

@@ -184,6 +184,7 @@ export type ReceiptOfficeDTO = {
   sentBy: string; sentAt: string; asbestos: boolean | null; status: string; photoIds: string[];
   read: ReadFieldsDTO; reasons: string[]; unreadable: boolean; corrections: { at: string; by: string; field: string }[];
   rejected: { by: string; reason: string } | null;
+  onInvoice: boolean; // a tip invoice has replaced this docket's estimate (R3)
 };
 export type ReceiptFilters = { day?: string; jobId?: string; vehicleId?: string; person?: string; kind?: string; asbestos?: string; check?: string };
 
@@ -250,12 +251,12 @@ export async function officeList(f: ReceiptFilters): Promise<{ rows: ReceiptOffi
       read: r.kind === "TIP"
         ? { docketNo: r.docketNo, docketAt: iso(r.docketAt), tipSite: r.tipSite, wasteType: r.wasteType, tonnes: r.tonnes, priceExGst: r.priceExGst, priceIncGst: r.priceIncGst, rego: r.rego }
         : { litres: r.litres, pricePerLitre: r.pricePerLitre, fuelTotal: r.fuelTotal, station: r.station, docketAt: iso(r.docketAt), rego: r.rego },
-      ...extra(r.status, r.reading, reasonsOf(r.checkReasons)),
+      ...extra(r.status, r.reading, reasonsOf(r.checkReasons)), onInvoice: !!r.invoicedCostId,
     })),
     ...readings.map((r) => ({
       id: r.id, type: "ODOMETER" as const, label: "Odometer", for: truckName(r.vehicleId), jobId: null, vehicleId: r.vehicleId,
       sentBy: r.sentBy, sentAt: r.sentAt.toISOString(), asbestos: null, status: r.status, photoIds: r.photos.map((p) => p.id),
-      read: { km: r.km }, ...extra(r.status, r.reading, logOf(r.reading).reasons ?? []),
+      read: { km: r.km }, ...extra(r.status, r.reading, logOf(r.reading).reasons ?? []), onInvoice: false,
     })),
   ]
     // "Check these": what a person must look at - to check, or couldn't be read after three tries.

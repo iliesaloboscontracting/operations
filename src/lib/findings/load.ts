@@ -10,6 +10,7 @@ import { loadWonMatches } from "../insights/pipelineFeed";
 import { loadXeroHealth } from "../xero/imports";
 import { approvedBudgetFor, hoursVsBudgetFor } from "../dailyLog/store";
 import { buildSignals, notChecked, type LabourVsBudgetInput, type TrackingRules } from "./signals";
+import { tipMismatches } from "../receipts/tipStore";
 
 export const TRACKING_RULES: TrackingRules = {
   watchAt: WATCH_AT, actAt: ACT_AT, recentDays: ATTENTION_RECENT_DAYS,
@@ -37,6 +38,7 @@ export async function loadSignals() {
   ]);
   const wonTenders = won ? won.rows : null;
   const labourVsBudget = await loadLabourVsBudget();
+  const tips = await tipMismatches(d.today); // Receipts R3
 
   return {
     today: d.today,
@@ -59,6 +61,7 @@ export async function loadSignals() {
       xeroUnmatched: xero.invoices,
       xeroConnection: xeroConn ? { ...xeroConn, lastSyncAt: xeroConn.lastSyncAt?.toISOString() ?? null } : null,
       labourVsBudget,
+      tipMismatches: tips,
     }),
   };
 }

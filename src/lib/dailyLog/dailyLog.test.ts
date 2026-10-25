@@ -202,7 +202,8 @@ test("hours vs budget at Act is one Directors finding per job and code - hours o
 test("the daily log adds exactly one findings kind, and it's director-level (no operational list or alerts)", () => {
   const src = fs.readFileSync(path.join(process.cwd(), "src", "lib", "findings", "signals.ts"), "utf8");
   const kinds = (src.match(/export type SignalKind =([\s\S]*?);/)?.[1] ?? "").match(/"([A-Z_]+)"/g)!.map((k) => k.slice(1, -1));
-  assert.deepEqual(kinds.filter((k) => /LOG|DAILY|BUDGET|DOCKET|DELAY|SPLIT/.test(k)), ["LABOUR_HOURS_VS_BUDGET"]);
+  // (TIP_ kinds are Receipts R3 - tip dockets vs tip invoices - not the daily log.)
+  assert.deepEqual(kinds.filter((k) => !k.startsWith("TIP_") && /LOG|DAILY|BUDGET|DOCKET|DELAY|SPLIT/.test(k)), ["LABOUR_HOURS_VS_BUDGET"]);
   assert.equal(typeof buildSignals, "function");
 });
 
