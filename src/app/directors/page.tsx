@@ -21,6 +21,7 @@ import { ConfidenceBadge, DLink, Figure, Help, PriorityPill, Section, pct } from
 import { groupForDisplay } from "@/lib/findings/view";
 import FindingPanel from "@/components/directors/FindingPanel";
 import HealthBand from "@/components/directors/HealthBand";
+import QuestionsBanner from "@/components/queries/QuestionsBanner";
 
 const day = (iso: string) => fmtDay(iso, { day: "numeric", month: "short" });
 const weekday = (iso: string) => fmtDay(iso, { weekday: "short", day: "numeric" });
@@ -67,6 +68,7 @@ export default function DirectorsPage() {
           {!directorOnly && <Link href="/directors/pipeline" className="rounded-md border border-edge px-3 py-1.5 text-sm text-gray-300 hover:bg-panel2">Pipeline</Link>}
           {!directorOnly && <Link href="/directors/budgets" className="rounded-md border border-edge px-3 py-1.5 text-sm text-gray-300 hover:bg-panel2">Budgets to approve</Link>}
           {!directorOnly && <Link href="/directors/accounts" className="rounded-md border border-edge px-3 py-1.5 text-sm text-gray-300 hover:bg-panel2">Accounts data</Link>}
+          {!directorOnly && <Link href="/directors/requests" className="rounded-md border border-edge px-3 py-1.5 text-sm text-gray-300 hover:bg-panel2">Info requests</Link>}
           <Link href="/directors/kpis" className="rounded-md border border-edge px-3 py-1.5 text-sm text-gray-300 hover:bg-panel2">How the numbers work</Link>
         </div>
       }
@@ -76,7 +78,11 @@ export default function DirectorsPage() {
       ) : !o ? (
         <p className="py-10 text-center text-sm text-gray-500">Loading...</p>
       ) : (
-        <Overview o={o} showAll={showAll} setShowAll={setShowAll} onRefresh={load} />
+        <>
+          {/* Information requests (Task I): questions waiting on this login. */}
+          <QuestionsBanner />
+          <Overview o={o} showAll={showAll} setShowAll={setShowAll} onRefresh={load} />
+        </>
       )}
     </PageShell>
   );

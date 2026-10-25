@@ -14,6 +14,7 @@ import { fmtDay } from "@/lib/dates";
 import { CheckCircle2, ChevronDown, ChevronRight, FileText, Loader2, RotateCcw, Upload, XCircle } from "lucide-react";
 import MyQueries, { useMyQueries } from "@/components/queries/MyQueries";
 import XeroExports from "@/components/xero/XeroExports";
+import QuestionsBanner from "@/components/queries/QuestionsBanner";
 
 type Draft = {
   id: string; uploadId: string; rowNo: number | null; supplier: string | null; entityBilled: string | null; invoiceNo: string | null;
@@ -60,6 +61,10 @@ export default function InvoicesPage() {
   // Queries (Phase 2): questions Ilies has asked this login, answered here.
   const myQueries = useMyQueries();
   const [tab, setTab] = useState<"invoices" | "queries" | "xero">("invoices");
+  // /invoices?tab=queries (the "Questions for you" banner) opens the Queries tab.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("tab") === "queries") setTab("queries");
+  }, []);
   // Xero exports (G2): the accounts login and director access - never Managers.
   const showXero = accountsOnly || isDirector;
   const showTabs = accountsOnly || showXero || (myQueries.rows?.length ?? 0) > 0;
@@ -109,6 +114,8 @@ export default function InvoicesPage() {
 
   return (
     <PageShell title="Invoices" subtitle="Upload supplier invoices (PDF or photo) or your invoice register spreadsheet. Clear matches go straight onto the job; anything unclear waits here.">
+      {/* Information requests (Task I): questions waiting on this login. */}
+      {tab !== "queries" && <QuestionsBanner onOpen={() => setTab("queries")} />}
       {showTabs && (
         <div className="mb-4 flex gap-1.5" role="tablist" aria-label="Invoices, queries or Xero exports">
           {tabs.map(([k, label]) => (

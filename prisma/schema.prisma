@@ -1169,3 +1169,28 @@ model XeroConnection {
   lastError         String?   // plain text, never a token
   updatedAt         DateTime  @updatedAt
 }
+
+// Information requests (Task I, 25 Oct 2026): questions drafted for Ilies to
+// approve in a batch before they're sent to accounts / Nick / Yoel. A sent
+// draft becomes a SiteRequest of kind QUERY (sentRequestId). Kept, never
+// deleted - DISCARDED when Ilies decides not to send one.
+model InfoRequestDraft {
+  id             String    @id @default(cuid())
+  batch          String    // e.g. "01 - first information gaps"
+  toText         String    // "Nick Giannopoulos", "Accounts" as drafted
+  assigneeUserId String?   // resolved login, or null = can't send until fixed
+  infoType       String    // QUESTION | FYI
+  title          String
+  question       String
+  need           String?
+  why            String?
+  dueDate        String?   // YYYY-MM-DD
+  status         String    @default("DRAFT") // DRAFT | SENT | DISCARDED - never deleted
+  sentRequestId  String?   // the SiteRequest it became
+  createdBy      String
+  createdAt      DateTime  @default(now())
+  decidedBy      String?
+  decidedAt      DateTime?
+
+  @@index([status, batch])
+}

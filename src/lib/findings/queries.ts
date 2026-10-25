@@ -14,7 +14,7 @@ import { isOwner } from "../owner";
 import { assertNoMoney } from "../moneyGuard";
 import { insertRequest, addEvent } from "../siteRequests";
 import { notifyNewRequest, notifyRequestUpdate } from "../requestAlerts";
-import { saveInvoiceFile } from "../invoiceFiles";
+import { ANSWER_EXTS, saveInvoiceFile } from "../invoiceFiles";
 import { QUERY_TYPE, requestNo, type Priority } from "../requestTypes";
 import type { Actor } from "./actions";
 
@@ -104,7 +104,9 @@ type Q = SiteRequest & { events?: SiteRequestEvent[] };
 const lastAt = (r: Q, action: string) => [...(r.events ?? [])].reverse().find((e) => e.action === action)?.at.toISOString() ?? null;
 
 export const assigneeView = (r: Q, forLink: boolean) => {
-  const d = JSON.parse(r.details || "{}") as { question?: string; finding?: string };
+  const d = JSON.parse(r.details || "{}") as { question?: string; finding?: string; need?: string; infoType?: string };
+  // Information requests (Task I) carry a title, "what we need" and a type; FYI is only marked read.
+  const fyi = d.infoType === "FYI";
   return {
     id: r.id,
     ref: requestNo(r.number),
@@ -120,7 +122,12 @@ export const assigneeView = (r: Q, forLink: boolean) => {
     answeredAt: lastAt(r, "ANSWERED"),
     hasFile: !!r.answerFile,
     outcome: r.status === "DONE" && !forLink ? r.outcome : null,
-    canAnswer: ANSWERABLE.includes(r.status),
+    canAnswer: ANSWERABLE.includes(r.status) && !fyi,
+    title: !r.findingId && r.origin !== "FINDING" ? r.summary : null,
+    need: d.need ?? null,
+    infoType: fyi ? ("FYI" as const) : ("QUESTION" as const),
+    canMarkRead: fyi && ANSWERABLE.includes(r.status),
+    remindedAt: lastAt(r, "REMINDED"),
   };
 };
 export type AssigneeQueryView = ReturnType<typeof assigneeView>;
@@ -145,11 +152,13 @@ export async function answerQuery(
 ): Promise<{ request: SiteRequest } | { error: string }> {
   if (r.kind !== QUERY_TYPE.kind) return { error: "Not found." };
   if (!ANSWERABLE.includes(r.status)) return { error: r.status === "ANSWERED" ? "Already answered - the office will close it." : "This question is closed." };
+  if ((JSON.parse(r.details || "{}") as { infoType?: string }).infoType === "FYI") return { error: "This is for your information - just mark it read." };
   const answer = typeof body.answer === "string" ? body.answer.replace(/\s+/g, " ").trim().slice(0, 1000) : "";
   if (answer.length < 2) return { error: "Type your answer." };
   let answerFile: string | null = r.answerFile;
   if (body.file) {
-    const saved = await saveInvoiceFile(body.file, body.fileName ?? "answer");
+    // The usual office files (Task I), checked to be what they say they are.
+    const saved = await saveInvoiceFile(body.file, body.fileName ?? "answer", { allow: ANSWER_EXTS, checkContent: true });
     if ("error" in saved) return { error: saved.error };
     answerFile = saved.fileName;
   }
@@ -176,5 +185,6 @@ export async function recordQueryDecision(r: SiteRequest, action: string, note: 
   });
 }
 
-export const canSeeAnswerFile = (r: Pick<SiteRequest, "assigneeUserId">, u: Actor) =>
-  r.assigneeUserId === u.id || u.role === "ADMIN" || isOwner(u.email) || u.directorAccess || u.role === "DIRECTOR";
+// Directors-only questions (information requests) never open for an Admin without director access.
+export const canSeeAnswerFile = (r: Pick<SiteRequest, "assigneeUserId" | "audience">, u: Actor) =>
+  r.assigneeUserId === u.id || isOwner(u.email) || u.directorAccess || u.role === "DIRECTOR" || (u.role === "ADMIN" && r.audience !== "DIRECTOR");

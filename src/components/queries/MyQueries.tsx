@@ -26,13 +26,13 @@ export function useMyQueries() {
   const [rows, setRows] = useState<AssigneeQueryView[] | null>(null);
   const load = useCallback(() => apiFetch("/api/queries").then((r) => (r.ok ? r.json() : { queries: [] })).then((d) => setRows(d.queries)), []);
   useEffect(() => { load(); }, [load]);
-  return { rows, load, waiting: (rows ?? []).filter((q) => q.canAnswer).length };
+  return { rows, load, waiting: (rows ?? []).filter((q) => q.canAnswer || q.canMarkRead).length };
 }
 
 export default function MyQueries({ rows, onChange }: { rows: AssigneeQueryView[] | null; onChange: () => void }) {
   if (!rows) return <p className="py-6 text-center text-sm text-gray-500">Loading...</p>;
-  const open = rows.filter((q) => q.canAnswer);
-  const rest = rows.filter((q) => !q.canAnswer);
+  const open = rows.filter((q) => q.canAnswer || q.canMarkRead);
+  const rest = rows.filter((q) => !q.canAnswer && !q.canMarkRead);
   return (
     <div className="space-y-4">
       {open.length === 0 && <p className="rounded-xl border border-edge bg-panel p-4 text-sm text-emerald-400">No questions waiting on you.</p>}
@@ -52,12 +52,12 @@ function QueryCard({ q, onChange }: { q: AssigneeQueryView; onChange: () => void
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  async function send() {
+  async function send(read = false) {
     setBusy(true);
     setError(null);
     try {
-      const body: Record<string, unknown> = { answer };
-      if (file) { body.file = await readAsDataUrl(file); body.fileName = file.name; }
+      const body: Record<string, unknown> = read ? { action: "READ" } : { answer };
+      if (!read && file) { body.file = await readAsDataUrl(file); body.fileName = file.name; }
       const res = await apiFetch(`/api/queries/${q.id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       if (!res.ok) throw new Error(await serverErrorMessage(res, "Couldn't send your answer."));
       setAnswer(""); setFile(null);
@@ -69,12 +69,15 @@ function QueryCard({ q, onChange }: { q: AssigneeQueryView; onChange: () => void
     }
   }
   return (
-    <div className={`rounded-xl border border-edge bg-panel p-4 ${q.canAnswer ? "" : "opacity-80"}`}>
+    <div className={`rounded-xl border border-edge bg-panel p-4 ${q.canAnswer || q.canMarkRead ? "" : "opacity-80"}`}>
       <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-gray-500">
         <span>{q.ref} · {q.site} · from {q.askedBy}, {whenText(q.askedAt)}</span>
-        <span className={q.canAnswer ? "text-amber-300" : ""}>{STATUS[q.status] ?? q.status}{q.canAnswer ? ` · by ${whenText(q.neededBy)}` : ""}</span>
+        <span className={q.canAnswer || q.canMarkRead ? "text-amber-300" : ""}>{q.canMarkRead ? "For your information" : q.infoType === "FYI" && q.status === "DONE" ? "Read" : STATUS[q.status] ?? q.status}{q.canAnswer ? ` · by ${whenText(q.neededBy)}` : ""}</span>
       </div>
-      <p className="mt-1 text-sm font-medium text-gray-100">{q.question}</p>
+      {q.title && <p className="mt-1 text-sm font-semibold text-gray-100">{q.title}</p>}
+      <p className={`mt-1 whitespace-pre-line text-sm ${q.title ? "text-gray-300" : "font-medium text-gray-100"}`}>{q.question}</p>
+      {q.need && <p className="mt-1 text-sm text-gray-300"><span className="text-gray-500">What we need:</span> {q.need}</p>}
+      {q.remindedAt && (q.canAnswer || q.canMarkRead) && <p className="mt-1 text-[12px] text-amber-300">Reminder sent {whenText(q.remindedAt)}</p>}
       {q.finding && <p className="mt-0.5 text-[11px] text-gray-500">About: {q.finding}</p>}
       {q.followUp && <p className="mt-2 text-sm text-amber-300">Follow-up: {q.followUp}</p>}
       {q.answer && <p className="mt-2 text-sm text-sky-300">Your answer: {q.answer}{q.hasFile ? " (file attached)" : ""}</p>}
@@ -85,14 +88,22 @@ function QueryCard({ q, onChange }: { q: AssigneeQueryView; onChange: () => void
           <div className="flex flex-wrap items-center gap-2">
             <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-edge px-3 py-1.5 text-xs text-gray-300 hover:bg-panel2">
               <Paperclip size={13} /> {file ? file.name : "Attach a file (optional)"}
-              <input type="file" accept="application/pdf,image/*,.xlsx,.csv" className="hidden" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+              <input type="file" accept=".xlsx,.xls,.csv,.pdf,.jpg,.jpeg,.png,.docx" className="hidden" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
             </label>
-            <button disabled={busy || answer.trim().length < 2} onClick={send} className="ml-auto inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-4 py-1.5 text-sm font-semibold text-white disabled:opacity-40">
+            <button disabled={busy || answer.trim().length < 2} onClick={() => send()} className="ml-auto inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-4 py-1.5 text-sm font-semibold text-white disabled:opacity-40">
               {busy && <Loader2 size={14} className="animate-spin" />} Send answer
             </button>
           </div>
           {error && <p className="text-xs text-red-400">{error}</p>}
-          <p className="text-[11px] text-gray-500">Your answer goes to Ilies to close. It doesn&apos;t change anything in Operations by itself.</p>
+          <p className="text-[11px] text-gray-500">Excel, CSV, PDF, Word or a photo. Your answer goes to Ilies to close. It doesn&apos;t change anything in Operations by itself.</p>
+        </div>
+      )}
+      {q.canMarkRead && (
+        <div className="mt-3 flex items-center gap-2">
+          <button disabled={busy} onClick={() => send(true)} className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-4 py-1.5 text-sm font-semibold text-white disabled:opacity-40">
+            {busy && <Loader2 size={14} className="animate-spin" />} Mark read
+          </button>
+          {error && <p className="text-xs text-red-400">{error}</p>}
         </div>
       )}
     </div>

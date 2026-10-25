@@ -11,9 +11,12 @@ export const GET = withErrorHandling(async (_req: NextRequest, { params: paramsP
   const params = await paramsP;
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
-  const r = await prisma.siteRequest.findUnique({ where: { id: params.id }, select: { kind: true, answerFile: true, assigneeUserId: true } });
+  const r = await prisma.siteRequest.findUnique({ where: { id: params.id }, select: { kind: true, answerFile: true, assigneeUserId: true, audience: true } });
   if (!r || r.kind !== "QUERY" || !r.answerFile || !canSeeAnswerFile(r, user)) return NextResponse.json({ error: "Not found." }, { status: 404 });
   const bytes = await readInvoiceFile(r.answerFile).catch(() => null);
   if (!bytes) return NextResponse.json({ error: "The file is missing." }, { status: 404 });
-  return new NextResponse(new Uint8Array(bytes), { headers: { "Content-Type": invoiceMimeOf(r.answerFile), "Cache-Control": "private, max-age=3600" } });
+  // Office files download; PDFs and photos open in the browser.
+  const ext = r.answerFile.split(".").pop() ?? "";
+  const download: Record<string, string> = ["xlsx", "xls", "csv", "docx"].includes(ext) ? { "Content-Disposition": `attachment; filename="answer-${params.id.slice(-6)}.${ext}"` } : {};
+  return new NextResponse(new Uint8Array(bytes), { headers: { "Content-Type": invoiceMimeOf(r.answerFile), "Cache-Control": "private, max-age=3600", "X-Content-Type-Options": "nosniff", ...download } });
 });
