@@ -8,6 +8,7 @@ import { fromSydneyLocal } from "../shiftTimes";
 import type { ReceiptLink } from "../siteLinks";
 import { saveReceiptPhoto } from "./files";
 import { KIND_LABEL, LIMITS, STATUS_LABEL, parseReceipt, type ReceiptKind, type ReceiptLinkDTO } from "./rules";
+import { MAX_TRIES, logOf, readOdometerSoon, readReceiptSoon } from "./runner";
 
 type Problem = { error: string; status: number };
 const since24h = () => new Date(Date.now() - 24 * 3_600_000);
@@ -107,6 +108,7 @@ export async function createReceipt(link: ReceiptLink, body: Record<string, unkn
       photos: { connect: photos.map((p) => ({ id: p.id })) },
     },
   });
+  readReceiptSoon(r.id); // Claude reads it in the background (R2)
   const [dto] = await linkRows([r.id]);
   return { receipt: dto, message: `${KIND_LABEL[input.kind]} sent - thanks. It'll be read for you.` };
 }
@@ -158,77 +160,124 @@ export async function odometerFor(attendanceId: string, body: Record<string, unk
   if (existing) {
     await prisma.receiptPhoto.updateMany({ where: { odometerReadingId: existing.id }, data: { odometerReadingId: null } });
     await prisma.receiptPhoto.update({ where: { id: up.id }, data: { odometerReadingId: existing.id } });
-    await prisma.odometerReading.update({ where: { id: existing.id }, data: { status: "SENT", sentAt: new Date() } });
+    await prisma.odometerReading.update({ where: { id: existing.id }, data: { status: "SENT", sentAt: new Date(), km: null, reading: null } });
+    readOdometerSoon(existing.id);
     return { id: up.id, message: "Odometer photo replaced - thanks." };
   }
-  await prisma.odometerReading.create({
+  const created = await prisma.odometerReading.create({
     data: { vehicleId: a.vehicleId, siteAttendanceId: a.id, siteLinkId: linkId, sentBy: a.workerName, sentByResourceId: a.resourceId, photos: { connect: [{ id: up.id }] } },
   });
+  readOdometerSoon(created.id);
   return { id: up.id, message: "Odometer photo sent - thanks." };
 }
 
 // ---------- the office list (/receipts, Manager+) ----------
 
+// What was read (R2) - office-side only, never on a link (it has prices).
+export type ReadFieldsDTO = {
+  docketNo?: string | null; docketAt?: string | null; tipSite?: string | null; wasteType?: string | null; tonnes?: number | null;
+  priceExGst?: number | null; priceIncGst?: number | null; litres?: number | null; pricePerLitre?: number | null; fuelTotal?: number | null;
+  station?: string | null; rego?: string | null; km?: number | null;
+};
 export type ReceiptOfficeDTO = {
   id: string; type: "TIP" | "FUEL" | "ODOMETER"; label: string; for: string; jobId: string | null; vehicleId: string | null;
   sentBy: string; sentAt: string; asbestos: boolean | null; status: string; photoIds: string[];
+  read: ReadFieldsDTO; reasons: string[]; unreadable: boolean; corrections: { at: string; by: string; field: string }[];
+  rejected: { by: string; reason: string } | null;
 };
-export type ReceiptFilters = { day?: string; jobId?: string; vehicleId?: string; person?: string; kind?: string; asbestos?: string };
+export type ReceiptFilters = { day?: string; jobId?: string; vehicleId?: string; person?: string; kind?: string; asbestos?: string; check?: string };
 
-export async function officeList(f: ReceiptFilters): Promise<{ rows: ReceiptOfficeDTO[]; jobs: { id: string; label: string }[]; trucks: { id: string; label: string }[]; people: string[] }> {
+const reasonsOf = (s: string | null) => { try { const v = s ? JSON.parse(s) : []; return Array.isArray(v) ? v.map(String) : []; } catch { return []; } };
+const iso = (d: Date | null) => (d ? d.toISOString() : null);
+
+export async function officeList(f: ReceiptFilters): Promise<{ rows: ReceiptOfficeDTO[]; jobs: { id: string; label: string }[]; trucks: { id: string; label: string }[]; people: string[]; toCheck: number }> {
   const day = f.day && /^\d{4}-\d{2}-\d{2}$/.test(f.day) ? f.day : null;
-  // One Sydney day, or the last 30 days.
-  const from = day ? sydneyMidnight(day) : new Date(Date.now() - 30 * 86_400_000);
+  const check = f.check === "1";
+  // One Sydney day, or the last 30 days ("Check these": everything still to check from the last 90 days).
+  const from = day ? sydneyMidnight(day) : new Date(Date.now() - (check ? 90 : 30) * 86_400_000);
   const to = day ? sydneyMidnight(nextDay(day)) : new Date(Date.now() + 60_000);
   const wantOdo = !f.kind || f.kind === "ODOMETER";
   const wantReceipts = !f.kind || f.kind === "TIP" || f.kind === "FUEL";
+  const statusWhere = check ? { status: { in: ["CHECK", "SENT"] } } : {};
   const [receipts, readings] = await Promise.all([
-    wantReceipts && !(f.asbestos && f.kind === "ODOMETER")
+    wantReceipts
       ? prisma.receipt.findMany({
           where: {
-            sentAt: { gte: from, lt: to },
+            sentAt: { gte: from, lt: to }, ...statusWhere,
             ...(f.kind === "TIP" || f.kind === "FUEL" ? { kind: f.kind } : {}),
             ...(f.jobId ? { jobId: f.jobId } : {}),
             ...(f.vehicleId ? { vehicleId: f.vehicleId } : {}),
             ...(f.person ? { sentBy: f.person } : {}),
             ...(f.asbestos === "yes" ? { asbestos: true } : f.asbestos === "no" ? { asbestos: false } : {}),
           },
-          select: { id: true, kind: true, jobId: true, vehicleId: true, sentBy: true, sentAt: true, asbestos: true, status: true, photos: { select: { id: true }, orderBy: { createdAt: "asc" } } },
+          include: { photos: { select: { id: true }, orderBy: { createdAt: "asc" } } },
           orderBy: { sentAt: "desc" }, take: 500,
         })
       : [],
     wantOdo && !f.jobId && !f.asbestos
       ? prisma.odometerReading.findMany({
-          where: { sentAt: { gte: from, lt: to }, ...(f.vehicleId ? { vehicleId: f.vehicleId } : {}), ...(f.person ? { sentBy: f.person } : {}) },
-          select: { id: true, vehicleId: true, sentBy: true, sentAt: true, status: true, photos: { select: { id: true } } },
+          where: { sentAt: { gte: from, lt: to }, ...statusWhere, ...(f.vehicleId ? { vehicleId: f.vehicleId } : {}), ...(f.person ? { sentBy: f.person } : {}) },
+          include: { photos: { select: { id: true } } },
           orderBy: { sentAt: "desc" }, take: 500,
         })
       : [],
   ]);
   const jobIds = [...new Set(receipts.map((r) => r.jobId).filter((x): x is string => !!x))];
   const recent = { sentAt: { gte: new Date(Date.now() - 60 * 86_400_000) } };
-  const [jobRows, trucks, senders, odoSenders] = await Promise.all([
+  const [jobRows, trucks, senders, odoSenders, toCheck] = await Promise.all([
     prisma.job.findMany({ where: { id: { in: jobIds } }, select: { id: true, title: true, shift: true, date: true, project: { select: { name: true } } } }),
     lobosTrucks(),
     prisma.receipt.findMany({ where: recent, select: { sentBy: true }, distinct: ["sentBy"] }),
     prisma.odometerReading.findMany({ where: recent, select: { sentBy: true }, distinct: ["sentBy"] }),
+    countToCheck(),
   ]);
+  const extra = (status: string, reading: string | null, reasons: string[]) => {
+    const log = logOf(reading);
+    const unreadable = status === "SENT" && (log.tries ?? 0) >= MAX_TRIES;
+    return {
+      reasons: unreadable ? ["Couldn't be read - type it in, or read it again"] : reasons,
+      unreadable,
+      corrections: (log.corrections ?? []).map((c) => ({ at: c.at, by: c.by, field: c.field })),
+      rejected: log.rejected ? { by: log.rejected.by, reason: log.rejected.reason } : null,
+    };
+  };
   const jobName = (id: string | null) => { const j = jobRows.find((x) => x.id === id); return j ? `${jobLabel(j)} · ${j.date.toISOString().slice(5, 10).split("-").reverse().join("/")}` : "a job"; };
   const truckName = (id: string | null) => trucks.find((t) => t.id === id)?.name ?? "a truck";
   const rows: ReceiptOfficeDTO[] = [
     ...receipts.map((r) => ({
       id: r.id, type: r.kind as "TIP" | "FUEL", label: KIND_LABEL[r.kind as ReceiptKind] ?? r.kind, for: r.kind === "TIP" ? jobName(r.jobId) : truckName(r.vehicleId),
       jobId: r.jobId, vehicleId: r.vehicleId, sentBy: r.sentBy, sentAt: r.sentAt.toISOString(), asbestos: r.asbestos, status: r.status, photoIds: r.photos.map((p) => p.id),
+      read: r.kind === "TIP"
+        ? { docketNo: r.docketNo, docketAt: iso(r.docketAt), tipSite: r.tipSite, wasteType: r.wasteType, tonnes: r.tonnes, priceExGst: r.priceExGst, priceIncGst: r.priceIncGst, rego: r.rego }
+        : { litres: r.litres, pricePerLitre: r.pricePerLitre, fuelTotal: r.fuelTotal, station: r.station, docketAt: iso(r.docketAt), rego: r.rego },
+      ...extra(r.status, r.reading, reasonsOf(r.checkReasons)),
     })),
     ...readings.map((r) => ({
       id: r.id, type: "ODOMETER" as const, label: "Odometer", for: truckName(r.vehicleId), jobId: null, vehicleId: r.vehicleId,
       sentBy: r.sentBy, sentAt: r.sentAt.toISOString(), asbestos: null, status: r.status, photoIds: r.photos.map((p) => p.id),
+      read: { km: r.km }, ...extra(r.status, r.reading, logOf(r.reading).reasons ?? []),
     })),
-  ].sort((a, b) => b.sentAt.localeCompare(a.sentAt));
+  ]
+    // "Check these": what a person must look at - to check, or couldn't be read after three tries.
+    .filter((r) => !check || r.status === "CHECK" || r.unreadable)
+    .sort((a, b) => b.sentAt.localeCompare(a.sentAt));
   return {
     rows,
     jobs: jobRows.map((j) => ({ id: j.id, label: jobName(j.id) })).sort((a, b) => a.label.localeCompare(b.label)),
     trucks: trucks.map((t) => ({ id: t.id, label: t.name })),
     people: [...new Set([...senders, ...odoSenders].map((p) => p.sentBy))].sort(),
+    toCheck,
   };
+}
+
+// How many are waiting for a person (to check, or unreadable) - the tab's count.
+export async function countToCheck(): Promise<number> {
+  const since = new Date(Date.now() - 90 * 86_400_000);
+  const [checks, odoChecks, sent, odoSent] = await Promise.all([
+    prisma.receipt.count({ where: { status: "CHECK", sentAt: { gte: since } } }),
+    prisma.odometerReading.count({ where: { status: "CHECK", sentAt: { gte: since } } }),
+    prisma.receipt.findMany({ where: { status: "SENT", sentAt: { gte: since } }, select: { reading: true } }),
+    prisma.odometerReading.findMany({ where: { status: "SENT", sentAt: { gte: since } }, select: { reading: true } }),
+  ]);
+  return checks + odoChecks + [...sent, ...odoSent].filter((r) => (logOf(r.reading).tries ?? 0) >= MAX_TRIES).length;
 }

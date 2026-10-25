@@ -15,6 +15,7 @@ export async function register() {
     const { nightlyXeroSync } = await import("./lib/xero/live/service");
     const { remindDailyLogs } = await import("./lib/dailyLog/reminders");
     const { expireProposals } = await import("./lib/changes/store");
+    const { readWaiting } = await import("./lib/receipts/runner");
     setInterval(() => {
       // Xero (read-only, G3): once a day from 2am Sydney, after the backup. Does nothing until set up and connected.
       nightlyXeroSync().catch((e) => console.error("xero nightly", e instanceof Error ? e.message : "failed"));
@@ -31,6 +32,8 @@ export async function register() {
       remindDailyLogs().catch((e) => console.error("daily log reminder check", e));
       // Controlled changes (LCI phase 4): proposals not decided in time expire. Nothing is pushed.
       expireProposals().catch((e) => console.error("change proposal expiry", e));
+      // Receipts (R2): read any receipt / odometer photo still waiting. Off with RECEIPT_READING=off.
+      readWaiting().catch((e) => console.error("receipt reading", e instanceof Error ? e.message : "failed"));
     }, 60_000);
   }
 }
