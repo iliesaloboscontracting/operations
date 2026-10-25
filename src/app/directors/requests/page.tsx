@@ -13,6 +13,7 @@ import PageShell from "@/components/PageShell";
 import { useAuth } from "@/components/AuthProvider";
 import { apiFetch, serverErrorMessage } from "@/lib/apiFetch";
 import { whenText } from "@/lib/requestTypes";
+import ProposeChange from "@/components/changes/ProposeChange";
 
 type Row = {
   id: string; ref: string; title: string; question: string; need: string | null; why: string | null; infoType: "QUESTION" | "FYI"; batch: string | null;
@@ -129,10 +130,14 @@ function AskForm({ people, onDone }: { people: Person[]; onDone: () => void }) {
 }
 
 function RequestRow({ r, onDone }: { r: Row; onDone: () => void }) {
+  // Managers and Admins (Ilies) may propose any project change; a DIRECTOR login only the contract value.
+  const { canEdit } = useAuth();
   const [mode, setMode] = useState<"ASK" | null>(null);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [proposing, setProposing] = useState(false);
+  const [changeFlash, setChangeFlash] = useState<string | null>(null);
   const waiting = WAITING.includes(r.status);
   const open = waiting || r.status === "ANSWERED";
   async function act(action: string, extra: Record<string, unknown> = {}) {
@@ -175,7 +180,14 @@ function RequestRow({ r, onDone }: { r: Row; onDone: () => void }) {
         {waiting && <button disabled={busy} onClick={() => act("NUDGE")} className="rounded-lg border border-edge px-3 py-1.5 text-sm text-gray-300 hover:bg-panel2">Nudge</button>}
         {waiting && <button disabled={busy} onClick={() => act("CLOSE", { outcome: "Closed without an answer" })} className="rounded-lg px-3 py-1.5 text-sm text-gray-500 hover:text-gray-300">Close without answer</button>}
         {!open && <button disabled={busy} onClick={() => act("REOPEN")} className="rounded-lg px-3 py-1.5 text-sm text-gray-500 hover:text-gray-300">Reopen</button>}
+        {r.answer && <button onClick={() => setProposing(true)} className="rounded-lg border border-edge px-3 py-1.5 text-sm text-gray-300 hover:bg-panel2">Propose a change from this answer</button>}
       </div>
+      {changeFlash && <p className="mt-1 text-sm text-emerald-300">{changeFlash}</p>}
+      {/* Controlled changes (LCI phase 4): contract value, job or quote number - approved by someone else, never the person who answered. */}
+      {proposing && (
+        <ProposeChange kinds={canEdit ? ["PROJECT_CONTRACT_VALUE", "PROJECT_JOB_NO", "PROJECT_QUOTE_NO"] : ["PROJECT_CONTRACT_VALUE"]} fromRequestId={r.id} sourceNote={`${r.ref} - ${r.title}, answered by ${r.to}`}
+          onClose={() => setProposing(false)} onDone={(m) => { setChangeFlash(m); setProposing(false); }} />
+      )}
       {mode === "ASK" && (
         <div className="mt-2 flex gap-2">
           <input value={text} onChange={(e) => setText(e.target.value)} placeholder="The follow-up question" className={input} />

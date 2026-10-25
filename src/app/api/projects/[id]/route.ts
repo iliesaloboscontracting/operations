@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { guard, getCurrentUser } from "@/lib/auth";
-import { pickProject } from "@/lib/pickProject";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { completeness } from "@/lib/projectFile";
-import { currentSupervisor, validateProjectFile } from "@/lib/projectFileServer";
+import { currentSupervisor } from "@/lib/projectFileServer";
+import { applyProjectPatch } from "@/lib/recordPatch";
 import { boardDatesByProject, dateExceptions } from "@/lib/dateExceptions";
 import { todaySydney } from "@/lib/today";
 
@@ -63,19 +63,10 @@ export const PATCH = withErrorHandling(async (
   const denied = await guard("MANAGER");
   if (denied) return denied;
   const body = await req.json();
-  const data = pickProject(body);
-  const existing = await prisma.project.findUnique({
-    where: { id: params.id },
-    select: { startDate: true, expectedCompletion: true, completionReviewBy: true },
-  });
-  if (!existing) return NextResponse.json({ error: "That project doesn't exist anymore." }, { status: 404 });
-  const invalid = await validateProjectFile(data, existing);
-  if (invalid) return invalid;
-  const project = await prisma.project.update({
-    where: { id: params.id },
-    data: data as any,
-  });
-  return NextResponse.json(project);
+  // The checks and the update live in lib/recordPatch.ts (shared with approved changes, LCI phase 4).
+  const out = await applyProjectPatch(params.id, body);
+  if ("error" in out) return NextResponse.json({ error: out.error }, { status: out.status });
+  return NextResponse.json(out.project);
 });
 
 // Deleting a project keeps its past jobs (projectId set null); prefer archiving.

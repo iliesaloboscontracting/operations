@@ -11,13 +11,23 @@ import {
 
 const sub = { status: "SUBMITTED", submitted_by: "Iliesa" };
 
-test("directors decide; nobody else; never the submitter; only a submitted revision", () => {
-  assert.equal(cannotDecide({ name: "Yoel", directorAccess: true }, sub), null);
-  assert.equal(cannotDecide({ name: "Nick", directorAccess: true }, sub), null);
-  assert.match(cannotDecide({ name: "Alex", directorAccess: false }, sub)!, /Only directors/);
-  assert.match(cannotDecide({ name: " iliesa ", directorAccess: true }, sub)!, /You submitted/); // the owner views, decides only others' budgets
-  assert.match(cannotDecide({ name: "Yoel", directorAccess: true }, { ...sub, status: "APPROVED" })!, /approved/);
-  assert.match(cannotDecide({ name: "Yoel", directorAccess: true }, { ...sub, status: "SUPERSEDED" })!, /superseded/);
+const nick = { name: "Nick Giannopoulos", role: "DIRECTOR", directorAccess: true };
+const yoel = { name: "Yoel Silvestre", role: "DIRECTOR", directorAccess: true };
+
+test("Nick and Yoel decide (their DIRECTOR logins); the owner and ticked Admins see a note; never the submitter; only a submitted revision", () => {
+  assert.equal(cannotDecide(yoel, sub), null);
+  assert.equal(cannotDecide(nick, sub), null);
+  // Ilies (25 Oct 2026): "nick and yoel ... approve them the budgets".
+  assert.equal(cannotDecide({ name: "Iliesa", role: "ADMIN", directorAccess: true }, { ...sub, submitted_by: "Test Estimator" }), "Nick or Yoel approve budgets, from their director logins.");
+  assert.match(cannotDecide({ name: "Nick Giannopoulos", role: "ADMIN", directorAccess: true }, sub)!, /Nick or Yoel/, "Nick's ADMIN login isn't a director login");
+  assert.match(cannotDecide({ name: "Ticked Admin", role: "ADMIN", directorAccess: true }, sub)!, /Nick or Yoel/);
+  assert.match(cannotDecide({ name: "Alex", role: "MANAGER", directorAccess: false }, sub)!, /Nick or Yoel/);
+  // The submitter, by person: Nick's Estimating name vs his DIRECTOR login, spacing and case aside.
+  assert.match(cannotDecide(nick, { ...sub, submitted_by: "  nick   giannopoulos " })!, /You submitted/);
+  assert.equal(cannotDecide(yoel, { ...sub, submitted_by: "  nick   giannopoulos " }), null);
+  assert.equal(cannotDecide(yoel, { ...sub, submitted_by: "" }), null, "a blank submitter isn't anyone");
+  assert.match(cannotDecide(yoel, { ...sub, status: "APPROVED" })!, /approved/);
+  assert.match(cannotDecide(yoel, { ...sub, status: "SUPERSEDED" })!, /superseded/);
 });
 
 test("a decision is approve or reject; a rejection needs a reason", () => {

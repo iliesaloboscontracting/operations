@@ -1295,3 +1295,52 @@ model WeeklyProgressLine {
   reason      String?        // required when lower than last week
   @@index([progressId])
 }
+
+// ---------- Controlled changes (LCI phase 4, A3; schema approved by the lead 25 Oct 2026) ----------
+// Design: docs/lci/PHASE4-5-DESIGN.md §1. A proposed change to one field of one record. The payload and
+// fingerprint never change after creation; only `status` moves, and every move is a ChangeProposalEvent.
+// Never deleted.
+model ChangeProposal {
+  id                String   @id @default(cuid())
+  number            Int      @unique // shown as P-0001
+  kind              String // HIRE_OFF_HIRE_DATE | PROJECT_CONTRACT_VALUE | PROJECT_JOB_NO | PROJECT_QUOTE_NO
+  recordType        String // Resource | Project
+  recordId          String
+  recordName        String // as at proposal, for the log
+  field             String // offHireDate | contractValue | jobNo | quoteNo
+  before            String? // JSON of the value read at proposal time
+  after             String // JSON of the proposed value (+ contractValueNotes where relevant)
+  reason            String // why, in words
+  sourceRefs        String   @default("[]") // JSON [{type, id?, label}]
+  audience          String // OPERATIONAL | COMMERCIAL
+  requestedBy       String // a person's name, or "System"
+  requestedByUserId String?
+  sourcePerson      String? // who gave the information (e.g. the query's answerer) - can't approve
+  fingerprint       String // sha256 of the canonical payload
+  expiresAt         DateTime
+  status            String   @default("PROPOSED") // PROPOSED | EXECUTED | REJECTED | WITHDRAWN | EXPIRED | STALE
+  openKey           String?  @unique // recordType:recordId:field while PROPOSED, null after - one open per field
+  undoOfId          String? // set on an "undo" proposal
+  createdAt         DateTime @default(now())
+  events            ChangeProposalEvent[]
+
+  @@index([status])
+  @@index([recordType, recordId])
+}
+
+// Every step, append-only. The EXECUTED row is the change log entry that replaces the CSV for these kinds.
+model ChangeProposalEvent {
+  id          String         @id @default(cuid())
+  proposalId  String
+  proposal    ChangeProposal @relation(fields: [proposalId], references: [id], onDelete: Restrict)
+  action      String // PROPOSED | APPROVED | EXECUTED | STALE | REJECTED | WITHDRAWN | EXPIRED | REFUSED
+  by          String // a name, "System" or "LCI"
+  byUserId    String?
+  fingerprint String? // the hash the approver saw (APPROVED / REFUSED)
+  valueAtExec String? // JSON: the value re-read at execution (EXECUTED / STALE)
+  note        String? // reason, refusal message, or the rollback note
+  at          DateTime       @default(now())
+
+  @@index([proposalId])
+  @@index([at])
+}

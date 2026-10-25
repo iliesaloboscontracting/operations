@@ -38,9 +38,9 @@ export default function HireCheck({ api, onChange }: { api: string; onChange: ()
     load();
   }, [load]);
 
-  const answer = async (itemId: string, a: HireAnswer, note: string) => {
+  const answer = async (itemId: string, a: HireAnswer, note: string, neededUntil?: string) => {
     setError(null);
-    const res = await fetch(`${api}/hire`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ itemId, answer: a, note }) }).catch(() => null);
+    const res = await fetch(`${api}/hire`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ itemId, answer: a, note, ...(neededUntil ? { neededUntil } : {}) }) }).catch(() => null);
     if (!res?.ok) {
       setError(res ? await serverErrorMessage(res, "Couldn't send it - try again.") : "Couldn't send it - check your signal.");
       return false;
@@ -85,20 +85,24 @@ export default function HireCheck({ api, onChange }: { api: string; onChange: ()
   );
 }
 
-function Item({ i, ask, onAnswer }: { i: SiteHireItem; ask: boolean; onAnswer: (id: string, a: HireAnswer, note: string) => Promise<boolean> }) {
+function Item({ i, ask, onAnswer }: { i: SiteHireItem; ask: boolean; onAnswer: (id: string, a: HireAnswer, note: string, neededUntil?: string) => Promise<boolean> }) {
   const [open, setOpen] = useState(ask);
   const [pending, setPending] = useState<HireAnswer | null>(null);
   const [note, setNote] = useState("");
+  const [until, setUntil] = useState("");
   const [busy, setBusy] = useState(false);
   const d = due(i);
+  // Past its expected finish: "Still needed" asks until about when (optional) - the office approves the new date.
+  const pastFinish = i.daysLeft != null && i.daysLeft <= 0;
 
   const send = async (a: HireAnswer) => {
     setBusy(true);
-    const ok = await onAnswer(i.id, a, note);
+    const ok = await onAnswer(i.id, a, note, a === "STILL_NEEDED" && until ? until : undefined);
     setBusy(false);
     if (ok) {
       setPending(null);
       setNote("");
+      setUntil("");
     }
   };
 
@@ -122,7 +126,20 @@ function Item({ i, ask, onAnswer }: { i: SiteHireItem; ask: boolean; onAnswer: (
         <div className="mt-1 text-xs text-gray-500">Last: {ANSWER_TEXT[i.last.answer]} - {i.last.by}, {whenText(i.last.at)}</div>
       ) : null}
       {open && !i.offHireAsked && (
-        pending ? (
+        pending === "STILL_NEEDED" ? (
+          <div className="mt-3 space-y-2">
+            <label className="block text-sm text-gray-200">
+              Until about when? <span className="text-gray-500">(optional)</span>
+              <input type="date" className="mt-1 w-full rounded-lg border border-edge bg-panel2 px-3 py-2 text-base text-gray-200" value={until} onChange={(e) => setUntil(e.target.value)} />
+            </label>
+            <div className="flex gap-2">
+              <button disabled={busy} onClick={() => send("STILL_NEEDED")} className="flex-1 rounded-lg bg-emerald-600 px-3 py-2.5 text-sm font-semibold text-white disabled:opacity-50">
+                {busy ? "Sending..." : until ? "Send" : "Send without a date"}
+              </button>
+              <button disabled={busy} onClick={() => { setPending(null); setUntil(""); }} className="rounded-lg border border-edge px-3 py-2.5 text-sm text-gray-300">Back</button>
+            </div>
+          </div>
+        ) : pending ? (
           <div className="mt-3 space-y-2">
             <p className="text-sm text-gray-200">
               {pending === "FINISHED" ? "Ask the office to call it off?" : "Tell the office it isn't on site?"}
@@ -142,7 +159,7 @@ function Item({ i, ask, onAnswer }: { i: SiteHireItem; ask: boolean; onAnswer: (
           </div>
         ) : (
           <div className="mt-3 grid grid-cols-3 gap-2">
-            <button disabled={busy} onClick={() => send("STILL_NEEDED")} className="rounded-lg bg-emerald-600/80 px-2 py-2.5 text-sm font-semibold text-white disabled:opacity-50">
+            <button disabled={busy} onClick={() => (pastFinish ? setPending("STILL_NEEDED") : send("STILL_NEEDED"))} className="rounded-lg bg-emerald-600/80 px-2 py-2.5 text-sm font-semibold text-white disabled:opacity-50">
               Still needed
             </button>
             <button disabled={busy} onClick={() => setPending("FINISHED")} className="rounded-lg bg-amber-500 px-2 py-2.5 text-sm font-semibold text-black disabled:opacity-50">
