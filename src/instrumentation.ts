@@ -1,7 +1,8 @@
 // Runs once when the server starts. Background check (21 Oct 2026): every
 // minute, re-alert Ilies's phone about Urgent site requests still unopened,
 // send any request reminders that have come due, and remind supervisors
-// 20 minutes before finish when crew are still signed in.
+// 20 minutes before finish when crew are still signed in, and pilot
+// supervisors at 19:00 when a job has no daily log.
 // The runtime check must be written exactly like this so the Node-only code
 // is left out of the edge build.
 export async function register() {
@@ -12,6 +13,7 @@ export async function register() {
     const { recordWeeklySnapshot } = await import("./lib/insights/snapshot");
     const { runFindings } = await import("./lib/findings/store");
     const { nightlyXeroSync } = await import("./lib/xero/live/service");
+    const { remindDailyLogs } = await import("./lib/dailyLog/reminders");
     setInterval(() => {
       // Xero (read-only, G3): once a day from 2am Sydney, after the backup. Does nothing until set up and connected.
       nightlyXeroSync().catch((e) => console.error("xero nightly", e instanceof Error ? e.message : "failed"));
@@ -24,6 +26,8 @@ export async function register() {
       alertDueReminders().catch((e) => console.error("reminder check", e));
       // Supervisors: crew still signed in 20 min before finish (24 Oct 2026).
       remindBeforeFinish().catch((e) => console.error("sign-out reminder check", e));
+      // Pilot supervisors: no daily log by 19:00 (Task K, 25 Oct 2026). Off when DAILY_LOG_PILOT_LINKS is empty.
+      remindDailyLogs().catch((e) => console.error("daily log reminder check", e));
     }, 60_000);
   }
 }

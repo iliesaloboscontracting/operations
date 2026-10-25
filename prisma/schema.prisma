@@ -272,6 +272,7 @@ model Job {
   allocationCosts AllocationCost[]
   jobActuals  JobActual[]
   attendances SiteAttendance[]
+  dailyLogs   DailyLog[]
 
   // A project has at most one Job per date+shift - this is the invariant the
   // Command Centre board relies on (one row per project per day). SQLite
@@ -1193,4 +1194,104 @@ model InfoRequestDraft {
   decidedAt      DateTime?
 
   @@index([status, batch])
+}
+
+// ---------- Daily site log (Task K, LCI phase 1; Ilies approved 25 Oct 2026: "yes to all, build") ----------
+// Design: docs/lci/PHASE1-DAILY-LOG-DESIGN.md. Seven additive tables, append-only by revision; no money.
+
+// One supervisor's daily log for one job (a project's work on one date/shift). Append-only:
+// a correction is a new revision; the latest revision is the log.
+model DailyLog {
+  id            String   @id @default(cuid())
+  jobId         String
+  job           Job      @relation(fields: [jobId], references: [id], onDelete: Restrict)
+  projectId     String?
+  date          String   // YYYY-MM-DD - the job's date (as sign-ins; a night shift keeps its start date)
+  revision      Int      // 1, 2, 3 ... per job
+  siteLinkId    String   // the link used (SUPERVISOR or HANDOVER)
+  submittedBy   String   // the person's name on the link
+  codesVersion  String   // "activity-codes.v0.2"
+  crewCount     Int      // snapshot at submit, from sign-ins
+  labourHours   Float    // snapshot at submit: signed hours (staff + hire), less unpaid breaks
+  splitHours    Float    // total placed on codes (must be within 0.5 h of labourHours)
+  crewOk        Boolean  @default(true) // false = "something's wrong" with the crew list
+  crewNote      String?
+  note          String?
+  photoIds      String   @default("[]") // JSON array of stored photo names (savePhoto, TOOL_PHOTO_DIR - backed up)
+  noDelays      Boolean  @default(false)
+  noDockets     Boolean  @default(false)
+  durationSec   Int?     // open -> submit, to measure the 60-second target
+  createdAt     DateTime @default(now())
+  hours         DailyLogHours[]
+  delays        DailyLogDelay[]
+  dockets       TipDocket[]
+  @@unique([jobId, revision])
+  @@index([date])
+  @@index([projectId, date])
+}
+
+model DailyLogHours {
+  id         String   @id @default(cuid())
+  logId      String
+  log        DailyLog @relation(fields: [logId], references: [id], onDelete: Restrict)
+  code       String   // activity code, e.g. "STR-02"
+  kind       String   // LABOUR | PLANT | TRUCK
+  resourceId String?  // PLANT / TRUCK: the machine from the board (none for LABOUR - the crew is a total)
+  hours      Float
+  @@index([logId])
+  @@index([code])
+}
+
+model DailyLogDelay {
+  id         String   @id @default(cuid())
+  logId      String
+  log        DailyLog @relation(fields: [logId], references: [id], onDelete: Restrict)
+  delayCode  String   // WEATHER | ACCESS | CLIENT | PLANT_BREAKDOWN | WAITING_ON_OTHERS | OTHER
+  hoursLost  Float?   // about how long
+  affects    String   @default("CREW") // CREW | PLANT | BOTH
+  note       String?
+  photoIds   String   @default("[]")
+  @@index([logId])
+}
+
+model TipDocket {
+  id         String   @id @default(cuid())
+  logId      String
+  log        DailyLog @relation(fields: [logId], references: [id], onDelete: Restrict)
+  code       String   @default("DEM-10") // DEM-10 waste load-out, or CIV-02 spoil export
+  wasteClass String   // from codes v0.2 attrs.wasteClass
+  quantity   Float
+  unit       String   // t | m3 | loads | bins
+  docketNo   String?
+  facility   String?  // tip / recycler, if written on the docket
+  photoId    String?  // the docket photo (required for Asbestos (ACM))
+  @@index([logId])
+  @@index([wasteClass])
+}
+
+// Weekly % complete per package (or per code before a budget exists). Append-only.
+model WeeklyProgress {
+  id          String   @id @default(cuid())
+  projectId   String
+  weekStart   String   // Monday, YYYY-MM-DD
+  revision    Int
+  siteLinkId  String
+  submittedBy String
+  basis       String   // BUDGET (lines are budget packages) | CODES (no approved budget yet)
+  budgetRef   String?  // "<estimateId>/r<revision>" of the approved budget.v1 used
+  createdAt   DateTime @default(now())
+  lines       WeeklyProgressLine[]
+  @@unique([projectId, weekStart, revision])
+}
+
+model WeeklyProgressLine {
+  id          String         @id @default(cuid())
+  progressId  String
+  progress    WeeklyProgress @relation(fields: [progressId], references: [id], onDelete: Restrict)
+  packageId   String?        // budget.v1 package_id (BUDGET basis)
+  code        String         // activity code
+  label       String         // package name or code name, as shown
+  pctComplete Int            // 0-100
+  reason      String?        // required when lower than last week
+  @@index([progressId])
 }

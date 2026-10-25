@@ -5,6 +5,7 @@ import type { Priority } from "../insights/kpis";
 // The KPI-dictionary entry each rule's "?" opens.
 const KPI_OF: { prefix: string; kpi: string }[] = [
   { prefix: "COST_VS_CONTRACT", kpi: "F3" },
+  { prefix: "LABOUR_HOURS_VS_BUDGET", kpi: "O7" },
   { prefix: "HIRE_OVERDUE", kpi: "PL3" },
   { prefix: "HIRE_", kpi: "F6" },
   { prefix: "START_NOT_READY", kpi: "O3" },

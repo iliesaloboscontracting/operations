@@ -22,6 +22,8 @@ import type { CostCatKey, InvoicedCostDTO, ProjectCostDTO } from "@/lib/types";
 import { CAT_LABELS, categoryRows, short, sumDays, weeklyBars } from "@/lib/trackingView";
 import { BLUE, BLUE_LIGHT, Card, CategoryBars, Legend, SpendBar, StatusPill, Tile, moneyTip, tooltipStyle } from "@/components/tracking/parts";
 import { ArrowLeft, Plus } from "lucide-react";
+import HoursVsBudget from "@/components/tracking/HoursVsBudget";
+import type { HoursVsBudgetDTO } from "@/lib/dailyLog/types";
 
 const INVOICE_CAT: Record<string, CostCatKey> = { LABOUR_HIRE: "labourHire", PLANT_HIRE: "hire", TIP_FEES: "tipFees", MATERIALS: "materials" };
 const day = (iso: string) => fmtDay(iso, { day: "numeric", month: "short" });
@@ -44,6 +46,12 @@ export default function JobView({ id, mode }: { id: string; mode: "ops" | "direc
           setP(found); setMissing(!found);
         }), [id, director]);
   useEffect(() => { load(); }, [load]);
+  // Daily log hours vs the approved budget (Task K) - shown only once the job has logs.
+  const [hvb, setHvb] = useState<HoursVsBudgetDTO | null>(null);
+  useEffect(() => {
+    apiFetch(director ? `/api/directors/jobs/${id}/hours-vs-budget` : `/api/tracking/${id}/hours-vs-budget`)
+      .then((r) => (r.ok ? r.json() : null)).then(setHvb).catch(() => setHvb(null));
+  }, [id, director]);
 
   if (missing) return <PageShell title="Project Tracking"><p className="text-sm text-gray-500">That job isn't in Tracking. <Link href={back.href} className="text-brand-400 hover:underline">Back to {back.label.toLowerCase()}</Link></p></PageShell>;
   if (!p) return <PageShell title="Project Tracking"><p className="py-10 text-center text-sm text-gray-500">Loading...</p></PageShell>;
@@ -158,6 +166,14 @@ export default function JobView({ id, mode }: { id: string; mode: "ops" | "direc
           </p>
         )}
       </Card>
+
+      {hvb && hvb.state !== "NO_LOGS" && (
+        <Card className="mb-4">
+          <div className="mb-1 text-sm font-semibold text-gray-100">Labour hours vs budget</div>
+          <div className="mb-2 text-[11px] text-gray-500">From the supervisors&apos; daily logs, per activity code, against the approved budget and the weekly % complete · hours only</div>
+          <HoursVsBudget data={hvb} />
+        </Card>
+      )}
 
       {invoiceFor && !director && (
         <InvoiceModal projectId={p.id} projectName={p.name} hireItems={p.hireItems} invoice={invoiceFor.invoice} canDelete={isAdmin}

@@ -8,7 +8,9 @@ import { useAuth } from "@/components/AuthProvider";
 import { apiFetch } from "@/lib/apiFetch";
 import { localISODate } from "@/lib/resource";
 import { DayReviewDTO, DayReviewJobDTO, DayReviewRowDTO, ResourceDTO, SignInSummary } from "@/lib/types";
-import { Lock, Plus, TriangleAlert, Unlock, X } from "lucide-react";
+import { Lock, NotebookPen, Plus, TriangleAlert, Unlock, X } from "lucide-react";
+import SiteLogPanel from "@/components/dayReview/SiteLogPanel";
+import type { DayReviewSiteLogsDTO } from "@/lib/dailyLog/types";
 
 const TYPE_LABEL: Record<string, string> = {
   PERSONNEL: "Crew",
@@ -38,6 +40,7 @@ function JobCard({
   closed,
   resources,
   onChanged,
+  siteLog,
 }: {
   job: DayReviewJobDTO;
   date: string;
@@ -45,6 +48,7 @@ function JobCard({
   closed: boolean;
   resources: ResourceDTO[];
   onChanged: () => void;
+  siteLog?: React.ReactNode; // the daily log panel, on pilot jobs (Task K)
 }) {
   const [adding, setAdding] = useState(false);
   const [pickerId, setPickerId] = useState("");
@@ -180,6 +184,8 @@ function JobCard({
         </div>
       )}
 
+      {siteLog}
+
       {!disabled && (
         <div className="border-t border-edge/70 px-3.5 py-2">
           {adding ? (
@@ -214,6 +220,13 @@ function JobCard({
   );
 }
 
+const noLogText = (n: number) => `${n} job${n === 1 ? " has" : "s have"} no site log`;
+function siteLogFor(logs: DayReviewSiteLogsDTO | null, jobId: string) {
+  const log = logs?.jobs.find((x) => x.jobId === jobId);
+  if (!log) return null;
+  return <SiteLogPanel log={log} budget={log.projectId ? logs!.budgets[log.projectId] : undefined} />;
+}
+
 function SignInLine({ s, inline }: { s: SignInSummary | null; inline?: boolean }) {
   const cls = inline ? "" : "truncate text-[11px]";
   if (!s) return <div className={`${cls} text-amber-500`}>No sign-in</div>;
@@ -235,10 +248,15 @@ export default function DayReviewPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  const [logs, setLogs] = useState<DayReviewSiteLogsDTO | null>(null);
+
   const load = useCallback(async () => {
     const res = await apiFetch(`/api/day-review?date=${date}`);
     if (res.ok) setData(await res.json());
     setLoading(false);
+    // The pilot supervisors' daily logs for the day (Task K) - read-only, nothing written.
+    const lg = await apiFetch(`/api/day-review/site-logs?date=${date}`);
+    setLogs(lg.ok ? await lg.json() : null);
   }, [date]);
 
   useEffect(() => {
@@ -253,7 +271,9 @@ export default function DayReviewPage() {
   const closed = data?.dayClose.status === "CLOSED";
 
   async function closeDay() {
-    if (!confirm(`Close ${date}? Every allocation's cost freezes as of now - an Admin can re-open it later if something needs correcting.`)) return;
+    // A missing site log is information only during the pilot - never a block.
+    const noLog = logs?.missingCount ? `\n\n${noLogText(logs.missingCount)} (information only).` : "";
+    if (!confirm(`Close ${date}? Every allocation's cost freezes as of now - an Admin can re-open it later if something needs correcting.${noLog}`)) return;
     setBusy(true);
     const res = await apiFetch("/api/day-close", {
       method: "POST",
@@ -322,6 +342,11 @@ export default function DayReviewPage() {
               {data.unconfirmedCount > 0 && `${data.unconfirmedCount} unconfirmed`}
             </div>
           )}
+          {!!logs?.missingCount && (
+            <div className="flex items-center gap-1 text-[11px] text-gray-400" title="Daily log pilot - information only, closing the day isn't blocked">
+              <NotebookPen size={12} /> {noLogText(logs.missingCount)}
+            </div>
+          )}
           {canEdit && !closed && (
             <button onClick={closeDay} disabled={busy} className="rounded-md bg-panel2 px-3 py-1.5 text-xs font-medium text-gray-200 hover:bg-gray-700 disabled:opacity-50">
               Close day
@@ -346,7 +371,8 @@ export default function DayReviewPage() {
       ) : (
         <div className="space-y-3">
           {data.jobs.map((j) => (
-            <JobCard key={j.id} job={j} date={date} canEdit={canEdit} closed={closed} resources={activeResources} onChanged={load} />
+            <JobCard key={j.id} job={j} date={date} canEdit={canEdit} closed={closed} resources={activeResources} onChanged={load}
+              siteLog={siteLogFor(logs, j.id)} />
           ))}
         </div>
       )}

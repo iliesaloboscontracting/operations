@@ -116,6 +116,7 @@ async function main() {
     await checkClean("GET /api/projects", "/api/projects");
     await checkClean("GET /api/day-review", `/api/day-review?date=${today}`);
     await checkClean("GET /api/day-close", `/api/day-close?date=${today}`);
+    await checkClean("GET /api/day-review/site-logs", `/api/day-review/site-logs?date=${today}`); // daily site log (Task K)
     await checkDenied("GET /api/tracking (should be Manager+ only)", "/api/tracking");
 
     // The Project File (brief 11): every project's page data, as a Viewer -

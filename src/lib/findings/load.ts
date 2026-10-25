@@ -8,7 +8,8 @@ import { ACT_AT, ATTENTION_RECENT_DAYS, HIRE_UNINVOICED_DAYS, NO_CONTRACT_MIN_SP
 import { gatherDirectorInputs } from "../insights/load";
 import { loadWonMatches } from "../insights/pipelineFeed";
 import { loadXeroHealth } from "../xero/imports";
-import { buildSignals, notChecked, type TrackingRules } from "./signals";
+import { approvedBudgetFor, hoursVsBudgetFor } from "../dailyLog/store";
+import { buildSignals, notChecked, type LabourVsBudgetInput, type TrackingRules } from "./signals";
 
 export const TRACKING_RULES: TrackingRules = {
   watchAt: WATCH_AT, actAt: ACT_AT, recentDays: ATTENTION_RECENT_DAYS,
@@ -35,11 +36,12 @@ export async function loadSignals() {
     prisma.xeroConnection.findFirst({ orderBy: { updatedAt: "desc" }, select: { status: true, tenantName: true, lastError: true, lastSyncAt: true } }),
   ]);
   const wonTenders = won ? won.rows : null;
+  const labourVsBudget = await loadLabourVsBudget();
 
   return {
     today: d.today,
     asAt: d.now.toISOString(),
-    notChecked: notChecked({ wonTenders }),
+    notChecked: notChecked({ wonTenders, labourVsBudget }),
     signals: buildSignals({
       today: d.today,
       rules: TRACKING_RULES,
@@ -56,6 +58,25 @@ export async function loadSignals() {
       wonTenders,
       xeroUnmatched: xero.invoices,
       xeroConnection: xeroConn ? { ...xeroConn, lastSyncAt: xeroConn.lastSyncAt?.toISOString() ?? null } : null,
+      labourVsBudget,
     }),
   };
+}
+
+// Task K: labour hours vs the approved budget, for the projects that have
+// daily logs (none -> nothing to check, and Estimating isn't asked). Null when
+// Estimating didn't answer for one of them - that check is skipped this run.
+async function loadLabourVsBudget(): Promise<LabourVsBudgetInput[] | null> {
+  const logged = await prisma.dailyLog.findMany({ where: { projectId: { not: null } }, distinct: ["projectId"], select: { projectId: true } });
+  if (!logged.length) return [];
+  const projects = await prisma.project.findMany({ where: { id: { in: logged.map((l) => l.projectId!) }, archived: false }, select: { id: true, name: true, jobNo: true, quoteNo: true } });
+  const out: LabourVsBudgetInput[] = [];
+  for (const p of projects) {
+    const budget = await approvedBudgetFor(p);
+    if (budget.state === "DOWN") return null;
+    if (budget.state === "NONE") continue;
+    const t = await hoursVsBudgetFor(p, null, budget);
+    if (t.state === "OK") out.push({ projectId: p.id, projectName: p.name, budgetRef: t.budgetRef, rows: t.rows });
+  }
+  return out;
 }

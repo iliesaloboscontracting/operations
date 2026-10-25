@@ -24,7 +24,7 @@ export type SignalKind =
   | "HIRE_UNINVOICED" | "HIRE_IDLE" | "HIRE_NO_FINISH" | "HIRE_OVERDUE"
   | DateExceptionCode
   | "START_NOT_READY" | "NO_SUPERVISOR" | "DAYS_NOT_CLOSED" | "CREW_SHORT" | "DATA_PLANT_NOT_BOOKED"
-  | "TENDER_WON_NO_PROJECT" | "XERO_UNMATCHED" | "XERO_REAUTH";
+  | "TENDER_WON_NO_PROJECT" | "XERO_UNMATCHED" | "XERO_REAUTH" | "LABOUR_HOURS_VS_BUDGET";
 
 // Who may see it (design §1): OPERATIONAL = Viewer+, never a dollar figure;
 // COMMERCIAL = Manager+ (the money Tracking already shows Managers);
@@ -335,6 +335,28 @@ export function xeroReauthSignal(c: XeroConnectionInput | null): Signal[] {
   }];
 }
 
+// ---------- labour hours vs budget (Task K, daily site log) ----------
+
+// A job's logged labour hours on an activity code running well ahead of its
+// weekly % complete against the approved budget - the "Act" band of the
+// daily log's hours-vs-budget table (lib/dailyLog/checks.ts). Ilies (25 Oct
+// 2026): Act also goes on the Directors box. Hours only, no dollars; dormant
+// until a job has an approved budget.v1 and enough logs.
+export type LabourVsBudgetInput = {
+  projectId: string; projectName: string; budgetRef: string;
+  rows: { code: string; name: string; budgetHours: number; loggedHours: number; usedPct: number | null; pctComplete: number | null; gapPoints: number | null; status: string }[];
+};
+
+export function labourVsBudgetSignals(rows: LabourVsBudgetInput[]): Signal[] {
+  return rows.flatMap((p) => p.rows.filter((r) => r.status === "ACT").map((r) => ({
+    kind: "LABOUR_HOURS_VS_BUDGET", subject: { type: "PROJECT", id: p.projectId, name: p.projectName }, projectId: p.projectId,
+    dedupeKey: dedupeKeyOf("LABOUR_HOURS_VS_BUDGET", "PROJECT", p.projectId, r.code), severity: "HIGH", audience: "COMMERCIAL",
+    title: `${p.projectName}: ${r.code} ${r.name} has used ${r.usedPct}% of its budgeted labour hours at ${r.pctComplete}% complete`,
+    provisional: false, confidence: "MEDIUM", evidence: [projectRef(p.projectId, p.projectName)], href: `/tracking/${p.projectId}`,
+    values: { code: r.code, budgetHours: r.budgetHours, loggedHours: r.loggedHours, usedPct: r.usedPct, pctComplete: r.pctComplete, gapPoints: r.gapPoints, budgetRef: p.budgetRef, draftThreshold: true },
+  } satisfies Signal)));
+}
+
 // ---------- all of them ----------
 
 export type SignalInputs = {
@@ -354,12 +376,17 @@ export type SignalInputs = {
   wonTenders?: WonTenderInput[] | null;
   xeroUnmatched?: XeroUnmatchedInput | null; // G2: the current Xero invoice upload
   xeroConnection?: XeroConnectionInput | null; // G3: the live connection, if one was ever made
+  // Task K: null = Estimating didn't answer for a job with logs (that check is skipped this run)
+  labourVsBudget?: LabourVsBudgetInput[] | null;
 };
 
 // Which signal kinds weren't looked at this run, so the engine leaves their
 // findings exactly as they are instead of treating them as cleared.
-export function notChecked(i: Pick<SignalInputs, "wonTenders">): SignalKind[] {
-  return i.wonTenders == null ? ["TENDER_WON_NO_PROJECT"] : [];
+export function notChecked(i: Pick<SignalInputs, "wonTenders" | "labourVsBudget">): SignalKind[] {
+  return [
+    ...(i.wonTenders == null ? ["TENDER_WON_NO_PROJECT" as const] : []),
+    ...(i.labourVsBudget === null ? ["LABOUR_HOURS_VS_BUDGET" as const] : []),
+  ];
 }
 
 const RANK: Record<Priority, number> = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, INFO: 3 };
@@ -377,6 +404,7 @@ export function buildSignals(i: SignalInputs): Signal[] {
     ...(i.wonTenders ? wonNoProjectSignals(i.wonTenders, i.today) : []),
     ...xeroUnmatchedSignal(i.xeroUnmatched ?? null),
     ...xeroReauthSignal(i.xeroConnection ?? null),
+    ...labourVsBudgetSignals(i.labourVsBudget ?? []),
   ].sort((a, b) => RANK[a.severity] - RANK[b.severity] || a.dedupeKey.localeCompare(b.dedupeKey));
 }
 

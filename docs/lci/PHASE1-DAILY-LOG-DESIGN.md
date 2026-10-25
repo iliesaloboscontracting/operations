@@ -367,3 +367,37 @@ The phase-1 exit test from the plan is **"pilot supervisors log 2 weeks; complet
 5. **Closing a day without a log:** information only during the pilot (proposed), or should it block?
 6. **Pilot jobs:** which of Damien's and Tom's jobs. Ideally one with an approved budget.v1 soon, so piece 6 can be
    tested on real data.
+
+---
+
+## 12. As built (Task K, 25 Oct 2026)
+
+Ilies: "yes to all, build". The decisions above went this way: the 7 tables as designed; the pinned codes v0.2
+(`src/lib/activityCodes.ts`); hours vs budget at Act **is** a Directors finding (`LABOUR_HOURS_VS_BUDGET`, HIGH,
+COMMERCIAL, in `DIRECTOR_KINDS`, KPI O7); thresholds 15 / 30 points and 19:00 stay drafts; a missing log is
+information only when closing a day; the pilot is whatever jobs Damien and Tom are on.
+
+Where it lives:
+- **Rules and checks:** `src/lib/dailyLog/rules.ts`, `checks.ts` (pure, tested in `dailyLog.test.ts`); server side
+  `store.ts`; the reminder `reminders.ts` (run from `instrumentation.ts`).
+- **Link:** `GET/POST /api/site/:token/log`, `POST /api/site/:token/progress`; the "Daily log" card and steps
+  (`src/components/site/DailyLog.tsx`). The link summary gains `dailyLog` only on pilot links.
+- **Office:** Day Review keeps its own API byte-identical; the panel reads `GET /api/day-review/site-logs?date=`
+  (Viewer+, hours-vs-budget tables Manager+ only) and photos from `/api/day-review/site-logs/photo`. The job pages
+  read `/api/tracking/:id/hours-vs-budget` (Manager+) and `/api/directors/jobs/:id/hours-vs-budget` (director
+  access); the card only shows once a job has logs.
+- **Pilot report:** `scripts/daily-log-pilot-report.ts` (read-only).
+
+Settings (`.env`): `DAILY_LOG_PILOT_LINKS` = Damien's and Tom's supervisor SiteLink ids, comma-separated (empty =
+off for everyone); `DAILY_LOG_REMINDER=off` stops the 19:00 push (kill switch; `A2_RULES` in `rules.ts` too).
+
+Small choices made while building:
+- A stand-in's hand-over link logs only when its job has a pilot supervisor on it.
+- Until midday the link also offers **yesterday's** jobs (not only last night's night shift), so a log forgotten
+  the evening before can be done first thing; the reminder still stops at 21:00.
+- Attachments aren't listed as plant (they ride on a machine); labour hire tiles aren't plant either.
+- A log for a day the office has closed is refused ("tell the office").
+- Weekly %: a drop needs a reason when it's lower than the latest **previous week's** value; resaving within the same
+  week is a new version.
+- Photos of the day, delays and dockets go through `savePhoto()` (TOOL_PHOTO_DIR, backed up); a correction keeps
+  earlier photos by name.

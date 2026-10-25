@@ -53,6 +53,7 @@ export const DIRECTOR_KINDS: ReadonlySet<string> = new Set([
   "TENDER_WON_NO_PROJECT",
   "XERO_UNMATCHED",
   "XERO_REAUTH",
+  "LABOUR_HOURS_VS_BUDGET", // Task K: a code at "Act" in the daily log's hours vs budget (Ilies, 25 Oct 2026)
 ]);
 
 export type FindingScreen = "DIRECTORS" | "OPERATIONS";

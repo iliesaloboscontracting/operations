@@ -5,6 +5,7 @@ import { resolveLink } from "@/lib/siteLinks";
 import { OPEN_STATUSES } from "@/lib/requestTypes";
 import { hireForLink } from "@/lib/hireCheck";
 import { LINK_WHERE } from "@/lib/siteRequests";
+import { isPilotLink, logCard } from "@/lib/dailyLog/store";
 
 // GET /api/site/:token -> who the link belongs to and their toolbox(es) with
 // the tools in each (for picking a tool when reporting a fault). Tool names
@@ -35,5 +36,7 @@ export const GET = withErrorHandling(async (_req: NextRequest, { params: paramsP
     link.kind === "OFFICE" && link.person.id ? prisma.siteRequest.count({ where: { assigneeId: link.person.id, ...LINK_WHERE, kind: { not: "QUERY" }, status: "TODO" } }) : 0,
     link.kind === "OFFICE" ? [] : hireForLink(link),
   ]);
-  return NextResponse.json({ person: link.person.name, kind: link.kind, shared: link.shared, toolboxes, openRequests, needsAnswer, todo, hireItems: hire.length, hireToCheck: hire.filter((h) => h.askNow).length });
+  // The Daily log card (Task K) - only on pilot links (DAILY_LOG_PILOT_LINKS); others get exactly what they got before.
+  const dailyLog = (await isPilotLink(link)) ? await logCard(link, new Date()) : undefined;
+  return NextResponse.json({ person: link.person.name, kind: link.kind, shared: link.shared, toolboxes, openRequests, needsAnswer, todo, hireItems: hire.length, hireToCheck: hire.filter((h) => h.askNow).length, ...(dailyLog ? { dailyLog } : {}) });
 });

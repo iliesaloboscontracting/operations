@@ -1,8 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useState, use } from "react";
-import { ArrowLeft, Camera, ClipboardList, ListChecks, Loader2, QrCode as QrIcon, ScanLine, Send, Truck, Wrench } from "lucide-react";
+import { ArrowLeft, Camera, ClipboardList, ListChecks, Loader2, NotebookPen, QrCode as QrIcon, ScanLine, Send, Truck, Wrench } from "lucide-react";
 import PhotoPicker from "@/components/tools/PhotoPicker";
+import DailyLog from "@/components/site/DailyLog";
+import type { LogCardDTO } from "@/lib/dailyLog/types";
 import SignInCrew from "@/components/site/SignInCrew";
 import { MyRequests, RequestForm } from "@/components/site/SiteRequests";
 import TodoList from "@/components/site/TodoList";
@@ -30,8 +32,9 @@ type SiteInfo = {
   todo: number;
   hireItems: number;
   hireToCheck: number;
+  dailyLog?: LogCardDTO; // only on the daily log pilot's links (Task K)
 };
-type Mode = "home" | "register" | "check" | "fault" | "signin" | "request" | "requests" | "todo" | "hire";
+type Mode = "home" | "register" | "check" | "fault" | "signin" | "request" | "requests" | "todo" | "hire" | "log";
 
 const input =
   "w-full rounded-lg border border-edge bg-panel2 px-3 py-2.5 text-base text-gray-200 placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500";
@@ -46,10 +49,12 @@ export default function SitePhotosPage({ params: paramsP }: { params: Promise<{ 
   const [flash, setFlash] = useState<string | null>(null);
   const [who, setWho] = useState("");
   useEffect(() => setWho(getWho()), []);
-  // A tapped alert opens ".../site/<link>?go=signin" - straight to crew sign-in.
+  // A tapped alert opens ".../site/<link>?go=signin" - straight to crew sign-in
+  // (or ?go=log - the 19:00 daily log reminder).
   useEffect(() => {
-    if (new URLSearchParams(window.location.search).get("go") === "signin") {
-      setMode("signin");
+    const go = new URLSearchParams(window.location.search).get("go");
+    if (go === "signin" || go === "log") {
+      setMode(go);
       window.history.replaceState(null, "", window.location.pathname);
     }
   }, []);
@@ -126,6 +131,21 @@ export default function SitePhotosPage({ params: paramsP }: { params: Promise<{ 
             {info.kind !== "OFFICE" && (
               <Big icon={<QrIcon size={22} />} title="Sign in crew" text="Show the QR - crew scan it to sign in or out" onClick={() => { setFlash(null); setMode("signin"); }} />
             )}
+            {info.dailyLog && info.dailyLog.jobs > 0 && (
+              <Big
+                icon={<NotebookPen size={22} />}
+                title="Daily log"
+                text={info.dailyLog.logged >= info.dailyLog.jobs && info.dailyLog.lastAt
+                  ? `Logged ${new Date(info.dailyLog.lastAt).toLocaleTimeString("en-AU", { timeZone: "Australia/Sydney", hour: "numeric", minute: "2-digit" })} ✓${info.dailyLog.progressDue ? " · progress due this week" : ""}`
+                  : `Not done today - about a minute${info.dailyLog.progressDue ? " · progress due this week" : ""}`}
+                count={info.dailyLog.jobs - info.dailyLog.logged}
+                alert={info.dailyLog.logged < info.dailyLog.jobs}
+                onClick={() => { setFlash(null); setMode("log"); }}
+              />
+            )}
+            {info.dailyLog && info.dailyLog.jobs === 0 && info.dailyLog.progressDue && (
+              <Big icon={<NotebookPen size={22} />} title="Progress this week" text="% complete for your jobs - due this week" alert onClick={() => { setFlash(null); setMode("log"); }} />
+            )}
             {info.kind !== "OFFICE" && (<>
               <Big icon={<Send size={22} />} title="Make a request" text="Labour, trucks, hire, tools, materials - straight to the office" onClick={() => { setFlash(null); setMode("request"); }} />
               <Big
@@ -175,6 +195,7 @@ export default function SitePhotosPage({ params: paramsP }: { params: Promise<{ 
           {mode === "requests" && <MyRequests api={api} />}
           {mode === "todo" && <TodoList api={api} />}
           {mode === "hire" && <HireCheck api={api} onChange={load} />}
+          {mode === "log" && <DailyLog api={api} onDone={finished} />}
         </>
       )}
     </div>
