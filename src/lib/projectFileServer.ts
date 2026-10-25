@@ -10,17 +10,19 @@ import { projectDateError } from "./dateRules";
 
 // Checks a project create/update before it's written: no dollar figures in
 // anything that can go out to crew or clients, and the office contact must be
-// a Personnel-register entry with the Office role. Returns an error response,
-// or null when it's fine to save.
-export async function validateProjectFile(data: Record<string, unknown>, existing?: Record<string, unknown> | null) {
+// a Personnel-register entry with the Office role. Returns the problem (message
+// and HTTP status), or null when it's fine to save. projectFileError is the
+// plain form (also used by applyProjectPatch, lib/recordPatch.ts);
+// validateProjectFile wraps it as a response for the routes.
+export async function projectFileError(data: Record<string, unknown>, existing?: Record<string, unknown> | null): Promise<{ error: string; status: number } | null> {
   const dateError = projectDateError({ ...(existing ?? {}), ...data } as Parameters<typeof projectDateError>[0]);
-  if (dateError) return NextResponse.json({ error: dateError }, { status: 400 });
+  if (dateError) return { error: dateError, status: 400 };
 
   const problems = moneyProblems(data, MONEY_GUARDED_KEYS);
-  if (problems.length) return NextResponse.json({ error: moneyError(problems) }, { status: 422 });
+  if (problems.length) return { error: moneyError(problems), status: 422 };
 
   if (typeof data.expectedCompletion === "string" && data.expectedCompletion && !isCompletionValue(data.expectedCompletion)) {
-    return NextResponse.json({ error: "Expected completion must be a date or TBC." }, { status: 400 });
+    return { error: "Expected completion must be a date or TBC.", status: 400 };
   }
 
   if (typeof data.officeContactId === "string") {
@@ -29,13 +31,15 @@ export async function validateProjectFile(data: Record<string, unknown>, existin
       select: { type: true, role: true },
     });
     if (!r || r.type !== "PERSONNEL" || r.role !== OFFICE_ROLE) {
-      return NextResponse.json(
-        { error: "The office contact must be someone in the Personnel register with the Office role." },
-        { status: 400 }
-      );
+      return { error: "The office contact must be someone in the Personnel register with the Office role.", status: 400 };
     }
   }
   return null;
+}
+
+export async function validateProjectFile(data: Record<string, unknown>, existing?: Record<string, unknown> | null) {
+  const problem = await projectFileError(data, existing);
+  return problem ? NextResponse.json({ error: problem.error }, { status: problem.status }) : null;
 }
 
 // "Current supervisor" isn't stored on the project - it's whoever is
