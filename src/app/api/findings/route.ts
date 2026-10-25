@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
-import { audiencesFor, canActOnFindings } from "@/lib/findings/actions";
+import { audiencesFor, canActOnFindings, canSeeThisFinding } from "@/lib/findings/actions";
 import { sortFindings, toFindingDTO } from "@/lib/findings/view";
 
 // GET /api/findings          -> open findings this login may see
@@ -25,5 +25,6 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
       ],
     },
   });
-  return NextResponse.json({ canAct: canActOnFindings(user), findings: sortFindings(rows.map(toFindingDTO)) });
+  // Task J: a directors-only login never gets the operations-screen ones.
+  return NextResponse.json({ canAct: canActOnFindings(user), findings: sortFindings(rows.filter((f) => canSeeThisFinding(user, f)).map(toFindingDTO)) });
 });

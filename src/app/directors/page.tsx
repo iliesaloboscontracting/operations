@@ -18,15 +18,14 @@ import type { CostCatKey } from "@/lib/types";
 import type { DirectorOverviewDTO } from "@/lib/insights/load";
 import { Card, HEALTH, moneyTip, tooltipStyle } from "@/components/tracking/parts";
 import { ConfidenceBadge, DLink, Figure, Help, PriorityPill, Section, pct } from "@/components/directors/parts";
-import { groupForDisplay } from "@/lib/findings/view";
-import FindingPanel from "@/components/directors/FindingPanel";
+import FindingsList, { type ExtraRow } from "@/components/findings/FindingsList";
+import { useMyQueries } from "@/components/queries/MyQueries";
 import HealthBand from "@/components/directors/HealthBand";
 import QuestionsBanner from "@/components/queries/QuestionsBanner";
 
 const day = (iso: string) => fmtDay(iso, { day: "numeric", month: "short" });
 const weekday = (iso: string) => fmtDay(iso, { weekday: "short", day: "numeric" });
 // A stored timestamp as a Sydney calendar day ("25 Oct").
-const sydDay = (ts: string) => new Date(ts).toLocaleDateString("en-AU", { timeZone: "Australia/Sydney", day: "numeric", month: "short" });
 
 // The cost trend shows the four biggest categories over the 12 weeks and
 // folds the rest into "Other" - more series than that stop being readable.
@@ -298,15 +297,17 @@ function HoursChart({ hours }: { hours: DirectorOverviewDTO["people"]["hours"] }
 
 // Before the findings engine has run: the list worked out on the spot.
 function ComputedAttention({ o, showAll, setShowAll }: { o: DirectorOverviewDTO; showAll: boolean; setShowAll: (fn: (v: boolean) => boolean) => void }) {
-  const urgent = o.alerts.filter((a) => a.priority === "CRITICAL" || a.priority === "HIGH").length;
-  const shown = showAll ? o.alerts : o.alerts.slice(0, 7);
+  // Before the findings engine's first run: the cost alerts only (Task J - operational ones are on Attention).
+  const alerts = o.alerts.filter((a) => a.kpi === "F3");
+  const urgent = alerts.filter((a) => a.priority === "CRITICAL" || a.priority === "HIGH").length;
+  const shown = showAll ? alerts : alerts.slice(0, 7);
   return (
     <Card className="mb-4">
       <div className="mb-1 flex items-center justify-between gap-2">
         <div className="text-sm font-semibold text-gray-100">Needs attention</div>
-        <div className="text-[11px] text-gray-500">{urgent} critical or high · {o.alerts.length} in all</div>
+        <div className="text-[11px] text-gray-500">{urgent} critical or high · {alerts.length} in all</div>
       </div>
-      {o.alerts.length === 0 ? (
+      {alerts.length === 0 ? (
         <p className="text-sm text-emerald-400">All clear - nothing needs a director right now.</p>
       ) : (
         <div className="divide-y divide-edge">
@@ -333,9 +334,9 @@ function ComputedAttention({ o, showAll, setShowAll }: { o: DirectorOverviewDTO;
           ))}
         </div>
       )}
-      {o.alerts.length > 7 && (
+      {alerts.length > 7 && (
         <button onClick={() => setShowAll((v) => !v)} className="mt-1 text-xs text-brand-400 hover:underline">
-          {showAll ? "Show fewer" : `Show all ${o.alerts.length}`}
+          {showAll ? "Show fewer" : `Show all ${alerts.length}`}
         </button>
       )}
     </Card>
@@ -346,74 +347,30 @@ function ComputedAttention({ o, showAll, setShowAll }: { o: DirectorOverviewDTO;
 // whether its rule has stopped firing. Critical / high / medium one by one;
 // information-only gaps bundled per kind. Overdue site requests come straight
 // from Requests (they're work items, not findings).
-function FindingsAttention({ o, showAll, setShowAll, onRefresh }: { o: DirectorOverviewDTO; showAll: boolean; setShowAll: (fn: (v: boolean) => boolean) => void; onRefresh: () => void }) {
-  const { singles, infoGroups } = groupForDisplay(o.findings);
-  const [openId, setOpenId] = useState<string | null>(null);
-  const requests = o.alerts.filter((a) => a.kpi === "O6");
-  const m = o.findingsMeta;
-  const urgent = (m.bySeverity.CRITICAL ?? 0) + (m.bySeverity.HIGH ?? 0);
-  const shownSingles = showAll ? singles : singles.slice(0, 7);
-  const checked = m.checkedAt ? new Date(m.checkedAt).toLocaleString("en-AU", { weekday: "short", hour: "numeric", minute: "2-digit" }) : null;
+// Needs attention (Task J, 25 Oct 2026; Ilies: "i dont think this box should
+// show operational outstanding matters"): director-level findings only
+// (findings/config.ts DIRECTOR_KINDS - the loader filters them), plus budgets
+// waiting for a decision and questions waiting on this login. Operational
+// matters (crew, supervisors, hire, dates, site requests...) are on
+// Operations -> Attention.
+function FindingsAttention({ o, onRefresh }: { o: DirectorOverviewDTO; showAll: boolean; setShowAll: (fn: (v: boolean) => boolean) => void; onRefresh: () => void }) {
+  const [budgetsWaiting, setBudgetsWaiting] = useState(0);
+  const { waiting: questionsWaiting } = useMyQueries();
+  useEffect(() => {
+    apiFetch("/api/directors/budgets").then(async (r) => r.ok && setBudgetsWaiting((await r.json()).waiting ?? 0)).catch(() => undefined);
+  }, []);
+  const extra: ExtraRow[] = [
+    ...(budgetsWaiting ? [{ key: "budgets", priority: "HIGH" as const, title: `${budgetsWaiting} budget${budgetsWaiting === 1 ? "" : "s"} waiting for a decision`, href: "/directors/budgets", hint: "Budgets to approve - from Estimating" }] : []),
+    ...(questionsWaiting ? [{ key: "queries", priority: "MEDIUM" as const, title: `${questionsWaiting} question${questionsWaiting === 1 ? "" : "s"} waiting on you`, href: "/directors/queries", hint: "My queries - Ilies is waiting on your answer" }] : []),
+  ];
   return (
-    <Card className="mb-4">
-      <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
-        <div className="text-sm font-semibold text-gray-100">Needs attention</div>
-        <div className="text-[11px] text-gray-500">
-          {urgent} critical or high · {m.open} open{m.signalCleared ? ` · ${m.signalCleared} cleared, to close` : ""} · {m.closedThisWeek} closed this week{checked ? ` · checked ${checked}` : ""}
-        </div>
-      </div>
-      {singles.length === 0 && infoGroups.length === 0 && requests.length === 0 ? (
-        <p className="text-sm text-emerald-400">All clear - nothing needs a director right now.</p>
-      ) : (
-        <div className="divide-y divide-edge">
-          {requests.map((a, i) => (
-            <div key={`r${i}`} className="flex gap-3 py-2.5">
-              <PriorityPill p={a.priority} />
-              <div className="min-w-0 flex-1 text-sm">
-                <div className="text-gray-200">{a.href ? <DLink href={a.href} className="hover:underline">{a.title}</DLink> : a.title}</div>
-                <div className="mt-0.5 flex items-center gap-1 text-[11px] text-gray-500">{a.hint} <Help id={a.kpi} /></div>
-              </div>
-            </div>
-          ))}
-          {shownSingles.map((f) => (
-            <div key={f.id} className="flex gap-3 py-2.5">
-              <PriorityPill p={f.severity} />
-              <div className="min-w-0 flex-1 text-sm">
-                <div className="text-gray-200">{f.href ? <DLink href={f.href} className="hover:underline">{f.title}</DLink> : f.title}</div>
-                <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-gray-500">
-                  <span>Open since {sydDay(f.firstSeenAt)}</span>
-                  {f.signalClearedAt && <span className="text-emerald-400">No longer showing since {sydDay(f.signalClearedAt)} - to close</span>}
-                  {f.status !== "OPEN" && <span>{f.status === "ACKNOWLEDGED" ? "Acknowledged" : "Being actioned"}{f.ownerName ? ` · ${f.ownerName}` : ""}</span>}
-                  {f.provisional && <span>Data incomplete</span>}
-                  <Help id={f.kpi} />
-                  <button onClick={() => setOpenId(f.id)} className="text-brand-300 hover:underline">Details</button>
-                </div>
-              </div>
-            </div>
-          ))}
-          {infoGroups.map((g) => (
-            <div key={g.rule} className="flex gap-3 py-2.5">
-              <PriorityPill p="INFO" />
-              <div className="min-w-0 flex-1 text-sm">
-                <div className="text-gray-200">{g.items.length} {g.label}</div>
-                <div className="mt-1 flex flex-wrap gap-1.5">
-                  {g.items.slice(0, 12).map((f) => (
-                    <button key={f.id} onClick={() => setOpenId(f.id)} className="rounded-full border border-edge px-2 py-0.5 text-[11px] text-gray-300 hover:bg-panel2">{f.subjectName}</button>
-                  ))}
-                  {g.items.length > 12 && <span className="px-1 text-[11px] text-gray-500">+{g.items.length - 12} more</span>}
-                </div>
-                <div className="mt-0.5 flex items-center gap-1 text-[11px] text-gray-500">Gaps to fill - they close themselves once fixed <Help id={g.kpi} /></div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-      {singles.length > 7 && (
-        <button onClick={() => setShowAll((v) => !v)} className="mt-1 text-xs text-brand-400 hover:underline">
-          {showAll ? "Show fewer" : `Show all ${singles.length}`}
-        </button>
-      )}
-      {openId && <FindingPanel id={openId} onClose={() => setOpenId(null)} onChanged={onRefresh} />}
-    </Card>
+    <FindingsList
+      title="Needs attention"
+      findings={o.findings}
+      meta={o.findingsMeta}
+      extra={extra}
+      emptyText="All clear - nothing needs a director right now."
+      onRefresh={onRefresh}
+    />
   );
 }

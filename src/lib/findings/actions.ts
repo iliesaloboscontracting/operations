@@ -10,6 +10,7 @@
 // Timesheets / Accounts logins see none (the accounts login answers queries
 // on her Invoices page, not findings).
 import { isOwner } from "../owner";
+import { screenFor } from "./config";
 
 export type Actor = { id: string; name: string; email: string; role: string; directorAccess: boolean };
 export type FindingAction = "ACKNOWLEDGE" | "ASSIGN" | "RESOLVE" | "DISMISS" | "COMMENT" | "VERIFY";
@@ -31,6 +32,20 @@ export const canSeeFinding = (u: Pick<Actor, "email" | "role" | "directorAccess"
 export function canActOnFindings(u: Pick<Actor, "email" | "role" | "directorAccess">): boolean {
   if (u.role === "TIMESHEETS" || u.role === "ACCOUNTS") return false;
   return isOwner(u.email) || u.directorAccess || u.role === "DIRECTOR";
+}
+
+// Per finding (Task J): the screen it belongs on decides who sees and acts.
+// Operations-screen findings (/attention): the owner, Admins and Managers act -
+// Ilies runs operations - and a directors-only login never sees them.
+// Directors-screen findings keep the rule above (owner + director access).
+type FindingRef = { ruleCode: string; audience: string };
+export function canSeeThisFinding(u: Pick<Actor, "email" | "role" | "directorAccess">, f: FindingRef): boolean {
+  if (!canSeeFinding(u, f.audience)) return false;
+  return !(u.role === "DIRECTOR" && screenFor(f) === "OPERATIONS");
+}
+export function canActOnThisFinding(u: Pick<Actor, "email" | "role" | "directorAccess">, f: FindingRef): boolean {
+  if (screenFor(f) === "DIRECTORS") return canActOnFindings(u);
+  return isOwner(u.email) || u.role === "ADMIN" || u.role === "MANAGER";
 }
 
 // ---------- one action ----------

@@ -12,7 +12,7 @@ import { whenText } from "@/lib/requestTypes";
 import type { FindingDetail } from "@/app/api/findings/[id]/route";
 import { DLink, Help, PriorityPill } from "./parts";
 
-type People = { owners: { id: string; name: string }[]; askUsers: { id: string; name: string; kind: string }[]; askLinks: { id: string; name: string; role: string | null }[] };
+type People = { owners: { id: string; name: string }[]; opsOwners?: { id: string; name: string }[]; askUsers: { id: string; name: string; kind: string }[]; askLinks: { id: string; name: string; role: string | null }[] };
 type Mode = null | "ASSIGN" | "RESOLVE" | "DISMISS" | "COMMENT" | "VERIFY" | "ASK";
 
 const input = "w-full rounded-lg border border-edge bg-panel2 px-2.5 py-1.5 text-sm text-gray-200 placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40";
@@ -153,7 +153,7 @@ export default function FindingPanel({ id, onClose, onChanged }: { id: string; o
                     {mode === "ASSIGN" && (
                       <select className={input} value={form.owner ?? ""} onChange={(e) => set("owner", e.target.value)}>
                         <option value="">Who owns it…</option>
-                        {people?.owners.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+                        {((d.screen === "OPERATIONS" ? people?.opsOwners : people?.owners) ?? []).map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
                       </select>
                     )}
                     {mode === "DISMISS" && (

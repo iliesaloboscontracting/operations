@@ -11,7 +11,9 @@ import { canActOnFindings } from "@/lib/findings/actions";
 export const GET = withErrorHandling(async () => {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
-  if (!canActOnFindings(user)) return NextResponse.json({ error: "You don't have permission to do that" }, { status: 403 });
+  // Task J: Admins and Managers act on operations-screen findings too.
+  const opsActor = user.role === "ADMIN" || user.role === "MANAGER";
+  if (!canActOnFindings(user) && !opsActor) return NextResponse.json({ error: "You don't have permission to do that" }, { status: 403 });
   const [users, linked] = await Promise.all([
     prisma.user.findMany({ where: { active: true }, select: { id: true, name: true, email: true, role: true, directorAccess: true }, orderBy: { name: "asc" } }),
     prisma.resource.findMany({
@@ -22,6 +24,8 @@ export const GET = withErrorHandling(async () => {
   ]);
   return NextResponse.json({
     owners: users.filter((u) => canActOnFindings(u)).map((u) => ({ id: u.id, name: u.name })),
+    // Who can own an operations-screen finding (Attention): the owner, Admins, Managers.
+    opsOwners: users.filter((u) => isOwner(u.email) || u.role === "ADMIN" || u.role === "MANAGER").map((u) => ({ id: u.id, name: u.name })),
     askUsers: users
       .filter((u) => !isOwner(u.email) && u.id !== user.id && (u.role === "ACCOUNTS" || u.role === "DIRECTOR" || u.directorAccess))
       .map((u) => ({ id: u.id, name: u.name, kind: u.role === "ACCOUNTS" ? "Accounts" : "Director" })),

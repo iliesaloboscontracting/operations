@@ -14,6 +14,7 @@ import type { ProjectCostDTO } from "../types";
 import { NOT_YET_AVAILABLE, THRESHOLDS } from "./dictionary";
 import { toFindingDTO, sortFindings } from "../findings/view";
 import { companyHealth } from "./health";
+import { screenFor } from "../findings/config";
 import { pipelineTile } from "./pipeline";
 import { loadPipelineState } from "./pipelineFeed";
 import { loadXeroHealth } from "../xero/imports";
@@ -171,11 +172,12 @@ export async function loadDirectorOverview() {
   const [openFindings, lastSeen, closedThisWeek, pipelineState, xero] = await Promise.all([
     prisma.finding.findMany({ where: { status: { in: ["OPEN", "ACKNOWLEDGED", "ACTIONED"] } } }),
     prisma.finding.aggregate({ _max: { lastSeenAt: true } }),
-    prisma.finding.count({ where: { status: { in: ["RESOLVED", "VERIFIED"] }, resolvedAt: { gte: new Date(now.getTime() - 7 * 86_400_000) } } }),
+    prisma.finding.findMany({ where: { status: { in: ["RESOLVED", "VERIFIED"] }, resolvedAt: { gte: new Date(now.getTime() - 7 * 86_400_000) } }, select: { ruleCode: true, audience: true } }),
     loadPipelineState(),
     loadXeroHealth(today),
   ]);
-  const findings = sortFindings(openFindings.map(toFindingDTO));
+  // Task J: the directors' box shows director-level findings only; the rest are on Operations -> Attention.
+  const findings = sortFindings(openFindings.filter((f) => screenFor(f) === "DIRECTORS").map(toFindingDTO));
 
   const alerts = sortAlerts([
     ...trackingAlerts(tracking.attention),
@@ -239,7 +241,7 @@ export async function loadDirectorOverview() {
       open: findings.length,
       bySeverity: findings.reduce<Record<string, number>>((m, f) => { m[f.severity] = (m[f.severity] ?? 0) + 1; return m; }, {}),
       signalCleared: findings.filter((f) => f.signalClearedAt).length,
-      closedThisWeek,
+      closedThisWeek: closedThisWeek.filter((f) => screenFor(f) === "DIRECTORS").length,
     },
   };
 }
