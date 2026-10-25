@@ -223,6 +223,30 @@ business, without becoming unnecessarily complicated.
   Nothing is called margin - revenue isn't connected. Weekly `KpiSnapshot`
   rows (append-only, part-week ones marked partial) are written from the
   `instrumentation.ts` tick (`src/lib/insights/snapshot.ts`).
+- **Xero, read-only** (25 Oct 2026, Ilies: "yes"; `src/lib/xero/live/`):
+  the fifth outbound connection (after the assistant, tool photos, Web Push
+  and invoice reading). It reads sales invoices, credit notes, bills and the
+  monthly P&L from the Lobos Xero organisation - never writes. OFF ("not set
+  up yet", no outbound call at all) until `XERO_CLIENT_ID`,
+  `XERO_CLIENT_SECRET` and `XERO_TOKEN_KEY` (32 bytes, base64) are all in
+  `.env`. The server may call only identity.xero.com and api.xero.com
+  (allowlist in `client.ts`, 20 s timeout, errors scrubbed). Granular `.read`
+  scopes + `offline_access` only; it refuses to start - or refuses a grant -
+  with any write scope. Only the owner connects/disconnects (Directors →
+  Accounts data; PKCE + signed ten-minute state cookie). The rotating
+  refresh token is encrypted in `XeroConnection` (AES-256-GCM,
+  `XERO_TOKEN_KEY`), saved before use, never sent to a browser or logged.
+  invalid_grant → NEEDS_REAUTH + a CRITICAL finding to Ilies. Reads nightly
+  from 2am Sydney (after the backup) and on "Refresh now" (director access,
+  ≤ every 15 min) into the same Xero mirror tables accounts' uploads use
+  (`XeroImport` source API; the upload path is `/api/xero/imports`).
+  Directors-only figures; bills are a cross-check only, never job cost.
+  Never add a write scope or a non-Xero host without Ilies's approval.
+- **Information gaps / queries** (25 Oct 2026): questions to Nick, Yoel or
+  accounts are QUERY requests answered in-app (Directors → My queries;
+  accounts' Invoices → Queries), never on a link when they carry money.
+  Answers never change data - the lead picks them up and applies changes
+  through propose-then-apply.
 - **Money-guard principle:** crew-facing/operational views (day sheets, Day
   Review, the Yard) never carry dollar figures — enforced at both the
   TypeScript type level (narrow DTOs with no money fields) and via a runtime
