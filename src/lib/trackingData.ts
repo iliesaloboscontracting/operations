@@ -9,7 +9,7 @@ import { fmtDay, parseISO, parseLooseDate, addDays } from "@/lib/dates";
 import { todaySydney } from "@/lib/today";
 import { hireEstimate, hireEstimateDays, hireStillToCome } from "@/lib/hireEstimate";
 import { tipDocketsByProject } from "@/lib/receipts/tipStore";
-import { docketNosOf, isUninvoiced } from "@/lib/receipts/tipCosts";
+import { docketNosOf, expectsDockets, isUninvoiced } from "@/lib/receipts/tipCosts";
 import type { AttentionItemDTO, AttentionJobDTO, CostCatKey, DayCostDTO, JobHealth } from "@/lib/types";
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -372,7 +372,7 @@ export async function loadTracking({ withPeople }: { withPeople: boolean }) {
     // The two mismatch flags, per job: dockets not invoiced 35 days on, tip invoices billing no docket.
     const tipUninvoiced = tipOpen.filter((t) => isUninvoiced({ day: t.day, invoicedCostId: null }, todayIso)).length;
     const billedIds = new Set(tipDockets.filter((t) => t.billed).map((t) => t.invoicedCostId));
-    const tipInvoicesNoDocket = invoiced.filter((i) => i.category === "TIP_FEES" && i.amountExGst > 0 && !billedIds.has(i.id)).length;
+    const tipInvoicesNoDocket = invoiced.filter((i) => i.category === "TIP_FEES" && i.amountExGst > 0 && !billedIds.has(i.id) && expectsDockets(i)).length;
     estimatedCost += tipEstimateToDate;
     const hireLabourEstimateTotal = hireLabourEstimate.reduce((n, l) => n + (l.cost ?? 0), 0);
     const totalCost = byCode.plant + byCode.attach + byCode.trucks + byCode.hire + invoicedTotal + labourTotal + tipEstimateToDate;

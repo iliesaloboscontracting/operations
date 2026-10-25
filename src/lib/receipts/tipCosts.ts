@@ -6,6 +6,9 @@
 import { normDocket } from "./checks";
 
 export const UNINVOICED_AFTER_DAYS = 35;
+// Dockets have been photographed from site since Receipts went live (26 Oct 2026). A tip invoice for
+// loads before then has no docket to find - it's never flagged as "no docket from site".
+export const RECEIPTS_FROM = "2026-10-26";
 
 // "Bingo  Eastern-Creek " -> "bingo eastern creek": how names are compared.
 export const normName = (s: string | null | undefined) => (s ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
@@ -80,6 +83,11 @@ export function matchAll(invoices: InvoiceForMatch[], dockets: DocketForMatch[])
 }
 
 // ---------- the two mismatch flags ----------
+
+// Should this tip invoice have dockets from site? Only when the loads it bills are all after
+// Receipts went live: its period starts then or later, or - with no period - the 35 days up to its date do.
+export const expectsDockets = (inv: { weekEnding: string; periodFrom: string | null }) =>
+  (inv.periodFrom ?? addDays(inv.weekEnding, -UNINVOICED_AFTER_DAYS)) >= RECEIPTS_FROM;
 
 // A docket still not on any invoice 35 days after its date.
 export const isUninvoiced = (d: { day: string; invoicedCostId: string | null }, today: string) =>

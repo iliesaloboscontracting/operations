@@ -3,7 +3,7 @@
 // the 35-day flag, and the docket numbers typed on an invoice. `npm test`.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { docketCost, isUninvoiced, matchAll, matchInvoice, parseDocketNos, rateFor, supplierMatches, type DocketForMatch, type InvoiceForMatch, type Rate } from "./tipCosts";
+import { docketCost, expectsDockets, isUninvoiced, matchAll, matchInvoice, parseDocketNos, rateFor, supplierMatches, type DocketForMatch, type InvoiceForMatch, type Rate } from "./tipCosts";
 import { tipMismatchSignals, operationalIsMoneyFree } from "../findings/signals";
 
 const R = (x: Partial<Rate>): Rate => ({ id: "r", tipSite: "Bingo Eastern Creek", wasteType: "", ratePerTonneExGst: 100, validFrom: "2026-01-01", retiredAt: null, ...x });
@@ -63,6 +63,14 @@ test("a docket goes to one invoice only; invoices with docket numbers go first",
   assert.equal(matchAll([], dockets).size, 0);
   // re-running gives the same answer (links are recomputed, not accumulated)
   assert.deepEqual([...matchAll([inv("vague", { weekEnding: "2026-10-15" }), inv("exact", { weekEnding: "2026-10-31", docketNos: ["A2"] })], dockets.map((d) => ({ ...d, invoicedCostId: m.get(d.id) ?? null })))], [...m]);
+});
+
+test("only tip invoices for loads after Receipts went live (26 Oct 2026) expect dockets from site", () => {
+  assert.equal(expectsDockets({ weekEnding: "2026-09-30", periodFrom: null }), false, "historical invoices are never flagged");
+  assert.equal(expectsDockets({ weekEnding: "2026-11-15", periodFrom: null }), false, "dated in November but its 35 days reach back before 26 Oct");
+  assert.equal(expectsDockets({ weekEnding: "2026-12-01", periodFrom: null }), true);
+  assert.equal(expectsDockets({ weekEnding: "2026-11-05", periodFrom: "2026-10-27" }), true, "a stated period after go-live");
+  assert.equal(expectsDockets({ weekEnding: "2026-11-05", periodFrom: "2026-10-20" }), false);
 });
 
 test("the 35-day flag and the docket numbers typed on an invoice", () => {

@@ -4,7 +4,7 @@
 // Never touches frozen AllocationCost rows or closed days - estimates are live-only, like hire.
 import { prisma } from "../prisma";
 import { normRego } from "./checks";
-import { docketCost, docketNosOf, isUninvoiced, matchAll, normName, rateFor, sydneyDay, type DocketCost, type Rate } from "./tipCosts";
+import { docketCost, docketNosOf, expectsDockets, isUninvoiced, matchAll, normName, rateFor, sydneyDay, type DocketCost, type Rate } from "./tipCosts";
 
 type Problem = { error: string; status: number };
 const COUNTED = ["READ", "CONFIRMED"];
@@ -121,7 +121,7 @@ export async function tipMismatches(today = sydneyDay(new Date())): Promise<TipM
   const since = new Date(Date.now() - 400 * 86_400_000);
   const [dockets, invoices, linked] = await Promise.all([
     prisma.receipt.findMany({ where: { kind: "TIP", status: { in: COUNTED }, projectId: { not: null }, invoicedCostId: null, sentAt: { gte: since } }, select: { id: true, projectId: true, docketNo: true, docketAt: true, sentAt: true, tipSite: true, tonnes: true } }),
-    prisma.invoicedCost.findMany({ where: { category: "TIP_FEES", weekEnding: { gte: since.toISOString().slice(0, 10) } }, select: { id: true, projectId: true, vendor: true, invoiceNo: true, weekEnding: true, amountExGst: true } }),
+    prisma.invoicedCost.findMany({ where: { category: "TIP_FEES", weekEnding: { gte: since.toISOString().slice(0, 10) } }, select: { id: true, projectId: true, vendor: true, invoiceNo: true, weekEnding: true, periodFrom: true, amountExGst: true } }),
     prisma.receipt.findMany({ where: { invoicedCostId: { not: null } }, select: { invoicedCostId: true }, distinct: ["invoicedCostId"] }),
   ]);
   const projects = new Map((await prisma.project.findMany({ where: { id: { in: [...new Set([...dockets.map((d) => d.projectId!), ...invoices.map((i) => i.projectId)])] } }, select: { id: true, name: true } })).map((p) => [p.id, p.name]));
@@ -130,8 +130,8 @@ export async function tipMismatches(today = sydneyDay(new Date())): Promise<TipM
     uninvoiced: dockets.map((d) => ({ ...d, day: docketDay(d) })).filter((d) => isUninvoiced({ day: d.day, invoicedCostId: null }, today))
       .map((d) => ({ id: d.id, projectId: d.projectId!, projectName: projects.get(d.projectId!) ?? "a job", day: d.day, docketNo: d.docketNo, tipSite: d.tipSite, tonnes: d.tonnes }))
       .sort((a, b) => a.day.localeCompare(b.day)),
-    invoicesWithoutDockets: invoices.filter((i) => !billed.has(i.id) && i.amountExGst > 0)
-      .map((i) => ({ ...i, projectName: projects.get(i.projectId) ?? "a job" }))
+    invoicesWithoutDockets: invoices.filter((i) => !billed.has(i.id) && i.amountExGst > 0 && expectsDockets(i))
+      .map(({ periodFrom: _p, ...i }) => ({ ...i, projectName: projects.get(i.projectId) ?? "a job" }))
       .sort((a, b) => a.weekEnding.localeCompare(b.weekEnding)),
   };
 }
