@@ -1,0 +1,77 @@
+{
+  "batch": "01 - first information gaps (drafted by the lead, 25 Oct 2026; nothing sent until Ilies ticks and sends)",
+  "items": [
+    {
+      "to": "Nick Giannopoulos",
+      "type": "QUESTION",
+      "title": "Master tender register spreadsheet",
+      "question": "There are two 'LIVE' tender register spreadsheets for 2024-25: (A) 02_2 Tenders - Estimates & Quotes (2025) / 1. ESTIMATING PROCESS / 1. Lobos_Tender Schedule_2024-2025_LIVE.xlsx (last changed 19 Dec 2025, about 1,357 rows) and (B) a copy named '... 2024-2025_LIVE - 24_04_26.xlsx' (about 1,620 rows, location unknown). Which one is the master?",
+      "need": "Say A or B, and upload the '2024 - 2025 - Tender Register' sheet exported as CSV (File > Save As > CSV).",
+      "why": "So the old tenders can be imported into the new tender register in Estimating."
+    },
+    {
+      "to": "Nick Giannopoulos",
+      "type": "QUESTION",
+      "title": "Which quote was Myers won from?",
+      "question": "Myers' notes say quote 26_263 R04, but 26_263 is also the number on ALDI Newtown in Operations, and one Myer file is named 26_261. Which quote number (and revision) was the Myers (Myer Westfields) job won from?",
+      "need": "The quote number and revision; upload the signed quote if easy.",
+      "why": "So the job links to the right estimate and its budget."
+    },
+    {
+      "to": "Nick Giannopoulos",
+      "type": "QUESTION",
+      "title": "Project numbers for four live jobs",
+      "question": "No SharePoint project folder was found for these active jobs: Bronte (CD Constructions), 2 Roslyn Street Potts Point (Decode), Vaucluse - Old South Head Rd (Vivid Build), Rivkin House - Potts Point (Ryser). What is each one's project (job) number, and the quote it was won from? Bronte also has no quote found.",
+      "need": "Job number and quote number for each.",
+      "why": "Every app now uses one job number per job."
+    },
+    {
+      "to": "Nick Giannopoulos",
+      "type": "QUESTION",
+      "title": "Contract values missing on 8 active jobs",
+      "question": "These active jobs have no contract value in Operations, so their cost can't be checked against it: Vaucluse - Old South Head Rd, Swiss Hotel, 2 Roslyn Street Potts Point, Shellharbour WH1, Bronte, Football ID - Gregory Hills, Thales Zone 4 - Rydalmere, Rivkin House - Potts Point.",
+      "need": "The agreed contract value (ex GST) for each, or 'schedule of rates / do-and-charge' if there isn't one. Upload the subcontract or accepted quote if easy.",
+      "why": "Without it the Directors screen shows these jobs as 'can't assess'."
+    },
+    {
+      "to": "Nick Giannopoulos",
+      "type": "QUESTION",
+      "title": "Job numbers that don't match in the documents",
+      "question": "Documents show different numbers for the same job: Football ID (tender 26_169, job 26_170 - and 26_169 was also used for a Randwick quote); Swissotel (variations say job 26_017, folder is 26_015); Mt Hutton (progress claim 1 says project 26_008, folder is 26_174); Dover Heights (job 24_088, quote 24_454); Bellevue Hill (job 24_094, quote 24_459). Which numbers are correct?",
+      "need": "The correct job and quote number for each.",
+      "why": "So claims, invoices and costs land on the right job."
+    },
+    {
+      "to": "Nick Giannopoulos",
+      "type": "QUESTION",
+      "title": "Rooster's day rate",
+      "question": "Rooster's invoices come through Example Consultants at $470/day. Is $470/day ex GST the agreed rate?",
+      "need": "Yes, or the correct rate and from when.",
+      "why": "His labour cost is currently marked unconfirmed."
+    },
+    {
+      "to": "Accounts",
+      "type": "QUESTION",
+      "title": "How are invoices tagged by job in Xero?",
+      "question": "When you raise a client invoice or progress claim in Xero, how is it tied to the job? For example a tracking category (what is it called?), the job number in the reference, Xero Projects, or not tied at all.",
+      "need": "A short answer, plus one real export of each: the sales invoices list (CSV) and the monthly Profit & Loss (Excel). Bills list and Aged Receivables too if easy.",
+      "why": "So the Directors screen can show revenue and profit per job from Xero."
+    },
+    {
+      "to": "Accounts",
+      "type": "QUESTION",
+      "title": "Munster invoice AG10539 - possible duplicate",
+      "question": "Munster invoice AG10539 (week ending 20 Sep, Myers) has a second DAY line of $2,145. Is that a duplicate, or a genuine second charge?",
+      "need": "Duplicate or genuine (and if a credit note is coming).",
+      "why": "Myers' costs may be overstated by $2,145."
+    },
+    {
+      "to": "Accounts",
+      "type": "QUESTION",
+      "title": "Missing labour hire invoices - Myers",
+      "question": "There are no labour hire invoices on record for Myers for the weeks ending 23 Aug and 30 Aug, or any week after 20 Sep. Were none issued, or are they still to come?",
+      "need": "Upload any invoices for those weeks, or confirm none.",
+      "why": "Myers' labour hire cost may be understated."
+    }
+  ]
+}
