@@ -14,6 +14,7 @@ export async function register() {
     const { runFindings } = await import("./lib/findings/store");
     const { nightlyXeroSync } = await import("./lib/xero/live/service");
     const { remindDailyLogs } = await import("./lib/dailyLog/reminders");
+    const { expireProposals } = await import("./lib/changes/store");
     setInterval(() => {
       // Xero (read-only, G3): once a day from 2am Sydney, after the backup. Does nothing until set up and connected.
       nightlyXeroSync().catch((e) => console.error("xero nightly", e instanceof Error ? e.message : "failed"));
@@ -28,6 +29,8 @@ export async function register() {
       remindBeforeFinish().catch((e) => console.error("sign-out reminder check", e));
       // Pilot supervisors: no daily log by 19:00 (Task K, 25 Oct 2026). Off when DAILY_LOG_PILOT_LINKS is empty.
       remindDailyLogs().catch((e) => console.error("daily log reminder check", e));
+      // Controlled changes (LCI phase 4): proposals not decided in time expire. Nothing is pushed.
+      expireProposals().catch((e) => console.error("change proposal expiry", e));
     }, 60_000);
   }
 }

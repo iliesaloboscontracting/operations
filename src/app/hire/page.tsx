@@ -10,6 +10,7 @@ import { hireEstimate, offHireAlert, HIRE_STATUS_LABEL } from "@/lib/hireEstimat
 import { useAuth } from "@/components/AuthProvider";
 import PageShell from "@/components/PageShell";
 import HireOverview from "@/components/hire/HireOverview";
+import ProposeChange from "@/components/changes/ProposeChange";
 
 // Last date this item actually appeared on a job, from its own assignment
 // history - not filtered to today, so it reads "still idle" correctly even
@@ -89,7 +90,11 @@ type OffHireAlertRow = {
 };
 
 function ComingOffHire() {
+  const { canEdit } = useAuth();
   const [alerts, setAlerts] = useState<OffHireAlertRow[] | null>(null);
+  // Propose a new off-hire date (LCI phase 4): approved by someone else on Changes before it goes in.
+  const [proposing, setProposing] = useState<OffHireAlertRow | null>(null);
+  const [flash, setFlash] = useState<string | null>(null);
   useEffect(() => {
     fetch("/api/hire-alerts")
       .then((r) => (r.ok ? r.json() : { alerts: [] }))
@@ -114,10 +119,16 @@ function ComingOffHire() {
               {a.supplier && `${a.supplier} · `}
               {a.project ?? "no project"} · expected finish {short(a.offHireDate)}
             </span>
+            {canEdit && <button onClick={() => setProposing(a)} className="text-brand-400 underline hover:text-brand-300">Propose new date</button>}
           </li>
         ))}
       </ul>
       <p className="mt-1.5 text-[11px] text-gray-500">Extend the finish date, or call the supplier to off-hire and set the status to Off-hire requested / Returned.</p>
+      {flash && <p className="mt-1.5 text-xs text-emerald-300">{flash}</p>}
+      {proposing && (
+        <ProposeChange kinds={["HIRE_OFF_HIRE_DATE"]} recordId={proposing.id} recordName={`${proposing.name}${proposing.supplier ? ` (${proposing.supplier})` : ""}`}
+          current={proposing.offHireDate} onClose={() => setProposing(null)} onDone={(m) => { setFlash(m); setProposing(null); }} />
+      )}
     </div>
   );
 }

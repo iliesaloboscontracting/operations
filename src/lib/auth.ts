@@ -141,6 +141,19 @@ export async function guardXeroUpload(): Promise<{ denied: NextResponse } | { us
   return { user };
 }
 
+// Controlled changes (LCI phase 4, 25 Oct 2026): Managers and Admins, plus
+// director access (directors propose from answered queries and approve
+// contract values). Which kinds each may see or approve is decided per
+// proposal in lib/changes/rules.ts. Never Viewers, Timesheets or Accounts.
+export async function guardChanges(): Promise<{ denied: NextResponse } | { user: AuthUser }> {
+  const user = await getCurrentUser();
+  if (!user) return { denied: NextResponse.json({ error: "Not signed in" }, { status: 401 }) };
+  if (user.role !== "ADMIN" && user.role !== "MANAGER" && !user.directorAccess) {
+    return { denied: NextResponse.json({ error: "You don't have permission to do that" }, { status: 403 }) };
+  }
+  return { user };
+}
+
 // Where a role lands after signing in - the limited roles only have one page.
 export function homeFor(role: Role) {
   return role === "TIMESHEETS" ? "/timesheets" : role === "ACCOUNTS" ? "/invoices" : role === "DIRECTOR" ? "/directors" : "/command";

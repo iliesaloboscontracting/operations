@@ -1,0 +1,126 @@
+// Controlled changes (LCI phase 4, A3) - the plain rules: what each kind's
+// value looks like, who may propose / see / approve, the person check
+// (requester != approver, the source person can't approve, by PERSON not
+// login), expiry, the "before still true" re-check and undo. No server
+// imports; `npm test` (changes.test.ts). Design: docs/lci/PHASE4-5-DESIGN.md §1.
+import { isOwner } from "../owner";
+import { A3_RULES, CHANGE_KINDS, NEVER_APPROVE, type ChangeKind } from "./config";
+
+export type ChangeUser = { id: string; name: string; email: string; role: string; directorAccess: boolean };
+export type ChangeValue = Record<string, string | number | null>;
+export type SourceRef = { type: "SiteRequest" | "Finding" | "Query" | "Phone" | "Email" | "Document" | "Other"; id?: string; label: string };
+
+export const isKind = (k: unknown): k is ChangeKind => typeof k === "string" && (CHANGE_KINDS as string[]).includes(k);
+
+// ---------- kill switches ----------
+
+export function kindEnabled(kind: ChangeKind, env: { all?: string; off?: string } = { all: process.env.CONTROLLED_CHANGES, off: process.env.CONTROLLED_CHANGES_OFF }): boolean {
+  if ((env.all ?? "").trim().toLowerCase() === "off") return false;
+  const off = (env.off ?? "").split(",").map((s) => s.trim().toUpperCase()).filter(Boolean);
+  return A3_RULES[kind].enabled && !off.includes(kind);
+}
+export const SWITCHED_OFF = "Controlled changes are switched off for this kind - make the change by hand, or ask the lead to switch them on.";
+
+// ---------- people ----------
+
+const norm = (s: string | null | undefined) => (s ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+export const samePerson = (a: string | null | undefined, b: string | null | undefined) => !!norm(a) && norm(a) === norm(b);
+const staff = (u: ChangeUser) => u.role === "ADMIN" || u.role === "MANAGER";
+
+// Seeing a proposal: Managers and Admins see every kind (Managers already see
+// contract values on Tracking); director logins see the project kinds (they
+// propose from answered queries and approve contract values). Nobody else.
+export const canViewKind = (u: ChangeUser, kind: ChangeKind) => staff(u) || (u.directorAccess && kind.startsWith("PROJECT_"));
+
+// Proposing: Managers and Admins, any kind; director logins, the project kinds.
+export const canProposeKind = canViewKind;
+
+// Why this person can't approve this proposal, or null when they can.
+export function cannotApprove(u: ChangeUser, p: { kind: ChangeKind; requestedBy: string; sourcePerson: string | null }): string | null {
+  const rule = A3_RULES[p.kind];
+  if (NEVER_APPROVE.includes(u.email.toLowerCase())) return "This login proposes changes; it never approves them.";
+  const byRole = rule.approvers.roles.includes(u.role);
+  const byOwner = rule.approvers.ownerMayApprove && isOwner(u.email);
+  if (!byRole && !byOwner) return `${rule.label} changes are approved by ${approverWords(p.kind)}.`;
+  if (samePerson(u.name, p.requestedBy)) return "You proposed this change, so someone else has to approve it.";
+  if (samePerson(u.name, p.sourcePerson)) return "The information came from you, so someone else has to approve putting it in.";
+  return null;
+}
+export function approverWords(kind: ChangeKind) {
+  const a = A3_RULES[kind].approvers;
+  const roles = a.roles.map((r) => (r === "DIRECTOR" ? "a director login" : r === "ADMIN" ? "an Admin" : r.toLowerCase()));
+  return [...roles, ...(a.ownerMayApprove && !a.roles.includes("ADMIN") ? ["the owner"] : [])].join(" or ");
+}
+
+// ---------- values ----------
+
+const ISO = /^\d{4}-\d{2}-\d{2}$/;
+const NUMBER_TEXT = /^[A-Za-z0-9][A-Za-z0-9 _./-]{0,23}$/;
+
+// The proposed value for a kind, checked and in the exact shape the record
+// edit (applyResourcePatch / applyProjectPatch) takes - or what's wrong.
+export function parseAfter(kind: ChangeKind, b: Record<string, unknown>): { value: ChangeValue } | { error: string } {
+  if (kind === "HIRE_OFF_HIRE_DATE") {
+    const d = typeof b.offHireDate === "string" ? b.offHireDate.trim() : "";
+    if (!ISO.test(d) || Number.isNaN(Date.parse(d))) return { error: "Give the new off-hire date." };
+    return { value: { offHireDate: d } };
+  }
+  if (kind === "PROJECT_CONTRACT_VALUE") {
+    const raw = typeof b.contractValue === "string" ? b.contractValue.replace(/[$,\s]/g, "") : b.contractValue;
+    const v = typeof raw === "number" ? raw : typeof raw === "string" && raw !== "" ? Number(raw) : NaN;
+    if (!Number.isFinite(v) || v <= 0 || v > 1e9) return { error: "Give the contract value in dollars, ex GST." };
+    const notes = typeof b.contractValueNotes === "string" ? b.contractValueNotes.trim().slice(0, 200) : "";
+    return { value: { contractValue: Math.round(v * 100) / 100, contractValueNotes: notes || null } };
+  }
+  const key = kind === "PROJECT_JOB_NO" ? "jobNo" : "quoteNo";
+  const t = typeof b[key] === "string" ? (b[key] as string).trim() : "";
+  if (!NUMBER_TEXT.test(t)) return { error: `Give the ${A3_RULES[kind].label.toLowerCase()} (letters, digits, - _ . / only).` };
+  return { value: { [key]: t } };
+}
+
+// The fields each kind reads and writes (contract value carries its notes with it).
+export const fieldsOf = (kind: ChangeKind) => (kind === "PROJECT_CONTRACT_VALUE" ? ["contractValue", "contractValueNotes"] : [A3_RULES[kind].field]);
+export const pickValue = (kind: ChangeKind, record: Record<string, unknown>): ChangeValue =>
+  Object.fromEntries(fieldsOf(kind).map((f) => [f, (record[f] ?? null) as string | number | null]));
+
+// Canonical JSON: keys sorted at every level, no whitespace - so the same
+// payload always gives the same fingerprint.
+export function canonical(v: unknown): string {
+  if (v === null || typeof v !== "object") return JSON.stringify(v ?? null);
+  if (Array.isArray(v)) return `[${v.map(canonical).join(",")}]`;
+  return `{${Object.keys(v as Record<string, unknown>).sort().filter((k) => (v as Record<string, unknown>)[k] !== undefined)
+    .map((k) => `${JSON.stringify(k)}:${canonical((v as Record<string, unknown>)[k])}`).join(",")}}`;
+}
+export const sameValue = (a: unknown, b: unknown) => canonical(a) === canonical(b);
+export const noChange = (before: ChangeValue, after: ChangeValue) => sameValue(before, after);
+
+// What the fingerprint covers (§1.4).
+export const fingerprintPayload = (p: {
+  kind: string; recordType: string; recordId: string; field: string; before: ChangeValue | null; after: ChangeValue;
+  sourceRefs: SourceRef[]; requestedBy: string; expiresAt: Date;
+}) => canonical({ ...p, expiresAt: p.expiresAt.toISOString() });
+
+// ---------- time ----------
+
+export const expiryFor = (kind: ChangeKind, from: Date) => new Date(from.getTime() + A3_RULES[kind].expiryDays * 86_400_000);
+export const isExpired = (p: { expiresAt: Date }, now: Date) => now.getTime() >= p.expiresAt.getTime();
+
+// ---------- sources ----------
+
+export function parseSources(v: unknown): SourceRef[] | { error: string } {
+  const list = Array.isArray(v) ? v : [];
+  const types = ["SiteRequest", "Finding", "Query", "Phone", "Email", "Document", "Other"];
+  const out: SourceRef[] = [];
+  for (const raw of list.slice(0, 6)) {
+    const r = (raw ?? {}) as Record<string, unknown>;
+    const type = String(r.type ?? "");
+    const label = typeof r.label === "string" ? r.label.trim().slice(0, 200) : "";
+    if (!types.includes(type) || !label) continue;
+    out.push({ type: type as SourceRef["type"], ...(typeof r.id === "string" && r.id ? { id: r.id.slice(0, 40) } : {}), label });
+  }
+  if (!out.length) return { error: "Say where the new value came from (the request, the answer, a phone call...)." };
+  return out;
+}
+
+export const openKeyOf = (recordType: string, recordId: string, field: string) => `${recordType}:${recordId}:${field}`;
+export const proposalRef = (n: number) => `P-${String(n).padStart(4, "0")}`;

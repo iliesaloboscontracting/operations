@@ -25,6 +25,7 @@ import {
   type Priority,
 } from "@/lib/requestTypes";
 import type { OfficeRequestView } from "@/lib/siteRequests";
+import ProposeChange from "@/components/changes/ProposeChange";
 
 // Site requests (21 Oct 2026): what supervisors have asked for from their
 // link, in columns by where each one is up to. Only Ilies (Admin) decides -
@@ -241,6 +242,8 @@ function Detail({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showPhoto, setShowPhoto] = useState(false);
+  const [proposing, setProposing] = useState(false);
+  const [changeFlash, setChangeFlash] = useState<string | null>(null);
   const closed = ["DONE", "DECLINED", "CANCELLED"].includes(r.status);
   const type = typeOf(r.kind);
   const follow = FOLLOW_UP[r.kind];
@@ -252,6 +255,8 @@ function Detail({
     setText("");
     setError(null);
     setShowPhoto(false);
+    setProposing(false);
+    setChangeFlash(null);
   }, [r.id]);
 
   async function send(body: Record<string, unknown>) {
@@ -326,7 +331,18 @@ function Detail({
         {r.answer && <p className="mb-2 text-sm text-sky-300">Answer{isQuery && r.assigneeName ? ` from ${r.assigneeName}` : ""}: {r.answer}</p>}
         {isQuery && r.office?.hasAnswerFile && <a href={`/api/queries/${r.id}/file`} target="_blank" rel="noreferrer" className="mb-2 inline-block text-sm text-gray-300 underline">Open the attached file</a>}
         {isQuery && r.status === "ANSWERED" && (
-          <p className="mb-2 rounded-lg bg-panel2 px-3 py-2 text-xs text-gray-400">If the answer means a record should change (a contract value, a date, a rate), propose the change and apply it the usual way - closing this query changes nothing by itself.</p>
+          <p className="mb-2 rounded-lg bg-panel2 px-3 py-2 text-xs text-gray-400">If the answer means a record should change (a contract value, a job or quote number), propose the change below - someone else approves it on Changes. Closing this query changes nothing by itself.</p>
+        )}
+        {/* Controlled changes (LCI phase 4): from an answered query, or a "still needed" hire request. */}
+        {((isQuery && r.answer) || r.kind === "HIRE_EXTEND") && (
+          <button onClick={() => setProposing(true)} className="mb-3 rounded-lg border border-edge px-3 py-2 text-sm text-gray-200 hover:bg-panel2">
+            {isQuery ? "Propose a change from this answer" : "Propose new off-hire date"}
+          </button>
+        )}
+        {changeFlash && <p className="mb-3 text-sm text-emerald-300">{changeFlash}</p>}
+        {proposing && (
+          <ProposeChange kinds={isQuery ? ["PROJECT_CONTRACT_VALUE", "PROJECT_JOB_NO", "PROJECT_QUOTE_NO"] : ["HIRE_OFF_HIRE_DATE"]} fromRequestId={r.id}
+            sourceNote={`${requestNo(r.number)} - ${r.summary}`} onClose={() => setProposing(false)} onDone={(m) => { setChangeFlash(m); setProposing(false); }} />
         )}
         {r.officeNote && <p className="mb-2 text-sm text-brand-200">Your note: {r.officeNote}</p>}
         {r.outcome && <p className={`mb-2 text-sm ${r.status === "CANT_DO" ? "text-amber-300" : "text-emerald-300"}`}>{r.status === "CANT_DO" ? "Can't do: " : "Outcome: "}{r.outcome}</p>}
