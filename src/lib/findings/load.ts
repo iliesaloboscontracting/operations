@@ -30,7 +30,10 @@ export async function loadSignals() {
     .filter((r) => r.exceptions.length > 0);
   // Won tenders from Estimating (G5); null when it didn't answer - then that check is skipped this run.
   // The current Xero invoice upload (G2) for the "not tied to a job" finding.
-  const [won, xero] = await Promise.all([loadWonMatches(), loadXeroHealth(d.today)]);
+  const [won, xero, xeroConn] = await Promise.all([
+    loadWonMatches(), loadXeroHealth(d.today),
+    prisma.xeroConnection.findFirst({ orderBy: { updatedAt: "desc" }, select: { status: true, tenantName: true, lastError: true, lastSyncAt: true } }),
+  ]);
   const wonTenders = won ? won.rows : null;
 
   return {
@@ -52,6 +55,7 @@ export async function loadSignals() {
       plant: { ...d.plant, machines: d.plant.items.length },
       wonTenders,
       xeroUnmatched: xero.invoices,
+      xeroConnection: xeroConn ? { ...xeroConn, lastSyncAt: xeroConn.lastSyncAt?.toISOString() ?? null } : null,
     }),
   };
 }

@@ -1147,3 +1147,25 @@ model XeroJobMatch {
   byUserId  String
   at        DateTime @default(now())
 }
+
+// The live read-only Xero connection (G3, approved by the lead 25 Oct 2026).
+// One row: Lobos connects one organisation. The refresh token is encrypted
+// (AES-256-GCM, key XERO_TOKEN_KEY in .env), never sent to a browser, never
+// logged; the access token is never stored (it lives in memory for one sync).
+// Syncs are recorded as XeroImport rows with source API.
+model XeroConnection {
+  id                String    @id @default(cuid())
+  tenantId          String    @unique // Xero organisation id
+  tenantName        String
+  scopes            String    // as granted, space-separated
+  refreshTokenEnc   String    // base64(iv 12 | tag 16 | ciphertext); "" once disconnected
+  keyVersion        Int       @default(1) // which XERO_TOKEN_KEY encrypted it (for a key change)
+  status            String    // ACTIVE | NEEDS_REAUTH | DISCONNECTED
+  connectedBy       String
+  connectedByUserId String
+  connectedAt       DateTime  @default(now())
+  lastRefreshAt     DateTime?
+  lastSyncAt        DateTime?
+  lastError         String?   // plain text, never a token
+  updatedAt         DateTime  @updatedAt
+}

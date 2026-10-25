@@ -24,7 +24,7 @@ export type SignalKind =
   | "HIRE_UNINVOICED" | "HIRE_IDLE" | "HIRE_NO_FINISH" | "HIRE_OVERDUE"
   | DateExceptionCode
   | "START_NOT_READY" | "NO_SUPERVISOR" | "DAYS_NOT_CLOSED" | "CREW_SHORT" | "DATA_PLANT_NOT_BOOKED"
-  | "TENDER_WON_NO_PROJECT" | "XERO_UNMATCHED";
+  | "TENDER_WON_NO_PROJECT" | "XERO_UNMATCHED" | "XERO_REAUTH";
 
 // Who may see it (design §1): OPERATIONAL = Viewer+, never a dollar figure;
 // COMMERCIAL = Manager+ (the money Tracking already shows Managers);
@@ -319,6 +319,22 @@ export function xeroUnmatchedSignal(x: XeroUnmatchedInput | null): Signal[] {
   }];
 }
 
+// The live Xero connection (G3) needs Ilies to connect it again (Xero ended
+// it, or it went unused too long). CRITICAL - his phone - because directors'
+// revenue and cash figures stop updating until he does. Directors only.
+export type XeroConnectionInput = { status: string; tenantName: string; lastError: string | null; lastSyncAt: string | null };
+
+export function xeroReauthSignal(c: XeroConnectionInput | null): Signal[] {
+  if (!c || c.status !== "NEEDS_REAUTH") return [];
+  return [{
+    kind: "XERO_REAUTH", subject: { type: "COMPANY", id: "xero-connection", name: "Xero connection" }, projectId: null,
+    dedupeKey: dedupeKeyOf("XERO_REAUTH", "COMPANY", "xero-connection"), severity: "CRITICAL", audience: "DIRECTOR",
+    title: `Xero needs connecting again (${c.tenantName}) - revenue and cash figures have stopped updating`,
+    provisional: false, confidence: "HIGH", evidence: [], href: "/directors/accounts",
+    values: { tenant: c.tenantName, lastSyncAt: c.lastSyncAt, reason: c.lastError },
+  }];
+}
+
 // ---------- all of them ----------
 
 export type SignalInputs = {
@@ -337,6 +353,7 @@ export type SignalInputs = {
   // null = Estimating didn't answer: the check wasn't run (see NOT_CHECKED), not "nothing found"
   wonTenders?: WonTenderInput[] | null;
   xeroUnmatched?: XeroUnmatchedInput | null; // G2: the current Xero invoice upload
+  xeroConnection?: XeroConnectionInput | null; // G3: the live connection, if one was ever made
 };
 
 // Which signal kinds weren't looked at this run, so the engine leaves their
@@ -359,6 +376,7 @@ export function buildSignals(i: SignalInputs): Signal[] {
     ...plantSignal(i.plant),
     ...(i.wonTenders ? wonNoProjectSignals(i.wonTenders, i.today) : []),
     ...xeroUnmatchedSignal(i.xeroUnmatched ?? null),
+    ...xeroReauthSignal(i.xeroConnection ?? null),
   ].sort((a, b) => RANK[a.severity] - RANK[b.severity] || a.dedupeKey.localeCompare(b.dedupeKey));
 }
 

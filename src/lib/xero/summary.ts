@@ -13,7 +13,7 @@ export type SummaryInvoice = {
   matchMethod: string | null; lines: { amountExGst: number; projectId: string | null; matchMethod: string | null }[];
 };
 export type SummaryPnl = { month: string; section: string; account: string; amount: number };
-export type XeroImportInfo = { asAt: string | null; uploadedBy: string | null; createdAt: string };
+export type XeroImportInfo = { asAt: string | null; uploadedBy: string | null; createdAt: string; source?: string };
 
 export function fyStart(today: string) {
   const y = Number(today.slice(0, 4)), m = Number(today.slice(5, 7));
@@ -80,9 +80,23 @@ const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
 // asAt on a tile is a moment: the export date at midnight Sydney-ish (UTC is fine for display of a day).
 const asAtIso = (i: XeroImportInfo) => (i.asAt ? `${i.asAt}T00:00:00.000Z` : i.createdAt);
 
-export function revenueTile(inv: { info: XeroImportInfo; s: ReturnType<typeof revenueSummary> } | null, pnl: { info: XeroImportInfo; s: ReturnType<typeof pnlSummary> } | null): HealthTile | undefined {
+// Where the figures came from (G3): accounts' upload (manual, LOW) or the live
+// read-only connection (read at a time; Stale and LOW after 36 hours without
+// a fresh read, so old data never passes for current).
+export const STALE_AFTER_HOURS = 36;
+const when = (iso: string) => new Date(iso).toLocaleString("en-AU", { timeZone: "Australia/Sydney", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
+function provenance(info: XeroImportInfo, now: Date) {
+  if (info.source !== "API") {
+    return { live: false, stale: false, source: `Xero export uploaded by ${info.uploadedBy ?? "accounts"}`, asAt: asAtIso(info), asAtLabel: dayName(info.asAt), word: "Manual upload" };
+  }
+  const stale = now.getTime() - new Date(info.createdAt).getTime() > STALE_AFTER_HOURS * 3_600_000;
+  return { live: true, stale, source: "Xero, read-only connection", asAt: info.createdAt, asAtLabel: when(info.createdAt), word: stale ? "Stale" : "Live from Xero" };
+}
+
+export function revenueTile(inv: { info: XeroImportInfo; s: ReturnType<typeof revenueSummary> } | null, pnl: { info: XeroImportInfo; s: ReturnType<typeof pnlSummary> } | null, now = new Date()): HealthTile | undefined {
   if (!inv && !pnl) return undefined;
   const info = inv?.info ?? pnl!.info;
+  const p = provenance(info, now);
   const lines: string[] = [];
   if (inv) {
     lines.push(`Invoiced since ${dayName(inv.s.from)} (ex GST), ${plural(inv.s.invoiceCount, "invoice")}`);
@@ -91,29 +105,37 @@ export function revenueTile(inv: { info: XeroImportInfo; s: ReturnType<typeof re
   if (pnl?.s.latest) {
     lines.push(pnl.s.netProfit ? `P&L ${monthName(pnl.s.latest)}: ${pnl.s.netProfit.account.toLowerCase()} ${money(pnl.s.netProfit.amount)}, as Xero reports it` : `P&L uploaded to ${monthName(pnl.s.latest)}`);
   } else lines.push("No Profit and Loss uploaded yet");
+  const share = inv?.s.matchedShare ?? null;
   return {
-    id: "revenue", title: "Revenue & P&L", status: inv && inv.s.reviewCount ? "WATCH" : "INFO",
-    statusWord: inv && inv.s.reviewCount ? `${inv.s.reviewCount} not tied to a job` : "Manual upload",
+    id: "revenue", title: "Revenue & P&L", status: p.stale || (inv && inv.s.reviewCount) ? "WATCH" : "INFO",
+    statusWord: p.stale ? `Stale - last read ${p.asAtLabel}` : inv && inv.s.reviewCount ? `${inv.s.reviewCount} not tied to a job` : p.word,
     headline: inv ? money(inv.s.invoiced) : pnl?.s.totalIncome ? money(pnl.s.totalIncome.amount) : null,
-    lines, source: `Xero export uploaded by ${info.uploadedBy ?? "accounts"}`, asAt: asAtIso(info), asAtLabel: dayName(info.asAt),
-    confidence: "LOW", confidenceWhy: `A manual export as at ${dayName(info.asAt)} - only as current as the last upload`,
-    missing: "The live Xero connection", kpi: "F9", href: "/directors/accounts",
+    lines, source: p.source, asAt: p.asAt, asAtLabel: p.asAtLabel,
+    confidence: !p.live || p.stale ? "LOW" : share != null && share >= 0.9 ? "HIGH" : "MEDIUM",
+    confidenceWhy: !p.live
+      ? `A manual export as at ${dayName(info.asAt)} - only as current as the last upload`
+      : p.stale ? `Xero hasn't been read for over ${STALE_AFTER_HOURS} hours - check the connection on Accounts data`
+        : `Read from Xero ${p.asAtLabel}; ${share != null ? `${Math.round(share * 100)}% of it tied to a job` : "nothing to tie to jobs yet"}`,
+    missing: !p.live ? "The live Xero connection" : p.stale ? "A fresh read from Xero" : null, kpi: "F9", href: "/directors/accounts",
   };
 }
 
-export function cashTile(inv: { info: XeroImportInfo; s: ReturnType<typeof revenueSummary> } | null): HealthTile | undefined {
+export function cashTile(inv: { info: XeroImportInfo; s: ReturnType<typeof revenueSummary> } | null, now = new Date()): HealthTile | undefined {
   if (!inv) return undefined;
   const s = inv.s;
+  const p = provenance(inv.info, now);
   return {
-    id: "cash", title: "Cash & receivables", status: s.overdueCount ? "WATCH" : "INFO",
-    statusWord: s.overdueCount ? `${plural(s.overdueCount, "invoice")} overdue` : "Manual upload",
+    id: "cash", title: "Cash & receivables", status: p.stale || s.overdueCount ? "WATCH" : "INFO",
+    statusWord: p.stale ? `Stale - last read ${p.asAtLabel}` : s.overdueCount ? `${plural(s.overdueCount, "invoice")} overdue` : p.word,
     headline: money(s.owed),
     lines: [
       "Owed to us (inc GST)",
       s.overdueCount ? `Overdue: ${money(s.overdue)} on ${plural(s.overdueCount, "invoice")}` : "Nothing overdue",
     ],
-    source: `Xero export uploaded by ${inv.info.uploadedBy ?? "accounts"}`, asAt: asAtIso(inv.info), asAtLabel: dayName(inv.info.asAt),
-    confidence: "LOW", confidenceWhy: `A manual export as at ${dayName(inv.info.asAt)} - payments since then aren't in`,
-    missing: "The live Xero connection", kpi: "F10", href: "/directors/accounts",
+    source: p.source, asAt: p.asAt, asAtLabel: p.asAtLabel,
+    confidence: !p.live || p.stale ? "LOW" : "HIGH",
+    confidenceWhy: !p.live ? `A manual export as at ${dayName(inv.info.asAt)} - payments since then aren't in`
+      : p.stale ? `Xero hasn't been read for over ${STALE_AFTER_HOURS} hours` : `Amounts due as Xero had them ${p.asAtLabel}`,
+    missing: !p.live ? "The live Xero connection" : p.stale ? "A fresh read from Xero" : null, kpi: "F10", href: "/directors/accounts",
   };
 }
