@@ -45,7 +45,7 @@ test("Attention (operations) findings: the owner, Admins and Managers act; a dir
   }
   assert.equal(canSeeThisFinding(who("DIRECTOR"), ops), false);
   assert.equal(canSeeThisFinding(who("MANAGER"), opsMoney), true);
-  assert.equal(canSeeThisFinding(who("VIEWER"), ops), true); // Viewers can read an operational finding by id; /attention itself is Manager+
+  assert.equal(canSeeThisFinding(who("VIEWER"), ops), true); // Viewers can read an operational finding by id
   assert.equal(canSeeThisFinding(who("VIEWER"), opsMoney), false);
 });
 

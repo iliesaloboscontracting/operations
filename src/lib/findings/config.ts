@@ -40,8 +40,10 @@ export function verifyAfterDays(ruleCode: string): number {
 
 // Which screen each finding belongs on (Task J, 25 Oct 2026; Ilies: the
 // directors' box shouldn't show operational outstanding matters). Director-
-// level kinds go on the Directors overview; every other kind goes on the
-// Operations "Attention" page (/attention, Manager+). Move a kind between
+// level kinds go on the Directors overview; every other kind is operational -
+// stored, but not listed anywhere (the Operations "Attention" page was removed
+// 25 Oct 2026: Ilies, "all other tabs flag and raise the issues") and never
+// pushed as an alert. Move a kind between
 // screens by adding it to or taking it off this list. Anything with the
 // DIRECTOR audience always stays on the Directors screen. Display and
 // permission routing only - the engine and the findings don't change.

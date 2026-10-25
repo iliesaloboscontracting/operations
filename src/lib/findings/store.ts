@@ -5,7 +5,7 @@
 // the instrumentation tick, at most every 30 minutes, never two at once.
 import { prisma } from "../prisma";
 import { pushToUsers } from "../push";
-import { FINDINGS_CONFIG } from "./config";
+import { FINDINGS_CONFIG, screenFor } from "./config";
 import { latestByKey, planRun, summarise, type FindingState, type Op } from "./engine";
 import { loadSignals } from "./load";
 
@@ -59,9 +59,11 @@ async function apply(ops: Op[], now: Date) {
 }
 
 // CRITICAL on open / escalate / reopen -> the configured logins' phones (if
-// they've turned alerts on). Never every Admin.
+// they've turned alerts on). Never every Admin. Directors-screen kinds only:
+// operational matters are flagged on their own tabs (Ilies, 25 Oct 2026 -
+// the Operations "Attention" page was removed), so they never push.
 async function alert(ops: Op[]) {
-  const due = ops.filter((o) => o.alert);
+  const due = ops.filter((o) => o.alert && screenFor({ ruleCode: String(o.data.ruleCode ?? o.key.split(":")[0]), audience: String(o.data.audience ?? "") }) === "DIRECTORS");
   if (!due.length) return;
   const users = await prisma.user.findMany({ where: { email: { in: FINDINGS_CONFIG.criticalAlertRecipients }, active: true }, select: { id: true } });
   if (!users.length) return;

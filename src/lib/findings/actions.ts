@@ -35,8 +35,10 @@ export function canActOnFindings(u: Pick<Actor, "email" | "role" | "directorAcce
 }
 
 // Per finding (Task J): the screen it belongs on decides who sees and acts.
-// Operations-screen findings (/attention): the owner, Admins and Managers act -
-// Ilies runs operations - and a directors-only login never sees them.
+// Operations-screen findings: the owner, Admins and Managers act - Ilies runs
+// operations - and a directors-only login never sees them. (The /attention page
+// that listed them was removed 25 Oct 2026 - Ilies: the other tabs already flag
+// these; they're still stored and reachable by id.)
 // Directors-screen findings keep the rule above (owner + director access).
 type FindingRef = { ruleCode: string; audience: string };
 export function canSeeThisFinding(u: Pick<Actor, "email" | "role" | "directorAccess">, f: FindingRef): boolean {
