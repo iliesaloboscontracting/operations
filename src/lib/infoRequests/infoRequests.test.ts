@@ -24,11 +24,11 @@ test("a question needs a title and the question; FYI or QUESTION only; the due d
   assert.equal((parseInfoItem({ type: "FYI", title: "Heads up", question: "Xero goes live Monday" }, today) as { infoType: string }).infoType, "FYI");
 });
 
-test("the lead's draft file (docs/info-requests/batch-01.json) reads: 9 items, each with a 'to'", () => {
+test("the lead's draft file (docs/info-requests/batch-01.json) reads: every item has a 'to'", () => {
   const p = path.join(process.cwd(), "docs", "info-requests", "batch-01.json");
   const r = parseDraftFile(JSON.parse(fs.readFileSync(p, "utf8")), today);
   if ("error" in r) assert.fail(r.error);
-  assert.equal(r.items.length, 9);
+  assert.ok(r.items.length > 0); // the lead trims the batch as answers come in
   assert.match(r.batch, /^01/);
   for (const it of r.items) assert.ok(!("error" in it), JSON.stringify(it));
   assert.ok("error" in parseDraftFile({ batch: "x", items: [] }, today));

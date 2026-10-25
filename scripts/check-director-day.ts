@@ -195,7 +195,8 @@ async function main() {
   // The walls
   ok("wall: accounts can't open the Directors overview", (await call(accounts, "GET", "/api/directors/overview")).status === 403);
   ok("wall: a directors-only login can't open Operations (tracking)", (await call(director, "GET", "/api/tracking")).status === 403);
-  ok("wall: accounts can't raise a query", (await call(accounts, "POST", `/api/findings/${f.id}/queries`, { userId: ids.closer, question: "Daycheck wall check" })).status === 403);
+  // 404 (it can't even see the finding since Task J) or 403 - refused either way.
+  { const w = await call(accounts, "POST", `/api/findings/${f.id}/queries`, { userId: ids.closer, question: "Daycheck wall check" }); ok("wall: accounts can't raise a query", w.status === 403 || w.status === 404, `${w.status}`); }
 
   // Nothing operational or financial changed
   ok("no project, job, allocation, resource, ledger or invoice record changed", (await fingerprint()) === before);
