@@ -37,3 +37,22 @@ export const FINDINGS_CONFIG = {
 export function verifyAfterDays(ruleCode: string): number {
   return FINDINGS_CONFIG.verifyAfterDays.byPrefix.find((p) => ruleCode.startsWith(p.prefix))?.days ?? FINDINGS_CONFIG.verifyAfterDays.default;
 }
+
+// Which screen each finding belongs on (Task J, 25 Oct 2026; Ilies: the
+// directors' box shouldn't show operational outstanding matters). Director-
+// level kinds go on the Directors overview; every other kind goes on the
+// Operations "Attention" page (/attention, Manager+). Move a kind between
+// screens by adding it to or taking it off this list. Anything with the
+// DIRECTOR audience always stays on the Directors screen. Display and
+// permission routing only - the engine and the findings don't change.
+export const DIRECTOR_KINDS: ReadonlySet<string> = new Set([
+  "COST_VS_CONTRACT",
+  "DATA_NO_CONTRACT_VALUE",
+  "TENDER_WON_NO_PROJECT",
+  "XERO_UNMATCHED",
+  "XERO_REAUTH",
+]);
+
+export type FindingScreen = "DIRECTORS" | "OPERATIONS";
+export const screenFor = (f: { ruleCode: string; audience: string }): FindingScreen =>
+  DIRECTOR_KINDS.has(f.ruleCode) || f.audience === "DIRECTOR" ? "DIRECTORS" : "OPERATIONS";

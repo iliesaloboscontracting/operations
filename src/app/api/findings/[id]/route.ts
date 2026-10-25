@@ -3,7 +3,8 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { todaySydney } from "@/lib/today";
-import { applyFindingAction, canActOnFindings, canSeeFinding } from "@/lib/findings/actions";
+import { applyFindingAction, canActOnThisFinding, canSeeThisFinding } from "@/lib/findings/actions";
+import { screenFor } from "@/lib/findings/config";
 import { toFindingDTO } from "@/lib/findings/view";
 import { requestNo, STATUS_FOR_OFFICE } from "@/lib/requestTypes";
 
@@ -25,6 +26,7 @@ type Loaded = NonNullable<Awaited<ReturnType<typeof load>>>;
 
 const detail = (f: Loaded, canAct: boolean) => ({
   canAct,
+  screen: screenFor(f), // Task J: Directors or Operations (Attention)
   finding: {
     ...toFindingDTO(f),
     dedupeKey: f.dedupeKey, confidence: f.confidence, seenCount: f.seenCount, ownerUserId: f.ownerUserId, dueDate: f.dueDate,
@@ -47,23 +49,24 @@ export const GET = withErrorHandling(async (_req: NextRequest, { params: paramsP
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
   const f = await load(params.id);
-  if (!f || !canSeeFinding(user, f.audience)) return NextResponse.json({ error: "Not found." }, { status: 404 });
-  return NextResponse.json(detail(f, canActOnFindings(user)));
+  // Task J: the screen the finding belongs on decides who sees and acts on it.
+  if (!f || !canSeeThisFinding(user, f)) return NextResponse.json({ error: "Not found." }, { status: 404 });
+  return NextResponse.json(detail(f, canActOnThisFinding(user, f)));
 });
 
 export const POST = withErrorHandling(async (req: NextRequest, { params: paramsP }: { params: Promise<{ id: string }> }) => {
   const params = await paramsP;
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
-  if (!canActOnFindings(user)) return NextResponse.json({ error: "Only Iliesa or a director acts on findings." }, { status: 403 });
   const f = await load(params.id);
-  if (!f || !canSeeFinding(user, f.audience)) return NextResponse.json({ error: "Not found." }, { status: 404 });
+  if (!f || !canSeeThisFinding(user, f)) return NextResponse.json({ error: "Not found." }, { status: 404 });
+  if (!canActOnThisFinding(user, f)) return NextResponse.json({ error: screenFor(f) === "OPERATIONS" ? "Only Iliesa, Admins and Managers act on these." : "Only Iliesa or a director acts on findings." }, { status: 403 });
   const body = await req.json().catch(() => ({}));
   const candidate = body.action === "ASSIGN" && typeof body.ownerUserId === "string"
     ? await prisma.user.findFirst({ where: { id: body.ownerUserId, active: true }, select: { id: true, name: true, email: true, role: true, directorAccess: true } })
     : null;
-  // An owner is someone who can act on findings.
-  const owner = candidate && canActOnFindings(candidate) ? { id: candidate.id, name: candidate.name } : null;
+  // An owner is someone who can act on this finding.
+  const owner = candidate && canActOnThisFinding(candidate, f) ? { id: candidate.id, name: candidate.name } : null;
   const out = applyFindingAction(f, String(body.action ?? ""), body, { actor: user, now: new Date(), today: todaySydney(), owner });
   if ("error" in out) return NextResponse.json({ error: out.error }, { status: 400 });
   try {
