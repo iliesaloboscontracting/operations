@@ -1031,3 +1031,26 @@ model FindingEvent {
   @@index([findingId])
   @@index([at])
 }
+
+// Budget approvals from the Directors screen (Task H, 25 Oct 2026). Estimating
+// keeps the budget and its decided status; this is Operations' own record of
+// every decision attempt - which login made it and what Estimating said,
+// refusals included. Append-only: never updated or deleted. No money.
+model BudgetDecision {
+  id          String   @id @default(cuid())
+  estimateId  String
+  revision    Int
+  quoteNo     String?
+  decision    String // APPROVED | REJECTED
+  reason      String?
+  by          String // the director's name as sent to Estimating
+  byUserId    String // the Operations login
+  outcome     String // RECORDED | REFUSED (Estimating or the rules said no) | FAILED (unreachable / key not set or wrong)
+  httpStatus  Int?
+  message     String?
+  contentHash String? // budget.v1 content_hash of the revision decided
+  at          DateTime @default(now())
+
+  @@index([estimateId, revision])
+  @@index([at])
+}

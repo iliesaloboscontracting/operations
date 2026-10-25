@@ -31,7 +31,7 @@ const sydDay = (ts: string) => new Date(ts).toLocaleDateString("en-AU", { timeZo
 const SERIES_COLOURS = ["#3987e5", "#e0a33c", "#4fb38a", "#a07ad8", "#7d848f"];
 
 export default function DirectorsPage() {
-  const { isDirector, loading: authLoading } = useAuth();
+  const { isDirector, directorOnly, loading: authLoading } = useAuth();
   const [o, setO] = useState<DirectorOverviewDTO | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showAll, setShowAll] = useState(false);
@@ -61,7 +61,12 @@ export default function DirectorsPage() {
     <PageShell
       title="Directors"
       subtitle={asAt ? `As at ${asAt} · live from Operations · ex GST` : undefined}
-      actions={<Link href="/directors/kpis" className="shrink-0 rounded-md border border-edge px-3 py-1.5 text-sm text-gray-300 hover:bg-panel2">How the numbers work</Link>}
+      actions={
+        <div className="flex shrink-0 gap-2">
+          {!directorOnly && <Link href="/directors/budgets" className="rounded-md border border-edge px-3 py-1.5 text-sm text-gray-300 hover:bg-panel2">Budgets to approve</Link>}
+          <Link href="/directors/kpis" className="rounded-md border border-edge px-3 py-1.5 text-sm text-gray-300 hover:bg-panel2">How the numbers work</Link>
+        </div>
+      }
     >
       {error ? (
         <p className="py-10 text-center text-sm text-red-400">{error}</p>
