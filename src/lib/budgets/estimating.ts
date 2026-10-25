@@ -58,6 +58,7 @@ export async function decideBudget(user: AuthUser, id: string, rev: number, d: D
       data: {
         estimateId: id, revision: rev, quoteNo: budget.quoteNo || null, decision: d.decision, reason: d.reason || null,
         by: user.name, byUserId: user.id, outcome, httpStatus, message, contentHash: budget.content_hash || null,
+        secretConfigured: approvalSecret() !== null,
       },
     });
 
