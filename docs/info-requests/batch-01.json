@@ -12,8 +12,8 @@
     {
       "to": "Nick Giannopoulos",
       "type": "QUESTION",
-      "title": "Contract values to confirm (8 jobs)",
-      "question": "From the documents we found: Swissotel $169,000 lump sum (Chroma contract SCS00227, 12 Mar 26). Football ID - Gregory Hills $7,150 (DNP PO-0465, matches quote 26_169 R3). Vaucluse - Old South Head Rd $435,930 incl. variations (progress claim 16; main works $195,780 on the claim vs $195,880 on quote 24_414 R6). Thales Zone 4 $96,064 (subcontract 'for signing' copy - was it signed at this price? quote 26_273 Rev C was $116,850). Shellharbour WH1 $74,900.01 (quote 26_120 Rev 1) plus variation V02 $23,738.10 - your 9 Oct forecast says $108,268.11 in total. Rivkin House $55,900 (quote 26_419 R2; options $14,400 and $6,768) - accepted, and were any options taken? Bronte - do-and-charge at $75/hr, no fixed value? 2 Roslyn St - $25,000 schedule of rates, now billed as monthly day labour - treat as do-and-charge?",
+      "title": "Contract values to confirm (6 jobs)",
+      "question": "From the documents we found (Swissotel and Football ID are already waiting for you in 'Changes to approve'): Vaucluse - Old South Head Rd $435,930 incl. variations (progress claim 16; main works $195,780 on the claim vs $195,880 on quote 24_414 R6). Thales Zone 4 $96,064 (subcontract 'for signing' copy - was it signed at this price? quote 26_273 Rev C was $116,850). Shellharbour WH1 $74,900.01 (quote 26_120 Rev 1) plus variation V02 $23,738.10 - your 9 Oct forecast says $108,268.11 in total. Rivkin House $55,900 (quote 26_419 R2; options $14,400 and $6,768) - accepted, and were any options taken? Bronte - do-and-charge at $75/hr, no fixed value? 2 Roslyn St - $25,000 schedule of rates, now billed as monthly day labour - treat as do-and-charge?",
       "need": "For each: the value to use (ex GST), or 'do-and-charge'.",
       "why": "Without a contract value the Directors screen shows these jobs as 'can't assess'."
     },
