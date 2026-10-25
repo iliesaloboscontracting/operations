@@ -242,6 +242,20 @@ business, without becoming unnecessarily complicated.
   (`XeroImport` source API; the upload path is `/api/xero/imports`).
   Directors-only figures; bills are a cross-check only, never job cost.
   Never add a write scope or a non-Xero host without Ilies's approval.
+- **Daily site log** (LCI phase 1, 25 Oct 2026; Ilies: "yes to all, build";
+  `src/lib/dailyLog/`): pilot supervisors (`DAILY_LOG_PILOT_LINKS` = their
+  SiteLink ids, comma-separated; empty = off) log each job on their link -
+  crew and hours from sign-ins split across activity codes v0.2 (pinned in
+  `src/lib/activityCodes.ts`, checked against Estimating's
+  `api/activity-codes`), delays, tip dockets (asbestos needs a photo), weekly
+  % complete. Append-only by revision; never touches sign-ins, JobActual,
+  allocations or costs; no money on the link (`assertNoMoney`, narrow DTOs).
+  Day Review shows it from `/api/day-review/site-logs` ("No site log" after
+  19:00 - information only, never blocks closing). 19:00 reminder once per
+  job per day (ShiftReminder DAILY_LOG), kill switch `DAILY_LOG_REMINDER=off`.
+  Hours vs the approved budget.v1 per code on Day Review and the job pages;
+  "Act" is the Directors finding LABOUR_HOURS_VS_BUDGET (hours only).
+  Pilot report: `scripts/daily-log-pilot-report.ts` (read-only).
 - **Information gaps / queries** (25 Oct 2026): questions to Nick, Yoel or
   accounts are QUERY requests answered in-app (Directors → My queries;
   accounts' Invoices → Queries), never on a link when they carry money.
