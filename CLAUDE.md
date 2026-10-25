@@ -288,6 +288,16 @@ business, without becoming unnecessarily complicated.
   (retire / replace, history in FindingEvent). Directors read the ones on
   their screen; an open finding with the same rule and subject shows
   "Last time: …".
+- **Receipts** (26 Oct 2026, design `docs/receipts/RECEIPTS-DESIGN.md`;
+  `src/lib/receipts/`, `/receipts` Manager+): tip dockets and fuel receipts
+  photographed from a supervisor's link or a DRIVER link (receipts only -
+  `resolveReceiptLink`; `resolveLink` never accepts DRIVER), and an odometer
+  photo after a truck-QR sign-in. Photos in `RECEIPT_FILE_DIR`
+  (`/srv/operations/receipt-files`, nightly backup + off-site). No price ever
+  reaches a link (`linkSafe`). R1 (capture) live 26 Oct; R2 Claude reading,
+  R3 tip costs (tip rates, estimate replaced by the tip invoice), R4 truck /
+  job indicators follow. Fuel is never a job cost (truck day rate includes
+  it - Ilies). The daily log's docket step is replaced by "N dockets sent".
 - **Money-guard principle:** crew-facing/operational views (day sheets, Day
   Review, the Yard) never carry dollar figures — enforced at both the
   TypeScript type level (narrow DTOs with no money fields) and via a runtime
