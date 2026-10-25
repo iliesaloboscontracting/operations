@@ -10,7 +10,7 @@ import { readInvoiceFile, saveInvoiceFile } from "../invoiceFiles";
 import { readSheetGrids } from "../invoiceSheet";
 import { todaySydney } from "../today";
 import type { AuthUser } from "../auth";
-import { readInvoiceGrid, readPnlGrid, type ReadInvoice } from "./readers";
+import { readInvoiceGrid, readPnlGrid, type ReadInvoice, type ReadPnlLine } from "./readers";
 import { matchInvoice, matchKey, suggestionOf, type MatchContext } from "./match";
 import { cashTile, needsReview, pnlSummary, revenueSummary, revenueTile } from "./summary";
 
@@ -55,10 +55,7 @@ export async function importXeroFile(
       for (const g of grids) {
         const r = readPnlGrid(g.grid);
         if ("error" in r) { firstError = r.error; continue; }
-        await prisma.$transaction([
-          prisma.xeroPnlLine.createMany({ data: r.lines.map((l) => ({ importId: imp.id, ...l })) }),
-          prisma.xeroImport.update({ where: { id: imp.id }, data: { status: "DONE", rows: r.lines.length, periodFrom: r.months[0], periodTo: r.months[r.months.length - 1], finishedAt: new Date() } }),
-        ]);
+        await writePnl(imp.id, r.lines, r.months);
         return { id: imp.id, status: "DONE", rows: r.lines.length, error: null };
       }
       return fail(firstError);
@@ -72,27 +69,40 @@ export async function importXeroFile(
       break;
     }
     if (!invoices) return fail(firstError);
-    const ctx = await matchContext();
-    const dates = invoices.map((i) => i.date).sort();
-    await prisma.$transaction(async (tx) => {
-      for (const i of invoices!) {
-        const m = matchInvoice(i, ctx);
-        await tx.xeroInvoice.create({
-          data: {
-            importId: imp.id, type: i.type, number: i.number, reference: i.reference, contact: i.contact, date: i.date, dueDate: i.dueDate,
-            status: i.status, totalExGst: i.totalExGst, gst: i.gst, amountPaid: i.amountPaid, amountDue: i.amountDue,
-            projectId: m.projectId, matchMethod: m.method, matchNote: m.note,
-            lines: { create: i.lines.map((l, n) => ({ ...l, projectId: m.lines[n].projectId, matchMethod: m.lines[n].method })) },
-          },
-        });
-      }
-      await tx.xeroImport.update({ where: { id: imp.id }, data: { status: "DONE", rows: invoices!.length, periodFrom: dates[0], periodTo: dates[dates.length - 1], finishedAt: new Date() } });
-    }, { timeout: 120_000 });
+    await writeInvoices(imp.id, invoices);
     return { id: imp.id, status: "DONE", rows: invoices.length, error: null };
   } catch (e) {
-    console.error("xero import", e);
+    console.error("xero import", e instanceof Error ? e.message : "unknown error");
     return fail("The file couldn't be read - is it the Xero export, saved as .csv or .xlsx?");
   }
+}
+
+// Writes read invoices (an upload, or a live sync with Xero ids) into an
+// import in one transaction, matched to jobs, and marks it DONE.
+export async function writeInvoices(importId: string, invoices: (ReadInvoice & { xeroId?: string | null })[]) {
+  const ctx = await matchContext();
+  const dates = invoices.map((i) => i.date).sort();
+  await prisma.$transaction(async (tx) => {
+    for (const i of invoices) {
+      const m = matchInvoice(i, ctx);
+      await tx.xeroInvoice.create({
+        data: {
+          importId, xeroId: i.xeroId ?? null, type: i.type, number: i.number, reference: i.reference, contact: i.contact, date: i.date, dueDate: i.dueDate,
+          status: i.status, totalExGst: i.totalExGst, gst: i.gst, amountPaid: i.amountPaid, amountDue: i.amountDue,
+          projectId: m.projectId, matchMethod: m.method, matchNote: m.note,
+          lines: { create: i.lines.map((l, n) => ({ ...l, projectId: m.lines[n].projectId, matchMethod: m.lines[n].method })) },
+        },
+      });
+    }
+    await tx.xeroImport.update({ where: { id: importId }, data: { status: "DONE", rows: invoices.length, periodFrom: dates[0] ?? null, periodTo: dates[dates.length - 1] ?? null, finishedAt: new Date() } });
+  }, { timeout: 120_000 });
+}
+
+export async function writePnl(importId: string, lines: ReadPnlLine[], months: string[]) {
+  await prisma.$transaction([
+    prisma.xeroPnlLine.createMany({ data: lines.map((l) => ({ importId, ...l })) }),
+    prisma.xeroImport.update({ where: { id: importId }, data: { status: "DONE", rows: lines.length, periodFrom: months[0], periodTo: months[months.length - 1], finishedAt: new Date() } }),
+  ]);
 }
 
 export function currentImport(kind: XeroKind) {
@@ -155,7 +165,7 @@ export async function loadXeroHealth(today: string) {
       })
     : [];
   const pnlRows = pnl ? await prisma.xeroPnlLine.findMany({ where: { importId: pnl.id }, select: { month: true, section: true, account: true, amount: true } }) : [];
-  const info = (i: { asAt: string | null; uploadedBy: string | null; createdAt: Date }) => ({ asAt: i.asAt, uploadedBy: i.uploadedBy, createdAt: i.createdAt.toISOString() });
+  const info = (i: { asAt: string | null; uploadedBy: string | null; createdAt: Date; source: string }) => ({ asAt: i.asAt, uploadedBy: i.uploadedBy, createdAt: i.createdAt.toISOString(), source: i.source });
   const invS = inv ? { info: info(inv), s: revenueSummary(invRows, today) } : null;
   const pnlS = pnl ? { info: info(pnl), s: pnlSummary(pnlRows) } : null;
   return { revenue: revenueTile(invS, pnlS), cash: cashTile(invS), invoices: invS ? { asAt: inv!.asAt, ...invS.s } : null };

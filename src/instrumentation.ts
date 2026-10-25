@@ -11,7 +11,10 @@ export async function register() {
     const { remindBeforeFinish } = await import("./lib/signOutReminders");
     const { recordWeeklySnapshot } = await import("./lib/insights/snapshot");
     const { runFindings } = await import("./lib/findings/store");
+    const { nightlyXeroSync } = await import("./lib/xero/live/service");
     setInterval(() => {
+      // Xero (read-only, G3): once a day from 2am Sydney, after the backup. Does nothing until set up and connected.
+      nightlyXeroSync().catch((e) => console.error("xero nightly", e instanceof Error ? e.message : "failed"));
       // Director Insights: this week's KPI snapshot, if not taken yet (looks at most hourly).
       recordWeeklySnapshot().catch((e) => console.error("director snapshot", e));
       // Findings (Phase 2): signals -> stored findings, at most every 30 min, never two at once.
