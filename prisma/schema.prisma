@@ -1049,6 +1049,7 @@ model BudgetDecision {
   httpStatus  Int?
   message     String?
   contentHash String? // budget.v1 content_hash of the revision decided
+  secretConfigured Boolean @default(false) // was the approval key set on this server at the time of the attempt
   at          DateTime @default(now())
 
   @@index([estimateId, revision])
