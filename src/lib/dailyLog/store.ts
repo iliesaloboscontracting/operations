@@ -191,7 +191,7 @@ export async function approvedBudgetFor(project: { jobNo: string | null; quoteNo
   if (!d.ok) return d.status === 404 ? { state: "NONE" } : { state: "DOWN" };
   return {
     state: "OK", ref: `${pick.estimate_id}/r${pick.revision}`, name: d.data.budget.estimate_name,
-    packages: d.data.budget.packages.map((p) => ({ packageId: p.package_id, code: p.code, name: p.name, labourHrs: p.hours?.labour_hrs ?? 0 })),
+    packages: d.data.budget.packages.map((p) => ({ packageId: p.package_id, code: p.code, name: p.name, labourHrs: p.hours?.labour_hrs ?? 0, qty: p.qty, unit: p.unit })),
   };
 }
 
@@ -206,8 +206,8 @@ export async function hoursVsBudgetFor(project: { id: string; jobNo: string | nu
   return { state: "OK", budgetRef: b.ref, budgetName: b.name, logs: logged.logs, rows: hoursVsBudget(b.packages, logged.byCode, logged.logs, pct) };
 }
 
-// Each line's latest weekly % (any revision, any week up to the one given).
-async function latestPct(projectId: string, upToWeek: string | null) {
+// Each line's latest weekly % (any revision, any week up to the one given). Also production benchmarks (5b).
+export async function latestPct(projectId: string, upToWeek: string | null) {
   const weeks = await prisma.weeklyProgress.findMany({
     where: { projectId, ...(upToWeek ? { weekStart: { lte: upToWeek } } : {}) },
     orderBy: [{ weekStart: "desc" }, { revision: "desc" }],

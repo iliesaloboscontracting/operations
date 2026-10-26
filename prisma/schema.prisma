@@ -345,6 +345,7 @@ model Resource {
   loadSize    String?
   ownership   String       @default("OWNED") // OWNED | HIRED
   payClass    String?
+  engagement  String? // Accounts stage 2: EMPLOYEE | ABN - who goes in the pay run (blank = not set yet; Admin sets it)
   phone       String?
   email       String?
   tickets     String?
@@ -811,6 +812,12 @@ model SiteAttendance {
   confirmedBy   String?
   confirmedAt   DateTime?
   runBy         String? // the supervisor / lead whose QR or link was used
+  // Accounts stage 2 (Ilies: GPS "with sign in", never tracked): where the phone was at sign-in only.
+  // Accounts / Admin only. gpsStatus OK | DENIED | UNAVAILABLE | TIMEOUT; null = not asked (older, office, ticked in).
+  gpsLat        Float?
+  gpsLng        Float?
+  gpsAccuracyM  Float?
+  gpsStatus     String?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   edits         AttendanceEdit[]
@@ -1612,4 +1619,66 @@ model WorkerOnboarding {
   updatedBy         String
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
+}
+
+// Production benchmarks (LCI phase 5b, docs/lci/PHASE4-5-DESIGN.md §3.4): what Operations offered
+// Estimating (production-suggestion.v1, hours per unit for one activity code, with its evidence) and what
+// the estimator decided, read back. A named person taps Offer; nothing is sent automatically. The id is
+// the suggestion_id; a failed send is retried on the same row. Hours only - never money.
+model BenchmarkOffer {
+  id               String    @id @default(cuid())
+  code             String // activity code, e.g. STR-02
+  unit             String
+  labourHrsPerUnit Float
+  budgetHrsPerUnit Float?
+  sample           String // JSON: jobs, log count, date range, delay hours
+  confidence       String
+  evidenceHash     String    @unique // sha256 of the evidence - the same data can't be offered twice
+  payload          String // the exact production-suggestion.v1 JSON sent
+  offeredBy        String
+  offeredById      String
+  sentStatus       String // SENT | FAILED (Estimating down / key missing or refused)
+  lastError        String?
+  estimatingStatus String? // PENDING | ACCEPTED | REJECTED (read back)
+  decidedBy        String?
+  decidedAt        DateTime?
+  decisionNote     String?
+  checkedAt        DateTime? // when the decision was last read back
+  createdAt        DateTime  @default(now())
+
+  @@index([code])
+}
+
+// Accounts stage 2 (docs/accounts/STAGE2-DESIGN.md): a supervisor approves one job's hours for one day, on
+// their site link. Append-only - the latest row for a job and day counts. Names and hours only.
+model HoursApproval {
+  id                   String   @id @default(cuid())
+  jobId                String
+  date                 String // YYYY-MM-DD
+  siteLinkId           String
+  approvedBy           String
+  approvedByResourceId String?
+  approvedAt           DateTime @default(now())
+  snapshot             String // JSON [{ attendanceId, name, company, in, out, hours, flag? }]
+  note                 String?
+
+  @@index([jobId, date])
+}
+
+// Accounts stage 2: Victoria's final decision on one person's week (APPROVED | QUERY). Append-only - the
+// latest row per person and week counts. personKey = a Personnel resource id, or "hire:<name>|<company>".
+model PayWeekReview {
+  id         String   @id @default(cuid())
+  weekStart  String // YYYY-MM-DD, the Monday
+  personKey  String
+  personName String
+  status     String // APPROVED | QUERY
+  hours      Float
+  snapshot   String // JSON: the lines as she saw them
+  note       String?
+  by         String
+  byId       String
+  at         DateTime @default(now())
+
+  @@index([weekStart, personKey])
 }

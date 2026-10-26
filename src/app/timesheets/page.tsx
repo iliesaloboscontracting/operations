@@ -25,6 +25,7 @@ type Data = {
   approval: { approvedBy: string; approvedAt: string } | null;
   changedSinceApproval: number;
   history: { id: string; approvedBy: string; approvedAt: string; totalHours: number; people: number; reopenedBy: string | null; reopenedAt: string | null; reopenReason: string | null }[];
+  accounts?: Record<string, { status: string; note: string | null; by: string }>; // Accounts stage 2: Victoria's decision per person
 };
 
 const shiftDate = (iso: string, days: number) => {
@@ -71,6 +72,12 @@ function Entry({ l, today, showSite = true }: { l: TimesheetLine; today: string;
       )}
     </div>
   );
+}
+
+// Accounts stage 2: Victoria's latest decision on this person's week, if any.
+function AccountsNote({ a }: { a?: { status: string; note: string | null } }) {
+  if (!a) return null;
+  return <div className={`text-[11px] ${a.status === "QUERY" ? "text-amber-300" : "text-emerald-400"}`}>{a.status === "QUERY" ? `Accounts query: ${a.note ?? ""}` : "Approved by accounts"}</div>;
 }
 
 // By site (21 Oct 2026, Ilies): each project (then office, yard, trucks) as
@@ -128,6 +135,7 @@ function SiteView({ data, search }: { data: Data; search: string }) {
                     <td className="sticky left-0 z-10 bg-panel px-3 py-2">
                       <div className="font-medium text-gray-100">{p.name}</div>
                       <div className="text-[11px] text-gray-500">{p.role ?? ""}</div>
+                      <AccountsNote a={data.accounts?.[p.id]} />
                     </td>
                     {data.days.map((d) => (
                       <td key={d} className="w-32 space-y-1 px-1.5 py-1.5">
@@ -316,6 +324,7 @@ export default function TimesheetsPage() {
                       <td className="sticky left-0 z-10 bg-panel px-3 py-2">
                         <div className="font-medium text-gray-100">{p.name}</div>
                         <div className="text-[11px] text-gray-500">{p.role ?? ""}</div>
+                        <AccountsNote a={data.accounts?.[p.resourceId]} />
                       </td>
                       {data.days.map((d) => (
                         <td key={d} className="w-32 space-y-1 px-1.5 py-1.5">
