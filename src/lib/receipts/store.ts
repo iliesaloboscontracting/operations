@@ -204,6 +204,7 @@ export type ReceiptOfficeDTO = {
   read: ReadFieldsDTO; reasons: string[]; unreadable: boolean; corrections: { at: string; by: string; field: string }[];
   rejected: { by: string; reason: string } | null;
   onInvoice: boolean; // a tip invoice has replaced this docket's estimate (R3)
+  added?: { by: string; fromReceiptId: string } | null; // typed in by the office from another receipt's photo
 };
 export type ReceiptFilters = { day?: string; jobId?: string; vehicleId?: string; person?: string; kind?: string; asbestos?: string; check?: string };
 
@@ -244,6 +245,12 @@ export async function officeList(f: ReceiptFilters): Promise<{ rows: ReceiptOffi
       : [],
   ]);
   const jobIds = [...new Set(receipts.map((r) => r.jobId).filter((x): x is string => !!x))];
+  // A docket added from another receipt's photo shows that receipt's photo(s).
+  const sharedFrom = [...new Set(receipts.map((r) => r.photoFromReceiptId).filter((x): x is string => !!x))];
+  const sharedPhotos = new Map<string, string[]>();
+  for (const p of sharedFrom.length ? await prisma.receiptPhoto.findMany({ where: { receiptId: { in: sharedFrom } }, select: { id: true, receiptId: true }, orderBy: { createdAt: "asc" } }) : []) {
+    sharedPhotos.set(p.receiptId!, [...(sharedPhotos.get(p.receiptId!) ?? []), p.id]);
+  }
   const recent = { sentAt: { gte: new Date(Date.now() - 60 * 86_400_000) } };
   const [jobRows, trucks, senders, odoSenders, toCheck] = await Promise.all([
     prisma.job.findMany({ where: { id: { in: jobIds } }, select: { id: true, title: true, shift: true, date: true, project: { select: { name: true } } } }),
@@ -267,7 +274,9 @@ export async function officeList(f: ReceiptFilters): Promise<{ rows: ReceiptOffi
   const rows: ReceiptOfficeDTO[] = [
     ...receipts.map((r) => ({
       id: r.id, type: r.kind as "TIP" | "FUEL", label: KIND_LABEL[r.kind as ReceiptKind] ?? r.kind, for: r.kind === "TIP" ? jobName(r.jobId) : truckName(r.vehicleId),
-      jobId: r.jobId, vehicleId: r.vehicleId, sentBy: r.sentBy, sentAt: r.sentAt.toISOString(), asbestos: r.asbestos, status: r.status, photoIds: r.photos.map((p) => p.id),
+      jobId: r.jobId, vehicleId: r.vehicleId, sentBy: r.sentBy, sentAt: r.sentAt.toISOString(), asbestos: r.asbestos, status: r.status,
+      photoIds: r.photoFromReceiptId ? sharedPhotos.get(r.photoFromReceiptId) ?? [] : r.photos.map((p) => p.id),
+      added: logOf(r.reading).added ? { by: logOf(r.reading).added!.by, fromReceiptId: logOf(r.reading).added!.fromReceiptId } : null,
       read: r.kind === "TIP"
         ? { docketNo: r.docketNo, docketAt: iso(r.docketAt), tipSite: r.tipSite, wasteType: r.wasteType, tonnes: r.tonnes, priceExGst: r.priceExGst, priceIncGst: r.priceIncGst, rego: r.rego }
         : { litres: r.litres, pricePerLitre: r.pricePerLitre, fuelTotal: r.fuelTotal, station: r.station, docketAt: iso(r.docketAt), rego: r.rego },
