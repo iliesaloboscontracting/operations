@@ -300,6 +300,13 @@ business, without becoming unnecessarily complicated.
   decide READ or CHECK; kill switch `RECEIPT_READING=off`) live 26 Oct; R3 tip costs (tip rates, estimate replaced by the tip invoice), R4 truck /
   job indicators follow. Fuel is never a job cost (truck day rate includes
   it - Ilies). The daily log's docket step is replaced by "N dockets sent".
+  Since 27 Oct (`docs/accounts/REIMBURSE-LINK-DESIGN.md`): supervisor and
+  driver links have a **Reimbursement** tile ("I paid this myself" -
+  `Receipt.ownMoney`; fuel stays a FUEL receipt, anything else is kind
+  PURCHASE, accounts-only). Only own-money receipts can become claims - tip
+  dockets and company fuel never (Ilies: "these are not reimbursements").
+  The link shows words and dates only. The fuel picker offers owned plant
+  as well as trucks (grouped), and R4 has a Plant section.
 - **Accounts screen** (26 Oct 2026, plan `docs/accounts/ACCOUNTS-PLAN.md`,
   Victoria's 16-point list; Ilies: separate accounts login, separate from
   Operations, nothing duplicated): the ACCOUNTS login now lands on
