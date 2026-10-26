@@ -1,0 +1,22 @@
+import { NextRequest, NextResponse } from "next/server";
+import { guardAccounts } from "@/lib/auth";
+import { withErrorHandling } from "@/lib/apiHandler";
+import { createRequest, listForAccounts, projectChoices } from "@/lib/purchases/store";
+
+// Accounts -> Purchases (stage 6, docs/accounts/STAGE6-DESIGN.md §3). The ACCOUNTS login and Admins only.
+// GET  -> to check, waiting on an answer, with the directors, to order, history (amounts included).
+// POST { what, why?, qty?, supplier?, linkUrl?, neededBy?, projectId? } -> a request made by accounts.
+export const GET = withErrorHandling(async () => {
+  const g = await guardAccounts();
+  if ("denied" in g) return g.denied;
+  return NextResponse.json({ ...(await listForAccounts()), projects: await projectChoices() });
+});
+
+export const POST = withErrorHandling(async (req: NextRequest) => {
+  const g = await guardAccounts();
+  if ("denied" in g) return g.denied;
+  const body = await req.json().catch(() => ({}));
+  const out = await createRequest({ kind: "APP", userId: g.user.id, name: g.user.name }, body && typeof body === "object" ? body : {});
+  if ("error" in out) return NextResponse.json({ error: out.error }, { status: out.status });
+  return NextResponse.json(out, { status: 201 });
+});

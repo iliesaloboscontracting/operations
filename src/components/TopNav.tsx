@@ -16,6 +16,7 @@ const OPERATIONS = [
   { href: "/command", label: "Allocations" },
   { href: "/requests", label: "Requests" },
   { href: "/office-requests", label: "Directors & accounts" },
+  { href: "/purchases", label: "Purchases" },
   { href: "/changes", label: "Changes" },
   { href: "/completed", label: "Completed" },
   { href: "/day-review", label: "Day Review" },
@@ -141,6 +142,7 @@ export default function TopNav() {
             <NavTab href="/directors" label="Overview" active={path === "/directors" || path.startsWith("/directors/jobs")} />
             <NavTab href="/directors/pipeline" label="Pipeline" active={isActive("/directors/pipeline")} />
             <NavTab href="/directors/budgets" label="Budgets to approve" active={isActive("/directors/budgets")} />
+            <NavTab href="/directors/purchases" label="Purchases to approve" active={isActive("/directors/purchases")} />
             <NavTab href="/directors/accounts" label="Accounts data" active={isActive("/directors/accounts")} />
             <NavTab href="/directors/requests" label="Info requests" active={isActive("/directors/requests")} />
             <NavTab href="/directors/kpis" label="How the numbers work" active={isActive("/directors/kpis")} />
@@ -156,6 +158,8 @@ export default function TopNav() {
             <NavTab href="/accounts/reimbursements" label="Reimbursements" active={isActive("/accounts/reimbursements")} />
             <NavTab href="/accounts/labour-cost" label="Labour cost" active={isActive("/accounts/labour-cost")} />
             <NavTab href="/accounts/compliance" label="Compliance" active={isActive("/accounts/compliance")} />
+            <NavTab href="/accounts/assets" label="Assets" active={isActive("/accounts/assets")} />
+            <NavTab href="/accounts/purchases" label="Purchases" active={isActive("/accounts/purchases")} />
             <NavTab href="/invoices" label="Invoices" active={isActive("/invoices")} />
           </>
         ) : onePage ? (
@@ -173,7 +177,7 @@ export default function TopNav() {
             <Divider />
           </>
         )}
-        {OPERATIONS.filter((i) => (i.href !== "/tracking" && i.href !== "/invoices" && i.href !== "/assistant" && i.href !== "/attendance" && i.href !== "/timesheets" && i.href !== "/requests" && i.href !== "/office-requests" && i.href !== "/changes" && i.href !== "/receipts" && i.href !== "/production") || canEdit).map((i) => (
+        {OPERATIONS.filter((i) => (i.href !== "/tracking" && i.href !== "/invoices" && i.href !== "/assistant" && i.href !== "/attendance" && i.href !== "/timesheets" && i.href !== "/requests" && i.href !== "/office-requests" && i.href !== "/purchases" && i.href !== "/changes" && i.href !== "/receipts" && i.href !== "/production") || canEdit).map((i) => (
           <NavTab
             key={i.href}
             href={i.href}

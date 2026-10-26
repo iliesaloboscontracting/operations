@@ -17,6 +17,8 @@ type Pending = {
   today: string;
   inboxWaiting: number;
   reimbursementsToPay?: number;
+  purchasesToCheck?: number;
+  purchasesToOrder?: number;
   queries: { id: string; ref: string; summary: string }[];
   noSignOut: { id: string; date: string; name: string; company: string | null; site: string }[];
   due: AccountsItemDTO[];
@@ -44,12 +46,12 @@ export default function AccountsPage() {
 
   if (!loading && !accountsOnly && !isAdmin) return <PageShell title="Accounts"><p className="text-sm text-gray-400">This screen is for accounts.</p></PageShell>;
 
-  const nothing = p && !p.inboxWaiting && !p.reimbursementsToPay && !p.queries.length && !p.noSignOut.length && !p.due.length;
+  const nothing = p && !p.inboxWaiting && !p.reimbursementsToPay && !p.purchasesToCheck && !p.purchasesToOrder && !p.queries.length && !p.noSignOut.length && !p.due.length;
   return (
     <PageShell
       title="Accounts"
       subtitle="What's waiting for you, what's due, and your reminders."
-      actions={<div className="flex items-center gap-2">{[["/accounts/payroll", "Payroll"], ["/accounts/reimbursements", "Reimbursements"], ["/accounts/labour-cost", "Labour cost"], ["/accounts/compliance", "Compliance"]].map(([href, label]) => <Link key={href} href={href} className="rounded-lg border border-edge px-3 py-1.5 text-xs font-medium text-gray-200 hover:bg-panel2">{label}</Link>)}<PushToggle /></div>}
+      actions={<div className="flex items-center gap-2">{[["/accounts/payroll", "Payroll"], ["/accounts/reimbursements", "Reimbursements"], ["/accounts/purchases", "Purchases"], ["/accounts/assets", "Assets"], ["/accounts/labour-cost", "Labour cost"], ["/accounts/compliance", "Compliance"]].map(([href, label]) => <Link key={href} href={href} className="rounded-lg border border-edge px-3 py-1.5 text-xs font-medium text-gray-200 hover:bg-panel2">{label}</Link>)}<PushToggle /></div>}
     >
       {!p ? (
         <p className="text-sm text-gray-500">Loading…</p>
@@ -79,6 +81,12 @@ export default function AccountsPage() {
           {!!p.reimbursementsToPay && (
             <Section title="Reimbursements to pay" count={p.reimbursementsToPay}>
               <Link href="/accounts/reimbursements" className="block px-3 py-3 text-sm text-brand-300 hover:underline">Open reimbursements →</Link>
+            </Section>
+          )}
+
+          {!!(p.purchasesToCheck || p.purchasesToOrder) && (
+            <Section title="Purchase requests waiting for you" count={(p.purchasesToCheck ?? 0) + (p.purchasesToOrder ?? 0)}>
+              <Link href="/accounts/purchases" className="block px-3 py-3 text-sm text-brand-300 hover:underline">{[p.purchasesToCheck ? `${p.purchasesToCheck} to check` : null, p.purchasesToOrder ? `${p.purchasesToOrder} approved to order` : null].filter(Boolean).join(" · ")} - open purchases →</Link>
             </Section>
           )}
 

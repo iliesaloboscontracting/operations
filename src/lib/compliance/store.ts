@@ -11,6 +11,7 @@ import {
   documentKindLabel, expiryState, isDocumentKind, isEmploymentType, isIsoDate, isTicketKind, looksLikeTfnOrBank,
   onboardingProgress, ticketLabel, worstState,
 } from "./rules";
+import { assetKindLabel, isAssetKind, isAssetResource, reminderCategory } from "../assets/rules";
 
 type Problem = { error: string; status: number };
 const bad = (error: string, status = 400): Problem => ({ error, status });
@@ -202,15 +203,17 @@ export async function saveOnboarding(by: string, resourceId: string, b: Record<s
 
 // ---------- company & subcontractor documents ----------
 
-export async function listDocuments(opts: { all?: boolean } = {}) {
+// Company & subcontractor documents by default; an asset's own documents (stage 6) when asked for by asset.
+export async function listDocuments(opts: { all?: boolean; resourceId?: string; toolId?: string } = {}) {
   const today = todaySydney();
+  const scope = opts.resourceId ? { resourceId: opts.resourceId } : opts.toolId ? { toolId: opts.toolId } : { holderType: { not: "ASSET" } };
   const rows = await prisma.complianceDocument.findMany({
-    where: opts.all ? {} : { status: "ACTIVE" },
+    where: { ...scope, ...(opts.all ? {} : { status: "ACTIVE" }) },
     include: { files: { where: { removedAt: null }, orderBy: { createdAt: "asc" } } },
     orderBy: [{ holderType: "asc" }, { holderName: "asc" }, { expiryDate: "asc" }],
     take: 500,
   });
-  return rows.map((d) => ({ ...d, kindLabel: documentKindLabel(d.kind), state: d.status === "ACTIVE" ? expiryState(d.expiryDate, today) : null, files: d.files.map(fileDto) }));
+  return rows.map((d) => ({ ...d, kindLabel: d.holderType === "ASSET" ? assetKindLabel(d.kind) : documentKindLabel(d.kind), state: d.status === "ACTIVE" ? expiryState(d.expiryDate, today) : null, files: d.files.map(fileDto) }));
 }
 
 // Holder-name suggestions: the two companies, plus labour-hire / hire agencies already on the hire register.
@@ -219,17 +222,19 @@ export async function holderSuggestions() {
   return ["Lobos Contracting", "Lobos Civil", ...agencies.map((a) => a.agency!).filter(Boolean).sort()];
 }
 
-function parseDocument(b: Record<string, unknown>, partial: boolean) {
+// asset = an asset's document (stage 6): asset kinds, and the holder is the asset itself (set by the caller).
+function parseDocument(b: Record<string, unknown>, partial: boolean, asset = false) {
   const out: Record<string, unknown> = {};
-  if (!partial || "holderType" in b) {
+  if (!asset && (!partial || "holderType" in b)) {
     if (b.holderType !== "COMPANY" && b.holderType !== "SUBCONTRACTOR") return bad("Is it a company or a subcontractor document?");
     out.holderType = b.holderType;
   }
   if (!partial || "kind" in b) {
-    if (!isDocumentKind(b.kind)) return bad("Pick what kind of document it is.");
+    if (asset ? !isAssetKind(b.kind) : !isDocumentKind(b.kind)) return bad("Pick what kind of document it is.");
     out.kind = b.kind;
   }
-  for (const [key, max, free, required] of [["holderName", 120, false, "Whose document is it?"], ["title", 120, false, "Give it a short name."], ["reference", 80, false, null], ["notes", 1000, true, null]] as const) {
+  for (const [key, max, free, required] of [["holderName", 120, false, "Whose document is it?"], ["title", 120, false, "Give it a short name."], ["reference", 80, false, null], ["issuer", 120, false, null], ["notes", 1000, true, null]] as const) {
+    if (asset && key === "holderName") continue;
     if (!partial || key in b) {
       const f = field(b, key, max, { freeText: free });
       if (isProblem(f)) return f;
@@ -247,16 +252,35 @@ function parseDocument(b: Record<string, unknown>, partial: boolean) {
   return { data: out };
 }
 
-const docTitle = (d: { holderName: string; title: string }) => `${d.holderName}: ${d.title} expires`;
+const docTitle = (d: { holderType: string; holderName: string; title: string }) => `${d.holderName}: ${d.title} ${d.holderType === "ASSET" ? "due" : "expires"}`;
 async function syncDocument(db: Parameters<typeof syncReminder>[0], id: string, by: string) {
   const d = await db.complianceDocument.findUniqueOrThrow({ where: { id } });
-  await syncReminder(db, "COMPLIANCE_DOC", d.id, { active: d.status === "ACTIVE", expiryDate: d.expiryDate, title: docTitle(d) }, by);
+  await syncReminder(db, "COMPLIANCE_DOC", d.id, { active: d.status === "ACTIVE", expiryDate: d.expiryDate, title: docTitle(d) }, by, reminderCategory(d.kind));
+}
+
+// The asset a stage 6 document belongs to: an owned vehicle / plant item / attachment, or a tool.
+async function assetFor(b: Record<string, unknown>): Promise<{ resourceId: string | null; toolId: string | null; name: string } | Problem> {
+  const resourceId = text(b.resourceId, 40) || null, toolId = text(b.toolId, 40) || null;
+  if (!!resourceId === !!toolId) return bad("Pick the vehicle, plant item or tool it belongs to.");
+  if (resourceId) {
+    const r = await prisma.resource.findUnique({ where: { id: resourceId }, select: { name: true, type: true, ownership: true } });
+    if (!r || !isAssetResource(r)) return bad("That isn't an owned vehicle or plant item.");
+    return { resourceId, toolId: null, name: r.name };
+  }
+  const t = await prisma.tool.findUnique({ where: { id: toolId! }, select: { name: true, tag: true } });
+  if (!t) return bad("That tool isn't in the register.");
+  return { resourceId: null, toolId, name: [t.tag, t.name].filter(Boolean).join(" ") };
 }
 
 export async function createDocument(by: string, b: Record<string, unknown>): Promise<{ id: string } | Problem> {
-  const p = parseDocument(b, false);
+  const asset = b.holderType === "ASSET";
+  const owner = asset ? await assetFor(b) : null;
+  if (isProblem(owner)) return owner;
+  if (asset && !text(b.title, 120)) b = { ...b, title: assetKindLabel(String(b.kind)) };
+  const p = parseDocument(b, false, asset);
   if (isProblem(p)) return p;
   const d = p.data as { holderType: string; holderName: string; kind: string; title: string; reference: string | null; notes: string | null; issueDate: string | null; expiryDate: string | null };
+  if (owner) Object.assign(d, { holderType: "ASSET", holderName: owner.name, resourceId: owner.resourceId, toolId: owner.toolId });
   if (d.issueDate && d.expiryDate && d.expiryDate < d.issueDate) return bad("The expiry date is before the issue date.");
   const id = await prisma.$transaction(async (tx) => {
     const row = await tx.complianceDocument.create({ data: { ...d, createdBy: by } });
@@ -281,7 +305,8 @@ export async function actOnDocument(by: string, id: string, b: Record<string, un
     if (doc.status === "ACTIVE") return bad("It's already active.", 409);
     data = { status: "ACTIVE", archivedReason: null };
   } else if (action === "EDIT") {
-    const p = parseDocument(b, true);
+    // An asset's document stays with its asset: its kind list is the asset one and its holder can't change.
+    const p = parseDocument(b, true, doc.holderType === "ASSET");
     if (isProblem(p)) return p;
     data = p.data as Record<string, unknown>;
     const issue = "issueDate" in data ? (data.issueDate as string | null) : doc.issueDate, expiry = "expiryDate" in data ? (data.expiryDate as string | null) : doc.expiryDate;

@@ -1,13 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useState, use } from "react";
-import { ArrowLeft, Camera, ClipboardList, ListChecks, Loader2, NotebookPen, QrCode as QrIcon, ImagePlus, ClipboardCheck, ReceiptText, ScanLine, Send, Truck, Wrench } from "lucide-react";
+import { ArrowLeft, Camera, ClipboardList, ListChecks, Loader2, NotebookPen, QrCode as QrIcon, ImagePlus, ClipboardCheck, ReceiptText, ScanLine, Send, ShoppingCart, Truck, Wrench } from "lucide-react";
 import PhotoPicker from "@/components/tools/PhotoPicker";
 import DailyLog from "@/components/site/DailyLog";
 import type { LogCardDTO } from "@/lib/dailyLog/types";
 import SignInCrew from "@/components/site/SignInCrew";
 import { MyRequests, RequestForm } from "@/components/site/SiteRequests";
 import TodoList from "@/components/site/TodoList";
+import MyPurchases from "@/components/purchases/MyPurchases";
 import HireCheck from "@/components/site/HireCheck";
 import { AddReceipt, MyReceipts } from "@/components/site/Receipts";
 import ApproveHours from "@/components/site/ApproveHours";
@@ -37,7 +38,7 @@ type SiteInfo = {
   dailyLog?: LogCardDTO; // only on the daily log pilot's links (Task K)
   receiptsToday?: number; // supervisor and driver links (Receipts)
 };
-type Mode = "home" | "register" | "check" | "fault" | "signin" | "request" | "requests" | "todo" | "hire" | "log" | "receipt" | "receipts" | "hours";
+type Mode = "home" | "register" | "check" | "fault" | "signin" | "request" | "requests" | "todo" | "purchases" | "hire" | "log" | "receipt" | "receipts" | "hours";
 
 const input =
   "w-full rounded-lg border border-edge bg-panel2 px-3 py-2.5 text-base text-gray-200 placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500";
@@ -56,7 +57,7 @@ export default function SitePhotosPage({ params: paramsP }: { params: Promise<{ 
   // (or ?go=log - the 19:00 daily log reminder).
   useEffect(() => {
     const go = new URLSearchParams(window.location.search).get("go");
-    if (go === "signin" || go === "log") {
+    if (go === "signin" || go === "log" || go === "purchases") {
       setMode(go);
       window.history.replaceState(null, "", window.location.pathname);
     }
@@ -188,6 +189,10 @@ export default function SitePhotosPage({ params: paramsP }: { params: Promise<{ 
             {info.kind === "OFFICE" && !info.shared && (
               <Big icon={<ListChecks size={22} />} title="My to-do" text={info.todo ? `${info.todo} to action` : "Requests the office hands you"} count={info.todo} onClick={() => { setFlash(null); setMode("todo"); }} />
             )}
+            {/* Stage 6: purchase requests - personal office link only, never an amount. */}
+            {info.kind === "OFFICE" && !info.shared && (
+              <Big icon={<ShoppingCart size={22} />} title="Ask to buy something" text="And see your purchase requests" onClick={() => { setFlash(null); setMode("purchases"); }} />
+            )}
             {(info.kind === "OFFICE" || hasTools) && (<>
             <Big icon={<Camera size={22} />} title="Add a tool" text="Photos and/or type the details" onClick={() => { setFlash(null); setMode("register"); }} />
             <Big icon={<ScanLine size={22} />} title={info.kind === "OFFICE" ? "Check a toolbox" : "Check my toolbox"} text="Photo of the tools laid out" onClick={() => { setFlash(null); setMode("check"); }} />
@@ -212,6 +217,7 @@ export default function SitePhotosPage({ params: paramsP }: { params: Promise<{ 
           {mode === "request" && <RequestForm api={api} who={who} onDone={finished} />}
           {mode === "requests" && <MyRequests api={api} />}
           {mode === "todo" && <TodoList api={api} />}
+          {mode === "purchases" && <MyPurchases base={`${api}/purchases`} />}
           {mode === "hire" && <HireCheck api={api} onChange={load} />}
           {mode === "log" && <DailyLog api={api} onDone={finished} />}
           {mode === "receipt" && <AddReceipt api={api} onDone={finished} />}
