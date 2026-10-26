@@ -82,7 +82,7 @@ export function pickApprovedBudget<T extends { estimate_id: string; revision: nu
 export const HOURS_VS_BUDGET = { watchPoints: 15, actPoints: 30, minLogs: 2, draft: true }; // draft thresholds (design §11.4)
 export type BudgetStatus = "AHEAD" | "ON_TRACK" | "WATCH" | "ACT" | "NOT_ENOUGH";
 
-export type BudgetPackageHours = { packageId: string; code: string | null; name: string; labourHrs: number };
+export type BudgetPackageHours = { packageId: string; code: string | null; name: string; labourHrs: number; qty?: number; unit?: string }; // qty / unit: production benchmarks (5b)
 export type HoursVsBudgetRow = {
   code: string; name: string; packages: number; budgetHours: number; loggedHours: number;
   usedPct: number | null; pctComplete: number | null; gapPoints: number | null; status: BudgetStatus;

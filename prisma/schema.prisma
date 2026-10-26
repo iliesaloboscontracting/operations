@@ -1512,3 +1512,31 @@ model TipRate {
 
   @@index([tipSite])
 }
+
+// Production benchmarks (LCI phase 5b, docs/lci/PHASE4-5-DESIGN.md §3.4): what Operations offered
+// Estimating (production-suggestion.v1, hours per unit for one activity code, with its evidence) and what
+// the estimator decided, read back. A named person taps Offer; nothing is sent automatically. The id is
+// the suggestion_id; a failed send is retried on the same row. Hours only - never money.
+model BenchmarkOffer {
+  id               String    @id @default(cuid())
+  code             String // activity code, e.g. STR-02
+  unit             String
+  labourHrsPerUnit Float
+  budgetHrsPerUnit Float?
+  sample           String // JSON: jobs, log count, date range, delay hours
+  confidence       String
+  evidenceHash     String    @unique // sha256 of the evidence - the same data can't be offered twice
+  payload          String // the exact production-suggestion.v1 JSON sent
+  offeredBy        String
+  offeredById      String
+  sentStatus       String // SENT | FAILED (Estimating down / key missing or refused)
+  lastError        String?
+  estimatingStatus String? // PENDING | ACCEPTED | REJECTED (read back)
+  decidedBy        String?
+  decidedAt        DateTime?
+  decisionNote     String?
+  checkedAt        DateTime? // when the decision was last read back
+  createdAt        DateTime  @default(now())
+
+  @@index([code])
+}
