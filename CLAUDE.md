@@ -361,6 +361,14 @@ business, without becoming unnecessarily complicated.
   accounts price it, a DIRECTOR login approves (never the requester; every
   purchase, no threshold - Ilies), accounts mark it ordered. The amount is
   Accounts / Directors only; anything that can reach a link refuses $.
+  **Stage 7, Tax estimates** (live 27 Oct, `/accounts/tax`,
+  `docs/accounts/STAGE7-DESIGN.md`): payroll tax by month (wages from the
+  Xero P&L mirror, the rate from stage 3's OnCostRate PAYROLL_TAX - one
+  source) and BAS GST by quarter from the Xero invoice / bill mirror, with
+  due dates linked to AccountsItem; `TaxSetting` append-only. Always labelled
+  "Estimate - Xero and the accountant are the record". No new Xero scope
+  (PAYG W needs payroll.payruns.read - not added). Directors' Cash tile shows
+  one tax line. Bank / card tracking waits on the Xero bank-feeds decision.
 - **Sign-ins: delete** (27 Oct): an Admin can delete a sign-in (e.g. signed
   in twice) - `removeAttendance`: status REJECTED + `removedAt`, hidden from
   the Sign-ins page and the supervisor's list, no hours anywhere, the reason
