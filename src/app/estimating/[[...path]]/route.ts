@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
+import { proxyHeaders } from "@/lib/estimatingProxy";
 
 // Lobos Estimating, served inside Operations (25 Oct 2026, Ilies: "yes move
 // estimating"). The estimating app runs on this server as its own process,
@@ -21,9 +22,8 @@ async function proxy(req: NextRequest, { params: paramsP }: { params: Promise<{ 
   const sub = "/" + path.map(encodeURIComponent).join("/");
   const url = TARGET + sub + req.nextUrl.search;
 
-  const headers: Record<string, string> = { host: "127.0.0.1", "x-lobos-user": user.name };
-  const ct = req.headers.get("content-type");
-  if (ct) headers["content-type"] = ct;
+  // An allowlist - a browser's x-lobos-actuals / x-lobos-approval is never passed on (lib/estimatingProxy.ts).
+  const headers = proxyHeaders(req.headers, user.name);
   const hasBody = req.method !== "GET" && req.method !== "HEAD";
 
   let res: Response;

@@ -140,7 +140,8 @@ export function combine(all: JobFigure[]): CodeBenchmark[] {
     out.push({
       code: figs[0].code, name: figs[0].name, unit: figs[0].unit, method: figs[0].method,
       hrsPerUnit: q > 0 ? r(h / q, 4) : null, perHour: q > 0 && h > 0 ? r(q / h, 2) : null, budgetHrsPerUnit,
-      jobs: ok.map((f) => f.jobRef), logs, delayHours: r(ok.reduce((n, f) => n + f.delayHours, 0), 1),
+      // job numbers in order: the same evidence, the same offer
+      jobs: ok.map((f) => f.jobRef).sort(), logs, delayHours: r(ok.reduce((n, f) => n + f.delayHours, 0), 1),
       from: dates[0] ?? null, to: dates[dates.length - 1] ?? null,
       confidence: confidenceOf(ok.length, logs), evidenceHash: ok.length ? evidenceHash(figs[0].code, figs[0].unit, ok) : null,
       jobFigures: figs.sort((a, b) => Number(b.passes) - Number(a.passes) || a.projectName.localeCompare(b.projectName)),
@@ -168,7 +169,9 @@ export type Suggestion = NonNullable<ReturnType<typeof buildSuggestion>>;
 
 // No money, ever: our own money guard, Estimating's money words (keys and values), and exactly the agreed keys.
 export function suggestionIsSafe(s: Suggestion): boolean {
+  // Checked as it will actually be sent: a field that is undefined drops out of the JSON and fails the key check.
   const text = JSON.stringify(s);
+  const sent = JSON.parse(text) as Suggestion;
   const words = (v: unknown): boolean => (typeof v === "string" ? !MONEY_WORDS.test(v) : v && typeof v === "object" ? Object.entries(v).every(([k, x]) => !MONEY_WORDS.test(k) && words(x)) : true);
-  return assertNoMoney(text) && words(s) && Object.keys(s).join() === SUGGESTION_KEYS.join() && Object.keys(s.sample).join() === "jobs,logs,from,to";
+  return assertNoMoney(text) && words(sent) && Object.keys(sent).join() === SUGGESTION_KEYS.join() && Object.keys(sent.sample ?? {}).join() === "jobs,logs,from,to";
 }

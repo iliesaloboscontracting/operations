@@ -105,4 +105,6 @@ test("the offer: exactly the agreed keys, hours only - no money words anywhere",
   assert.equal(suggestionIsSafe({ ...s, sample: { ...s.sample, jobs: ["Value Street demo"] } }), false, "Estimating treats 'value' as money - caught before sending");
   assert.equal(suggestionIsSafe({ ...s, confidence: "$400" } as unknown as typeof s), false);
   assert.equal(suggestionIsSafe({ ...s, extra: 1 } as typeof s), false, "no extra keys");
+  assert.equal(suggestionIsSafe({ ...s, delays_hrs: undefined } as unknown as typeof s), false, "a field missing from what is actually sent is caught");
+  assert.equal(s.delays_hrs, 0);
 });
