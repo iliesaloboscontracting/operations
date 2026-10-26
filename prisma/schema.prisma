@@ -164,6 +164,10 @@ model InvoiceUpload {
   uploadedBy   String?
   createdAt    DateTime @default(now())
   finishedAt   DateTime?
+  // Cleared from the Invoices tab once dealt with (26 Oct 2026, Ilies) - the
+  // upload, its file and every line stay stored; "Show cleared" brings them back.
+  clearedAt    DateTime?
+  clearedBy    String?
   drafts       InvoiceDraft[]
 
   @@index([createdAt])
