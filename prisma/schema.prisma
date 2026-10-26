@@ -86,6 +86,7 @@ model Project {
   invoicedCosts InvoicedCost[]
   hireItems     Resource[] @relation("HireProject")
   siteRequests  SiteRequest[]
+  purchaseRequests PurchaseRequest[]
   labourCosts   LabourCost[]
   allocationCosts AllocationCost[]
   contacts  ProjectContact[]
@@ -415,6 +416,7 @@ model Resource {
   officeContactFor Project[] @relation("ProjectOfficeContact")
   workerTickets WorkerTicket[] // stage 5: tickets / licences (accounts + Admins only)
   onboarding  WorkerOnboarding? // stage 5: onboarding details, kept apart from pay
+  assetDocuments ComplianceDocument[] @relation("AssetResourceDocs") // stage 6: rego / insurance / service dates
 
   @@index([type])
 }
@@ -433,6 +435,9 @@ model ServiceRecord {
   total       Float?
   odometer    Int? // km at time of service, if known
   notes       String?
+  // Stage 6: made from an invoices-inbox line ("Link a mechanic invoice") - one line, one record.
+  invoiceDraftId String? @unique
+  createdBy   String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -616,6 +621,7 @@ model Tool {
   movements ToolMovement[]
   issues    ToolIssue[] @relation("issueTool")
   replacedIssues ToolIssue[] @relation("replacementTool")
+  assetDocuments ComplianceDocument[] @relation("AssetToolDocs") // stage 6: dates and documents for a tool
 
   @@index([serialNumber])
   @@index([toolboxId])
@@ -1583,8 +1589,16 @@ model ComplianceDocument {
   updatedBy      String?
   updatedAt      DateTime         @updatedAt
   files          ComplianceFile[]
+  // Stage 6 (assets & fleet): holderType ASSET - a vehicle / plant item (resourceId) or a tool (toolId).
+  resourceId     String?
+  resource       Resource?        @relation("AssetResourceDocs", fields: [resourceId], references: [id], onDelete: Restrict)
+  toolId         String?
+  tool           Tool?            @relation("AssetToolDocs", fields: [toolId], references: [id], onDelete: Restrict)
+  issuer         String? // insurer / issuing authority
 
   @@index([status, expiryDate])
+  @@index([resourceId])
+  @@index([toolId])
 }
 
 // A photo / PDF of a ticket or document, stored in COMPLIANCE_FILE_DIR. "Remove" hides it; the file stays.
@@ -1800,4 +1814,59 @@ model RateLink {
   createdAt   DateTime @default(now())
 
   @@unique([supplierKey, lineKey])
+}
+
+// ---------- Accounts stage 6: purchase requests (27 Oct 2026, docs/accounts/STAGE6-DESIGN.md §3) ----------
+// The requester asks (Alex's OFFICE link, or a login), accounts check it and put the amount on it, a DIRECTOR
+// login approves or declines, accounts mark it ordered. amountExGst and accountsNote are Accounts / Directors only:
+// never in a link or Manager DTO. Nothing is deleted.
+model PurchaseRequest {
+  id                String                 @id @default(cuid())
+  number            Int                    @unique // P-0001
+  what              String
+  why               String?
+  qty               String?
+  supplier          String?
+  linkUrl           String?
+  neededBy          String? // YYYY-MM-DD
+  projectId         String?
+  project           Project?               @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  requestedBy       String // the person's name
+  requestedByUserId String?
+  siteLinkId        String? // asked from this link (Alex's OFFICE link)
+  source            String // LINK | APP
+  status            String                 @default("REQUESTED") // see lib/purchases/rules.ts
+  infoQuestion      String? // accounts' question back to the requester (shown on the link - no money)
+  infoAnswer        String?
+  amountExGst       Float? // accounts only
+  accountsNote      String? // accounts only
+  checkedBy         String?
+  checkedAt         DateTime?
+  decidedBy         String?
+  decidedAt         DateTime?
+  decisionNote      String? // shown to the requester - no money
+  orderedBy         String?
+  orderedAt         DateTime?
+  closedReason      String?
+  version           Int                    @default(1)
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+  events            PurchaseRequestEvent[]
+
+  @@index([status])
+  @@index([siteLinkId])
+}
+
+// Append-only history of a purchase request: who did what, when.
+model PurchaseRequestEvent {
+  id        String          @id @default(cuid())
+  requestId String
+  request   PurchaseRequest @relation(fields: [requestId], references: [id], onDelete: Restrict)
+  action    String
+  status    String // the status after this event
+  by        String
+  at        DateTime        @default(now())
+  note      String?
+
+  @@index([requestId])
 }

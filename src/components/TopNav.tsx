@@ -16,6 +16,7 @@ const OPERATIONS = [
   { href: "/command", label: "Allocations" },
   { href: "/requests", label: "Requests" },
   { href: "/office-requests", label: "Directors & accounts" },
+  { href: "/purchases", label: "Purchases" },
   { href: "/changes", label: "Changes" },
   { href: "/completed", label: "Completed" },
   { href: "/day-review", label: "Day Review" },
@@ -82,6 +83,7 @@ const DIRECTORS = [
   { href: "/directors", label: "Overview" },
   { href: "/directors/pipeline", label: "Pipeline" },
   { href: "/directors/budgets", label: "Budgets to approve" },
+  { href: "/directors/purchases", label: "Purchases to approve" },
   { href: "/directors/accounts", label: "Accounts data" },
   { href: "/directors/requests", label: "Info requests" },
   { href: "/directors/kpis", label: "How the numbers work" },
@@ -96,6 +98,8 @@ const ACCOUNTS = [
   { href: "/accounts/labour-cost", label: "Labour cost" },
   { href: "/accounts/invoice-checks", label: "Invoice checks" },
   { href: "/accounts/compliance", label: "Compliance" },
+  { href: "/accounts/assets", label: "Assets" },
+  { href: "/accounts/purchases", label: "Purchases" },
   { href: "/invoices", label: "Invoices" },
 ];
 // The invoices inbox is an Operations page as well as an Accounts tab: an Admin who got there from the
@@ -205,7 +209,7 @@ export default function TopNav() {
             <Divider />
           </>
         )}
-        {OPERATIONS.filter((i) => (i.href !== "/tracking" && i.href !== "/invoices" && i.href !== "/assistant" && i.href !== "/attendance" && i.href !== "/timesheets" && i.href !== "/requests" && i.href !== "/office-requests" && i.href !== "/changes" && i.href !== "/receipts" && i.href !== "/production") || canEdit).map((i) => (
+        {OPERATIONS.filter((i) => (i.href !== "/tracking" && i.href !== "/invoices" && i.href !== "/assistant" && i.href !== "/attendance" && i.href !== "/timesheets" && i.href !== "/requests" && i.href !== "/office-requests" && i.href !== "/purchases" && i.href !== "/changes" && i.href !== "/receipts" && i.href !== "/production") || canEdit).map((i) => (
           <NavTab
             key={i.href}
             href={i.href}

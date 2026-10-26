@@ -122,6 +122,12 @@ async function main() {
     await checkDenied("GET /api/compliance/flags (should be Manager+ only)", "/api/compliance/flags");
     await checkDenied("GET /api/compliance/workers (accounts + Admins only)", "/api/compliance/workers");
     await checkDenied("GET /api/compliance/documents (accounts + Admins only)", "/api/compliance/documents");
+    // Accounts stage 6: assets (service amounts) and purchases (amounts) - accounts / directors; in-app asking is Manager+.
+    await checkDenied("GET /api/accounts/assets (accounts + Admins only)", "/api/accounts/assets");
+    await checkDenied("GET /api/accounts/assets/invoices (accounts + Admins only)", "/api/accounts/assets/invoices");
+    await checkDenied("GET /api/accounts/purchases (accounts + Admins only)", "/api/accounts/purchases");
+    await checkDenied("GET /api/directors/purchases (director access only)", "/api/directors/purchases");
+    await checkDenied("GET /api/purchases (Manager+ / accounts only)", "/api/purchases");
 
     // The Project File (brief 11): every project's page data, as a Viewer -
     // no money keys, no internal notes, and only crew-visible contacts.

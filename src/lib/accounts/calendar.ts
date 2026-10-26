@@ -16,6 +16,8 @@ export const CATEGORIES = [
   // Stage 5: kept in step with tickets / documents by lib/compliance/reminders.ts.
   ["TICKET", "Worker ticket / licence expiry"],
   ["COMPLIANCE", "Company / subcontractor document expiry"],
+  // Stage 6: a vehicle / plant item's service or inspection due (rego and insurance use REGO / INSURANCE above).
+  ["SERVICE", "Service / inspection due"],
   ["OTHER", "Other"],
 ] as const;
 export type Category = (typeof CATEGORIES)[number][0];

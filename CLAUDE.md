@@ -343,6 +343,19 @@ business, without becoming unnecessarily complicated.
   they stay in Xero. Managers see only a red expired-ticket icon on the board
   (`/api/compliance/flags`, labels + dates) - information only, never blocks
   an allocation. Nothing is deleted (archive; a removed file is hidden).
+  **Stage 6, Assets & purchases** (`docs/accounts/STAGE6-DESIGN.md`):
+  `/accounts/assets` reads the Vehicles / Plant / Tools registers; rego,
+  insurance and service dates are `ComplianceDocument`s with holderType ASSET
+  (`resourceId` or `toolId`) and the same one-`AccountsItem` reminder (calendar
+  categories REGO / INSURANCE / SERVICE). Service history = `ServiceRecord`,
+  linked from an invoices-inbox line (`invoiceDraftId` unique - no second
+  upload). Faults are read, never copied: DOWN status, `ToolIssue`s, and
+  PLANT_BREAKDOWN delays on the item's booked days (an inference, labelled).
+  Purchase requests (`PurchaseRequest`, its own table, not a `SiteRequest`):
+  asked from a personal OFFICE link or in-app -> accounts check and add the
+  amount -> a DIRECTOR login, not the requester, approves -> accounts order.
+  The amount exists only in the Accounts / Directors DTOs; a link and a
+  Manager get `requesterView()` and link-facing text refuses a dollar figure.
 - **Production benchmarks** (LCI 5b + Estimating 5c, live 27 Oct;
   `src/lib/production/`, `/production` Manager+, hours only): labour hours
   per unit per activity code from the daily logs against the approved budget

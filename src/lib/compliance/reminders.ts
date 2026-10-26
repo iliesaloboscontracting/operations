@@ -10,13 +10,15 @@ const CATEGORY: Record<SourceType, string> = { WORKER_TICKET: "TICKET", COMPLIAN
 
 type Db = Prisma.TransactionClient | typeof prisma;
 
-export async function syncReminder(db: Db, sourceType: SourceType, sourceId: string, src: ReminderSource, by: string) {
+// category: the Accounts-calendar category for a new reminder (stage 6: an asset's rego / insurance / service use
+// the calendar's own REGO / INSURANCE / SERVICE); defaults to TICKET / COMPLIANCE.
+export async function syncReminder(db: Db, sourceType: SourceType, sourceId: string, src: ReminderSource, by: string, category?: string) {
   // The newest linked item is the live one (an old one stays as history).
   const item = await db.accountsItem.findFirst({ where: { sourceType, sourceId }, orderBy: { createdAt: "desc" } });
   const plan = reminderPlan(src, item);
   switch (plan.op) {
     case "CREATE":
-      await db.accountsItem.create({ data: { ...plan.data, category: CATEGORY[sourceType], sourceType, sourceId, createdBy: by } });
+      await db.accountsItem.create({ data: { ...plan.data, category: category ?? CATEGORY[sourceType], sourceType, sourceId, createdBy: by } });
       return "CREATED";
     case "UPDATE":
       await db.accountsItem.update({ where: { id: item!.id }, data: plan.data });
