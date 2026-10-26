@@ -4,6 +4,7 @@ import RegisterPage, { StatusPill } from "@/components/RegisterPage";
 import { ResourceDTO } from "@/lib/types";
 import { effectiveStatus, STATUS_LABEL, whereToday, money } from "@/lib/resource";
 import ServiceHistory from "@/components/ServiceHistory";
+import { TruckIndicatorsPanel } from "@/components/receipts/Indicators";
 
 const TYPES = ["Hook", "Tipper", "Ute", "Other"];
 
@@ -15,7 +16,8 @@ export default function VehiclesPage() {
         subtitle: "The fleet by type and load size. Allocate them to sites in Allocations. Open a vehicle to see its service history.",
         addLabel: "Add vehicle",
         itemNoun: "vehicle",
-        detail: (r) => <ServiceHistory resourceId={r.id} />,
+        // Odometer and fuel from Receipts (R4) - Lobos trucks only, Managers and up (it has fuel $).
+        detail: (r) => <><ServiceHistory resourceId={r.id} />{r.ownership === "OWNED" && r.category !== "Other" && <TruckIndicatorsPanel vehicleId={r.id} />}</>,
         api: "/api/resources",
         query: "type=VEHICLE",
         sectionOf: (r) => (r.category ?? "Other").toUpperCase(),

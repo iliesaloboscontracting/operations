@@ -11,6 +11,7 @@ import { useAuth } from "@/components/AuthProvider";
 import ReceiptRow from "@/components/receipts/ReceiptRow";
 import TipRates from "@/components/receipts/TipRates";
 import TipMismatches from "@/components/receipts/TipMismatches";
+import Indicators from "@/components/receipts/Indicators";
 import { apiFetch, serverErrorMessage } from "@/lib/apiFetch";
 import type { ReceiptOfficeDTO } from "@/lib/receipts/store";
 
@@ -21,7 +22,7 @@ const select = "rounded-lg border border-edge bg-panel2 px-2.5 py-1.5 text-xs te
 
 export default function ReceiptsPage() {
   const { canEdit, isAdmin, loading } = useAuth();
-  const [tab, setTab] = useState<"check" | "all" | "rates" | "mismatch">("check");
+  const [tab, setTab] = useState<"check" | "all" | "rates" | "mismatch" | "indicators">("check");
   const [f, setF] = useState<Filters>({});
   const [data, setData] = useState<Data | null>(null);
   const [moveTo, setMoveTo] = useState<{ id: string; label: string }[]>([]);
@@ -29,7 +30,7 @@ export default function ReceiptsPage() {
   const [flash, setFlash] = useState<string | null>(null);
 
   const load = useCallback(() => {
-    if (tab === "rates" || tab === "mismatch") return;
+    if (tab === "rates" || tab === "mismatch" || tab === "indicators") return;
     const q = new URLSearchParams(Object.entries(f).filter(([, v]) => v) as [string, string][]);
     if (tab === "check") q.set("check", "1");
     apiFetch(`/api/receipts?${q}`).then(async (r) => (r.ok ? (setError(null), setData(await r.json())) : setError(await serverErrorMessage(r, "Couldn't load the receipts."))));
@@ -52,8 +53,9 @@ export default function ReceiptsPage() {
         <button className={tabBtn(tab === "all")} onClick={() => setTab("all")}>All receipts</button>
         <button className={tabBtn(tab === "rates")} onClick={() => setTab("rates")}>Tip rates</button>
         <button className={tabBtn(tab === "mismatch")} onClick={() => setTab("mismatch")}>Mismatches</button>
+        <button className={tabBtn(tab === "indicators")} onClick={() => setTab("indicators")}>Indicators</button>
       </div>
-      {tab === "rates" ? <TipRates isAdmin={isAdmin} /> : tab === "mismatch" ? <TipMismatches /> : (<>
+      {tab === "rates" ? <TipRates isAdmin={isAdmin} /> : tab === "mismatch" ? <TipMismatches /> : tab === "indicators" ? <Indicators /> : (<>
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <input type="date" className={select} value={f.day ?? ""} onChange={set("day")} aria-label="Day" />
         <select className={select} value={f.kind ?? ""} onChange={set("kind")} aria-label="Kind">

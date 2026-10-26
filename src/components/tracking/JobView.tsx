@@ -24,6 +24,7 @@ import { BLUE, BLUE_LIGHT, Card, CategoryBars, Legend, SpendBar, StatusPill, Til
 import { ArrowLeft, Plus } from "lucide-react";
 import HoursVsBudget from "@/components/tracking/HoursVsBudget";
 import type { HoursVsBudgetDTO } from "@/lib/dailyLog/types";
+import { jobTips, newTipSites } from "@/lib/receipts/indicators";
 
 const INVOICE_CAT: Record<string, CostCatKey> = { LABOUR_HIRE: "labourHire", PLANT_HIRE: "hire", TIP_FEES: "tipFees", MATERIALS: "materials" };
 const day = (iso: string) => fmtDay(iso, { day: "numeric", month: "short" });
@@ -203,6 +204,21 @@ function InvoiceList({ rows, onEdit }: { rows: InvoicedCostDTO[]; onEdit?: (i: I
   );
 }
 
+// Tip loads on this job (Receipts R4): loads, tonnes, tip cost, $/t, asbestos loads, and any tip
+// site the job hadn't used before (information only).
+function TipSummary({ dockets }: { dockets: ProjectCostDTO["tipDockets"] }) {
+  const t = jobTips(dockets);
+  const fresh = newTipSites(dockets);
+  return (
+    <div className="mb-2 text-xs text-gray-400">
+      {t.loads} load{t.loads === 1 ? "" : "s"} · {t.tonnes} t · {money(t.tipCost)} tip cost{t.perTonne != null && ` · ${money(t.perTonne)}/t`}
+      {t.asbestosLoads > 0 && <span className="text-red-300"> · {t.asbestosLoads} asbestos</span>}
+      {t.unpriced > 0 && <span className="text-amber-400"> · {t.unpriced} unpriced</span>}
+      {fresh.length > 0 && <div className="text-sky-300">New tip site for this job: {fresh.map((s) => `${s.tipSite} (${day(s.day)})`).join(", ")}</div>}
+    </div>
+  );
+}
+
 // The records behind one cost type.
 function Behind({ p, cat, isAdmin, onEdit }: { p: ProjectCostDTO; cat: CostCatKey; isAdmin: boolean; onEdit?: (i: InvoicedCostDTO) => void }) {
   const label = CAT_LABELS.find((c) => c.key === cat)?.label ?? cat;
@@ -228,6 +244,7 @@ function Behind({ p, cat, isAdmin, onEdit }: { p: ProjectCostDTO; cat: CostCatKe
       {cat === "tipFees" && p.tipDockets.length > 0 && (
         <div className="mb-2">
           <div className="mb-1 text-[11px] uppercase tracking-wide text-gray-500">Tip dockets from site (estimate until the tip invoice arrives)</div>
+          <TipSummary dockets={p.tipDockets} />
           {p.tipDockets.slice(0, 60).map((t) => (
             <div key={t.id} className="flex flex-wrap items-baseline gap-x-2 py-0.5 text-sm">
               <span className="w-14 text-[11px] text-gray-500">{day(t.day)}</span>

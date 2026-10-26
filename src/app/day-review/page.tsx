@@ -11,6 +11,7 @@ import { DayReviewDTO, DayReviewJobDTO, DayReviewRowDTO, ResourceDTO, SignInSumm
 import { Lock, NotebookPen, Plus, TriangleAlert, Unlock, X } from "lucide-react";
 import SiteLogPanel from "@/components/dayReview/SiteLogPanel";
 import type { DayReviewSiteLogsDTO } from "@/lib/dailyLog/types";
+import type { DayDocketsDTO } from "@/lib/receipts/indicatorStore";
 
 const TYPE_LABEL: Record<string, string> = {
   PERSONNEL: "Crew",
@@ -221,6 +222,19 @@ function JobCard({
 }
 
 const noLogText = (n: number) => `${n} job${n === 1 ? " has" : "s have"} no site log`;
+// Tip dockets sent for the job that day (Receipts R4): count, tonnes read so far, asbestos loads. No prices.
+function docketsFor(dockets: DayDocketsDTO | null, jobId: string) {
+  const d = dockets?.jobs.find((x) => x.jobId === jobId);
+  if (!d) return null;
+  return (
+    <div className="mt-2 text-[11px] text-gray-400">
+      {d.dockets} tip docket{d.dockets === 1 ? "" : "s"} sent{d.tonnes > 0 && ` · ${d.tonnes} t`}
+      {d.asbestos > 0 && <span className="text-red-300"> · {d.asbestos} asbestos</span>}
+      {d.toCheck > 0 && <span className="text-gray-500"> · {d.toCheck} still to read or check</span>}
+    </div>
+  );
+}
+
 function siteLogFor(logs: DayReviewSiteLogsDTO | null, jobId: string) {
   const log = logs?.jobs.find((x) => x.jobId === jobId);
   if (!log) return null;
@@ -249,6 +263,7 @@ export default function DayReviewPage() {
   const [busy, setBusy] = useState(false);
 
   const [logs, setLogs] = useState<DayReviewSiteLogsDTO | null>(null);
+  const [dockets, setDockets] = useState<DayDocketsDTO | null>(null);
 
   const load = useCallback(async () => {
     const res = await apiFetch(`/api/day-review?date=${date}`);
@@ -257,6 +272,9 @@ export default function DayReviewPage() {
     // The pilot supervisors' daily logs for the day (Task K) - read-only, nothing written.
     const lg = await apiFetch(`/api/day-review/site-logs?date=${date}`);
     setLogs(lg.ok ? await lg.json() : null);
+    // Tip dockets sent from site for the day's jobs (Receipts R4) - counts only.
+    const dk = await apiFetch(`/api/day-review/dockets?date=${date}`);
+    setDockets(dk.ok ? await dk.json() : null);
   }, [date]);
 
   useEffect(() => {
@@ -373,7 +391,7 @@ export default function DayReviewPage() {
         <div className="space-y-3">
           {data.jobs.map((j) => (
             <JobCard key={j.id} job={j} date={date} canEdit={canEdit} closed={closed} resources={activeResources} onChanged={load}
-              siteLog={siteLogFor(logs, j.id)} />
+              siteLog={<>{siteLogFor(logs, j.id)}{docketsFor(dockets, j.id)}</>} />
           ))}
         </div>
       )}
