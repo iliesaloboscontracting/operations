@@ -1581,3 +1581,61 @@ model PayWeekReview {
 
   @@index([weekStart, personKey])
 }
+
+// Accounts stage 3 (docs/accounts/STAGE3-DESIGN.md): money paid back to a worker for something they bought -
+// from a Receipt or entered by accounts. Never a job cost (fuel is in the truck day rate - Ilies). Accounts
+// screen only; nothing on any link. Paid / cancelled are status changes, never deletes.
+model Reimbursement {
+  id           String    @id @default(cuid())
+  resourceId   String?
+  personName   String
+  receiptId    String?
+  source       String // RECEIPT | ACCOUNTS
+  description  String
+  supplier     String?
+  refNo        String? // receipt / docket number
+  amountIncGst Float
+  spentOn      String // YYYY-MM-DD
+  photoFile    String? // in RECEIPT_FILE_DIR
+  photoHash    String? // sha256 of the photo - the same photo can't be claimed twice
+  status       String    @default("TO_PAY") // TO_PAY | PAID | CANCELLED
+  paidOn       String?
+  paidRef      String?
+  paidBy       String?
+  paidAt       DateTime?
+  cancelReason String?
+  cancelledBy  String?
+  cancelledAt  DateTime?
+  createdBy    String
+  createdById  String
+  createdAt    DateTime  @default(now())
+
+  @@index([receiptId])
+  @@index([photoHash])
+  @@index([refNo])
+  @@index([status])
+}
+
+// Accounts stage 3: on-cost rates (super, workers comp, payroll tax, any other line) entered by an Admin with
+// an effective-from date. Never hard-coded: a line with no row is "not set". Append-only - a change is a new
+// row, a mistake is retired with a reason. Used on the Accounts screen only; Tracking is unchanged.
+model OnCostRate {
+  id              String    @id @default(cuid())
+  line            String // SUPER | WORKERS_COMP | PAYROLL_TAX | OTHER:<name>
+  label           String
+  percent         Float
+  base            String // PAID | PAID_PLUS_SUPER
+  appliesTo       String // EMPLOYEE | ALL
+  thresholdRule   String? // payroll tax: FLAT | ABOVE_THRESHOLD
+  thresholdAnnual Float?
+  effectiveFrom   String // YYYY-MM-DD
+  note            String?
+  setBy           String
+  setById         String
+  setAt           DateTime  @default(now())
+  retiredAt       DateTime?
+  retiredBy       String?
+  retiredReason   String?
+
+  @@index([line, effectiveFrom])
+}

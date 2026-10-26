@@ -153,6 +153,8 @@ export default function TopNav() {
             <NavTab href="/accounts" label="To do" active={path === "/accounts"} />
             <NavTab href="/accounts/calendar" label="Due dates" active={isActive("/accounts/calendar")} />
             <NavTab href="/accounts/payroll" label="Payroll" active={isActive("/accounts/payroll")} />
+            <NavTab href="/accounts/reimbursements" label="Reimbursements" active={isActive("/accounts/reimbursements")} />
+            <NavTab href="/accounts/labour-cost" label="Labour cost" active={isActive("/accounts/labour-cost")} />
             <NavTab href="/invoices" label="Invoices" active={isActive("/invoices")} />
           </>
         ) : onePage ? (
