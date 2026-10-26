@@ -4,6 +4,7 @@ import { withErrorHandling } from "@/lib/apiHandler";
 import { jobLabel, makeOdometerToken, openJob, pointOf, readTicket, sydneyTime, takesSignIns } from "@/lib/signin";
 import { todaySydney } from "@/lib/today";
 import { syncSignInActualsQuietly } from "@/lib/signInActuals";
+import { parseGps } from "@/lib/payroll/rules";
 
 // POST /api/site/in/sign - someone signing in or out from their phone.
 //   { ticket, jobId, action: "STATUS" | "IN" | "OUT", deviceId?,
@@ -120,6 +121,9 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
         signInMethod: ticket.method,
         status: toConfirm ? "TO_CONFIRM" : "CONFIRMED",
         runBy,
+        // Accounts stage 2 (Ilies: GPS "with sign in", never tracked): where the phone was at this moment
+        // only, if it said. Missing / refused never stops a sign-in. Accounts / Admin see it; nobody else.
+        ...parseGps(body.gps),
       },
     });
     // Anywhere they were just moved off now has their hours.

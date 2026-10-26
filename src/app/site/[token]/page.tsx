@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState, use } from "react";
-import { ArrowLeft, Camera, ClipboardList, ListChecks, Loader2, NotebookPen, QrCode as QrIcon, ImagePlus, ReceiptText, ScanLine, Send, Truck, Wrench } from "lucide-react";
+import { ArrowLeft, Camera, ClipboardList, ListChecks, Loader2, NotebookPen, QrCode as QrIcon, ImagePlus, ClipboardCheck, ReceiptText, ScanLine, Send, Truck, Wrench } from "lucide-react";
 import PhotoPicker from "@/components/tools/PhotoPicker";
 import DailyLog from "@/components/site/DailyLog";
 import type { LogCardDTO } from "@/lib/dailyLog/types";
@@ -10,6 +10,7 @@ import { MyRequests, RequestForm } from "@/components/site/SiteRequests";
 import TodoList from "@/components/site/TodoList";
 import HireCheck from "@/components/site/HireCheck";
 import { AddReceipt, MyReceipts } from "@/components/site/Receipts";
+import ApproveHours from "@/components/site/ApproveHours";
 import SiteQuestions from "@/components/site/SiteQuestions";
 import CheckResultView from "@/components/tools/CheckResultView";
 import InstallApp from "@/components/InstallApp";
@@ -36,7 +37,7 @@ type SiteInfo = {
   dailyLog?: LogCardDTO; // only on the daily log pilot's links (Task K)
   receiptsToday?: number; // supervisor and driver links (Receipts)
 };
-type Mode = "home" | "register" | "check" | "fault" | "signin" | "request" | "requests" | "todo" | "hire" | "log" | "receipt" | "receipts";
+type Mode = "home" | "register" | "check" | "fault" | "signin" | "request" | "requests" | "todo" | "hire" | "log" | "receipt" | "receipts" | "hours";
 
 const input =
   "w-full rounded-lg border border-edge bg-panel2 px-3 py-2.5 text-base text-gray-200 placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500";
@@ -159,6 +160,10 @@ export default function SitePhotosPage({ params: paramsP }: { params: Promise<{ 
             {info.dailyLog && info.dailyLog.jobs === 0 && info.dailyLog.progressDue && (
               <Big icon={<NotebookPen size={22} />} title="Progress this week" text="% complete for your jobs - due this week" alert onClick={() => { setFlash(null); setMode("log"); }} />
             )}
+            {/* Accounts stage 2: the supervisor approves the day's hours after sign-out (supervisor links only). */}
+            {info.kind === "SUPERVISOR" && (
+              <Big icon={<ClipboardCheck size={22} />} title="Approve hours" text="Check your crew's hours for the day and approve" onClick={() => { setFlash(null); setMode("hours"); }} />
+            )}
             {info.kind !== "OFFICE" && !driver && (<>
               <Big icon={<Send size={22} />} title="Make a request" text="Labour, trucks, hire, tools, materials - straight to the office" onClick={() => { setFlash(null); setMode("request"); }} />
               <Big
@@ -211,6 +216,7 @@ export default function SitePhotosPage({ params: paramsP }: { params: Promise<{ 
           {mode === "log" && <DailyLog api={api} onDone={finished} />}
           {mode === "receipt" && <AddReceipt api={api} onDone={finished} />}
           {mode === "receipts" && <MyReceipts api={api} />}
+          {mode === "hours" && <ApproveHours api={api} onDone={finished} />}
         </>
       )}
     </div>

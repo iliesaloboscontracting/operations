@@ -63,6 +63,7 @@ export interface ResourceDTO {
   sundayRate?: number | null;
   payRateConfirmed?: boolean;
   payRateNotes?: string | null;
+  engagement?: string | null; // Accounts stage 2: EMPLOYEE | ABN (Admin only, like pay rates)
   active: boolean;
   assignments?: { id: string; job: AssignmentJobRef }[];
 }

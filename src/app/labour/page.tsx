@@ -26,6 +26,8 @@ function payRateSummary(r: ResourceDTO): string {
 }
 
 const PAY_RATE_FIELDS: FieldDef[] = [
+  // Accounts stage 2: who goes in the pay run. ABN workers invoice; employees are paid through Xero.
+  { key: "engagement", label: "Engagement", type: "select", options: [{ value: "", label: "Not set" }, { value: "EMPLOYEE", label: "Employee (pay run)" }, { value: "ABN", label: "ABN (invoices)" }] },
   {
     key: "payRateBasis",
     label: "Pay basis",

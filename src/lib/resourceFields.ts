@@ -14,6 +14,7 @@ export const PAY_RATE_FIELDS = [
   "sundayRate",
   "payRateConfirmed",
   "payRateNotes",
+  "engagement", // Accounts stage 2: EMPLOYEE | ABN - who goes in the pay run (Admin, with the pay details)
 ] as const;
 
 // Fields a client may set on a Resource via POST/PATCH.
