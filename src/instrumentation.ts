@@ -16,6 +16,7 @@ export async function register() {
     const { remindDailyLogs } = await import("./lib/dailyLog/reminders");
     const { expireProposals } = await import("./lib/changes/store");
     const { readWaiting } = await import("./lib/receipts/runner");
+    const { alertAccountsDue } = await import("./lib/accounts/store");
     setInterval(() => {
       // Xero (read-only, G3): once a day from 2am Sydney, after the backup. Does nothing until set up and connected.
       nightlyXeroSync().catch((e) => console.error("xero nightly", e instanceof Error ? e.message : "failed"));
@@ -34,6 +35,8 @@ export async function register() {
       expireProposals().catch((e) => console.error("change proposal expiry", e));
       // Receipts (R2): read any receipt / odometer photo still waiting. Off with RECEIPT_READING=off.
       readWaiting().catch((e) => console.error("receipt reading", e instanceof Error ? e.message : "failed"));
+      // Accounts calendar (26 Oct 2026): one phone alert per due date to the accounts login.
+      alertAccountsDue().catch((e) => console.error("accounts due-date alerts", e));
     }, 60_000);
   }
 }

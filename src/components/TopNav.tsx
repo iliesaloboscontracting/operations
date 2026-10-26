@@ -77,7 +77,7 @@ const Divider = () => <span className="mx-1.5 h-5 w-px shrink-0 self-center bg-w
 export default function TopNav() {
   const path = usePathname() ?? "";
   const { user, loading, canEdit, isAdmin, isDirector, directorOnly, timesheetsOnly, accountsOnly, signOut } = useAuth();
-  const onePage = timesheetsOnly ? "/timesheets" : accountsOnly ? "/invoices" : directorOnly ? "/directors" : null;
+  const onePage = timesheetsOnly ? "/timesheets" : accountsOnly ? "/accounts" : directorOnly ? "/directors" : null;
   const [changingPw, setChangingPw] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [startingSoon, setStartingSoon] = useState(0);
@@ -146,12 +146,25 @@ export default function TopNav() {
             <NavTab href="/directors/queries" label="My queries" active={isActive("/directors/queries")} />
             <NavTab href="/directors/lessons" label="Lessons" active={isActive("/directors/lessons")} />
           </>
+        ) : accountsOnly ? (
+          <>
+            {/* The Accounts screen (26 Oct 2026) - separate from Operations. */}
+            <NavTab href="/accounts" label="To do" active={path === "/accounts"} />
+            <NavTab href="/accounts/calendar" label="Due dates" active={isActive("/accounts/calendar")} />
+            <NavTab href="/invoices" label="Invoices" active={isActive("/invoices")} />
+          </>
         ) : onePage ? (
-          <NavTab href={onePage} label={accountsOnly ? "Invoices" : "Timesheets"} active={isActive(onePage)} />
+          <NavTab href={onePage} label="Timesheets" active={isActive(onePage)} />
         ) : (<>
         {isDirector && (
           <>
             <NavTab href="/directors" label="Directors" active={isActive("/directors")} />
+            <Divider />
+          </>
+        )}
+        {isAdmin && (
+          <>
+            <NavTab href="/accounts" label="Accounts" active={isActive("/accounts")} />
             <Divider />
           </>
         )}

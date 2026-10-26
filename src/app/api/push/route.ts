@@ -8,8 +8,15 @@ import { pushPublicKey } from "@/lib/push";
 // GET    -> { publicKey, devices }   the key the browser subscribes with
 // POST   { subscription, label }    this phone/browser wants alerts
 // DELETE { endpoint }               this phone/browser stops them
+// Since 26 Oct 2026 the accounts login can turn on its own phone for due-date alerts too.
+async function guardPush() {
+  const user = await getCurrentUser();
+  if (user?.role === "ACCOUNTS") return null;
+  return guard("ADMIN");
+}
+
 export const GET = withErrorHandling(async () => {
-  const denied = await guard("ADMIN");
+  const denied = await guardPush();
   if (denied) return denied;
   const user = (await getCurrentUser())!;
   const devices = await prisma.pushDevice.findMany({
@@ -21,7 +28,7 @@ export const GET = withErrorHandling(async () => {
 });
 
 export const POST = withErrorHandling(async (req: NextRequest) => {
-  const denied = await guard("ADMIN");
+  const denied = await guardPush();
   if (denied) return denied;
   const user = (await getCurrentUser())!;
   const body = await req.json().catch(() => ({}));
@@ -42,7 +49,7 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
 });
 
 export const DELETE = withErrorHandling(async (req: NextRequest) => {
-  const denied = await guard("ADMIN");
+  const denied = await guardPush();
   if (denied) return denied;
   const user = (await getCurrentUser())!;
   const body = await req.json().catch(() => ({}));
