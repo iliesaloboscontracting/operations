@@ -333,7 +333,7 @@ business, without becoming unnecessarily complicated.
   employees only; workers comp and payroll tax on paid + super). Tracking is
   NOT changed - adding on-costs there is Ilies's decision. Measured business
   figures (e.g. the on-cost uplift) never go in git.
-  **Stage 5, Compliance & HR** (`/accounts/compliance`, `src/lib/compliance/`,
+  **Stage 5, Compliance & HR** (live 27 Oct; date of birth not collected; `/accounts/compliance`, `src/lib/compliance/`,
   design `docs/accounts/STAGE5-DESIGN.md`): `WorkerTicket` per Labour-register
   person, `WorkerOnboarding` (apart from pay), `ComplianceDocument` (company /
   subcontractor) and their files in `COMPLIANCE_FILE_DIR` (served only via
