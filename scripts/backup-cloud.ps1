@@ -83,7 +83,9 @@ try {
   $estimating = @($list | Where-Object { $_ -like "estimating-*.tar.gz" })[0]
   # Receipt and odometer photos (Receipts, 26 Oct 2026) - optional too.
   $receipts = @($list | Where-Object { $_ -like "receipt-files-*.tar.gz" })[0]
-  $files = @($db, $photos) + @($invoices, $estimating, $receipts | Where-Object { $_ })
+  # Ticket / licence and company document files (Accounts compliance, 27 Oct 2026) - optional too.
+  $compliance = @($list | Where-Object { $_ -like "compliance-files-*.tar.gz" })[0]
+  $files = @($db, $photos) + @($invoices, $estimating, $receipts, $compliance | Where-Object { $_ })
   # Newest one already downloaded (e.g. before 1:30am, today's isn't made yet).
   if (Test-Path (Join-Path $backupDir ("cloud-" + $db))) { exit 0 }
   $src = ($files | ForEach-Object { "/srv/operations/backups/$_" }) -join " "

@@ -3,6 +3,7 @@
 import { DragResourcePayload, ResourceDTO } from "@/lib/types";
 import { columnFor, CREW_ROLE_OPTIONS, isLabourHire } from "@/lib/resource";
 import HireTag from "./HireTag";
+import { TicketFlagBadge } from "./compliance/TicketFlags";
 
 // Tiles for these two roles stand out from the rest of the crew list at a
 // glance, same idea as a supervisor/lead being flagged on an assigned job chip.
@@ -57,6 +58,7 @@ export default function ResourceCard({
         {columnFor(resource) === "hire" && <HireTag resource={resource} className="ml-1.5" />}
       </span>
       <div className="flex shrink-0 items-center gap-1">
+        {isCrew && <TicketFlagBadge resourceId={resource.id} />}
         {down && (
           <span className="shrink-0 rounded-full bg-red-900/70 px-1.5 py-0.5 text-[10px] uppercase text-red-200">
             {resource.status === "DOWN" ? "down" : "leave"}

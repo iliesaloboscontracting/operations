@@ -156,6 +156,7 @@ export default function TopNav() {
             <NavTab href="/accounts/reimbursements" label="Reimbursements" active={isActive("/accounts/reimbursements")} />
             <NavTab href="/accounts/labour-cost" label="Labour cost" active={isActive("/accounts/labour-cost")} />
             <NavTab href="/accounts/invoice-checks" label="Invoice checks" active={isActive("/accounts/invoice-checks")} />
+            <NavTab href="/accounts/compliance" label="Compliance" active={isActive("/accounts/compliance")} />
             <NavTab href="/invoices" label="Invoices" active={isActive("/invoices")} />
           </>
         ) : onePage ? (
