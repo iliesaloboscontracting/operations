@@ -15,9 +15,12 @@ registers) - nothing entered twice.
 1. GPS: yes, "with sign in" - but "do not change the way the current sign in works". So: the same scan / tap,
    the phone's location recorded at that moment only (never tracked in between), a line telling workers; if a phone
    refuses location, sign-in still works. Stage 2.
-2. Sending emails from accounts@ (pay breakdowns, ABN discrepancies, reimbursements paid) - not answered yet.
+2. Sending emails from accounts@ (pay breakdowns, ABN discrepancies, reimbursements paid) - YES (26 Oct). Workers'
+   emails saved on their Labour-register records 26 Oct (33 people; logged). Needs Microsoft 365 admin consent to send as
+   accounts@ only. Demo Dump (info@demodump.au) is a subcontractor; Chris bills as Pro Ground Solutions; dunks88 is no
+   longer with Lobos; tasman.misionare@hotmail.com - who it is still to confirm.
 3. Reading the accounts@ mailbox automatically (Microsoft 365 admin consent, that mailbox only) - not answered yet.
-4. Payroll into Xero - recommended: export files (pay run + ABA), Xero stays read-only - not answered yet.
+4. Payroll into Xero - YES to files (pay run + ABA); Xero stays read-only (26 Oct).
 5. Bank transactions - recommended: through Xero bank feeds (one more read-only Xero scope) - not answered yet.
 6. Bunnings PowerPass - no public connection; statements/invoices through the inbox - not answered yet.
 
