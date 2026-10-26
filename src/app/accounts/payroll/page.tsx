@@ -13,7 +13,7 @@ import type { DayState, Group } from "@/lib/payroll/rules";
 
 type Week = {
   weekStart: string; weekEnd: string; days: string[]; weekEnded: boolean; managerLock: { by: string; at: string } | null;
-  people: PayPersonDTO[]; abnHints: { id: string; name: string }[]; travel: string;
+  people: PayPersonDTO[]; engagementUnset: number; abnHints: { id: string; name: string }[]; travel: string;
   summary: { byItem: Record<string, number>; bySite: Record<string, number>; byAgency: Record<string, number>; total: number };
 };
 const GROUP: Record<Group, string> = { EMPLOYEE: "Employees", ABN: "ABN workers", HIRE: "Labour hire" };
@@ -89,6 +89,7 @@ export default function PayrollPage() {
       {data && (
         <p className="mb-3 text-xs text-gray-500">
           {data.managerLock ? `Timesheet locked by ${data.managerLock.by}.` : data.weekEnded ? "The Manager hasn't locked this week's timesheet yet - staff can be approved once it is." : "This week isn't over yet."}
+          {data.engagementUnset > 0 && ` Engagement (Employee / ABN) isn't set on the Labour register yet for ${data.engagementUnset} of this week's staff - they count as employees until it is.`}
           {" "}✓ supervisor approved · ⚑ flagged · ≠ changed since approved · · not approved · – office / yard / truck · 📍 location at sign-in. Travel / regional: {data.travel} with Victoria.
         </p>
       )}

@@ -104,7 +104,6 @@ export async function payrollWeek(weekStart: string) {
       ...(count("NOT_APPROVED") ? [`${count("NOT_APPROVED")} day(s) not approved by the supervisor`] : []),
       ...(count("FLAGGED") ? [`${count("FLAGGED")} day(s) flagged by the supervisor`] : []),
       ...(count("CHANGED") ? [`${count("CHANGED")} day(s) changed since the supervisor approved`] : []),
-      ...(p.group === "EMPLOYEE" && !p.engagementSet ? ["Engagement not set on the Labour register (treated as an employee)"] : []),
       ...(p.group === "HIRE" && all.some((x) => x.jobId && !x.tile) ? ["Signed in where no labour hire was booked on the board"] : []),
     ];
     p.hours = Math.round(p.hours * 4) / 4;
@@ -118,7 +117,7 @@ export async function payrollWeek(weekStart: string) {
   return {
     weekStart, weekEnd: weekEnd(weekStart), days: weekDates(weekStart), weekEnded: ended,
     managerLock: lock ? { by: lock.approvedBy, at: lock.approvedAt.toISOString() } : null,
-    people: list, summary: summarise(lines, new Map([...reviews].map(([k, r]) => [k, r.status]))), abnHints, travel: TRAVEL_HOOK,
+    people: list, engagementUnset: list.filter((p) => p.group === "EMPLOYEE" && !p.engagementSet).length, summary: summarise(lines, new Map([...reviews].map(([k, r]) => [k, r.status]))), abnHints, travel: TRAVEL_HOOK,
   };
 }
 
