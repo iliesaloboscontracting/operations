@@ -323,6 +323,16 @@ business, without becoming unnecessarily complicated.
   one quiet position at crew sign-in (`SiteAttendance.gps*`, IN only, waits
   ≤1.5 s, refusal never blocks), visible to accounts / Admins only. Travel
   rule and emails from accounts@ still to come.
+  **Reimbursements and labour cost** (stage 3, live 27 Oct,
+  `docs/accounts/STAGE3-DESIGN.md`): `/accounts/reimbursements`
+  (`Reimbursement`, append-only; no double claim - same receipt, same photo
+  hash, or same number + amount + date; never a job cost, nothing on a link)
+  and `/accounts/labour-cost` (Tracking's own labour, reused, plus on-cost
+  lines from `OnCostRate`, entered / retired by an Admin only with an
+  effective-from date; blank = "Not set"; Victoria's method: super on paid,
+  employees only; workers comp and payroll tax on paid + super). Tracking is
+  NOT changed - adding on-costs there is Ilies's decision. Measured business
+  figures (e.g. the on-cost uplift) never go in git.
   **Stage 5, Compliance & HR** (`/accounts/compliance`, `src/lib/compliance/`,
   design `docs/accounts/STAGE5-DESIGN.md`): `WorkerTicket` per Labour-register
   person, `WorkerOnboarding` (apart from pay), `ComplianceDocument` (company /
