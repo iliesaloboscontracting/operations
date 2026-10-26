@@ -36,13 +36,17 @@ An ABN worker's invoice coming into the inbox today would be read as "labour hir
 
 ### How an invoice becomes an ABN check
 
-- **In the inbox rules** (`decide()`), before the job-matching steps:
-  - **One match:** the supplier names exactly one active Personnel person whose **Engagement is ABN** (stage 2's field). "Names" means every word of their register name appears as a whole word in the supplier.
-    - The draft is **not counted** (SKIPPED), with the reason "ABN worker's invoice - checked against approved hours on Accounts → ABN invoices. Own crew are costed from hours, never from the invoice."
-    - An `AbnInvoice` check is opened for that person and period.
-  - **More than one match:** the draft waits for a person (NEEDS_REVIEW) with "Could be more than one ABN worker".
+- **In the inbox rules** (`decide()`), before the job-matching steps. Only **strong evidence** takes an invoice off job cost on its own. A cost silently disappearing is the worst failure here (lead review, 27 Oct). The rule is `abnMatch()` in `lib/abnInvoices/rules.ts`:
+  - **Strong evidence, not counted automatically** (SKIPPED, with the reason "ABN worker's invoice - checked against approved hours on Accounts → Invoice checks. Own crew are costed from hours, never from the invoice", and an `AbnInvoice` check opened):
+    - **(a) ABN:** the ABN printed on the invoice equals exactly one active person's **recorded ABN** (stage 5 onboarding, `WorkerOnboarding.abn`, digits only). This wins over any name match.
+    - **(b) Full name:** an ABN worker (Engagement ABN) whose register name has **two or more words**, every one appearing as a whole word in the supplier (e.g. "Joe Bloggs" in "Joe Bloggs Pty Ltd").
+  - **A person decides** (NEEDS_REVIEW):
+    - a **single-word name** with no ABN match ("Max" in "Max Hire"): "Could be Max's own invoice (ABN worker) - attach on Accounts -> Invoice checks, or add as a job cost";
+    - an ABN recorded for **two people**;
+    - **two full-name matches**.
+  - Otherwise the ordinary inbox rules carry on unchanged.
 - **By hand.** On Accounts → ABN invoices, Victoria can attach any inbox invoice that isn't on a job to a person; this opens the check and marks the draft not counted. She can also detach it, which sends the draft back to "needs you".
-- *Draft:* only people already marked ABN are matched automatically. Engagement is unset for most people today, so Victoria marks people ABN first (Labour register, Admin) or attaches by hand.
+- Most register names are a single first name, so in practice the **recorded ABN** (stage 5 onboarding) is what makes automatic matching work. Until it's recorded, a first-name match only asks a person, and Victoria attaches by hand.
 
 ### The check (pure rules: `lib/abnInvoices/rules.ts`)
 
@@ -179,7 +183,7 @@ Supplier rates live in Lobos Estimating's rate library. Operations **reads** the
 
 - **Unit:**
   - `abnInvoices/rules.test.ts`:
-    - name matching (whole words, ABN only, ambiguous);
+    - whose invoice: a single first name waits for a person; the recorded ABN, or a full two-word name, is strong enough; the ABN wins; two people with the same ABN or full name wait;
     - the day-by-day comparison and tolerance;
     - the total-only comparison;
     - the GST flags;

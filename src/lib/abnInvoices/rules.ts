@@ -5,12 +5,40 @@ export const HOURS_TOLERANCE = 0.25; // Draft - for Ilies / Victoria
 
 const words = (s: string) => s.toLowerCase().replace(/[^a-z0-9 ]+/g, " ").split(/\s+/).filter(Boolean);
 
-// The ABN workers an invoice's supplier names: every word of the person's register name appears as a whole
-// word in the supplier ("Cem" in "Cem Dogay Pty Ltd"). Only people marked ABN, only active ones.
-export function abnWorkersNamed(supplier: string | null, people: { id: string; name: string; engagement: string | null; active?: boolean }[]) {
-  if (!supplier) return [];
+export type AbnPerson = { id: string; name: string; engagement: string | null; active?: boolean; abn?: string | null };
+export type AbnMatch =
+  | { kind: "SKIP"; person: AbnPerson; why: "ABN" | "FULL_NAME" } // strong evidence: not counted on a job, checked on Accounts
+  | { kind: "REVIEW"; problem: string } // a person decides - never silently taken off job cost
+  | { kind: "NONE" };
+
+const abnDigits = (s: string | null | undefined) => (s ?? "").replace(/\D/g, "");
+const namedIn = (supplier: string) => {
   const have = new Set(words(supplier));
-  return people.filter((p) => p.engagement === "ABN" && p.active !== false && words(p.name).length > 0 && words(p.name).every((w) => have.has(w)));
+  return (p: AbnPerson) => words(p.name).length > 0 && words(p.name).every((w) => have.has(w));
+};
+
+// Is this an ABN worker's own invoice? Only strong evidence takes it off job cost (the lead, 27 Oct 2026 - a cost
+// silently disappearing is the worst failure here):
+//  - the printed ABN equals one person's recorded ABN (stage 5 onboarding) - this wins over any name match;
+//  - or one ABN worker's register name has 2+ words and every one is in the supplier name.
+// A single-word name ("Max" in "Max Hire"), or an ABN / full name shared by two people, waits for a person.
+export function abnMatch(supplier: string | null, supplierAbn: string | null, people: AbnPerson[]): AbnMatch {
+  const live = people.filter((p) => p.active !== false);
+  const abn = abnDigits(supplierAbn);
+  if (abn.length === 11) {
+    const byAbn = live.filter((p) => abnDigits(p.abn) === abn);
+    if (byAbn.length === 1) return { kind: "SKIP", person: byAbn[0], why: "ABN" };
+    if (byAbn.length > 1) return { kind: "REVIEW", problem: `The ABN on this invoice is recorded for more than one person (${byAbn.map((p) => p.name).join(", ")}) - attach it to the right person on Accounts -> Invoice checks.` };
+  }
+  if (!supplier) return { kind: "NONE" };
+  const named = live.filter((p) => p.engagement === "ABN").filter(namedIn(supplier));
+  const full = named.filter((p) => words(p.name).length >= 2);
+  if (full.length === 1) return { kind: "SKIP", person: full[0], why: "FULL_NAME" };
+  if (full.length > 1) return { kind: "REVIEW", problem: `Could be more than one ABN worker (${full.map((p) => p.name).join(", ")}) - attach it to the right person on Accounts -> Invoice checks.` };
+  if (named.length) {
+    return { kind: "REVIEW", problem: `Could be ${named.map((p) => `${p.name}'s`).join(" or ")} own invoice (ABN worker) - attach on Accounts -> Invoice checks, or add as a job cost.` };
+  }
+  return { kind: "NONE" };
 }
 
 export type DayHours = { date: string; hours: number };

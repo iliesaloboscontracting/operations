@@ -10,7 +10,7 @@
 // A plant-hire invoice is only added on its own when it can't double count a
 // hire-register estimate: either it links to the item by contract number, or
 // the job has no estimate from that supplier.
-import { abnWorkersNamed } from "./abnInvoices/rules";
+import { abnMatch, type AbnPerson } from "./abnInvoices/rules";
 import { ABN_SKIP_REASON, openAbnCheck } from "./abnInvoices/store";
 import { prisma } from "./prisma";
 import { invoiceMimeOf, readInvoiceFile } from "./invoiceFiles";
@@ -155,7 +155,6 @@ async function aliasMap() {
 }
 
 type Verdict = { status: DraftStatus; problem: string | null; hireResourceId?: string | null; abnResourceId?: string | null };
-type AbnPerson = { id: string; name: string; engagement: string | null; active: boolean };
 
 // Accounts stage 4: what the reader found for ABN hours and line prices, cleaned ("" -> null, digits -> numbers).
 export function stage4Fields(r: { supplierAbn?: string; workDays?: { date: string; hours: string }[]; hoursTotal?: string; lines?: { description: string; quantity: string; unit: string; unitPriceExGst: string }[] }) {
@@ -193,9 +192,10 @@ export async function decide(r: Raw, seen: Set<string>, existing: Set<string>, j
   if (invoiceKey(r.invoiceNo) && (existing.has(key) || seen.has(key))) return { status: "DUPLICATE", problem: "Already entered." };
   // Accounts stage 4: an ABN worker's own invoice is never a job cost (own crew are costed from hours) - it's
   // checked against their approved hours on Accounts instead.
-  const abn = abnWorkersNamed(r.supplier, abnPeople);
-  if (abn.length === 1) return { status: "SKIPPED", problem: ABN_SKIP_REASON, abnResourceId: abn[0].id };
-  if (abn.length > 1) return { status: "NEEDS_REVIEW", problem: `Could be more than one ABN worker (${abn.map((p) => p.name).join(", ")}) - attach it to the right person on Accounts -> Invoice checks.` };
+  // Only strong evidence (the recorded ABN, or a full two-word name) takes it off job cost; a first name alone waits.
+  const abn = abnMatch(r.supplier, r.supplierAbn ?? null, abnPeople);
+  if (abn.kind === "SKIP") return { status: "SKIPPED", problem: ABN_SKIP_REASON, abnResourceId: abn.person.id };
+  if (abn.kind === "REVIEW") return { status: "NEEDS_REVIEW", problem: abn.problem };
   if (!r.supplier || r.amountExGst == null || !r.invoiceDate) {
     const missing = [!r.supplier && "supplier", r.amountExGst == null && "amount", !r.invoiceDate && "invoice date"].filter(Boolean).join(", ");
     return { status: "NEEDS_REVIEW", problem: `Couldn't read the ${missing}.` };
@@ -261,7 +261,11 @@ export async function processUpload(uploadId: string) {
     const existing = await existingInvoiceKeys();
     const jobIds = new Set(jobs.map((j) => j.id));
     const seen = new Set<string>();
-    const abnPeople = await prisma.resource.findMany({ where: { type: "PERSONNEL", engagement: "ABN" }, select: { id: true, name: true, engagement: true, active: true } });
+    // ABN workers, and anyone with an ABN recorded at onboarding (stage 5) - the strongest match.
+    const abnPeople: AbnPerson[] = (await prisma.resource.findMany({
+      where: { type: "PERSONNEL", OR: [{ engagement: "ABN" }, { onboarding: { abn: { not: null } } }] },
+      select: { id: true, name: true, engagement: true, active: true, onboarding: { select: { abn: true } } },
+    })).map((p) => ({ id: p.id, name: p.name, engagement: p.engagement, active: p.active, abn: p.onboarding?.abn ?? null }));
     const source = `From ${upload.originalName}${upload.uploadedBy ? `, uploaded by ${upload.uploadedBy}` : ""} (invoices inbox)`;
     for (const r of raws) {
       const v = await decide(r, seen, existing, jobIds, abnPeople);

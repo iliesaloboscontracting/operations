@@ -24,12 +24,19 @@ test("the inbox rules: an ABN worker's own invoice isn't counted on a job; two p
     description: "Labour", siteText: null, hireRef: null, amountExGst: 100, gst: 10, totalIncGst: 110, category: "LABOUR_HIRE", projectId: "p1", confidence: "HIGH" as const, matchReason: null,
   };
   const people = [{ id: "r1", name: "Cem", engagement: "ABN", active: true }];
-  const v = await decide(raw, new Set(), new Set(), new Set(["p1"]), people);
-  assert.equal(v.status, "SKIPPED");
-  assert.equal(v.abnResourceId, "r1");
-  assert.match(v.problem!, /ABN worker's invoice/);
-  const two = await decide(raw, new Set(), new Set(), new Set(["p1"]), [...people, { id: "r2", name: "Dogay", engagement: "ABN", active: true }]);
-  assert.equal(two.status, "NEEDS_REVIEW");
-  const dup = await decide(raw, new Set(), new Set(["cem dogay|12"]), new Set(["p1"]), people);
-  assert.equal(dup.status === "DUPLICATE" || dup.status === "SKIPPED", true, "an invoice already entered is still caught first");
+  // First name only: a person decides - it is never silently taken off job cost.
+  const first = await decide(raw, new Set(), new Set(), new Set(["p1"]), people);
+  assert.equal(first.status, "NEEDS_REVIEW");
+  assert.match(first.problem!, /Could be Cem's own invoice/);
+  assert.equal(first.abnResourceId, undefined);
+  // The recorded ABN (stage 5 onboarding) on the invoice: not counted, checked on Accounts.
+  const byAbn = await decide({ ...raw, supplierAbn: "51824753556" }, new Set(), new Set(), new Set(["p1"]), [{ ...people[0], abn: "51 824 753 556" }]);
+  assert.deepEqual([byAbn.status, byAbn.abnResourceId], ["SKIPPED", "r1"]);
+  assert.match(byAbn.problem!, /ABN worker's invoice/);
+  // The full two-word name.
+  const full = await decide(raw, new Set(), new Set(), new Set(["p1"]), [{ id: "r3", name: "Cem Dogay", engagement: "ABN", active: true }]);
+  assert.deepEqual([full.status, full.abnResourceId], ["SKIPPED", "r3"]);
+  // No ABN worker named: the ordinary rules carry on (here: a clear job match is added).
+  const none = await decide({ ...raw, supplier: "Max Hire" }, new Set(), new Set(), new Set(["p1"]), people);
+  assert.equal(none.status, "ADDED");
 });

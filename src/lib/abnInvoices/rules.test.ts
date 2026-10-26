@@ -1,20 +1,43 @@
 // ABN worker invoices (Accounts stage 4) - matching, hours comparison, GST flag, ABN checksum. `npm test`.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { abnLooksValid, abnWorkersNamed, compareHours, gstFlag, parseDays, weeksCovering } from "./rules";
+import { abnLooksValid, abnMatch, compareHours, gstFlag, parseDays, weeksCovering, type AbnPerson } from "./rules";
 
-const PEOPLE = [
-  { id: "1", name: "Cem", engagement: "ABN" }, { id: "2", name: "Joe Bloggs", engagement: "ABN" },
-  { id: "3", name: "Sam", engagement: "EMPLOYEE" }, { id: "4", name: "Old Timer", engagement: "ABN", active: false }, { id: "5", name: "Joe", engagement: "ABN" },
+// Made-up people and ABNs (the ATO's published example ABN and its neighbours).
+const PEOPLE: AbnPerson[] = [
+  { id: "max", name: "Max", engagement: "ABN" }, { id: "joe", name: "Joe Bloggs", engagement: "ABN" },
+  { id: "cem", name: "Cem", engagement: "ABN", abn: "51 824 753 556" }, { id: "sam", name: "Sam", engagement: "EMPLOYEE" },
+  { id: "old", name: "Old Timer", engagement: "ABN", active: false },
 ];
+const kindOf = (m: ReturnType<typeof abnMatch>) => (m.kind === "SKIP" ? `SKIP:${m.person.id}:${m.why}` : m.kind);
 
-test("whose invoice: every word of an ABN worker's name, as whole words; employees and leavers never", () => {
-  assert.deepEqual(abnWorkersNamed("Cem Dogay Pty Ltd", PEOPLE).map((p) => p.id), ["1"]);
-  assert.deepEqual(abnWorkersNamed("CEMENT SUPPLIES", PEOPLE), [], "not part of a word");
-  assert.deepEqual(abnWorkersNamed("Sam Smith", PEOPLE), [], "employees aren't matched");
-  assert.deepEqual(abnWorkersNamed("Old Timer Demolition", PEOPLE), [], "inactive");
-  assert.deepEqual(abnWorkersNamed("Joe Bloggs", PEOPLE).map((p) => p.id), ["2", "5"], "two matches - a person decides");
-  assert.deepEqual(abnWorkersNamed(null, PEOPLE), []);
+test("a single first name is never enough: 'Max Hire' with an ABN worker 'Max' waits for a person", () => {
+  const m = abnMatch("Max Hire Pty Ltd", null, PEOPLE);
+  assert.equal(m.kind, "REVIEW");
+  assert.equal(m.kind === "REVIEW" && m.problem, "Could be Max's own invoice (ABN worker) - attach on Accounts -> Invoice checks, or add as a job cost.");
+  assert.equal(kindOf(abnMatch("Max Hire", "99 999 999 999", PEOPLE)), "REVIEW", "a different ABN on the invoice doesn't help");
+});
+
+test("the recorded ABN matches: not counted on a job, checked on Accounts", () => {
+  assert.equal(kindOf(abnMatch("CD Demolition Services", "51824753556", PEOPLE)), "SKIP:cem:ABN", "ABN alone, any supplier name");
+  assert.equal(kindOf(abnMatch("Cem", "51 824 753 556", PEOPLE)), "SKIP:cem:ABN", "a single name plus a matching ABN");
+  assert.equal(kindOf(abnMatch("Joe Bloggs", "51824753556", PEOPLE)), "SKIP:cem:ABN", "the ABN wins over a name match");
+  const twice = abnMatch("X", "51824753556", [...PEOPLE, { id: "cem2", name: "Cem Two", engagement: "ABN", abn: "51824753556" }]);
+  assert.equal(twice.kind, "REVIEW", "an ABN recorded for two people waits for a person");
+});
+
+test("a full two-word name (every word, whole words) of an ABN worker is strong enough", () => {
+  assert.equal(kindOf(abnMatch("Joe Bloggs Pty Ltd", null, PEOPLE)), "SKIP:joe:FULL_NAME");
+  assert.equal(kindOf(abnMatch("Bloggs Joe", null, PEOPLE)), "SKIP:joe:FULL_NAME", "order doesn't matter");
+  assert.equal(kindOf(abnMatch("Joe Bloggsworth", null, PEOPLE)), "NONE", "whole words only");
+  assert.equal(kindOf(abnMatch("Joe Bloggs", null, [...PEOPLE, { id: "joe2", name: "Bloggs Joe", engagement: "ABN" }])), "REVIEW", "two full-name matches wait");
+});
+
+test("employees, leavers and unrelated suppliers are never matched", () => {
+  assert.equal(kindOf(abnMatch("Sam Smith Plumbing", null, PEOPLE)), "NONE", "Sam is an employee");
+  assert.equal(kindOf(abnMatch("Old Timer Demolition", null, PEOPLE)), "NONE", "inactive");
+  assert.equal(kindOf(abnMatch("CEMENT SUPPLIES", null, PEOPLE)), "NONE", "not part of a word");
+  assert.equal(kindOf(abnMatch(null, null, PEOPLE)), "NONE");
 });
 
 const APPROVED = [
