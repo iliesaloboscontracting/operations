@@ -323,6 +323,16 @@ business, without becoming unnecessarily complicated.
   one quiet position at crew sign-in (`SiteAttendance.gps*`, IN only, waits
   ≤1.5 s, refusal never blocks), visible to accounts / Admins only. Travel
   rule and emails from accounts@ still to come.
+  **Stage 5, Compliance & HR** (`/accounts/compliance`, `src/lib/compliance/`,
+  design `docs/accounts/STAGE5-DESIGN.md`): `WorkerTicket` per Labour-register
+  person, `WorkerOnboarding` (apart from pay), `ComplianceDocument` (company /
+  subcontractor) and their files in `COMPLIANCE_FILE_DIR` (served only via
+  `guardAccounts`, never on a link). Each expiry keeps one linked
+  `AccountsItem` (`sourceType`/`sourceId`, 30 days ahead) - the only reminder
+  system. TFN and bank details are refused everywhere (`looksLikeTfnOrBank`);
+  they stay in Xero. Managers see only a red expired-ticket icon on the board
+  (`/api/compliance/flags`, labels + dates) - information only, never blocks
+  an allocation. Nothing is deleted (archive; a removed file is hidden).
 - **Production benchmarks** (LCI 5b + Estimating 5c, live 27 Oct;
   `src/lib/production/`, `/production` Manager+, hours only): labour hours
   per unit per activity code from the daily logs against the approved budget

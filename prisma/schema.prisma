@@ -180,8 +180,13 @@ model AccountsItem {
   createdBy   String?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
+  // Stage 5 (compliance): the ticket / document this reminder follows. Kept in step by
+  // lib/compliance/reminders.ts - the one reminder system, no second copy.
+  sourceType  String? // WORKER_TICKET | COMPLIANCE_DOC
+  sourceId    String?
 
   @@index([status, dueDate])
+  @@index([sourceType, sourceId])
 }
 
 model InvoiceUpload {
@@ -402,6 +407,8 @@ model Resource {
   allocationCosts AllocationCost[]
   jobActuals  JobActual[]
   officeContactFor Project[] @relation("ProjectOfficeContact")
+  workerTickets WorkerTicket[] // stage 5: tickets / licences (accounts + Admins only)
+  onboarding  WorkerOnboarding? // stage 5: onboarding details, kept apart from pay
 
   @@index([type])
 }
@@ -410,7 +417,7 @@ model Resource {
 model ServiceRecord {
   id          String   @id @default(cuid())
   resourceId  String
-  resource    Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  resource    Resource @relation(fields: [resourceId], references: [id], onDelete: Restrict)
   date        String // YYYY-MM-DD
   mechanic    String?
   invoiceNo   String?
@@ -432,7 +439,7 @@ model Assignment {
   jobId      String
   job        Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
   resourceId String
-  resource   Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  resource   Resource @relation(fields: [resourceId], references: [id], onDelete: Restrict)
   role       String? // role for this specific job (defaults to resource.role, editable)
   createdAt  DateTime @default(now())
 
@@ -549,7 +556,7 @@ model JobActual {
   jobId       String
   job         Job      @relation(fields: [jobId], references: [id], onDelete: Cascade)
   resourceId  String
-  resource    Resource @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  resource    Resource @relation(fields: [resourceId], references: [id], onDelete: Restrict)
   attended    Boolean  @default(true)
   actualHours Float?
   // "SIGN_IN" when filled from site sign-ins (21 Oct 2026) - follows later
@@ -713,7 +720,7 @@ model SiteLink {
   place      String? // POSTER (sign-in point): OFFICE | YARD | VEHICLE
   jobId      String? // HANDOVER
   expiresAt  DateTime? // HANDOVER - stops working at the end of that day
-  resource   Resource? @relation(fields: [resourceId], references: [id], onDelete: Cascade)
+  resource   Resource? @relation(fields: [resourceId], references: [id], onDelete: Restrict)
   createdBy  String?
   createdAt  DateTime  @default(now())
   lastUsedAt DateTime?
@@ -1518,6 +1525,100 @@ model TipRate {
   retiredReason     String?
 
   @@index([tipSite])
+}
+
+// ---------- Accounts stage 5: Compliance & HR (26 Oct 2026, docs/accounts/STAGE5-DESIGN.md) ----------
+// Accounts login + Admins only (guardAccounts). Managers see just the expired-ticket flag on the board.
+// No money anywhere; TFN and bank details are never stored (they stay in Xero). Nothing is deleted.
+
+// One ticket / licence / induction held by a worker (a Labour-register person).
+model WorkerTicket {
+  id             String           @id @default(cuid())
+  resourceId     String
+  resource       Resource         @relation(fields: [resourceId], references: [id], onDelete: Restrict)
+  kind           String // see lib/compliance/rules.ts TICKET_KINDS
+  label          String? // class or detail, e.g. "HC", "WP boom 11 m+", the site of an induction
+  number         String? // card / licence number - never on the board or a link
+  issueDate      String? // YYYY-MM-DD
+  expiryDate     String? // YYYY-MM-DD; none = doesn't expire
+  status         String           @default("ACTIVE") // ACTIVE | ARCHIVED
+  archivedReason String?
+  replacesId     String? // the older ticket this one renewed
+  notes          String?
+  createdBy      String
+  createdAt      DateTime         @default(now())
+  updatedBy      String?
+  updatedAt      DateTime         @updatedAt
+  files          ComplianceFile[]
+
+  @@index([resourceId])
+  @@index([status, expiryDate])
+}
+
+// Company and subcontractor documents with expiries (insurances, licences, SWMS templates...).
+model ComplianceDocument {
+  id             String           @id @default(cuid())
+  holderType     String // COMPANY | SUBCONTRACTOR
+  holderName     String
+  kind           String // see lib/compliance/rules.ts DOCUMENT_KINDS
+  title          String
+  reference      String? // policy / licence number
+  issueDate      String?
+  expiryDate     String?
+  status         String           @default("ACTIVE") // ACTIVE | ARCHIVED
+  archivedReason String?
+  notes          String?
+  createdBy      String
+  createdAt      DateTime         @default(now())
+  updatedBy      String?
+  updatedAt      DateTime         @updatedAt
+  files          ComplianceFile[]
+
+  @@index([status, expiryDate])
+}
+
+// A photo / PDF of a ticket or document, stored in COMPLIANCE_FILE_DIR. "Remove" hides it; the file stays.
+model ComplianceFile {
+  id           String              @id @default(cuid())
+  fileName     String              @unique
+  originalName String
+  mime         String
+  size         Int
+  ticketId     String?
+  ticket       WorkerTicket?       @relation(fields: [ticketId], references: [id], onDelete: SetNull)
+  documentId   String?
+  document     ComplianceDocument? @relation(fields: [documentId], references: [id], onDelete: SetNull)
+  uploadedBy   String
+  createdAt    DateTime            @default(now())
+  removedAt    DateTime?
+  removedBy    String?
+
+  @@index([ticketId])
+  @@index([documentId])
+}
+
+// Onboarding details per worker, kept apart from pay. TFN, bank and super details stay in Xero only:
+// xeroSetUp is a tick, never the details.
+model WorkerOnboarding {
+  id                String   @id @default(cuid())
+  resourceId        String   @unique
+  resource          Resource @relation(fields: [resourceId], references: [id], onDelete: Restrict)
+  startDate         String?
+  employmentType    String? // EMPLOYEE_FULL_TIME | EMPLOYEE_PART_TIME | CASUAL | ABN_CONTRACTOR | LABOUR_HIRE
+  abn               String?
+  address           String?
+  dateOfBirth       String?
+  emergencyName     String?
+  emergencyPhone    String?
+  emergencyRelation String?
+  xeroSetUp         Boolean  @default(false)
+  contractSigned    String?
+  policiesSigned    String?
+  inductionDate     String?
+  notes             String?
+  updatedBy         String
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 }
 
 // Production benchmarks (LCI phase 5b, docs/lci/PHASE4-5-DESIGN.md §3.4): what Operations offered
