@@ -22,12 +22,18 @@ export type FuelReading = {
   documentType: "fuel_receipt" | "tip_docket" | "other";
   litres: string; pricePerLitre: string; total: string; station: string; dateTime: string; rego: string; unclear: string[]; note: string;
 };
+// An own-money purchase (tools, materials, parking...) - reimbursements from the phone.
+export type PurchaseReading = {
+  documentType: "receipt" | "tax_invoice" | "fuel_receipt" | "tip_docket" | "other";
+  supplier: string; receiptNo: string; dateTime: string; total: string; gst: string; unclear: string[]; note: string;
+};
 export type OdometerReadingResult = { km: string; unclear: boolean; note: string };
 
 // The reader the runner uses; a test passes its own.
 export type Reader = {
   tip: (photos: Photo[], ctx: ReadContext) => Promise<TipReading>;
   fuel: (photos: Photo[], ctx: ReadContext) => Promise<FuelReading>;
+  purchase: (photos: Photo[]) => Promise<PurchaseReading>;
   odometer: (photo: Photo) => Promise<OdometerReadingResult>;
 };
 
@@ -95,6 +101,23 @@ const FUEL_SCHEMA = {
   additionalProperties: false,
 } as const;
 
+const PURCHASE_FIELDS = ["supplier", "receiptNo", "dateTime", "total", "gst"];
+const PURCHASE_SCHEMA = {
+  type: "object",
+  properties: {
+    documentType: { type: "string", enum: ["receipt", "tax_invoice", "fuel_receipt", "tip_docket", "other"] },
+    supplier: S("The shop / business that issued it."),
+    receiptNo: S("Receipt, invoice or transaction number as printed."),
+    dateTime: S("Date (and time if shown) as YYYY-MM-DD or YYYY-MM-DDTHH:MM."),
+    total: S("The total paid, including GST, as plain digits, e.g. '84.50'."),
+    gst: S("The GST amount as plain digits, if shown."),
+    unclear: { type: "array", items: { type: "string", enum: PURCHASE_FIELDS } },
+    note: S("One short line if something is odd (e.g. cut off, two receipts in one photo). Otherwise empty."),
+  },
+  required: ["documentType", ...PURCHASE_FIELDS, "unclear", "note"],
+  additionalProperties: false,
+} as const;
+
 const ODO_SCHEMA = {
   type: "object",
   properties: {
@@ -118,6 +141,12 @@ export const claudeReader: Reader = {
       `You read fuel receipts for Lobos Contracting's trucks so fuel use can be tracked per truck. ${COMMON}`,
       [...images(photos), { type: "text", text: `${known(ctx)}\n\nRead this fuel receipt.` }],
       FUEL_SCHEMA,
+    ),
+  purchase: (photos) =>
+    parse<PurchaseReading>(
+      `You read shop receipts that Lobos Contracting's workers paid for themselves, so accounts can pay them back. ${COMMON}`,
+      [...images(photos), { type: "text", text: "Read this receipt." }],
+      PURCHASE_SCHEMA,
     ),
   odometer: (photo) =>
     parse<OdometerReadingResult>(

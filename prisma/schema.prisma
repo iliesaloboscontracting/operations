@@ -1448,7 +1448,7 @@ model Lesson {
 // Links to existing rows are plain ids, so no existing table changes. Money stays office-side: never on a link.
 model Receipt {
   id               String         @id @default(cuid())
-  kind             String // TIP | FUEL
+  kind             String // TIP | FUEL | PURCHASE (an own-money purchase, accounts only)
   siteLinkId       String // the phone link it came from
   sentBy           String // the person's name when sent
   sentByResourceId String?
@@ -1477,6 +1477,13 @@ model Receipt {
   correctedAt      DateTime?
   // R3 - the tip invoice (InvoicedCost) that replaced this docket's estimate.
   invoicedCostId   String?
+  // Reimbursements from the phone (docs/accounts/REIMBURSE-LINK-DESIGN.md): the worker paid it themselves.
+  // FUEL stays a fuel receipt (counts in the fuel indicators); anything else is kind PURCHASE (accounts only).
+  ownMoney         Boolean        @default(false)
+  purpose          String? // FUEL | TOOLS | MATERIALS | PARKING_TOLLS | OTHER
+  note             String?
+  supplier         String? // PURCHASE reading
+  purchaseTotal    Float? // PURCHASE reading, inc GST
   photos           ReceiptPhoto[]
 
   @@index([jobId])

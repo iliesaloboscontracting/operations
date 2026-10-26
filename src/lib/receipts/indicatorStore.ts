@@ -4,7 +4,7 @@
 // Maths: ./indicators.ts. Nothing here writes.
 import { prisma } from "../prisma";
 import { assertNoMoney } from "../moneyGuard";
-import { lobosTrucks } from "./store";
+import { fuelAssets } from "./store";
 import { tipDocketsByProject } from "./tipStore";
 import { jobTips, newTipSites, truckIndicators, WINDOW_DAYS, type JobTipIndicators, type TruckIndicators } from "./indicators";
 
@@ -21,11 +21,13 @@ export async function jobIndicators(projectId?: string): Promise<JobIndicatorDTO
   }).sort((a, b) => (b.lastDay ?? "").localeCompare(a.lastDay ?? ""));
 }
 
-export type TruckIndicatorDTO = TruckIndicators & { vehicleId: string; name: string; tipLoads: number; tipTonnes: number };
+// Trucks and owned plant (27 Oct 2026, Ilies: fuel for excavators etc. too). Plant has no odometer, so km and
+// L/100 km stay empty for it; fuel by week works the same.
+export type TruckIndicatorDTO = TruckIndicators & { vehicleId: string; name: string; group: "TRUCK" | "PLANT"; tipLoads: number; tipTonnes: number };
 export async function truckIndicatorList(vehicleId?: string, now = new Date()): Promise<TruckIndicatorDTO[]> {
   const since = new Date(now.getTime() - 4 * WINDOW_DAYS * 86_400_000); // enough history for the 8-week average
   const window = new Date(now.getTime() - WINDOW_DAYS * 86_400_000);
-  const trucks = (await lobosTrucks()).filter((t) => !vehicleId || t.id === vehicleId);
+  const trucks = (await fuelAssets()).filter((t) => !vehicleId || t.id === vehicleId);
   const ids = trucks.map((t) => t.id);
   const [odos, fuel, tips] = await Promise.all([
     prisma.odometerReading.findMany({ where: { vehicleId: { in: ids }, status: { in: COUNTED }, km: { not: null }, sentAt: { gte: since } }, select: { vehicleId: true, km: true, sentAt: true } }),
@@ -39,7 +41,7 @@ export async function truckIndicatorList(vehicleId?: string, now = new Date()): 
       now,
     );
     const mine = tips.filter((x) => x.vehicleId === t.id);
-    return { vehicleId: t.id, name: t.name, ...ind, tipLoads: mine.length, tipTonnes: Math.round(mine.reduce((n, x) => n + (x.tonnes ?? 0), 0) * 100) / 100 };
+    return { vehicleId: t.id, name: t.name, group: t.group, ...ind, tipLoads: mine.length, tipTonnes: Math.round(mine.reduce((n, x) => n + (x.tonnes ?? 0), 0) * 100) / 100 };
   });
 }
 

@@ -7,7 +7,8 @@ import { prisma } from "../prisma";
 import { ReadingNotConfigured } from "../invoiceReading";
 import { readReceiptPhoto, receiptMimeOf } from "./files";
 import { claudeReader, type Photo, type ReadContext, type Reader } from "./reading";
-import { decideFuel, decideOdometer, decideTip, fuelFields, normDocket, tipFields } from "./checks";
+import { decideFuel, decideOdometer, decidePurchase, decideTip, fuelFields, normDocket, purchaseFields, tipFields } from "./checks";
+import { claimFromOwnReceipt } from "../reimbursements/store";
 import { syncTipMatchesSoon, truckRegos, vehicleForRego } from "./tipStore";
 
 export const readingEnabled = () => process.env.RECEIPT_READING !== "off";
@@ -68,6 +69,10 @@ export async function readReceipt(id: string, reader: Reader = claudeReader): Pr
         // The docket's rego, when it's one of our trucks, links it to that truck (R3; R4 uses it).
         const vehicleId = vehicleForRego(fields.rego, ctx.trucks);
         data = { ...fields, ...(vehicleId ? { vehicleId } : {}), reading: JSON.stringify({ ...prior, result: x, reasons: decision.reasons, readAt: new Date().toISOString(), tries: (prior.tries ?? 0) + 1, lastError: undefined }) };
+      } else if (r.kind === "PURCHASE") {
+        const x = await reader.purchase(photos);
+        decision = decidePurchase(x, { sentAt: r.sentAt });
+        data = { ...purchaseFields(x), reading: JSON.stringify({ ...prior, result: x, reasons: decision.reasons, readAt: new Date().toISOString(), tries: (prior.tries ?? 0) + 1, lastError: undefined }) };
       } else {
         const x = await reader.fuel(photos, ctx);
         const picked = ctx.trucks.find((t) => t.id === r.vehicleId)?.rego ?? null;
@@ -77,6 +82,8 @@ export async function readReceipt(id: string, reader: Reader = claudeReader): Pr
       const saved = await prisma.receipt.updateMany({ where: { id: r.id, status: "SENT" }, data: { ...data, status: decision.status, checkReasons: JSON.stringify(decision.reasons) } });
       // A tip docket that now counts may be one an invoice already bills (R3).
       if (saved.count && r.kind === "TIP" && decision.status === "READ") syncTipMatchesSoon();
+      // "I paid this myself" from a phone: a clean reading becomes the claim for accounts.
+      if (saved.count && r.ownMoney && decision.status === "READ") await claimFromOwnReceipt(r.id);
     } catch (e) {
       await failed("receipt", r.id, prior, e);
     }

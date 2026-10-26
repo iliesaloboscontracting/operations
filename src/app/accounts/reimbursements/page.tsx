@@ -21,7 +21,7 @@ const blank = { resourceId: "", description: "", supplier: "", refNo: "", amount
 function Claim({ c, busy, onPay, onCancel }: { c: ClaimDTO; busy: boolean; onPay?: () => void; onCancel?: () => void }) {
   return (
     <tr className="align-top">
-      <td className="px-2 py-1.5"><div className="text-sm text-gray-100">Reimburse to {c.personName}</div><div className="text-gray-500">{c.source === "RECEIPT" ? `From a ${c.receiptKind === "FUEL" ? "fuel receipt" : "tip docket"}` : `Entered by ${c.createdBy}`}</div></td>
+      <td className="px-2 py-1.5"><div className="text-sm text-gray-100">Reimburse to {c.personName}</div><div className="text-gray-500">{c.source === "LINK" ? "Sent from their phone" : c.source === "RECEIPT" ? `From a ${c.receiptKind === "FUEL" ? "fuel receipt" : "receipt"}` : `Entered by ${c.createdBy}`}</div></td>
       <td className="px-2 py-1.5"><div className="text-gray-200">{c.description}</div><div className="text-gray-500">{[c.supplier, c.refNo && `No. ${c.refNo}`].filter(Boolean).join(" · ")}</div>{c.warnings.map((w) => <div key={w} className="text-amber-300">{w}</div>)}</td>
       <td className="px-2 py-1.5 tabular-nums text-gray-300">{c.spentOn}</td>
       <td className="px-2 py-1.5 text-right text-sm font-semibold tabular-nums text-gray-100">{money(c.amountIncGst)}</td>
@@ -81,7 +81,7 @@ export default function ReimbursementsPage() {
   async function claimReceipt(r: ReceiptToClaimDTO) {
     let amountIncGst: string | undefined;
     if (r.amountIncGst == null) {
-      amountIncGst = prompt(`This ${r.kind === "FUEL" ? "fuel receipt" : "docket"} hasn't been read. Amount paid by ${r.sentBy} (inc GST)?`) ?? "";
+      amountIncGst = prompt(`This receipt hasn't been read. Amount paid by ${r.sentBy} (inc GST)?`) ?? "";
       if (!amountIncGst) return;
     }
     await send({ receiptId: r.id, amountIncGst }, `Reimburse to ${r.sentBy} - added.`, r.id);
@@ -136,14 +136,14 @@ export default function ReimbursementsPage() {
           </section>
 
           <section className="mb-5">
-            <div className="mb-1 text-sm font-semibold text-gray-100">Receipts sent in the last 60 days <span className="font-normal text-gray-500">· not claimed · claim one when the worker paid it themselves</span></div>
-            {data.receipts.length === 0 ? <p className="text-sm text-gray-500">None.</p> : (
+            <div className="mb-1 text-sm font-semibold text-gray-100">Own-money receipts waiting <span className="font-normal text-gray-500">· sent from a phone with &ldquo;I paid this myself&rdquo;, last 60 days · a clean reading becomes a claim by itself; these need you</span></div>
+            {data.receipts.length === 0 ? <p className="text-sm text-gray-500">None waiting. (Tip dockets and company fuel receipts are never claims.)</p> : (
               <div className="overflow-x-auto rounded-xl border border-edge bg-panel">
                 <table className="w-full min-w-[640px] text-xs">
                   <tbody className="divide-y divide-edge/60">
                     {data.receipts.map((r) => (
                       <tr key={r.id}>
-                        <td className="px-2 py-1.5 text-gray-200">{r.kind === "FUEL" ? "Fuel" : "Tip docket"}{r.where ? ` · ${r.where}` : ""}{r.refNo ? ` · No. ${r.refNo}` : ""}</td>
+                        <td className="px-2 py-1.5 text-gray-200">{({ FUEL: "Fuel", TOOLS: "Tools", MATERIALS: "Materials", PARKING_TOLLS: "Parking / tolls", OTHER: "Other" } as Record<string, string>)[r.purpose ?? ""] ?? (r.kind === "FUEL" ? "Fuel" : "Purchase")}{r.note ? ` · ${r.note}` : ""}{r.where ? ` · ${r.where}` : ""}{r.refNo ? ` · No. ${r.refNo}` : ""}<div className="text-gray-500">{r.readStatus}</div></td>
                         <td className="px-2 py-1.5 text-gray-400">{r.sentBy}</td>
                         <td className="px-2 py-1.5 tabular-nums text-gray-400">{r.sentOn}</td>
                         <td className="px-2 py-1.5 text-right tabular-nums text-gray-200">{r.amountIncGst == null ? <span className="text-gray-500">not read</span> : money(r.amountIncGst)}</td>

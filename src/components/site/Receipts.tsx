@@ -6,6 +6,7 @@ import PhotoPicker from "@/components/tools/PhotoPicker";
 import { serverErrorMessage } from "@/lib/apiFetch";
 import type { ReceiptKind, ReceiptLinkDTO } from "@/lib/receipts/rules";
 import type { ReceiptOptionsDTO } from "@/lib/receipts/store";
+import { AssetOptions } from "./Reimburse";
 
 // Receipts on a supervisor's or driver's link (R1, 26 Oct 2026): whoever has the tip docket or fuel
 // receipt photographs it when it happens. Tip docket -> photo -> job (prefilled) -> Asbestos yes/no;
@@ -109,10 +110,10 @@ export function AddReceipt({ api, onDone }: { api: string; onDone: (message: str
         </>
       ) : (
         <label className="block">
-          <span className="mb-1 block text-sm text-gray-300">Truck</span>
+          <span className="mb-1 block text-sm text-gray-300">Truck or machine</span>
           <select className={input} value={vehicleId} onChange={(e) => setVehicleId(e.target.value)}>
-            <option value="">Which truck?</option>
-            {data.options.trucks.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+            <option value="">Which truck or machine?</option>
+            <AssetOptions assets={[...data.options.trucks.map((t) => ({ ...t, group: "TRUCK" as const })), ...data.options.plant.map((t) => ({ ...t, group: "PLANT" as const }))]} />
           </select>
         </label>
       )}
