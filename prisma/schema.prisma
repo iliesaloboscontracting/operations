@@ -1801,3 +1801,16 @@ model RateLink {
 
   @@unique([supplierKey, lineKey])
 }
+
+// Accounts stage 7 (docs/accounts/STAGE7-DESIGN.md): Victoria's settings for the tax estimates - which P&L
+// accounts are wages / super, GST basis, BAS frequency, who lodges. Append-only; the latest row per key counts.
+model TaxSetting {
+  id    String   @id @default(cuid())
+  key   String // PAYROLL_ACCOUNTS | GST_BASIS | BAS_FREQUENCY | LODGEMENT
+  value String // JSON
+  by    String
+  byId  String
+  at    DateTime @default(now())
+
+  @@index([key, at])
+}

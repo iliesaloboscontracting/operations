@@ -50,7 +50,7 @@ export default function AccountsPage() {
     <PageShell
       title="Accounts"
       subtitle="What's waiting for you, what's due, and your reminders."
-      actions={<div className="flex items-center gap-2">{[["/accounts/payroll", "Payroll"], ["/accounts/reimbursements", "Reimbursements"], ["/accounts/labour-cost", "Labour cost"], ["/accounts/invoice-checks", "Invoice checks"], ["/accounts/compliance", "Compliance"]].map(([href, label]) => <Link key={href} href={href} className="rounded-lg border border-edge px-3 py-1.5 text-xs font-medium text-gray-200 hover:bg-panel2">{label}</Link>)}<PushToggle /></div>}
+      actions={<div className="flex items-center gap-2">{[["/accounts/payroll", "Payroll"], ["/accounts/reimbursements", "Reimbursements"], ["/accounts/labour-cost", "Labour cost"], ["/accounts/invoice-checks", "Invoice checks"], ["/accounts/compliance", "Compliance"], ["/accounts/tax", "Tax estimates"]].map(([href, label]) => <Link key={href} href={href} className="rounded-lg border border-edge px-3 py-1.5 text-xs font-medium text-gray-200 hover:bg-panel2">{label}</Link>)}<PushToggle /></div>}
     >
       {!p ? (
         <p className="text-sm text-gray-500">Loading…</p>
