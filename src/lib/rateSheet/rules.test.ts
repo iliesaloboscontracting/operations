@@ -51,3 +51,9 @@ test("stored lines are read safely; only the agreed contract shape is accepted",
   assert.equal(isRateSheet({ schema_version: "rate-sheet.v2", version: "1", rates: [] }), false);
   assert.equal(isRateSheet({ schema_version: "rate-sheet.v1", version: "1", rates: [{ id: "x" }] }), false);
 });
+
+test("the pick list only offers rates that share a word with the line (when any do)", () => {
+  const rates = [R({}), R({ id: "r2", item: "1.7T Excavator" }), R({ id: "r5", item: "Rock breaker" })];
+  const m = matchLine({ description: "Excavator", quantity: 1, unit: "day", unitPriceExGst: 1 }, "Acme Hire", rates, new Map());
+  assert.deepEqual(m.how === "NONE" && m.candidates.map((c) => c.id).sort(), ["r1", "r2"]);
+});

@@ -54,7 +54,8 @@ export function matchLine(line: InvoiceLine, supplier: string | null, rates: She
   const unit = normUnit(line.unit);
   const sameUnit = unit ? fromSupplier.filter((r) => normUnit(r.unit) === unit) : fromSupplier;
   const scored = sameUnit.map((r) => ({ r, s: overlap(line.description, r.item) })).sort((a, b) => b.s - a.s);
-  const candidates = (scored.length ? scored.map((x) => x.r) : fromSupplier).slice(0, 5);
+  const related = scored.filter((x) => x.s > 0);
+  const candidates = (related.length ? related : scored).map((x) => x.r).slice(0, 5);
   if (!scored.length) return { how: "NONE", reason: unit ? `No ${unit} rate for this supplier` : "No unit on the line", candidates };
   const [best, next] = scored;
   if (best.s < MATCH_BAR || (next && next.s === best.s)) return { how: "NONE", reason: "Pick the rate", candidates };

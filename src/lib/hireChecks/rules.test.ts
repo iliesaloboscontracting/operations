@@ -30,7 +30,7 @@ test("still on hire: the window runs to today", () => {
 test("more days than the register shows, worked out from the amount and the item's own rate", () => {
   const f = checkHireInvoices(ITEM, [I({ amountExGst: 800 })], "2026-10-27"); // (800-100)/100 = 7 days vs 5
   assert.deepEqual(kinds(f), ["MORE_DAYS"]);
-  assert.match(f[0].text, /about 7 days/);
+  assert.match(f[0].text, /about 7 days. hire/);
   assert.deepEqual(checkHireInvoices(ITEM, [I({ amountExGst: 640 })], "2026-10-27"), [], "within half a day");
   assert.deepEqual(checkHireInvoices({ ...ITEM, hireRate: null, dailyRateExGst: null }, [I({ amountExGst: 99999 })], "2026-10-27"), [], "no rate on the item: not checked");
   const weekly = checkHireInvoices({ ...ITEM, hireRate: 500, hireRateUnit: "WEEK" }, [I({ amountExGst: 600 })], "2026-10-27");

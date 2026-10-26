@@ -183,7 +183,7 @@ function fiveMonthsAgo() {
   return d.toISOString().slice(0, 10);
 }
 
-async function decide(r: Raw, seen: Set<string>, existing: Set<string>, jobIds: Set<string>, abnPeople: AbnPerson[] = []): Promise<Verdict> {
+export async function decide(r: Raw, seen: Set<string>, existing: Set<string>, jobIds: Set<string>, abnPeople: AbnPerson[] = []): Promise<Verdict> {
   const key = dupKey(r.supplier, r.invoiceNo);
   const site = r.siteText ? `"${r.siteText}"` : "the site on it";
   if (r.documentType && !["invoice", "credit_note", "receipt"].includes(r.documentType)) {

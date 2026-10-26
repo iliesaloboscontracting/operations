@@ -26,14 +26,14 @@ export default function InvoiceChecksPage() {
   const { accountsOnly, isAdmin, loading } = useAuth();
   const [tab, setTab] = useState<Tab>("abn");
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [data, setData] = useState<any>(null);
+  const [loaded, setLoaded] = useState<{ tab: Tab; body: any } | null>(null);
+  const data = loaded?.tab === tab ? loaded.body : null; // never draw one tab with another tab's data
   const [error, setError] = useState<string | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [attach, setAttach] = useState<{ draftId: string; resourceId: string }>({ draftId: "", resourceId: "" });
   const load = useCallback(() => {
-    setData(null);
-    apiFetch(`/api/accounts/invoice-checks?tab=${tab}`).then(async (r) => (r.ok ? (setError(null), setData(await r.json())) : setError(await serverErrorMessage(r, "Couldn't load."))));
+    apiFetch(`/api/accounts/invoice-checks?tab=${tab}`).then(async (r) => (r.ok ? (setError(null), setLoaded({ tab, body: await r.json() })) : setError(await serverErrorMessage(r, "Couldn't load."))));
   }, [tab]);
   useEffect(() => { load(); }, [load]);
 

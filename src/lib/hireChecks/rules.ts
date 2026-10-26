@@ -44,7 +44,7 @@ export function checkHireInvoices(item: HireItem, invoices: HireInvoice[], today
       const registerDays = to >= from ? weekdaysBetween(from, to) : 0;
       const billedDays = Math.max(0, inv.amountExGst - extras) / dayRate;
       if (billedDays > registerDays + outside + EXTRA_DAYS_TOLERANCE) {
-        flags.push({ invoiceId: inv.id, kind: "MORE_DAYS", text: `${no} works out at about ${Math.round(billedDays * 10) / 10} days at the register's rate; the register shows ${registerDays} weekday(s) on hire in that period.` });
+        flags.push({ invoiceId: inv.id, kind: "MORE_DAYS", text: `${no} comes to about ${Math.round(billedDays * 10) / 10} days' hire at the register's rate; the register shows ${registerDays} weekday(s) on hire in that period - extra days, or other charges (damage waiver, fuel, cleaning)?` });
       }
     }
   }

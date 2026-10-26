@@ -84,7 +84,7 @@ Pure rules in `lib/hireChecks/rules.ts`; existing helpers reused (`hireEstimate.
 **What's checked:** every `InvoicedCost` linked to a hire-register item (`hireResourceId` + period). The inbox already links these. For each item, its invoices are checked against its on-hire window (on-hire date → off-hire date, or today while it's still on hire):
 
 - **OUTSIDE_PERIOD**: weekdays billed before the on-hire date or after the off-hire date.
-- **MORE_DAYS**: the invoice amount ÷ the item's day rate (the register's own rate) implies more weekdays than the register shows inside the invoice period.
+- **MORE_DAYS**: the invoice amount ÷ the item's day rate (the register's own rate) comes to more days than the register shows inside the invoice period. The wording also asks whether other charges (damage waiver, fuel, cleaning) explain it.
   - Delivery and pick-up charges on the item are allowed for before flagging.
   - *Draft:* half a day of tolerance. With no rate on the item, this check is skipped and says so.
 - **BILLED_TWICE**: two invoices for the same item whose periods share a weekday.
