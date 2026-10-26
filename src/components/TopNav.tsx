@@ -100,6 +100,7 @@ const ACCOUNTS = [
   { href: "/accounts/compliance", label: "Compliance" },
   { href: "/accounts/assets", label: "Assets" },
   { href: "/accounts/purchases", label: "Purchases" },
+  { href: "/accounts/tax", label: "Tax estimates" },
   { href: "/invoices", label: "Invoices" },
 ];
 // The invoices inbox is an Operations page as well as an Accounts tab: an Admin who got there from the

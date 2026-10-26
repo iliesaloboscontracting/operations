@@ -20,6 +20,7 @@ import { pipelineTile } from "./pipeline";
 import { OFFICE_KINDS } from "../requestTypes";
 import { loadPipelineState } from "./pipelineFeed";
 import { loadXeroHealth } from "../xero/imports";
+import { directorsTaxLine } from "../taxEstimates/store";
 import {
   costConfidence, costPosition, crewDemand, daysNotClosed, daysNotClosedAlert, hiredPlantOut, hoursByWeek,
   isLeadRole, offHireAlerts, plantUse, requestAlerts, requestSummary, sortAlerts, startAlerts, supervisorAlerts,
@@ -172,12 +173,14 @@ export async function loadDirectorOverview() {
   // looked (its latest sighting). The computed alerts stay alongside.
   // Estimating's pipeline (G5) is fetched alongside; it never holds the page up past its timeout.
   // Xero exports uploaded by accounts (G2) feed the revenue and cash tiles.
-  const [openFindings, lastSeen, closedThisWeek, pipelineState, xero] = await Promise.all([
+  const [openFindings, lastSeen, closedThisWeek, pipelineState, xero, taxLine] = await Promise.all([
     prisma.finding.findMany({ where: { status: { in: ["OPEN", "ACKNOWLEDGED", "ACTIONED"] } } }),
     prisma.finding.aggregate({ _max: { lastSeenAt: true } }),
     prisma.finding.findMany({ where: { status: { in: ["RESOLVED", "VERIFIED"] }, resolvedAt: { gte: new Date(now.getTime() - 7 * 86_400_000) } }, select: { ruleCode: true, audience: true } }),
     loadPipelineState(),
     loadXeroHealth(today),
+    // Accounts stage 7: one estimate line on the Cash tile (the band stays six tiles); never holds the page up.
+    directorsTaxLine().catch(() => null),
   ]);
   // Task J: the directors' box shows director-level findings only; the rest are on Operations -> Attention.
   const directorFindings = openFindings.filter((f) => screenFor(f) === "DIRECTORS");
@@ -239,7 +242,7 @@ export async function loadDirectorOverview() {
     health: companyHealth({
       asAt: now.toISOString(), projects, workload: wl, cost, costConfidence: costConfidence(cost),
       capacity, supervisorGaps: gaps.length, activeCrew: crewCount, hours, pipeline: pipelineTile(pipelineState),
-      revenue: xero.revenue, cash: xero.cash,
+      revenue: xero.revenue, cash: xero.cash && taxLine ? { ...xero.cash, lines: [...xero.cash.lines, taxLine] } : xero.cash,
     }),
     findings,
     findingsMeta: {
