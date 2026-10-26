@@ -54,3 +54,11 @@ export function linkable(d: { status: string; invoiceDate: string | null; create
   const yearAgo = `${Number(today.slice(0, 4)) - 1}${today.slice(4)}`;
   return date >= yearAgo;
 }
+
+// D4 (Ilies, 27 Oct 2026): Managers read an asset's expiry dates on the Vehicles / Plant pages. What it is, who
+// issued it, its number and the date - built field by field, so files, notes, titles and anything with money never
+// leave the Accounts screen. Accounts and Admins still edit them there.
+export type ManagerDate = { kind: string; label: string; issuer: string | null; reference: string | null; expiryDate: string | null; state: ExpiryState };
+export function managerDateView(d: { kind: string; issuer: string | null; reference: string | null; expiryDate: string | null }, today: string): ManagerDate {
+  return { kind: d.kind, label: assetKindLabel(d.kind), issuer: d.issuer, reference: d.reference, expiryDate: d.expiryDate, state: expiryState(d.expiryDate, today) };
+}

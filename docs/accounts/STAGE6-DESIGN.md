@@ -132,7 +132,7 @@ Every action is version-checked and recorded as an event with the person's name.
 1. **D1 Asset dates are `ComplianceDocument`s.** Kinds: Rego, Insurance, Service due, Plant inspection / certificate.
 2. **D2 Reminder 30 days ahead**, the same as tickets.
 3. **D3 Service due by date only.** By-kilometre servicing stays in the free-text "Service due" for now.
-4. **D4 Managers see nothing new.** The Vehicles and Plant pages are unchanged. Should Managers see rego and insurance expiry (operational: an unregistered truck)? A board-style flag like the ticket one would be easy.
+4. **D4 Managers read asset expiry dates.** *Decided by Ilies, 27 Oct 2026: yes.* The Vehicles and Plant pages show a "Rego / insurance / service" column and, in the item's panel, each date with its issuer (insurer / authority) and number. It's read only, from `GET /api/assets/dates` (Manager+). That view is built field by field (`managerDateView`): no files, notes, titles or amounts. Accounts and Admins still add and edit dates on Accounts → Assets, and Viewers get nothing.
 5. **D5 Linking a mechanic invoice copies its amounts into the service record**, which Managers already see on the Vehicles page today. Keep it, or hide amounts from Managers there?
 6. **D6 Plant faults** show the DOWN status and notes, plus PLANT_BREAKDOWN delays on jobs the machine was booked on that day (an inference, labelled). A proper "which machine broke down" field on the daily log would need the daily-log owner's OK.
 7. **D7 Tools in the assets list** get dates and files plus their existing `ToolIssue`s, but no service history (tools aren't `Resource`s).
