@@ -53,3 +53,20 @@ export async function applyOfficeChange(a: SiteAttendance, body: OfficeChange, r
   });
   return { changed: true };
 }
+
+// An Admin removing a sign-in - e.g. someone who signed in twice (27 Oct 2026, Ilies: "a delete button").
+// It isn't erased: it goes to REJECTED, so it counts for no hours anywhere (timesheets, payroll, Day Review
+// all leave REJECTED out), and it's hidden from the Sign-ins page and the supervisor's crew list. The edit
+// log keeps who, when and why. Same lock as any office change.
+export async function removeAttendance(a: SiteAttendance, reason: string, by: string): Promise<{ error: string } | { ok: true }> {
+  if (a.removedAt) return { error: "That sign-in has already been removed." };
+  if (await lockedWeekFor(a.date)) return { error: "That week's timesheet has been approved - an Admin has to reopen it (Timesheets page) before its sign-ins can change." };
+  await prisma.siteAttendance.update({
+    where: { id: a.id },
+    data: {
+      status: "REJECTED", removedAt: new Date(), removedBy: by,
+      edits: { create: [{ field: "removed", before: a.status, after: "REMOVED", reason, editedBy: by }] },
+    },
+  });
+  return { ok: true };
+}

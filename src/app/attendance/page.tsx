@@ -32,7 +32,7 @@ const shiftDate = (iso: string, days: number) => {
 };
 
 export default function AttendancePage() {
-  const { canEdit } = useAuth();
+  const { canEdit, isAdmin } = useAuth();
   const [date, setDate] = useState(() => localISODate());
   const [data, setData] = useState<AttendanceData | null>(null);
   const [people, setPeople] = useState<ResourceDTO[]>([]);
@@ -91,7 +91,7 @@ export default function AttendancePage() {
             <div className="min-w-0 space-y-3">
               <h2 className="text-sm font-semibold text-gray-200">Office, yard &amp; trucks</h2>
               {data.points.map((j) => (
-                <AttendanceJobCard key={j.id} job={j} date={date} canEdit={canEdit} people={people} handover={null} onChanged={load} />
+                <AttendanceJobCard key={j.id} job={j} date={date} canEdit={canEdit} canRemove={isAdmin} people={people} handover={null} onChanged={load} />
               ))}
               <h2 className="pt-3 text-sm font-semibold text-gray-200">Sites</h2>
               {data.jobs.length === 0 && <p className="text-sm text-gray-500">No jobs on the board for this day.</p>}
@@ -103,6 +103,7 @@ export default function AttendancePage() {
                     job={j}
                     date={date}
                     canEdit={canEdit}
+                    canRemove={isAdmin}
                     people={people}
                     handover={h ? { name: h.resource?.name ?? "someone", expiresAt: h.expiresAt } : null}
                     onChanged={load}

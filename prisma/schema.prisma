@@ -824,6 +824,10 @@ model SiteAttendance {
   gpsLng        Float?
   gpsAccuracyM  Float?
   gpsStatus     String?
+  // Removed by an Admin (27 Oct 2026, Ilies: a delete button for people who signed in twice). Not erased:
+  // status goes to REJECTED (so no hours anywhere) and the row is hidden from the lists; the edit log keeps why.
+  removedAt     DateTime?
+  removedBy     String?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   edits         AttendanceEdit[]

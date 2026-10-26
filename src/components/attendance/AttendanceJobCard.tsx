@@ -30,6 +30,7 @@ export default function AttendanceJobCard({
   job,
   date,
   canEdit,
+  canRemove = false,
   people,
   handover,
   onChanged,
@@ -37,6 +38,7 @@ export default function AttendanceJobCard({
   job: AttendanceJob;
   date: string;
   canEdit: boolean;
+  canRemove?: boolean; // Admins: remove a sign-in (e.g. signed in twice)
   people: ResourceDTO[];
   handover: { name: string; expiresAt: string } | null;
   onChanged: () => void;
@@ -228,6 +230,17 @@ export default function AttendanceJobCard({
                 <div className="w-12 shrink-0 text-right text-xs font-medium text-gray-200"><div className="text-[10px] font-normal text-gray-500">Hours</div>{r.hours != null ? `${r.hours}h` : "-"}</div>
                 {canEdit && (
                   <button className={`${quiet} shrink-0 self-center`} onClick={() => setEditing(editing === r.id ? null : r.id)}>Change</button>
+                )}
+                {canRemove && (
+                  <button
+                    className={`${quiet} shrink-0 self-center text-red-300`}
+                    onClick={() => {
+                      const reason = window.prompt(`Remove ${r.name}'s sign-in (in ${r.in}${r.out ? `, out ${r.out}` : ""})? It won't count for any hours. Why?`, "Signed in twice");
+                      if (reason && reason.trim().length >= 3) send(`/api/attendance/${r.id}`, "DELETE", { reason });
+                    }}
+                  >
+                    Delete
+                  </button>
                 )}
               </div>
               {history === r.id && (

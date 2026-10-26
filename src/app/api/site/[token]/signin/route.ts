@@ -38,7 +38,7 @@ export const GET = withErrorHandling(async (req: NextRequest, { params: paramsP 
   if (!r.ok) return r.res;
   const { link, jobs } = r;
   const attendances = await prisma.siteAttendance.findMany({
-    where: { jobId: { in: jobs.map((j) => j.id) } },
+    where: { jobId: { in: jobs.map((j) => j.id) }, removedAt: null },
     orderBy: { signInAt: "asc" },
   });
   return NextResponse.json({

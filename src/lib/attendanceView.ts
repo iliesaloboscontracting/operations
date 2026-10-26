@@ -79,14 +79,14 @@ export async function attendanceForDate(date: string) {
         where: { resource: { OR: [{ type: "PERSONNEL" }, { type: "HIRE", category: "LABOUR" }] } },
         select: { resource: { select: { id: true, name: true, type: true } } },
       },
-      attendances: { orderBy: { signInAt: "asc" }, include: { edits: { orderBy: { editedAt: "asc" } } } },
+      attendances: { where: { removedAt: null }, orderBy: { signInAt: "asc" }, include: { edits: { orderBy: { editedAt: "asc" } } } },
     },
   });
 
   // Office / yard / truck sign-ins this date, and the Lobos trucks with a QR
   // (or a sign-in) - each shows as its own group.
   const [pointRows, truckPosters] = await Promise.all([
-    prisma.siteAttendance.findMany({ where: { date, jobId: null }, orderBy: { signInAt: "asc" }, include: { edits: { orderBy: { editedAt: "asc" } } } }),
+    prisma.siteAttendance.findMany({ where: { date, jobId: null, removedAt: null }, orderBy: { signInAt: "asc" }, include: { edits: { orderBy: { editedAt: "asc" } } } }),
     prisma.siteLink.findMany({ where: { kind: "POSTER", place: "VEHICLE", revokedAt: null }, select: { resource: { select: { id: true, name: true } } } }),
   ]);
 
