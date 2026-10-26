@@ -52,8 +52,9 @@ export function cleanClaim(b: Record<string, unknown>, today: string): ClaimInpu
   return { personName: str(b.personName, 80), description, amountIncGst: Math.round(amount * 100) / 100, spentOn, supplier: str(b.supplier, 80) || null, refNo: str(b.refNo, 40) || null };
 }
 
-// The amount a receipt shows (fuel: its total; tip: inc GST, else ex GST + 10%). Null when it wasn't read.
-export function receiptAmount(r: { kind: string; fuelTotal: number | null; priceIncGst: number | null; priceExGst: number | null }): number | null {
-  const v = r.kind === "FUEL" ? r.fuelTotal : r.priceIncGst ?? (r.priceExGst != null ? r.priceExGst * 1.1 : null);
+// The amount a receipt shows (fuel: its total; an own-money purchase: its total; tip: inc GST, else ex GST
+// + 10%). Null when it wasn't read.
+export function receiptAmount(r: { kind: string; fuelTotal: number | null; priceIncGst: number | null; priceExGst: number | null; purchaseTotal?: number | null }): number | null {
+  const v = r.kind === "FUEL" ? r.fuelTotal : r.kind === "PURCHASE" ? r.purchaseTotal ?? null : r.priceIncGst ?? (r.priceExGst != null ? r.priceExGst * 1.1 : null);
   return v == null ? null : Math.round(v * 100) / 100;
 }

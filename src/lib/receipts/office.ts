@@ -1,9 +1,10 @@
 // Receipts R2 - what an office person does with a reading (Manager+, /receipts): correct any field
 // (each correction kept with who and when), confirm it, reject it (with a reason), or have it read
 // again. Nothing here touches costs; R3 prices confirmed / read tip dockets onto Tracking.
+import { claimFromOwnReceipt } from "../reimbursements/store";
 import { prisma } from "../prisma";
 import { jobLabel, signinDates } from "../signin";
-import { docketDate, normRego, num } from "./checks";
+import { ASBESTOS, docketDate, normDocket, normRego, num } from "./checks";
 import { MAX_TRIES, logOf, readOdometer, readReceipt, readingEnabled, type ReadingLog } from "./runner";
 import { syncTipMatchesSoon, truckRegos, vehicleForRego } from "./tipStore";
 
@@ -20,11 +21,13 @@ const FIELDS: Record<"TIP" | "FUEL", Record<string, (v: unknown) => unknown>> = 
 };
 const same = (a: unknown, b: unknown) => JSON.stringify(a instanceof Date ? a.toISOString() : a) === JSON.stringify(b instanceof Date ? b.toISOString() : b);
 
-export async function receiptAction(who: Who, id: string, body: Record<string, unknown>): Promise<{ ok: true; status: string } | Problem> {
+export async function receiptAction(who: Who, id: string, body: Record<string, unknown>): Promise<{ ok: true; status: string; id?: string } | Problem> {
   const op = String(body.op ?? "").toUpperCase();
   const isOdo = body.type === "ODOMETER";
   const row = isOdo ? await prisma.odometerReading.findUnique({ where: { id } }) : await prisma.receipt.findUnique({ where: { id } });
   if (!row) return { error: "Not found", status: 404 };
+  // Own-money purchases belong to accounts (Reimbursements), never to the Operations receipts list.
+  if (!isOdo && (row as { kind: string }).kind === "PURCHASE") return { error: "Not found", status: 404 };
   const log: ReadingLog = logOf(row.reading);
   const now = new Date();
   const save = (data: Record<string, unknown>) => (isOdo ? prisma.odometerReading.update({ where: { id }, data }) : prisma.receipt.update({ where: { id }, data }));
@@ -48,8 +51,8 @@ export async function receiptAction(who: Who, id: string, body: Record<string, u
       }
       if (field === "vehicleId" && !isOdo && (row as { kind: string }).kind === "FUEL") {
         if (raw === (row as { vehicleId: string | null }).vehicleId) continue;
-        const truck = typeof raw === "string" ? await prisma.resource.findFirst({ where: { id: raw, type: "VEHICLE", ownership: "OWNED" }, select: { id: true } }) : null;
-        if (!truck) return { error: "Pick one of the Lobos trucks.", status: 400 };
+        const truck = typeof raw === "string" ? await prisma.resource.findFirst({ where: { id: raw, type: { in: ["VEHICLE", "EQUIPMENT"] }, ownership: "OWNED" }, select: { id: true } }) : null;
+        if (!truck) return { error: "Pick one of the Lobos trucks or machines.", status: 400 };
         corrections.push({ at: now.toISOString(), by: who.name, field: "vehicleId", before: (row as { vehicleId: string | null }).vehicleId, after: truck.id });
         data.vehicleId = truck.id;
         continue;
@@ -71,12 +74,15 @@ export async function receiptAction(who: Who, id: string, body: Record<string, u
     const status = confirm ? "CONFIRMED" : unreadable ? "CHECK" : row.status;
     await save({ ...data, ...(Object.keys(data).length ? { correctedBy: who.name, correctedAt: now, reading: JSON.stringify({ ...log, corrections }) } : {}), status });
     if (!isOdo) syncTipMatchesSoon();
+    if (!isOdo && status === "CONFIRMED") await claimFromOwnReceipt(id); // "I paid this myself" -> the claim
     return { ok: true, status };
   }
+  if (op === "ADD_DOCKET" && !isOdo) return addDocketFromPhoto(who, row as { id: string; kind: string; status: string; siteLinkId: string; sentBy: string; sentByResourceId: string | null; sentAt: Date; photoFromReceiptId: string | null }, body);
   if (op === "CONFIRM") {
     if (row.status !== "READ" && row.status !== "CHECK") return { error: row.status === "CONFIRMED" ? "Already confirmed." : "Only a read receipt can be confirmed.", status: 409 };
     await save({ status: "CONFIRMED" });
     if (!isOdo) syncTipMatchesSoon();
+    if (!isOdo) await claimFromOwnReceipt(id); // "I paid this myself" -> the claim
     return { ok: true, status: "CONFIRMED" };
   }
   if (op === "REJECT") {
@@ -109,4 +115,46 @@ export async function jobsForCorrection(currentJobId: string | null) {
     orderBy: [{ date: "desc" }, { title: "asc" }], take: 300,
   });
   return jobs.map((j) => ({ id: j.id, label: `${jobLabel(j)} · ${j.date.toISOString().slice(5, 10).split("-").reverse().join("/")}` }));
+}
+
+// One photo can hold two dockets (27 Oct 2026: Carlos's Sell & Parker photo also showed a BM Recycling docket).
+// The office types the second one in: a new TIP receipt that shares the photo(s) - no copy of the file - and
+// starts CONFIRMED, with "added by <name> from receipt <id>" in its log. Refused when that docket number is
+// already in at that tip site (the same matching the tip invoices use). Nothing reaches a link but status.
+const siteKey = (s: string | null | undefined) => (s ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+async function addDocketFromPhoto(
+  who: Who,
+  src: { id: string; kind: string; status: string; siteLinkId: string; sentBy: string; sentByResourceId: string | null; sentAt: Date; photoFromReceiptId: string | null },
+  body: Record<string, unknown>,
+): Promise<{ ok: true; status: string; id: string } | Problem> {
+  if (src.kind === "PURCHASE") return { error: "Not found", status: 404 };
+  const photoOwner = src.photoFromReceiptId ?? src.id;
+  if (!(await prisma.receiptPhoto.count({ where: { receiptId: photoOwner } }))) return { error: "That receipt has no photo to add a docket from.", status: 400 };
+  const f = (body.fields && typeof body.fields === "object" ? body.fields : {}) as Record<string, unknown>;
+  const p = FIELDS.TIP;
+  const fields = { docketNo: p.docketNo(f.docketNo) as string | null, docketAt: p.docketAt(f.docketAt) as Date | null | undefined, tipSite: p.tipSite(f.tipSite) as string | null, wasteType: p.wasteType(f.wasteType) as string | null, tonnes: p.tonnes(f.tonnes) as number | null | undefined, rego: p.rego(f.rego) as string | null };
+  const missing = [!fields.tipSite && "tip site", !fields.docketNo && "docket number", !fields.docketAt && "date and time", !(fields.tonnes != null && fields.tonnes > 0) && "tonnes"].filter(Boolean);
+  if (fields.docketAt === undefined || fields.tonnes === undefined) return { error: "Check the date and the tonnes - they don't look right.", status: 400 };
+  if (missing.length) return { error: `Fill in the ${missing.join(", ")}.`, status: 400 };
+  const job = typeof f.jobId === "string" ? await prisma.job.findUnique({ where: { id: f.jobId }, select: { id: true, projectId: true } }) : null;
+  if (!job) return { error: "Pick the job it's for.", status: 400 };
+  // Same docket number at the same tip site already in -> refuse (normalised as the tip matching does).
+  const key = normDocket(fields.docketNo), site = siteKey(fields.tipSite);
+  const same = (await prisma.receipt.findMany({ where: { kind: "TIP", status: { not: "REJECTED" }, docketNo: { not: null } }, select: { id: true, docketNo: true, tipSite: true, sentBy: true } }))
+    .find((r) => normDocket(r.docketNo) === key && siteKey(r.tipSite) === site);
+  if (same) return { error: `Docket ${fields.docketNo} at ${fields.tipSite} is already in (sent by ${same.sentBy}).`, status: 409 };
+  const asbestos = f.asbestos === true ? true : f.asbestos === false ? false : ASBESTOS.test(fields.wasteType ?? "");
+  const now = new Date();
+  const created = await prisma.receipt.create({
+    data: {
+      kind: "TIP", siteLinkId: src.siteLinkId, sentBy: src.sentBy, sentByResourceId: src.sentByResourceId, sentAt: src.sentAt,
+      jobId: job.id, projectId: job.projectId, asbestos, status: "CONFIRMED", photoFromReceiptId: photoOwner,
+      docketNo: fields.docketNo, docketAt: fields.docketAt, tipSite: fields.tipSite, wasteType: fields.wasteType, tonnes: fields.tonnes, rego: fields.rego,
+      vehicleId: vehicleForRego(fields.rego, await truckRegos()),
+      correctedBy: who.name, correctedAt: now,
+      reading: JSON.stringify({ added: { at: now.toISOString(), by: who.name, fromReceiptId: src.id } } satisfies ReadingLog),
+    },
+  });
+  syncTipMatchesSoon(); // it may be one a tip invoice already bills (R3)
+  return { ok: true, status: "CONFIRMED", id: created.id };
 }

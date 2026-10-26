@@ -51,11 +51,18 @@ export default function Indicators() {
           </div>
         )}
       </section>
-      <section>
-        <div className="mb-1 text-sm font-semibold text-gray-100">Trucks</div>
+      <section className="mb-5">
+        <div className="mb-1 text-sm font-semibold text-gray-100">Trucks &amp; vehicles</div>
         <p className="mb-2 text-xs text-gray-500">From odometer photos at truck sign-in and fuel receipts, last 8 weeks. Fuel is tracked per truck - it&apos;s in the truck&apos;s day rate, not a job cost.</p>
-        {trucks.length === 0 ? <p className="text-sm text-gray-500">No odometer readings or fuel receipts read yet.</p> : (
-          <div className="grid gap-3 md:grid-cols-2">{trucks.map((t) => <TruckPanel key={t.vehicleId} t={t} titled />)}</div>
+        {trucks.filter((t) => t.group !== "PLANT").length === 0 ? <p className="text-sm text-gray-500">No odometer readings or fuel receipts read yet.</p> : (
+          <div className="grid gap-3 md:grid-cols-2">{trucks.filter((t) => t.group !== "PLANT").map((t) => <TruckPanel key={t.vehicleId} t={t} titled />)}</div>
+        )}
+      </section>
+      <section>
+        <div className="mb-1 text-sm font-semibold text-gray-100">Plant</div>
+        <p className="mb-2 text-xs text-gray-500">Lobos-owned machines (excavators, loaders...): fuel from receipts sent for them, last 8 weeks. No odometer, so no km figures.</p>
+        {trucks.filter((t) => t.group === "PLANT").length === 0 ? <p className="text-sm text-gray-500">No owned plant on the Plant register.</p> : (
+          <div className="grid gap-3 md:grid-cols-2">{trucks.filter((t) => t.group === "PLANT").map((t) => <TruckPanel key={t.vehicleId} t={t} titled />)}</div>
         )}
       </section>
     </div>
@@ -68,14 +75,16 @@ export function TruckPanel({ t, titled }: { t: TruckIndicatorDTO; titled?: boole
     <div className="rounded-xl border border-edge bg-panel p-3 text-sm">
       {titled && <div className="mb-1 font-semibold text-gray-100">{t.name}</div>}
       <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-gray-300">
+        {t.group !== "PLANT" && (<>
         <span className="text-gray-500">Odometer</span><span className="tabular-nums">{t.lastKm != null ? `${t.lastKm.toLocaleString("en-AU")} km` : "-"}{t.lastKmAt && <span className="text-[11px] text-gray-500"> · {day(t.lastKmAt)}</span>}</span>
         <span className="text-gray-500">km a day</span><span className="tabular-nums">{t.kmPerDay != null ? t.kmPerDay.toLocaleString("en-AU") : "-"}</span>
         <span className="text-gray-500">L/100 km</span>
         <span className={`tabular-nums ${t.highConsumption ? "font-semibold text-amber-300" : ""}`}>
           {t.latestPer100 != null ? t.latestPer100 : "-"}{t.avgPer100 != null && <span className="text-[11px] text-gray-500"> · 8-wk avg {t.avgPer100}</span>}
         </span>
+        </>)}
         <span className="text-gray-500">Fuel this week</span><span className="tabular-nums">{week ? `${week.litres} L · ${money(week.dollars)}` : "-"}</span>
-        <span className="text-gray-500">Tip loads (8 wks)</span><span className="tabular-nums">{t.tipLoads ? `${t.tipLoads} · ${t.tipTonnes} t` : "-"}</span>
+        {t.group !== "PLANT" && <><span className="text-gray-500">Tip loads (8 wks)</span><span className="tabular-nums">{t.tipLoads ? `${t.tipLoads} · ${t.tipTonnes} t` : "-"}</span></>}
       </div>
       {t.highConsumption && <p className="mt-2 rounded-md bg-amber-500/15 px-2 py-1 text-xs text-amber-200">Using more than 25% more fuel than its own 8-week average - worth a look (leak, fault, idling, wrong truck on a receipt).</p>}
       {t.fuelByDay.length > 0 && (
