@@ -397,6 +397,9 @@ business, without becoming unnecessarily complicated.
   a separate production library that never changes rates or estimates. The
   `/estimating` proxy forwards an allowlist of headers only
   (`lib/estimatingProxy.ts`) - a browser can never pass the server keys.
+  Directors read the same list on `/directors/production` (27 Oct,
+  `guardDirector`, shared `components/production/ProductionList.tsx`, no
+  offer button).
 - **Money-guard principle:** crew-facing/operational views (day sheets, Day
   Review, the Yard) never carry dollar figures — enforced at both the
   TypeScript type level (narrow DTOs with no money fields) and via a runtime
