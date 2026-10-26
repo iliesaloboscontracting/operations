@@ -18,7 +18,7 @@ registers) - nothing entered twice.
 2. Sending emails from accounts@ (pay breakdowns, ABN discrepancies, reimbursements paid) - YES (26 Oct). Workers'
    emails saved on their Labour-register records 26 Oct (33 people; logged). Needs Microsoft 365 admin consent to send as
    accounts@ only. Demo Dump (info@demodump.au) is a subcontractor; Chris bills as Pro Ground Solutions; dunks88 is no
-   longer with Lobos; tasman.misionare@hotmail.com - who it is still to confirm.
+   longer with Lobos; neither is tasman.misionare@hotmail.com (Ilies, 26 Oct) - neither saved.
 3. Reading the accounts@ mailbox automatically (Microsoft 365 admin consent, that mailbox only) - not answered yet.
 4. Payroll into Xero - YES to files (pay run + ABA); Xero stays read-only (26 Oct).
 5. Bank transactions - recommended: through Xero bank feeds (one more read-only Xero scope) - not answered yet.
