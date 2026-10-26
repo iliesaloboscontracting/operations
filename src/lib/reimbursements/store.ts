@@ -42,7 +42,9 @@ export async function listClaims() {
   const rows = await prisma.reimbursement.findMany({ where: { OR: [{ status: "TO_PAY" }, { createdAt: { gte: new Date(`${since}T00:00:00Z`) } }] }, orderBy: [{ spentOn: "desc" }, { createdAt: "desc" }] });
   const claimedReceipts = new Set((await prisma.reimbursement.findMany({ where: { receiptId: { not: null }, status: { not: "CANCELLED" } }, select: { receiptId: true } })).map((r) => r.receiptId!));
   const receipts = await prisma.receipt.findMany({
-    where: { sentAt: { gte: new Date(Date.now() - 60 * 86_400_000) }, status: { not: "REJECTED" } },
+    // Tip dockets are company costs on their job (Receipts -> tip costs), never a worker's reimbursement
+    // (Ilies, 27 Oct 2026: "these are not reimbursements these tipping dockets").
+    where: { sentAt: { gte: new Date(Date.now() - 60 * 86_400_000) }, status: { not: "REJECTED" }, kind: { not: "TIP" } },
     select: { id: true, kind: true, sentBy: true, sentAt: true, docketNo: true, docketAt: true, fuelTotal: true, priceIncGst: true, priceExGst: true, station: true, tipSite: true, _count: { select: { photos: true } } },
     orderBy: { sentAt: "desc" }, take: 300,
   });
@@ -71,6 +73,7 @@ export async function createClaim(who: Who, b: Record<string, unknown>): Promise
   if (typeof b.receiptId === "string" && b.receiptId) {
     const r = await prisma.receipt.findUnique({ where: { id: b.receiptId }, include: { photos: { select: { fileName: true }, orderBy: { createdAt: "asc" } } } });
     if (!r || r.status === "REJECTED") return { error: "That receipt isn't available.", status: 404 };
+    if (r.kind === "TIP") return { error: "A tip docket is a cost on its job, not a reimbursement.", status: 400 };
     const amount = b.amountIncGst != null && b.amountIncGst !== "" ? Number(String(b.amountIncGst).replace(/[$,\s]/g, "")) : receiptAmount(r);
     if (amount == null || !Number.isFinite(amount) || amount <= 0 || amount > 20_000) return { error: "The receipt hasn't been read - enter the amount (inc GST).", status: 400 };
     const photo = r.photos[0]?.fileName ?? null;
