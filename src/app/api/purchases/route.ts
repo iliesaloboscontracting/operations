@@ -3,12 +3,13 @@ import { getCurrentUser, type AuthUser } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { createRequest, listForRequester, projectChoices } from "@/lib/purchases/store";
 
-// In-app purchase requests (stage 6): Managers, Admins, Directors and the ACCOUNTS login ask, and see their own
+// In-app purchase requests (stage 6): Managers and Admins ask (Operations only - DIRECTOR and ACCOUNTS logins never
+// reach Operations, so they're refused here too; the lead, 27 Oct 2026), and see their own
 // requests with the status in words. No amounts here - prices are on the Accounts and Directors screens only.
 async function asker(): Promise<{ denied: NextResponse } | { user: AuthUser }> {
   const user = await getCurrentUser();
   if (!user) return { denied: NextResponse.json({ error: "Not signed in" }, { status: 401 }) };
-  if (!["ADMIN", "MANAGER", "ACCOUNTS", "DIRECTOR"].includes(user.role)) return { denied: NextResponse.json({ error: "You don't have permission to do that" }, { status: 403 }) };
+  if (!["ADMIN", "MANAGER"].includes(user.role)) return { denied: NextResponse.json({ error: "You don't have permission to do that" }, { status: 403 }) };
   return { user };
 }
 
