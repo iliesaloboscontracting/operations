@@ -26,6 +26,7 @@ type Draft = {
 type UploadRow = {
   id: string; originalName: string; kind: string; status: "READING" | "DONE" | "FAILED"; error: string | null;
   uploadedBy: string | null; createdAt: string; counts: Record<string, number>;
+  clearedAt: string | null; clearedBy: string | null;
 };
 type Inbox = {
   uploads: UploadRow[]; drafts: Draft[];
@@ -74,7 +75,19 @@ export default function InvoicesPage() {
     ...(showXero ? [["xero", "Xero exports"] as ["xero", string]] : []),
   ];
 
-  const load = useCallback(() => apiFetch("/api/invoice-inbox").then((r) => (r.ok ? r.json() : null)).then((d) => d && setInbox(d)), []);
+  // Uploads cleared from the tab (26 Oct 2026) are kept; "Show cleared" lists them again.
+  const [showCleared, setShowCleared] = useState(false);
+  const load = useCallback(
+    () => apiFetch(`/api/invoice-inbox${showCleared ? "?cleared=1" : ""}`).then((r) => (r.ok ? r.json() : null)).then((d) => d && setInbox(d)),
+    [showCleared],
+  );
+  async function setCleared(u: UploadRow, clear: boolean) {
+    const open = (u.counts.NEEDS_REVIEW ?? 0) + (u.counts.NO_JOB ?? 0);
+    if (clear && !confirm(`Clear "${u.originalName}" from the Invoices tab?${open ? ` Its ${open} undecided line${open === 1 ? "" : "s"} go on hold.` : ""} Nothing is deleted, and nothing already on a job changes.`)) return;
+    const res = await apiFetch(`/api/invoice-inbox/uploads/${u.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: clear ? "CLEAR" : "UNCLEAR" }) });
+    if (!res.ok) alert(await serverErrorMessage(res, "Couldn't do that."));
+    load();
+  }
   useEffect(() => { load(); }, [load]);
   // While anything is being read, check back every few seconds.
   const reading = inbox?.uploads.some((u) => u.status === "READING");
@@ -213,7 +226,12 @@ export default function InvoicesPage() {
             </div>
           )}
 
-          <h2 className="mb-2 mt-2 text-sm font-semibold text-gray-100">Uploads</h2>
+          <div className="mb-2 mt-2 flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-gray-100">Uploads</h2>
+            <button onClick={() => setShowCleared((s) => !s)} className="text-xs text-gray-400 underline hover:text-gray-200">
+              {showCleared ? "Hide cleared" : "Show cleared"}
+            </button>
+          </div>
           <div className="divide-y divide-edge/60 rounded-xl border border-edge bg-panel text-sm">
             {inbox.uploads.length === 0 && <p className="p-4 text-gray-500">Nothing uploaded yet.</p>}
             {inbox.uploads.map((u) => (
@@ -233,6 +251,16 @@ export default function InvoicesPage() {
                     {u.error ?? "Couldn't read it"} <RetryButton id={u.id} onDone={load} />
                   </span>
                 )}
+                {u.status !== "READING" && (u.clearedAt ? (
+                  <span className="text-xs text-gray-500">
+                    Cleared {new Date(u.clearedAt).toLocaleDateString("en-AU", { day: "numeric", month: "short" })}{u.clearedBy ? ` by ${u.clearedBy}` : ""} ·{" "}
+                    <button onClick={() => setCleared(u, false)} className="underline hover:text-gray-300">Put back</button>
+                  </span>
+                ) : (
+                  <button onClick={() => setCleared(u, true)} className="rounded-md border border-edge px-2 py-0.5 text-xs text-gray-400 hover:bg-panel2 hover:text-gray-200">
+                    Clear from inbox
+                  </button>
+                ))}
               </div>
             ))}
           </div>

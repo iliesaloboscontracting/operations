@@ -39,9 +39,12 @@ export default function AppFrame({ children }: { children: React.ReactNode }) {
 function OnePageGate({ path, children }: { path: string; children: React.ReactNode }) {
   const { timesheetsOnly, accountsOnly, directorOnly } = useAuth();
   const router = useRouter();
-  const home = timesheetsOnly ? "/timesheets" : accountsOnly ? "/invoices" : directorOnly ? "/directors" : null;
+  const home = timesheetsOnly ? "/timesheets" : accountsOnly ? "/accounts" : directorOnly ? "/directors" : null;
   // Directors-only logins (25 Oct 2026) have a small section: /directors and the pages under it.
-  const elsewhere = !!home && path !== home && !(directorOnly && path.startsWith("/directors/"));
+  // Accounts (26 Oct 2026): /accounts and its pages, plus the invoices inbox.
+  const elsewhere = !!home && path !== home
+    && !(directorOnly && path.startsWith("/directors/"))
+    && !(accountsOnly && (path.startsWith("/accounts/") || path === "/invoices"));
   useEffect(() => {
     if (elsewhere && home) router.replace(home);
   }, [elsewhere, home, router]);

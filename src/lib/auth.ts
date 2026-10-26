@@ -154,9 +154,21 @@ export async function guardChanges(): Promise<{ denied: NextResponse } | { user:
   return { user };
 }
 
+// The Accounts screen (/accounts, 26 Oct 2026 - Victoria's list, Ilies:
+// "a separate log in for accounts and separate to operations"): the ACCOUNTS
+// login, plus Admins (Ilies, Nick's ops login) to look in. Never Managers.
+export async function guardAccounts(): Promise<{ denied: NextResponse } | { user: AuthUser }> {
+  const user = await getCurrentUser();
+  if (!user) return { denied: NextResponse.json({ error: "Not signed in" }, { status: 401 }) };
+  if (user.role !== "ACCOUNTS" && user.role !== "ADMIN") {
+    return { denied: NextResponse.json({ error: "You don't have permission to do that" }, { status: 403 }) };
+  }
+  return { user };
+}
+
 // Where a role lands after signing in - the limited roles only have one page.
 export function homeFor(role: Role) {
-  return role === "TIMESHEETS" ? "/timesheets" : role === "ACCOUNTS" ? "/invoices" : role === "DIRECTOR" ? "/directors" : "/command";
+  return role === "TIMESHEETS" ? "/timesheets" : role === "ACCOUNTS" ? "/accounts" : role === "DIRECTOR" ? "/directors" : "/command";
 }
 
 export function normaliseEmail(email: string) {

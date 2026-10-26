@@ -157,6 +157,33 @@ model InvoicedCost {
 // InvoiceDrafts; plain code then decides (lib/invoiceInbox.ts): a clear match
 // to a job goes straight onto it as an InvoicedCost, anything unclear waits
 // for a person. Files live outside the app (INVOICE_FILE_DIR).
+// The Accounts calendar (26 Oct 2026, Victoria's list item 8 & 9): due dates
+// (BAS, IAS, payroll tax, iCare, ATO / supplier payment plans, direct debits,
+// insurance, rego...) and her own "remind me on..." notes, in one place with
+// alerts. A repeating item moves to its next date when ticked done.
+model AccountsItem {
+  id          String    @id @default(cuid())
+  kind        String    @default("DUE") // DUE | REMINDER
+  category    String // BAS | IAS | PAYROLL_TAX | ICARE | ATO_PLAN | SUPPLIER_PLAN | DIRECT_DEBIT | INSURANCE | REGO | SUPER | OTHER
+  title       String
+  dueDate     String // YYYY-MM-DD (Sydney)
+  repeat      String    @default("NONE") // NONE | WEEKLY | FORTNIGHTLY | MONTHLY | QUARTERLY | YEARLY
+  anchorDay   Int? // monthly-type repeats stay on this day of the month (e.g. the 7th, or the 31st when the month has one)
+  amount      Float? // optional, what's expected to come out (accounts screen only)
+  payee       String?
+  notes       String?
+  alertDays   Int       @default(3) // alert this many days before
+  status      String    @default("OPEN") // OPEN | DONE | CANCELLED
+  alertedFor  String? // the dueDate an alert was already sent for
+  lastDoneAt  DateTime?
+  lastDoneBy  String?
+  createdBy   String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([status, dueDate])
+}
+
 model InvoiceUpload {
   id           String   @id @default(cuid())
   fileName     String // stored name, made by lib/invoiceFiles.ts
@@ -167,6 +194,10 @@ model InvoiceUpload {
   uploadedBy   String?
   createdAt    DateTime @default(now())
   finishedAt   DateTime?
+  // Cleared from the Invoices tab once dealt with (26 Oct 2026, Ilies) - the
+  // upload, its file and every line stay stored; "Show cleared" brings them back.
+  clearedAt    DateTime?
+  clearedBy    String?
   drafts       InvoiceDraft[]
 
   @@index([createdAt])

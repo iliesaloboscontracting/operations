@@ -8,7 +8,9 @@ import { processInBackground } from "@/lib/invoiceInbox";
 // GET /api/invoice-inbox -> uploads, invoices found in them, and the job /
 // hire-item lists for matching. Accounts (ACCOUNTS role), Managers, Admins.
 // Shows invoice amounts only - no pay rates, no other job costs.
-export const GET = withErrorHandling(async () => {
+// ?cleared=1 -> also uploads cleared from the tab, and their lines (26 Oct 2026).
+export const GET = withErrorHandling(async (req: NextRequest) => {
+  const withCleared = req.nextUrl.searchParams.get("cleared") === "1";
   const g = await guardInvoiceInbox();
   if ("denied" in g) return g.denied;
 
@@ -20,11 +22,15 @@ export const GET = withErrorHandling(async () => {
 
   const [uploads, drafts, projects, hireItems] = await Promise.all([
     prisma.invoiceUpload.findMany({
+      where: withCleared ? {} : { clearedAt: null },
       orderBy: { createdAt: "desc" }, take: 40,
-      select: { id: true, originalName: true, kind: true, status: true, error: true, uploadedBy: true, createdAt: true, finishedAt: true },
+      select: { id: true, originalName: true, kind: true, status: true, error: true, uploadedBy: true, createdAt: true, finishedAt: true, clearedAt: true, clearedBy: true },
     }),
     prisma.invoiceDraft.findMany({
-      where: { OR: [{ status: { in: ["NEEDS_REVIEW", "NO_JOB"] } }, { updatedAt: { gt: new Date(Date.now() - 60 * 86_400_000) } }] },
+      where: {
+        OR: [{ status: { in: ["NEEDS_REVIEW", "NO_JOB"] } }, { updatedAt: { gt: new Date(Date.now() - 60 * 86_400_000) } }],
+        ...(withCleared ? {} : { upload: { clearedAt: null } }),
+      },
       orderBy: [{ invoiceDate: "desc" }, { createdAt: "desc" }],
       take: 600,
     }),

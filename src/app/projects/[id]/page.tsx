@@ -398,6 +398,52 @@ function ContactsTab({
   );
 }
 
+// "Also called on invoices" (26 Oct 2026): how suppliers and accounts write this
+// site, so the invoices inbox matches their rows to this job. Managers+.
+function InvoiceNames({ projectId }: { projectId: string }) {
+  const [names, setNames] = useState<string[] | null>(null);
+  const [adding, setAdding] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const base = `/api/projects/${projectId}/aliases`;
+  const load = useCallback(async () => {
+    const res = await apiFetch(base).catch(() => null);
+    if (res?.ok) setNames(((await res.json()).aliases as { text: string }[]).map((a) => a.text));
+  }, [base]);
+  useEffect(() => { load(); }, [load]);
+  async function send(method: "POST" | "DELETE", text: string) {
+    setError(null);
+    const res = await apiFetch(method === "POST" ? base : `${base}?text=${encodeURIComponent(text)}`, {
+      method, headers: { "Content-Type": "application/json" }, ...(method === "POST" ? { body: JSON.stringify({ text }) } : {}),
+    });
+    if (!res.ok) return setError(await serverErrorMessage(res, "Couldn't save that."));
+    setAdding("");
+    load();
+  }
+  return (
+    <Card title="Also called on invoices">
+      <p className="mb-2 text-xs text-gray-500">Other ways suppliers and accounts write this site. The invoices inbox uses them to put their invoices on this job.</p>
+      {names === null ? (
+        <p className="text-sm text-gray-500">Loading…</p>
+      ) : (
+        <div className="mb-2 flex flex-wrap gap-1.5">
+          {names.length === 0 && <span className="text-sm italic text-gray-500">None yet</span>}
+          {names.map((n) => (
+            <span key={n} className="inline-flex items-center gap-1 rounded-full border border-edge bg-panel2 px-2.5 py-0.5 text-xs text-gray-200">
+              {n}
+              <button onClick={() => confirm(`Stop matching "${n}" to this job?`) && send("DELETE", n)} className="text-gray-500 hover:text-red-300" aria-label={`Remove ${n}`}>×</button>
+            </span>
+          ))}
+        </div>
+      )}
+      <form onSubmit={(e) => { e.preventDefault(); if (adding.trim()) send("POST", adding); }} className="flex gap-2">
+        <input value={adding} onChange={(e) => setAdding(e.target.value)} placeholder='e.g. "Newcastle" or "BARPA job"' className={input} />
+        <button type="submit" disabled={!adding.trim()} className={btnQuiet}>Add</button>
+      </form>
+      {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
+    </Card>
+  );
+}
+
 function SupervisorText({ project }: { project: ProjectFileDTO }) {
   const s = project.currentSupervisor;
   if (!s) return <span className="italic text-gray-500">No supervisor allocated yet</span>;
@@ -605,6 +651,8 @@ export default function ProjectFilePage({ params: paramsP }: { params: Promise<{
                 </ul>
               </Card>
             )}
+
+            {canEdit && <InvoiceNames projectId={project.id} />}
 
             {c && c.missing.length > 0 && (
               <Card title="Not filled in yet">
