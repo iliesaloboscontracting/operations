@@ -312,6 +312,28 @@ business, without becoming unnecessarily complicated.
   bank/tax) follow the plan. GPS at sign-in is approved only if sign-in
   itself doesn't change. The invoices inbox can "Clear from inbox"
   (`InvoiceUpload.clearedAt`; undecided lines go on hold, nothing deleted).
+  **Payroll** (stage 2, live 27 Oct, `docs/accounts/STAGE2-DESIGN.md`,
+  `src/lib/payroll/`, `/accounts/payroll`): supervisors "Approve hours"
+  per job per day on their SUPERVISOR link (`HoursApproval`, append-only,
+  hours and names only, refused while anyone is still signed in); Victoria
+  approves / queries each person's week (`PayWeekReview`) only after the
+  Manager has locked it (the Timesheets lock is unchanged); pay-run and
+  summary CSVs are hours only (`fileIsSafe`: no $, BSB, TFN, ABA, rates).
+  `Resource.engagement` (EMPLOYEE / ABN) is a pay field, Admin only. GPS:
+  one quiet position at crew sign-in (`SiteAttendance.gps*`, IN only, waits
+  ≤1.5 s, refusal never blocks), visible to accounts / Admins only. Travel
+  rule and emails from accounts@ still to come.
+- **Production benchmarks** (LCI 5b + Estimating 5c, live 27 Oct;
+  `src/lib/production/`, `/production` Manager+, hours only): labour hours
+  per unit per activity code from the daily logs against the approved budget
+  (docket codes: tonnes per hour, only dockets from days that logged hours on
+  the code). Below the evidence bar a code shows "early". The owner /
+  director access can offer a code to Estimating (`BenchmarkOffer`,
+  production-suggestion.v1, `x-lobos-actuals` = `ACTUALS_SECRET` in both
+  `.env` files, same value); an estimator accepts or rejects it there into
+  a separate production library that never changes rates or estimates. The
+  `/estimating` proxy forwards an allowlist of headers only
+  (`lib/estimatingProxy.ts`) - a browser can never pass the server keys.
 - **Money-guard principle:** crew-facing/operational views (day sheets, Day
   Review, the Yard) never carry dollar figures — enforced at both the
   TypeScript type level (narrow DTOs with no money fields) and via a runtime
