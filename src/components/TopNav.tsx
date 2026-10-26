@@ -75,6 +75,32 @@ function NavTab({
 
 const Divider = () => <span className="mx-1.5 h-5 w-px shrink-0 self-center bg-white/10" aria-hidden />;
 
+// The Directors and Accounts screens are separate from Operations (Ilies, 27 Oct 2026: like Estimating, "a full
+// separate screen"). A director-only or accounts-only login only ever sees its own screen; an Admin who opens
+// one sees exactly those tabs too, plus a way back to Operations.
+const DIRECTORS = [
+  { href: "/directors", label: "Overview" },
+  { href: "/directors/pipeline", label: "Pipeline" },
+  { href: "/directors/budgets", label: "Budgets to approve" },
+  { href: "/directors/accounts", label: "Accounts data" },
+  { href: "/directors/requests", label: "Info requests" },
+  { href: "/directors/kpis", label: "How the numbers work" },
+  { href: "/directors/queries", label: "My queries" },
+  { href: "/directors/lessons", label: "Lessons" },
+];
+const ACCOUNTS = [
+  { href: "/accounts", label: "To do" },
+  { href: "/accounts/calendar", label: "Due dates" },
+  { href: "/accounts/payroll", label: "Payroll" },
+  { href: "/accounts/reimbursements", label: "Reimbursements" },
+  { href: "/accounts/labour-cost", label: "Labour cost" },
+  { href: "/accounts/compliance", label: "Compliance" },
+  { href: "/invoices", label: "Invoices" },
+];
+// The invoices inbox is an Operations page as well as an Accounts tab: an Admin who got there from the
+// Accounts screen stays on the Accounts screen.
+const SCREEN_KEY = "lobos-screen";
+
 export default function TopNav() {
   const path = usePathname() ?? "";
   const { user, loading, canEdit, isAdmin, isDirector, directorOnly, timesheetsOnly, accountsOnly, signOut } = useAuth();
@@ -128,35 +154,40 @@ export default function TopNav() {
 
   const isActive = (href: string) => path === href || path.startsWith(href + "/");
 
+  // Which screen this page belongs to. Remembered for the tab, so the invoices inbox opened from the
+  // Accounts screen keeps the Accounts tabs; any other Operations page puts the Operations tabs back.
+  const [fromAccounts, setFromAccounts] = useState(false);
+  useEffect(() => {
+    try {
+      if (path === "/accounts" || path.startsWith("/accounts/")) sessionStorage.setItem(SCREEN_KEY, "accounts");
+      else if (path !== "/invoices") sessionStorage.removeItem(SCREEN_KEY);
+      setFromAccounts(sessionStorage.getItem(SCREEN_KEY) === "accounts");
+    } catch { setFromAccounts(false); }
+  }, [path]);
+  const screen: "directors" | "accounts" | null = directorOnly ? "directors" : accountsOnly ? "accounts"
+    : isDirector && isActive("/directors") ? "directors"
+    : isAdmin && (isActive("/accounts") || (path === "/invoices" && fromAccounts)) ? "accounts" : null;
+  const screenTabs = screen === "directors" ? DIRECTORS : screen === "accounts" ? ACCOUNTS : [];
+  // Overview also covers a job opened from it; every other tab is its own page or below it.
+  const tabActive = (href: string) => (href === "/directors" ? path === "/directors" || path.startsWith("/directors/jobs") : href === "/accounts" ? path === "/accounts" : isActive(href));
+
   return (
     <nav className="relative z-10 flex h-14 w-full shrink-0 items-center border-b-[3px] border-brand-500 bg-sidebar px-3 shadow-soft">
-      <Link href={onePage ?? "/projects"} className="mr-3 flex shrink-0 items-center">
+      <Link href={onePage ?? (screen ? `/${screen}` : "/projects")} className="mr-3 flex shrink-0 items-center">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/logo-dark.png" alt="Lobos Contracting" width={400} height={96} className="h-8 w-auto" />
       </Link>
 
       <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto py-1.5">
-        {loading ? null : directorOnly ? (
+        {loading ? null : screen ? (
           <>
-            <NavTab href="/directors" label="Overview" active={path === "/directors" || path.startsWith("/directors/jobs")} />
-            <NavTab href="/directors/pipeline" label="Pipeline" active={isActive("/directors/pipeline")} />
-            <NavTab href="/directors/budgets" label="Budgets to approve" active={isActive("/directors/budgets")} />
-            <NavTab href="/directors/accounts" label="Accounts data" active={isActive("/directors/accounts")} />
-            <NavTab href="/directors/requests" label="Info requests" active={isActive("/directors/requests")} />
-            <NavTab href="/directors/kpis" label="How the numbers work" active={isActive("/directors/kpis")} />
-            <NavTab href="/directors/queries" label="My queries" active={isActive("/directors/queries")} />
-            <NavTab href="/directors/lessons" label="Lessons" active={isActive("/directors/lessons")} />
-          </>
-        ) : accountsOnly ? (
-          <>
-            {/* The Accounts screen (26 Oct 2026) - separate from Operations. */}
-            <NavTab href="/accounts" label="To do" active={path === "/accounts"} />
-            <NavTab href="/accounts/calendar" label="Due dates" active={isActive("/accounts/calendar")} />
-            <NavTab href="/accounts/payroll" label="Payroll" active={isActive("/accounts/payroll")} />
-            <NavTab href="/accounts/reimbursements" label="Reimbursements" active={isActive("/accounts/reimbursements")} />
-            <NavTab href="/accounts/labour-cost" label="Labour cost" active={isActive("/accounts/labour-cost")} />
-            <NavTab href="/accounts/compliance" label="Compliance" active={isActive("/accounts/compliance")} />
-            <NavTab href="/invoices" label="Invoices" active={isActive("/invoices")} />
+            {!onePage && (
+              <>
+                <NavTab href="/projects" label="← Operations" active={false} />
+                <Divider />
+              </>
+            )}
+            {screenTabs.map((i) => <NavTab key={i.href} href={i.href} label={i.label} active={tabActive(i.href)} />)}
           </>
         ) : onePage ? (
           <NavTab href={onePage} label="Timesheets" active={isActive(onePage)} />
