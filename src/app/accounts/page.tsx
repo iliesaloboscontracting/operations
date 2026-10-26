@@ -48,7 +48,7 @@ export default function AccountsPage() {
     <PageShell
       title="Accounts"
       subtitle="What's waiting for you, what's due, and your reminders."
-      actions={<div className="flex gap-2"><PushToggle /></div>}
+      actions={<div className="flex items-center gap-3"><Link href="/accounts/compliance" className="text-sm text-brand-300 hover:underline">Compliance</Link><PushToggle /></div>}
     >
       {!p ? (
         <p className="text-sm text-gray-500">Loading…</p>

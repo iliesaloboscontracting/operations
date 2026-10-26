@@ -118,6 +118,10 @@ async function main() {
     await checkClean("GET /api/day-close", `/api/day-close?date=${today}`);
     await checkClean("GET /api/day-review/site-logs", `/api/day-review/site-logs?date=${today}`); // daily site log (Task K)
     await checkDenied("GET /api/tracking (should be Manager+ only)", "/api/tracking");
+    // Accounts stage 5: compliance data never reaches a Viewer (board flag = Manager+, the rest accounts + Admins).
+    await checkDenied("GET /api/compliance/flags (should be Manager+ only)", "/api/compliance/flags");
+    await checkDenied("GET /api/compliance/workers (accounts + Admins only)", "/api/compliance/workers");
+    await checkDenied("GET /api/compliance/documents (accounts + Admins only)", "/api/compliance/documents");
 
     // The Project File (brief 11): every project's page data, as a Viewer -
     // no money keys, no internal notes, and only crew-visible contacts.

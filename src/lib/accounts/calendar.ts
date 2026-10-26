@@ -13,6 +13,9 @@ export const CATEGORIES = [
   ["DIRECT_DEBIT", "Direct debit"],
   ["INSURANCE", "Insurance / premium funding"],
   ["REGO", "Rego renewal"],
+  // Stage 5: kept in step with tickets / documents by lib/compliance/reminders.ts.
+  ["TICKET", "Worker ticket / licence expiry"],
+  ["COMPLIANCE", "Company / subcontractor document expiry"],
   ["OTHER", "Other"],
 ] as const;
 export type Category = (typeof CATEGORIES)[number][0];

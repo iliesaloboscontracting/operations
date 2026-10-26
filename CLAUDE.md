@@ -312,6 +312,16 @@ business, without becoming unnecessarily complicated.
   bank/tax) follow the plan. GPS at sign-in is approved only if sign-in
   itself doesn't change. The invoices inbox can "Clear from inbox"
   (`InvoiceUpload.clearedAt`; undecided lines go on hold, nothing deleted).
+  **Stage 5, Compliance & HR** (`/accounts/compliance`, `src/lib/compliance/`,
+  design `docs/accounts/STAGE5-DESIGN.md`): `WorkerTicket` per Labour-register
+  person, `WorkerOnboarding` (apart from pay), `ComplianceDocument` (company /
+  subcontractor) and their files in `COMPLIANCE_FILE_DIR` (served only via
+  `guardAccounts`, never on a link). Each expiry keeps one linked
+  `AccountsItem` (`sourceType`/`sourceId`, 30 days ahead) - the only reminder
+  system. TFN and bank details are refused everywhere (`looksLikeTfnOrBank`);
+  they stay in Xero. Managers see only a red expired-ticket icon on the board
+  (`/api/compliance/flags`, labels + dates) - information only, never blocks
+  an allocation. Nothing is deleted (archive; a removed file is hidden).
 - **Money-guard principle:** crew-facing/operational views (day sheets, Day
   Review, the Yard) never carry dollar figures — enforced at both the
   TypeScript type level (narrow DTOs with no money fields) and via a runtime
