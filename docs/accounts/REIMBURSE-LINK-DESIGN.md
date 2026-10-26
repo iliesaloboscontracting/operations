@@ -73,3 +73,22 @@ New receipt kind **PURCHASE**. `Reimbursement.source` gets a new value, **LINK**
   - duplicates refused;
   - the fuel indicator lists plant;
   - money-guard scans of every link response; viewer safety.
+
+## 4. Office: "Add another docket from this photo" (Receipts, Manager+)
+
+One photo can hold two dockets. The real case: Carlos's Sell & Parker photo also showed a BM Recycling docket.
+
+- **Where:** on any tip or fuel receipt in the office list that has a photo, "Add another docket from this photo" opens a short form:
+  - job;
+  - tip site, docket no., date and time;
+  - waste type, tonnes, rego;
+  - asbestos.
+- **What it creates:** a new **TIP** receipt that **shares the photo(s)**.
+  - `Receipt.photoFromReceiptId` points at the receipt that owns them; the file isn't copied.
+  - It starts **CONFIRMED**, with `reading.added = { by, at, fromReceiptId }`, shown as "Added by <name> from another docket's photo".
+  - The sender, link and sent time are the original receipt's.
+  - The truck is linked from the rego, as for read dockets.
+  - The tip-invoice matching runs again.
+- **Duplicate check:** a docket number (normalised as the tip matching does) already in at the same tip site is refused, naming who sent it.
+- **Money rules unchanged:** office-only; a link sees at most the docket in "My receipts", never a price.
+- **Schema (additive):** `Receipt.photoFromReceiptId String?`.
