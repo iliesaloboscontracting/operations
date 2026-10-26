@@ -87,3 +87,9 @@ test("calendar: the linked item first, else Victoria's open item of that kind du
   const linked = [...items, { id: "d", category: "BAS", dueDate: "2027-03-15", status: "OPEN", amount: 1, sourceType: "TAX_ESTIMATE", sourceId: "BAS:2026-Q2" }];
   assert.equal(matchCalendarItem(linked, "BAS", "BAS:2026-Q2", "2027-02-28")?.id, "d");
 });
+
+test("a monthly item is matched to its own month only (short window)", () => {
+  const items = [{ id: "pt", category: "PAYROLL_TAX", dueDate: "2026-11-07", status: "OPEN", amount: null, sourceType: null, sourceId: null }];
+  assert.equal(matchCalendarItem(items, "PAYROLL_TAX", "PAYROLL_TAX:2026-10", "2026-11-07", 10)?.id, "pt");
+  assert.equal(matchCalendarItem(items, "PAYROLL_TAX", "PAYROLL_TAX:2026-09", "2026-10-07", 10), null, "September's return isn't the November item");
+});

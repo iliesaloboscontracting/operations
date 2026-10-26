@@ -69,8 +69,8 @@ export async function taxView(fyQ?: string | null, opts: { withComparison?: bool
   const today = todaySydney();
   const fy = fyQ && /^\d{4}$/.test(fyQ) ? Number(fyQ) : fyOfDate(today);
   const [m, settings, rates, items] = await Promise.all([mirror(), taxSettings(), prisma.onCostRate.findMany(), calendarItems()]);
-  const cal = (category: string, sourceId: string, due: string) => {
-    const c = matchCalendarItem(items as CalendarItem[], category, sourceId, due);
+  const cal = (category: string, sourceId: string, due: string, windowDays: number) => {
+    const c = matchCalendarItem(items as CalendarItem[], category, sourceId, due, windowDays);
     return c ? { id: c.id, dueDate: c.dueDate, amount: c.amount, status: c.status, linked: c.sourceType === "TAX_ESTIMATE" } : null;
   };
 
@@ -86,13 +86,13 @@ export async function taxView(fyQ?: string | null, opts: { withComparison?: bool
   }
   const payroll = {
     ...year,
-    rows: year.rows.map((r) => { const d = payrollTaxDueDate(r.month); return { ...r, due: d.due, dueWhat: d.what, calendar: cal("PAYROLL_TAX", `PAYROLL_TAX:${r.month}`, d.due), ownCrew: ownCrew?.[r.month] ?? null }; }),
+    rows: year.rows.map((r) => { const d = payrollTaxDueDate(r.month); return { ...r, due: d.due, dueWhat: d.what, calendar: cal("PAYROLL_TAX", `PAYROLL_TAX:${r.month}`, d.due, 10), ownCrew: ownCrew?.[r.month] ?? null }; }),
   };
 
   // BAS
   const bas = periodsOfFy(fy, settings.BAS_FREQUENCY).filter((p) => p.from <= today).map((p) => {
     const due = basDueDate(p, settings.BAS_FREQUENCY, settings.LODGEMENT);
-    return { ...p, gst: gstForPeriod(m.invoices, p.from, p.to), due, open: p.to >= today, calendar: cal("BAS", `BAS:${p.key}`, due) };
+    return { ...p, gst: gstForPeriod(m.invoices, p.from, p.to), due, open: p.to >= today, calendar: cal("BAS", `BAS:${p.key}`, due, settings.BAS_FREQUENCY === "MONTHLY" ? 10 : 45) };
   });
 
   return {
@@ -141,7 +141,7 @@ export async function directorsTaxLine(): Promise<string | null> {
   const v = await taxView();
   const money = (n: number) => `$${Math.round(n).toLocaleString("en-AU")}`;
   const nextBas = v.bas.find((p) => p.due >= v.today && (p.gst.sales + p.gst.bills) > 0);
-  const lastPayroll = v.payroll.rows[v.payroll.rows.length - 1];
+  const lastPayroll = v.payroll.rows.filter((r) => r.month < v.today.slice(0, 7)).pop(); // the last complete month, not one still running
   const parts = [
     nextBas && `next BAS ${nextBas.label} ${nextBas.gst.net < 0 ? `refund ${money(-nextBas.gst.net)}` : money(nextBas.gst.net)} due ${nextBas.due}`,
     lastPayroll?.tax != null && `payroll tax ${lastPayroll.month} ${money(lastPayroll.tax)}`,

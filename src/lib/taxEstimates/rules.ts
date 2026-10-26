@@ -132,13 +132,14 @@ export function payrollTaxDueDate(month: string): { due: string; what: string } 
   return { due: `${addMonths(month, 1)}-07`, what: "monthly return" };
 }
 
-// Victoria's own calendar item for this period, if she has one: same category, still open, due within 45 days
-// of the expected date (or already linked to this estimate).
+// Victoria's own calendar item for this period, if she has one: same category, still open, due within the window
+// of the expected date (or already linked to this estimate). Monthly periods use a short window so one item
+// is never matched to two months; quarterly BAS allows for her own date being a little off.
 export type CalendarItem = { id: string; category: string; dueDate: string; status: string; amount: number | null; sourceType: string | null; sourceId: string | null };
-export function matchCalendarItem(items: CalendarItem[], category: string, sourceId: string, due: string): CalendarItem | null {
+export function matchCalendarItem(items: CalendarItem[], category: string, sourceId: string, due: string, windowDays = 45): CalendarItem | null {
   const linked = items.find((i) => i.sourceType === "TAX_ESTIMATE" && i.sourceId === sourceId && i.status !== "CANCELLED");
   if (linked) return linked;
-  const near = items.filter((i) => i.category === category && i.status === "OPEN" && !i.sourceType && Math.abs(Date.parse(`${i.dueDate}T00:00:00Z`) - Date.parse(`${due}T00:00:00Z`)) <= 45 * 86_400_000);
+  const near = items.filter((i) => i.category === category && i.status === "OPEN" && !i.sourceType && Math.abs(Date.parse(`${i.dueDate}T00:00:00Z`) - Date.parse(`${due}T00:00:00Z`)) <= windowDays * 86_400_000);
   near.sort((a, b) => Math.abs(Date.parse(a.dueDate) - Date.parse(due)) - Math.abs(Date.parse(b.dueDate) - Date.parse(due)));
   return near[0] ?? null;
 }

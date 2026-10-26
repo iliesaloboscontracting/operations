@@ -105,6 +105,7 @@ For each period's estimate, the page looks for Victoria's matching item: same ca
 2. Does Lobos lodge the BAS itself, or does the accountant (agent due dates)?
 3. Which P&L accounts are wages and super for payroll tax? The page suggests them by name; please confirm.
 4. Are any **contractor payments** treated as wages for payroll tax (NSW relevant-contract rules)? They aren't in the P&L wage accounts, so they'd be missing from the estimate.
+   - On a copy of live data, the P&L wage accounts came out **well below** the own-crew labour on the board for the same months, because much of the crew is paid through the "Contractors" cost-of-sales accounts. So this answer could change the estimate a lot. (The figures went to the lead, not into this note.)
 5. Is Lobos part of a **payroll tax group** (shared threshold)? That would change the threshold used.
 6. Monthly payroll tax returns: confirm the 7th of the month, and 28 July for the annual reconciliation.
 
