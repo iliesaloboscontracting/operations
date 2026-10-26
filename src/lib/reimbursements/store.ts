@@ -16,7 +16,7 @@ export type ClaimDTO = {
   amountIncGst: number; spentOn: string; hasPhoto: boolean; status: string; paidOn: string | null; paidRef: string | null; paidBy: string | null;
   cancelReason: string | null; createdBy: string; createdAt: string; receiptKind: string | null; warnings: string[];
 };
-export type ReceiptToClaimDTO = { id: string; kind: string; sentBy: string; sentOn: string; refNo: string | null; amountIncGst: number | null; where: string | null; hasPhoto: boolean };
+export type ReceiptToClaimDTO = { id: string; kind: string; sentBy: string; sentOn: string; refNo: string | null; amountIncGst: number | null; where: string | null; hasPhoto: boolean; purpose: string | null; note: string | null; readStatus: string };
 
 const sydneyDay = (d: Date) => d.toLocaleDateString("en-CA", { timeZone: "Australia/Sydney" });
 const hashOf = async (fileName: string | null | undefined) => {
@@ -35,15 +35,16 @@ function dto(r: Row, kinds: Map<string, string>, warnings: string[] = []): Claim
   };
 }
 
-// Everything the Reimbursements page shows: to pay, paid / cancelled in the last 90 days, receipts that
-// could be claimed (last 60 days, not claimed yet) and the people a claim can be for.
+// Everything the Reimbursements page shows: to pay, paid / cancelled in the last 90 days, own-money receipts
+// not claimed yet (last 60 days - only ones the worker marked "I paid this myself"; tip dockets and ordinary
+// fuel receipts are company costs, never claims - Ilies 27 Oct 2026) and the people a claim can be for.
 export async function listClaims() {
   const since = addDays(todaySydney(), -90);
   const rows = await prisma.reimbursement.findMany({ where: { OR: [{ status: "TO_PAY" }, { createdAt: { gte: new Date(`${since}T00:00:00Z`) } }] }, orderBy: [{ spentOn: "desc" }, { createdAt: "desc" }] });
   const claimedReceipts = new Set((await prisma.reimbursement.findMany({ where: { receiptId: { not: null }, status: { not: "CANCELLED" } }, select: { receiptId: true } })).map((r) => r.receiptId!));
   const receipts = await prisma.receipt.findMany({
-    where: { sentAt: { gte: new Date(Date.now() - 60 * 86_400_000) }, status: { not: "REJECTED" } },
-    select: { id: true, kind: true, sentBy: true, sentAt: true, docketNo: true, docketAt: true, fuelTotal: true, priceIncGst: true, priceExGst: true, station: true, tipSite: true, _count: { select: { photos: true } } },
+    where: { ownMoney: true, sentAt: { gte: new Date(Date.now() - 60 * 86_400_000) }, status: { not: "REJECTED" } },
+    select: { id: true, kind: true, status: true, sentBy: true, sentAt: true, docketNo: true, docketAt: true, fuelTotal: true, priceIncGst: true, priceExGst: true, purchaseTotal: true, station: true, supplier: true, tipSite: true, purpose: true, note: true, _count: { select: { photos: true } } },
     orderBy: { sentAt: "desc" }, take: 300,
   });
   const kinds = new Map((await prisma.receipt.findMany({ where: { id: { in: rows.filter((r) => r.receiptId).map((r) => r.receiptId!) } }, select: { id: true, kind: true } })).map((r) => [r.id, r.kind]));
@@ -56,7 +57,8 @@ export async function listClaims() {
     done: claims.filter((c) => c.status !== "TO_PAY"),
     toPayTotal: Math.round(claims.filter((c) => c.status === "TO_PAY").reduce((n, c) => n + c.amountIncGst, 0) * 100) / 100,
     receipts: receipts.filter((r) => !claimedReceipts.has(r.id)).map((r): ReceiptToClaimDTO => ({
-      id: r.id, kind: r.kind, sentBy: r.sentBy, sentOn: sydneyDay(r.docketAt ?? r.sentAt), refNo: r.docketNo, amountIncGst: receiptAmount(r), where: r.kind === "FUEL" ? r.station : r.tipSite, hasPhoto: r._count.photos > 0,
+      id: r.id, kind: r.kind, sentBy: r.sentBy, sentOn: sydneyDay(r.docketAt ?? r.sentAt), refNo: r.docketNo, amountIncGst: receiptAmount(r), where: r.kind === "FUEL" ? r.station : r.supplier, hasPhoto: r._count.photos > 0,
+      purpose: r.purpose, note: r.note, readStatus: r.status === "SENT" ? "waiting to be read" : r.status === "CHECK" ? "reading needs checking" : "read",
     })),
     people,
   };
@@ -71,13 +73,14 @@ export async function createClaim(who: Who, b: Record<string, unknown>): Promise
   if (typeof b.receiptId === "string" && b.receiptId) {
     const r = await prisma.receipt.findUnique({ where: { id: b.receiptId }, include: { photos: { select: { fileName: true }, orderBy: { createdAt: "asc" } } } });
     if (!r || r.status === "REJECTED") return { error: "That receipt isn't available.", status: 404 };
+    if (!r.ownMoney) return { error: "Only receipts the worker marked as paid with their own money can be claimed - tip dockets and fuel receipts are company costs.", status: 400 };
     const amount = b.amountIncGst != null && b.amountIncGst !== "" ? Number(String(b.amountIncGst).replace(/[$,\s]/g, "")) : receiptAmount(r);
     if (amount == null || !Number.isFinite(amount) || amount <= 0 || amount > 20_000) return { error: "The receipt hasn't been read - enter the amount (inc GST).", status: 400 };
     const photo = r.photos[0]?.fileName ?? null;
     data = {
-      resourceId: r.sentByResourceId, personName: r.sentBy, receiptId: r.id, source: "RECEIPT",
-      description: typeof b.description === "string" && b.description.trim() ? b.description.trim().slice(0, 200) : r.kind === "FUEL" ? "Fuel" : "Tip docket",
-      supplier: (r.kind === "FUEL" ? r.station : r.tipSite) ?? null, refNo: r.docketNo, amountIncGst: Math.round(amount * 100) / 100,
+      resourceId: r.sentByResourceId, personName: r.sentBy, receiptId: r.id, source: "LINK",
+      description: typeof b.description === "string" && b.description.trim() ? b.description.trim().slice(0, 200) : [PURPOSE_LABEL[r.purpose ?? ""] ?? (r.kind === "FUEL" ? "Fuel" : "Purchase"), r.note].filter(Boolean).join(" - "),
+      supplier: (r.kind === "FUEL" ? r.station : r.supplier) ?? null, refNo: r.docketNo, amountIncGst: Math.round(amount * 100) / 100,
       spentOn: sydneyDay(r.docketAt ?? r.sentAt), photoFile: photo, photoHash: await hashOf(photo),
     };
   } else {
@@ -141,3 +144,19 @@ export async function claimPhoto(id: string): Promise<{ bytes: Buffer; fileName:
 }
 
 export const claimsToPay = () => prisma.reimbursement.count({ where: { status: "TO_PAY" } });
+
+const PURPOSE_LABEL: Record<string, string> = { FUEL: "Fuel", TOOLS: "Tools", MATERIALS: "Materials", PARKING_TOLLS: "Parking / tolls", OTHER: "Other" };
+
+// An own-money receipt sent from a phone becomes a claim by itself once there's an amount to claim: when
+// the reading comes back READ, or the office confirms it. Duplicates (stage 3 rules) and unread amounts
+// are left for Victoria on the Reimbursements page. Never throws - the reading must not fail over it.
+export async function claimFromOwnReceipt(receiptId: string): Promise<void> {
+  try {
+    const r = await prisma.receipt.findUnique({ where: { id: receiptId }, select: { ownMoney: true, status: true, sentBy: true } });
+    if (!r?.ownMoney || !["READ", "CONFIRMED"].includes(r.status)) return;
+    if (await prisma.reimbursement.findFirst({ where: { receiptId, status: { not: "CANCELLED" } } })) return;
+    await createClaim({ id: "system", name: `${r.sentBy}'s phone` }, { receiptId });
+  } catch (e) {
+    console.error("reimbursements: automatic claim failed", receiptId, e instanceof Error ? e.message : "error");
+  }
+}

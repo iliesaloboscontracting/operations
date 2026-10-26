@@ -7,7 +7,7 @@ import { jobLabel, signinDates, sydneyTime } from "../signin";
 import { fromSydneyLocal } from "../shiftTimes";
 import type { ReceiptLink } from "../siteLinks";
 import { saveReceiptPhoto } from "./files";
-import { KIND_LABEL, LIMITS, STATUS_LABEL, parseReceipt, type ReceiptKind, type ReceiptLinkDTO } from "./rules";
+import { KIND_LABEL, LIMITS, PURPOSE_LABEL, STATUS_LABEL, parseReceipt, parseReimbursement, reimburseStatus, type Purpose, type ReceiptKind, type ReceiptLinkDTO } from "./rules";
 import { MAX_TRIES, logOf, readOdometerSoon, readReceiptSoon } from "./runner";
 
 type Problem = { error: string; status: number };
@@ -39,9 +39,26 @@ export function lobosTrucks() {
 }
 const isTruck = (r: { type: string; ownership: string; category: string | null }) => r.type === "VEHICLE" && r.ownership === "OWNED" && r.category !== "Other";
 
+// Lobos-owned plant (excavators, loaders...) - fuel can be for a machine as well as a truck (Ilies, 27 Oct
+// 2026). Attachments have no tank; hired plant isn't offered (Draft - until Ilies says so).
+export function lobosPlant() {
+  return prisma.resource.findMany({
+    where: { type: "EQUIPMENT", ownership: "OWNED", active: true },
+    select: { id: true, name: true, identifier: true },
+    orderBy: { name: "asc" },
+  });
+}
+// Everything fuel can be for, grouped for the picker and the indicators.
+export async function fuelAssets(): Promise<{ id: string; name: string; label: string; group: "TRUCK" | "PLANT" }[]> {
+  const [trucks, plant] = await Promise.all([lobosTrucks(), lobosPlant()]);
+  const label = (t: { name: string; identifier: string | null }) => (t.identifier ? `${t.name} (${t.identifier})` : t.name);
+  return [...trucks.map((t) => ({ id: t.id, name: t.name, label: label(t), group: "TRUCK" as const })), ...plant.map((p) => ({ id: p.id, name: p.name, label: label(p), group: "PLANT" as const }))];
+}
+
 export type ReceiptOptionsDTO = {
   jobs: { id: string; label: string; mine: boolean }[];
   trucks: { id: string; label: string }[];
+  plant: { id: string; label: string }[]; // owned machines - fuel can be for them too
   prefill: { jobId: string | null; vehicleId: string | null };
 };
 
@@ -49,9 +66,10 @@ export type ReceiptOptionsDTO = {
 // they signed in on today, else the one Lobos truck on their job's board (if there's exactly one).
 export async function receiptOptions(link: ReceiptLink): Promise<ReceiptOptionsDTO> {
   const me = link.person.id;
-  const [jobs, trucks, signIns] = await Promise.all([
+  const [jobs, trucks, plant, signIns] = await Promise.all([
     todaysJobs(),
     lobosTrucks(),
+    lobosPlant(),
     prisma.siteAttendance.findMany({
       where: { resourceId: me, signInAt: { gte: since24h() }, status: { not: "REJECTED" } },
       select: { jobId: true, place: true, vehicleId: true },
@@ -68,6 +86,7 @@ export async function receiptOptions(link: ReceiptLink): Promise<ReceiptOptionsD
   return {
     jobs: [...jobs].sort((a, b) => Number(mineIds.has(b.id)) - Number(mineIds.has(a.id))).map((j) => ({ id: j.id, label: jobLabel(j), mine: mineIds.has(j.id) })),
     trucks: trucks.map((t) => ({ id: t.id, label: t.identifier ? `${t.name} (${t.identifier})` : t.name })),
+    plant: plant.map((p) => ({ id: p.id, label: p.identifier ? `${p.name} (${p.identifier})` : p.name })),
     prefill: { jobId, vehicleId },
   };
 }
@@ -98,8 +117,8 @@ export async function createReceipt(link: ReceiptLink, body: Record<string, unkn
     const job = (await todaysJobs()).find((j) => j.id === input.jobId);
     if (!job) return { error: "That job isn't running today - pick today's job.", status: 400 };
     projectId = job.projectId;
-  } else if (!(await lobosTrucks()).some((t) => t.id === input.vehicleId)) {
-    return { error: "Pick one of the Lobos trucks.", status: 400 };
+  } else if (!(await fuelAssets()).some((t) => t.id === input.vehicleId)) {
+    return { error: "Pick one of the Lobos trucks or machines.", status: 400 };
   }
   const r = await prisma.receipt.create({
     data: {
@@ -125,7 +144,7 @@ async function linkRows(ids?: string[], personId?: string): Promise<ReceiptLinkD
     prisma.job.findMany({ where: { id: { in: rows.map((r) => r.jobId).filter((x): x is string => !!x) } }, select: { id: true, title: true, shift: true, project: { select: { name: true } } } }),
     prisma.resource.findMany({ where: { id: { in: rows.map((r) => r.vehicleId).filter((x): x is string => !!x) } }, select: { id: true, name: true } }),
   ]);
-  return rows.map((r) => ({
+  return rows.filter((r) => r.kind !== "PURCHASE").map((r) => ({
     id: r.id, kind: r.kind as ReceiptKind, label: KIND_LABEL[r.kind as ReceiptKind] ?? r.kind,
     for: r.kind === "TIP" ? (() => { const j = jobs.find((x) => x.id === r.jobId); return j ? jobLabel(j) : "a job"; })() : trucks.find((t) => t.id === r.vehicleId)?.name ?? "a truck",
     at: sydneyTime(r.sentAt) ?? "", asbestos: r.asbestos, photos: r._count.photos, status: STATUS_LABEL[r.status] ?? "Sent",
@@ -199,13 +218,14 @@ export async function officeList(f: ReceiptFilters): Promise<{ rows: ReceiptOffi
   const to = day ? sydneyMidnight(nextDay(day)) : new Date(Date.now() + 60_000);
   const wantOdo = !f.kind || f.kind === "ODOMETER";
   const wantReceipts = !f.kind || f.kind === "TIP" || f.kind === "FUEL";
+  // Own-money purchases (PURCHASE) belong to accounts' Reimbursements - never on this list.
   const statusWhere = check ? { status: { in: ["CHECK", "SENT"] } } : {};
   const [receipts, readings] = await Promise.all([
     wantReceipts
       ? prisma.receipt.findMany({
           where: {
             sentAt: { gte: from, lt: to }, ...statusWhere,
-            ...(f.kind === "TIP" || f.kind === "FUEL" ? { kind: f.kind } : {}),
+            kind: f.kind === "TIP" || f.kind === "FUEL" ? f.kind : { in: ["TIP", "FUEL"] },
             ...(f.jobId ? { jobId: f.jobId } : {}),
             ...(f.vehicleId ? { vehicleId: f.vehicleId } : {}),
             ...(f.person ? { sentBy: f.person } : {}),
@@ -227,7 +247,7 @@ export async function officeList(f: ReceiptFilters): Promise<{ rows: ReceiptOffi
   const recent = { sentAt: { gte: new Date(Date.now() - 60 * 86_400_000) } };
   const [jobRows, trucks, senders, odoSenders, toCheck] = await Promise.all([
     prisma.job.findMany({ where: { id: { in: jobIds } }, select: { id: true, title: true, shift: true, date: true, project: { select: { name: true } } } }),
-    lobosTrucks(),
+    fuelAssets(),
     prisma.receipt.findMany({ where: recent, select: { sentBy: true }, distinct: ["sentBy"] }),
     prisma.odometerReading.findMany({ where: recent, select: { sentBy: true }, distinct: ["sentBy"] }),
     countToCheck(),
@@ -275,10 +295,60 @@ export async function officeList(f: ReceiptFilters): Promise<{ rows: ReceiptOffi
 export async function countToCheck(): Promise<number> {
   const since = new Date(Date.now() - 90 * 86_400_000);
   const [checks, odoChecks, sent, odoSent] = await Promise.all([
-    prisma.receipt.count({ where: { status: "CHECK", sentAt: { gte: since } } }),
+    prisma.receipt.count({ where: { status: "CHECK", kind: { not: "PURCHASE" }, sentAt: { gte: since } } }),
     prisma.odometerReading.count({ where: { status: "CHECK", sentAt: { gte: since } } }),
-    prisma.receipt.findMany({ where: { status: "SENT", sentAt: { gte: since } }, select: { reading: true } }),
+    prisma.receipt.findMany({ where: { status: "SENT", kind: { not: "PURCHASE" }, sentAt: { gte: since } }, select: { reading: true } }),
     prisma.odometerReading.findMany({ where: { status: "SENT", sentAt: { gte: since } }, select: { reading: true } }),
   ]);
   return checks + odoChecks + [...sent, ...odoSent].filter((r) => (logOf(r.reading).tries ?? 0) >= MAX_TRIES).length;
+}
+
+// ---------- reimbursements from the phone (docs/accounts/REIMBURSE-LINK-DESIGN.md) ----------
+
+export type ReimburseLinkDTO = { id: string; purpose: string; for: string | null; sentOn: string; status: string };
+
+// "My reimbursements": what this person sent "I paid this myself" for in the last 60 days, with where it's at.
+// Words and dates only - never an amount.
+export async function myReimbursements(link: ReceiptLink): Promise<ReimburseLinkDTO[]> {
+  const rows = await prisma.receipt.findMany({
+    where: { ownMoney: true, sentByResourceId: link.person.id, sentAt: { gte: new Date(Date.now() - 60 * 86_400_000) } },
+    select: { id: true, purpose: true, note: true, vehicleId: true, status: true, sentAt: true },
+    orderBy: { sentAt: "desc" }, take: 60,
+  });
+  const [claims, assets] = await Promise.all([
+    prisma.reimbursement.findMany({ where: { receiptId: { in: rows.map((r) => r.id) } }, select: { receiptId: true, status: true, paidOn: true, createdAt: true }, orderBy: { createdAt: "asc" } }),
+    prisma.resource.findMany({ where: { id: { in: rows.map((r) => r.vehicleId).filter((x): x is string => !!x) } }, select: { id: true, name: true } }),
+  ]);
+  return rows.map((r) => {
+    const mine = claims.filter((c) => c.receiptId === r.id);
+    const claim = mine.find((c) => c.status !== "CANCELLED") ?? mine[mine.length - 1] ?? null;
+    return {
+      id: r.id, purpose: PURPOSE_LABEL[r.purpose as Purpose] ?? "Other",
+      for: r.purpose === "FUEL" ? assets.find((a) => a.id === r.vehicleId)?.name ?? null : r.note,
+      sentOn: r.sentAt.toLocaleDateString("en-AU", { timeZone: "Australia/Sydney", day: "numeric", month: "short" }),
+      status: reimburseStatus(r.status, claim ? { status: claim.status, paidOn: claim.paidOn } : null),
+    };
+  });
+}
+
+// "I paid this myself" from a supervisor's or driver's link: fuel stays a FUEL receipt (it counts in the
+// fuel indicators - one photo, not two), anything else is a PURCHASE. Read in the background like any
+// receipt; a clean reading becomes the claim (reimbursements/store claimFromOwnReceipt).
+export async function createReimbursementReceipt(link: ReceiptLink, body: Record<string, unknown>): Promise<{ message: string } | Problem> {
+  const input = parseReimbursement(body);
+  if ("error" in input) return { error: input.error, status: 400 };
+  const today = await prisma.receipt.count({ where: { siteLinkId: link.id, sentAt: { gte: since24h() } } });
+  if (today >= LIMITS.receiptsPerLinkPerDay) return { error: "That's the most receipts this link can send in a day - call the office.", status: 429 };
+  const photos = await prisma.receiptPhoto.findMany({ where: { id: { in: input.photoIds }, siteLinkId: link.id, receiptId: null, odometerReadingId: null, createdAt: { gte: since24h() } }, select: { id: true } });
+  if (photos.length !== input.photoIds.length) return { error: "A photo didn't upload - take it again.", status: 400 };
+  if (input.purpose === "FUEL" && !(await fuelAssets()).some((a) => a.id === input.vehicleId)) return { error: "Pick one of the Lobos trucks or machines.", status: 400 };
+  const r = await prisma.receipt.create({
+    data: {
+      kind: input.purpose === "FUEL" ? "FUEL" : "PURCHASE", siteLinkId: link.id, sentBy: link.person.name, sentByResourceId: link.person.id,
+      vehicleId: input.vehicleId, ownMoney: true, purpose: input.purpose, note: input.note,
+      photos: { connect: photos.map((p) => ({ id: p.id })) },
+    },
+  });
+  readReceiptSoon(r.id);
+  return { message: "Sent to accounts - they'll pay you back. You'll see here when it's paid." };
 }

@@ -1,6 +1,7 @@
 // Receipts R2 - what an office person does with a reading (Manager+, /receipts): correct any field
 // (each correction kept with who and when), confirm it, reject it (with a reason), or have it read
 // again. Nothing here touches costs; R3 prices confirmed / read tip dockets onto Tracking.
+import { claimFromOwnReceipt } from "../reimbursements/store";
 import { prisma } from "../prisma";
 import { jobLabel, signinDates } from "../signin";
 import { docketDate, normRego, num } from "./checks";
@@ -25,6 +26,8 @@ export async function receiptAction(who: Who, id: string, body: Record<string, u
   const isOdo = body.type === "ODOMETER";
   const row = isOdo ? await prisma.odometerReading.findUnique({ where: { id } }) : await prisma.receipt.findUnique({ where: { id } });
   if (!row) return { error: "Not found", status: 404 };
+  // Own-money purchases belong to accounts (Reimbursements), never to the Operations receipts list.
+  if (!isOdo && (row as { kind: string }).kind === "PURCHASE") return { error: "Not found", status: 404 };
   const log: ReadingLog = logOf(row.reading);
   const now = new Date();
   const save = (data: Record<string, unknown>) => (isOdo ? prisma.odometerReading.update({ where: { id }, data }) : prisma.receipt.update({ where: { id }, data }));
@@ -48,8 +51,8 @@ export async function receiptAction(who: Who, id: string, body: Record<string, u
       }
       if (field === "vehicleId" && !isOdo && (row as { kind: string }).kind === "FUEL") {
         if (raw === (row as { vehicleId: string | null }).vehicleId) continue;
-        const truck = typeof raw === "string" ? await prisma.resource.findFirst({ where: { id: raw, type: "VEHICLE", ownership: "OWNED" }, select: { id: true } }) : null;
-        if (!truck) return { error: "Pick one of the Lobos trucks.", status: 400 };
+        const truck = typeof raw === "string" ? await prisma.resource.findFirst({ where: { id: raw, type: { in: ["VEHICLE", "EQUIPMENT"] }, ownership: "OWNED" }, select: { id: true } }) : null;
+        if (!truck) return { error: "Pick one of the Lobos trucks or machines.", status: 400 };
         corrections.push({ at: now.toISOString(), by: who.name, field: "vehicleId", before: (row as { vehicleId: string | null }).vehicleId, after: truck.id });
         data.vehicleId = truck.id;
         continue;
@@ -71,12 +74,14 @@ export async function receiptAction(who: Who, id: string, body: Record<string, u
     const status = confirm ? "CONFIRMED" : unreadable ? "CHECK" : row.status;
     await save({ ...data, ...(Object.keys(data).length ? { correctedBy: who.name, correctedAt: now, reading: JSON.stringify({ ...log, corrections }) } : {}), status });
     if (!isOdo) syncTipMatchesSoon();
+    if (!isOdo && status === "CONFIRMED") await claimFromOwnReceipt(id); // "I paid this myself" -> the claim
     return { ok: true, status };
   }
   if (op === "CONFIRM") {
     if (row.status !== "READ" && row.status !== "CHECK") return { error: row.status === "CONFIRMED" ? "Already confirmed." : "Only a read receipt can be confirmed.", status: 409 };
     await save({ status: "CONFIRMED" });
     if (!isOdo) syncTipMatchesSoon();
+    if (!isOdo) await claimFromOwnReceipt(id); // "I paid this myself" -> the claim
     return { ok: true, status: "CONFIRMED" };
   }
   if (op === "REJECT") {

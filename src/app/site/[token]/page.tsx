@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState, use } from "react";
-import { ArrowLeft, Camera, ClipboardList, ListChecks, Loader2, NotebookPen, QrCode as QrIcon, ImagePlus, ClipboardCheck, ReceiptText, ScanLine, Send, ShoppingCart, Truck, Wrench } from "lucide-react";
+import { ArrowLeft, Camera, ClipboardList, ListChecks, Loader2, NotebookPen, QrCode as QrIcon, ImagePlus, ClipboardCheck, ReceiptText, ScanLine, Send, ShoppingCart, Truck, Wrench, Wallet } from "lucide-react";
 import PhotoPicker from "@/components/tools/PhotoPicker";
 import DailyLog from "@/components/site/DailyLog";
 import type { LogCardDTO } from "@/lib/dailyLog/types";
@@ -11,6 +11,7 @@ import TodoList from "@/components/site/TodoList";
 import MyPurchases from "@/components/purchases/MyPurchases";
 import HireCheck from "@/components/site/HireCheck";
 import { AddReceipt, MyReceipts } from "@/components/site/Receipts";
+import Reimburse from "@/components/site/Reimburse";
 import ApproveHours from "@/components/site/ApproveHours";
 import SiteQuestions from "@/components/site/SiteQuestions";
 import CheckResultView from "@/components/tools/CheckResultView";
@@ -38,7 +39,7 @@ type SiteInfo = {
   dailyLog?: LogCardDTO; // only on the daily log pilot's links (Task K)
   receiptsToday?: number; // supervisor and driver links (Receipts)
 };
-type Mode = "home" | "register" | "check" | "fault" | "signin" | "request" | "requests" | "todo" | "purchases" | "hire" | "log" | "receipt" | "receipts" | "hours";
+type Mode = "home" | "register" | "check" | "fault" | "signin" | "request" | "requests" | "todo" | "purchases" | "hire" | "log" | "receipt" | "receipts" | "hours" | "reimburse";
 
 const input =
   "w-full rounded-lg border border-edge bg-panel2 px-3 py-2.5 text-base text-gray-200 placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500";
@@ -142,6 +143,7 @@ export default function SitePhotosPage({ params: paramsP }: { params: Promise<{ 
             {sendsReceipts && (<>
               <Big icon={<ImagePlus size={22} />} title="Add receipt" text="Tip docket or fuel - a photo when you get it" onClick={() => { setFlash(null); setMode("receipt"); }} />
               <Big icon={<ReceiptText size={22} />} title="My receipts" text={info.receiptsToday ? `${info.receiptsToday} sent today` : "What you sent today"} onClick={() => { setFlash(null); setMode("receipts"); }} />
+              <Big icon={<Wallet size={22} />} title="Reimbursement" text="Paid for something yourself? Get it back" onClick={() => { setFlash(null); setMode("reimburse"); }} />
             </>)}
             {info.kind !== "OFFICE" && !driver && (
               <Big icon={<QrIcon size={22} />} title="Sign in crew" text="Show the QR - crew scan it to sign in or out" onClick={() => { setFlash(null); setMode("signin"); }} />
@@ -222,6 +224,7 @@ export default function SitePhotosPage({ params: paramsP }: { params: Promise<{ 
           {mode === "log" && <DailyLog api={api} onDone={finished} />}
           {mode === "receipt" && <AddReceipt api={api} onDone={finished} />}
           {mode === "receipts" && <MyReceipts api={api} />}
+          {mode === "reimburse" && <Reimburse api={api} onDone={finished} />}
           {mode === "hours" && <ApproveHours api={api} onDone={finished} />}
         </>
       )}

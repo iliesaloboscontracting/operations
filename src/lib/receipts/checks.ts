@@ -1,7 +1,7 @@
 // Receipts R2 - the plain rules that decide what Claude's reading becomes (design §Reading):
 // READ (goes in) or CHECK (an office person confirms). No database here; ./runner.ts gathers the
 // facts (our regos, earlier dockets, the truck's last odometer) and saves the result.
-import type { FuelReading, OdometerReadingResult, TipReading } from "./reading";
+import type { FuelReading, OdometerReadingResult, PurchaseReading, TipReading } from "./reading";
 import { fromSydneyLocal } from "../shiftTimes";
 
 export type Decision = { status: "READ" | "CHECK"; reasons: string[] };
@@ -27,6 +27,7 @@ const DAY = 86_400_000;
 const LABEL: Record<string, string> = {
   docketNo: "docket number", dateTime: "date", tipSite: "tip site", wasteType: "waste type", tonnesNet: "tonnes", rego: "rego",
   priceExGst: "price", priceIncGst: "price", litres: "litres", pricePerLitre: "price per litre", total: "total", station: "station",
+  supplier: "shop", receiptNo: "receipt number", gst: "GST",
 };
 
 function common(dateTime: string, unclear: string[], sentAt: Date, rego: string, ourRegos: string[], reasons: string[]) {
@@ -74,6 +75,29 @@ export function decideFuel(x: FuelReading, f: { sentAt: Date; ourRegos: string[]
   common(x.dateTime, x.unclear, f.sentAt, x.rego, f.ourRegos, reasons);
   if (x.note.trim()) reasons.push(`Reader's note: ${x.note.trim()}`);
   return { status: reasons.length ? "CHECK" : "READ", reasons };
+}
+
+// An own-money purchase: the total and the date are the key fields (the shop too). Over the cap, or a tip
+// docket / fuel receipt sent as a purchase, waits for a person.
+export const PURCHASE_CAP = 5000; // Draft - a bigger receipt is checked by a person
+export function decidePurchase(x: PurchaseReading, f: { sentAt: Date }): Decision {
+  const reasons: string[] = [];
+  if (x.documentType === "tip_docket") reasons.push("Looks like a tip docket - those are company costs, not reimbursements");
+  else if (x.documentType === "fuel_receipt") reasons.push("Looks like a fuel receipt - send fuel with the truck or machine it was for");
+  else if (x.documentType === "other") reasons.push("Doesn't look like a receipt");
+  const total = num(x.total);
+  const missing = [!(total! > 0) && "total", !docketDate(x.dateTime) && "date", !x.supplier.trim() && "shop"].filter(Boolean);
+  if (missing.length) reasons.push(`Missing: ${missing.join(", ")}`);
+  if (total != null && total > PURCHASE_CAP) reasons.push(`Over ${PURCHASE_CAP.toLocaleString("en-AU")} - worth a look`);
+  const d = docketDate(x.dateTime);
+  if (d && Math.abs(d.getTime() - f.sentAt.getTime()) > 30 * DAY) reasons.push(`Dated ${x.dateTime.slice(0, 10)} - more than a month before it was sent`);
+  const shaky = [...new Set(x.unclear.map((k) => LABEL[k] ?? k))];
+  if (shaky.length) reasons.push(`Not clear on the photo: ${shaky.join(", ")}`);
+  if (x.note.trim()) reasons.push(`Reader's note: ${x.note.trim()}`);
+  return { status: reasons.length ? "CHECK" : "READ", reasons };
+}
+export function purchaseFields(x: PurchaseReading) {
+  return { supplier: x.supplier.trim() || null, docketNo: x.receiptNo.trim() || null, docketAt: docketDate(x.dateTime), purchaseTotal: num(x.total) };
 }
 
 // Odometer: the km, against the truck's last reading - never backwards, never more than 1,500 km a day.
