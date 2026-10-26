@@ -94,6 +94,7 @@ const ACCOUNTS = [
   { href: "/accounts/payroll", label: "Payroll" },
   { href: "/accounts/reimbursements", label: "Reimbursements" },
   { href: "/accounts/labour-cost", label: "Labour cost" },
+  { href: "/accounts/invoice-checks", label: "Invoice checks" },
   { href: "/accounts/compliance", label: "Compliance" },
   { href: "/invoices", label: "Invoices" },
 ];

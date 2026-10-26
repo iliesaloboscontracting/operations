@@ -17,6 +17,7 @@ type Pending = {
   today: string;
   inboxWaiting: number;
   reimbursementsToPay?: number;
+  abnInvoicesToCheck?: number;
   queries: { id: string; ref: string; summary: string }[];
   noSignOut: { id: string; date: string; name: string; company: string | null; site: string }[];
   due: AccountsItemDTO[];
@@ -44,12 +45,12 @@ export default function AccountsPage() {
 
   if (!loading && !accountsOnly && !isAdmin) return <PageShell title="Accounts"><p className="text-sm text-gray-400">This screen is for accounts.</p></PageShell>;
 
-  const nothing = p && !p.inboxWaiting && !p.reimbursementsToPay && !p.queries.length && !p.noSignOut.length && !p.due.length;
+  const nothing = p && !p.inboxWaiting && !p.reimbursementsToPay && !p.abnInvoicesToCheck && !p.queries.length && !p.noSignOut.length && !p.due.length;
   return (
     <PageShell
       title="Accounts"
       subtitle="What's waiting for you, what's due, and your reminders."
-      actions={<div className="flex items-center gap-2">{[["/accounts/payroll", "Payroll"], ["/accounts/reimbursements", "Reimbursements"], ["/accounts/labour-cost", "Labour cost"], ["/accounts/compliance", "Compliance"]].map(([href, label]) => <Link key={href} href={href} className="rounded-lg border border-edge px-3 py-1.5 text-xs font-medium text-gray-200 hover:bg-panel2">{label}</Link>)}<PushToggle /></div>}
+      actions={<div className="flex items-center gap-2">{[["/accounts/payroll", "Payroll"], ["/accounts/reimbursements", "Reimbursements"], ["/accounts/labour-cost", "Labour cost"], ["/accounts/invoice-checks", "Invoice checks"], ["/accounts/compliance", "Compliance"]].map(([href, label]) => <Link key={href} href={href} className="rounded-lg border border-edge px-3 py-1.5 text-xs font-medium text-gray-200 hover:bg-panel2">{label}</Link>)}<PushToggle /></div>}
     >
       {!p ? (
         <p className="text-sm text-gray-500">Loading…</p>
@@ -73,6 +74,12 @@ export default function AccountsPage() {
           {p.inboxWaiting > 0 && (
             <Section title="Invoices waiting for you" count={p.inboxWaiting}>
               <Link href="/invoices" className="block px-3 py-3 text-sm text-brand-300 hover:underline">Open the invoices inbox →</Link>
+            </Section>
+          )}
+
+          {!!p.abnInvoicesToCheck && (
+            <Section title="ABN invoices to check" count={p.abnInvoicesToCheck}>
+              <Link href="/accounts/invoice-checks" className="block px-3 py-3 text-sm text-brand-300 hover:underline">Open invoice checks →</Link>
             </Section>
           )}
 

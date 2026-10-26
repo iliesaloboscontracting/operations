@@ -123,7 +123,7 @@ export async function alertAccountsDue() {
 export async function pendingForAccounts() {
   const today = todaySydney();
   const weekAgo = addDays(today, -14);
-  const [inbox, queries, noSignOut, items, reimbursements] = await Promise.all([
+  const [inbox, queries, noSignOut, items, reimbursements, abnToCheck] = await Promise.all([
     prisma.invoiceDraft.count({ where: { status: { in: ["NEEDS_REVIEW", "NO_JOB"] }, upload: { clearedAt: null } } }),
     prisma.siteRequest.findMany({
       where: { kind: "QUERY", assigneeName: "Accounts", answer: null, status: { in: OPEN_STATUSES } },
@@ -137,11 +137,13 @@ export async function pendingForAccounts() {
     }),
     listItems(),
     prisma.reimbursement.count({ where: { status: "TO_PAY" } }), // stage 3
+    prisma.abnInvoice.count({ where: { status: "TO_CHECK" } }), // stage 4
   ]);
   return {
     today,
     inboxWaiting: inbox,
     reimbursementsToPay: reimbursements,
+    abnInvoicesToCheck: abnToCheck,
     queries: queries.map((q) => ({ id: q.id, ref: `R-${String(q.number).padStart(4, "0")}`, summary: q.summary, neededBy: q.neededBy })),
     noSignOut: noSignOut.map((a) => ({ id: a.id, date: a.date, name: a.workerName, company: a.company, site: a.job?.project?.name ?? a.job?.title ?? a.placeLabel ?? "Sign-in point" })),
     due: items.filter((i) => i.when !== "LATER"),
