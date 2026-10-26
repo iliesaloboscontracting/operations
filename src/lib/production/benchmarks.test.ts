@@ -5,7 +5,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildSuggestion, combine, confidenceOf, jobFigures, suggestionIsSafe, type EvidenceLog, type JobEvidence } from "./benchmarks";
 
-const log = (i: number, x: Partial<EvidenceLog> = {}): EvidenceLog => ({ id: `L${i}`, date: `2026-11-${String(i).padStart(2, "0")}`, crewOk: true, delayHours: 0, labour: [{ code: "STR-02", hours: 8 }], dockets: [], ...x });
+const log = (i: number, x: Partial<EvidenceLog> = {}): EvidenceLog => ({ id: `L${i}`, jobId: `J${i}`, date: `2026-11-${String(i).padStart(2, "0")}`, crewOk: true, delayHours: 0, labour: [{ code: "STR-02", hours: 8 }], dockets: [], ...x });
 const job = (x: Partial<JobEvidence> = {}): JobEvidence => ({
   projectId: "P1", projectName: "Myers", jobRef: "26_401", finished: false,
   logs: [1, 2, 3, 4].map((i) => log(i)), // 32 h on STR-02
@@ -55,7 +55,7 @@ test("docket codes: quantity per unit from the logs' dockets and read tip docket
   const j = job({
     logs: [1, 2, 3, 4, 5].map((i) => log(i, { labour: [{ code: "DEM-10", hours: 4 }], dockets: i <= 2 ? [{ code: "DEM-10", quantity: 6, unit: "t", docketNo: `A${i}` }] : [] })),
     packages: [{ packageId: "w", code: "DEM-10", qty: 100, unit: "t", labourHrs: 40 }], pct: new Map([["pkg:w", 50]]),
-    receiptDockets: [{ code: "DEM-10", quantity: 6, unit: "t", docketNo: "a-1" }, { code: "DEM-10", quantity: 8, unit: "t", docketNo: "B9" }],
+    receiptDockets: [{ code: "DEM-10", quantity: 6, unit: "t", docketNo: "a-1", jobId: "J1", day: "2026-11-01" }, { code: "DEM-10", quantity: 8, unit: "t", docketNo: "B9", jobId: "J3", day: "2026-11-03" }],
   });
   const f = fig(j, "DEM-10");
   assert.equal(f.method, "DOCKETS");
@@ -66,6 +66,22 @@ test("docket codes: quantity per unit from the logs' dockets and read tip docket
   assert.equal(f.passes, true);
   const m3 = fig({ ...j, receiptDockets: [], logs: j.logs.map((l) => ({ ...l, dockets: l.dockets.map((d) => ({ ...d, unit: "m³" })) })) }, "DEM-10");
   assert.match(m3.missing.join(), /docket unit m³ doesn't match the budget's t/);
+});
+
+test("receipt tonnes count only from days that logged hours on the code (lead's must-fix)", () => {
+  // Logs on 1-5 Nov; DEM-10 hours only on 1-3 Nov (4 h each = 12 h). 4-5 Nov logged other work only.
+  const base = job({
+    logs: [1, 2, 3, 4, 5].map((i) => log(i, { labour: i <= 3 ? [{ code: "DEM-10", hours: 4 }] : [{ code: "STR-02", hours: 8 }], dockets: i === 1 ? [{ code: "DEM-10", quantity: 5, unit: "t", docketNo: "A1" }] : i === 4 ? [{ code: "DEM-10", quantity: 50, unit: "t", docketNo: "Z4" }] : [] })),
+    packages: [{ packageId: "w", code: "DEM-10", qty: 100, unit: "t", labourHrs: 40 }], pct: new Map([["pkg:w", 50]]),
+  });
+  const qty = (receiptDockets: JobEvidence["receiptDockets"]) => fig({ ...base, receiptDockets }, "DEM-10").quantity;
+  assert.equal(qty([]), 5, "a log's docket on a day with no DEM-10 hours (Z4, 4 Nov) isn't counted either");
+  assert.equal(qty([{ code: "DEM-10", quantity: 7, unit: "t", docketNo: "R1", jobId: "J2", day: "2026-11-02" }]), 12, "a receipt for a logged job / day counts");
+  assert.equal(qty([{ code: "DEM-10", quantity: 7, unit: "t", docketNo: "R2", jobId: "J4", day: "2026-11-04" }]), 5, "a receipt on a day with no DEM-10 hours logged doesn't");
+  assert.equal(qty([{ code: "DEM-10", quantity: 7, unit: "t", docketNo: "R3", jobId: "J9", day: "2026-11-09" }]), 5, "nor one on a day with no log at all");
+  assert.equal(qty([{ code: "DEM-10", quantity: 7, unit: "t", docketNo: "R4", jobId: null, day: "2026-11-03" }]), 12, "no board job on it: its Sydney day matching a logged day counts");
+  assert.equal(qty([{ code: "DEM-10", quantity: 7, unit: "t", docketNo: "R5", jobId: "J-other-shift", day: "2026-11-03" }]), 12, "another board job the same day (e.g. a night shift): matched by its day");
+  assert.equal(qty([{ code: "DEM-10", quantity: 5, unit: "t", docketNo: "a-1", jobId: "J1", day: "2026-11-01" }]), 5, "the same docket in the log and a receipt counts once");
 });
 
 test("delay hours are shown, never taken off the hours", () => {

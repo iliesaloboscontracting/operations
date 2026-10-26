@@ -30,19 +30,19 @@ export async function loadEvidence(): Promise<{ jobs: JobEvidence[]; estimatingD
     const latest = new Map<string, (typeof rows)[number]>(); // a correction replaces, never adds
     for (const l of rows) if (!latest.has(l.jobId)) latest.set(l.jobId, l);
     const logs: EvidenceLog[] = [...latest.values()].map((l) => ({
-      id: l.id, date: l.date, crewOk: l.crewOk, delayHours: l.delays.reduce((n, d) => n + (d.hoursLost ?? 0), 0),
+      id: l.id, jobId: l.jobId, date: l.date, crewOk: l.crewOk, delayHours: l.delays.reduce((n, d) => n + (d.hoursLost ?? 0), 0),
       labour: l.hours, dockets: l.dockets,
     }));
     const budget = await approvedBudgetFor(p);
     if (budget.state === "DOWN") estimatingDown = true;
     // Read tip dockets from Receipts weigh in tonnes - they count towards DEM-10 (waste load-out), the
     // one docket code measured in tonnes (CIV-02 is m³).
-    const receipts = await prisma.receipt.findMany({ where: { kind: "TIP", projectId: p.id, status: { in: ["READ", "CONFIRMED"] }, tonnes: { gt: 0 } }, select: { tonnes: true, docketNo: true } });
+    const receipts = await prisma.receipt.findMany({ where: { kind: "TIP", projectId: p.id, status: { in: ["READ", "CONFIRMED"] }, tonnes: { gt: 0 } }, select: { tonnes: true, docketNo: true, jobId: true, docketAt: true, sentAt: true } });
     jobs.push({
       projectId: p.id, projectName: p.name, jobRef: p.jobNo || p.name, finished: p.status === "COMPLETED", logs,
       packages: budget.state === "OK" ? budget.packages.map((x) => ({ packageId: x.packageId, code: x.code, qty: x.qty ?? 0, unit: x.unit ?? "", labourHrs: x.labourHrs })) : null,
       pct: await latestPct(p.id, null),
-      receiptDockets: receipts.map((x) => ({ code: "DEM-10", quantity: x.tonnes!, unit: "t", docketNo: x.docketNo })),
+      receiptDockets: receipts.map((x) => ({ code: "DEM-10", quantity: x.tonnes!, unit: "t", docketNo: x.docketNo, jobId: x.jobId, day: (x.docketAt ?? x.sentAt).toLocaleDateString("en-CA", { timeZone: "Australia/Sydney" }) })),
     });
   }
   return { jobs, estimatingDown };

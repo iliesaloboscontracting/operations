@@ -12,7 +12,7 @@ import { BY_CODE } from "../activityCodes";
 export const EVIDENCE_BAR = { minPct: 50, minLogs: 5, maxHandShare: 0.2 }; // draft, design decision 8
 
 export type EvidenceLog = {
-  id: string; date: string; crewOk: boolean; delayHours: number;
+  id: string; jobId: string; date: string; crewOk: boolean; delayHours: number; // jobId = the board job (that day)
   labour: { code: string; hours: number }[];
   dockets: { code: string; quantity: number; unit: string; docketNo: string | null }[];
 };
@@ -23,7 +23,8 @@ export type JobEvidence = {
   logs: EvidenceLog[]; // the latest version of each day's log
   packages: EvidencePackage[] | null; // null = no approved budget
   pct: Map<string, number>; // latest weekly % by "pkg:<id>" / "code:<code>"
-  receiptDockets: { code: string; quantity: number; unit: string; docketNo: string | null }[]; // read tip dockets (Receipts)
+  // Read tip dockets (Receipts): jobId = the board job / day it was sent for; day = its Sydney date (docket's, else when sent).
+  receiptDockets: { code: string; quantity: number; unit: string; docketNo: string | null; jobId: string | null; day: string }[];
 };
 
 export type Figure = {
@@ -66,10 +67,14 @@ export function jobFigures(j: JobEvidence): JobFigure[] {
     ];
 
     if (def.siteReport === "dockets") {
-      // Docket quantities by unit: the log's dockets on this code, and read tip dockets put on this code -
-      // the same docket number counted once.
+      // Docket quantities by unit, only from days that logged hours on this code - tonnes from a day with
+      // no hours logged would be divided by other days' hours and make the rate look faster than it is.
+      // From those logs' own dockets, and read tip dockets sent for one of those board jobs (else dated
+      // one of those days). The same docket number counted once.
+      const loggedJobs = new Set(logs.map((l) => l.jobId)), loggedDays = new Set(logs.map((l) => l.date));
+      const onLoggedDay = (d: { jobId: string | null; day: string }) => (d.jobId ? loggedJobs.has(d.jobId) || loggedDays.has(d.day) : loggedDays.has(d.day));
       const seen = new Set<string>();
-      const lines = [...j.logs.flatMap((l) => l.dockets.filter((d) => d.code === code)), ...j.receiptDockets.filter((d) => d.code === code)]
+      const lines = [...logs.flatMap((l) => l.dockets.filter((d) => d.code === code)), ...j.receiptDockets.filter((d) => d.code === code && onLoggedDay(d))]
         .filter((d) => { const k = norm(d.docketNo); if (!k) return true; if (seen.has(k)) return false; seen.add(k); return true; });
       const byUnit = new Map<string, number>();
       for (const d of lines) byUnit.set(d.unit, (byUnit.get(d.unit) ?? 0) + d.quantity);
