@@ -1484,6 +1484,9 @@ model Receipt {
   note             String?
   supplier         String? // PURCHASE reading
   purchaseTotal    Float? // PURCHASE reading, inc GST
+  // A second docket on the same photo (office "Add another docket from this photo", 27 Oct 2026): the receipt
+  // whose photo(s) this one shares - the file isn't copied.
+  photoFromReceiptId String?
   photos           ReceiptPhoto[]
 
   @@index([jobId])

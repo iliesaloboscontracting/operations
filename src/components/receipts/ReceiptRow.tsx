@@ -56,6 +56,8 @@ function summary(r: ReceiptOfficeDTO): string[] {
 
 export default function ReceiptRow({ r, jobs, trucks, onChanged }: { r: ReceiptOfficeDTO; jobs: { id: string; label: string }[]; trucks: { id: string; label: string }[]; onChanged: (msg: string) => void }) {
   const [editing, setEditing] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [docket, setDocket] = useState<Record<string, string>>({ jobId: "", tipSite: "", docketNo: "", docketAt: "", wasteType: "", tonnes: "", rego: "", asbestos: "no" });
   const [form, setForm] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -69,6 +71,7 @@ export default function ReceiptRow({ r, jobs, trucks, onChanged }: { r: ReceiptO
     setBusy(false);
     if (!res.ok) return setError(await serverErrorMessage(res, "Couldn't save."));
     setEditing(false);
+    setAdding(false);
     onChanged(done);
   }
   function startEdit() {
@@ -118,6 +121,7 @@ export default function ReceiptRow({ r, jobs, trucks, onChanged }: { r: ReceiptO
           </div>
         )}
         {r.rejected && <div className="mt-1 text-xs text-red-300">Set aside by {r.rejected.by}: {r.rejected.reason}</div>}
+        {r.added && <div className="text-xs text-sky-300">Added by {r.added.by} from another docket&apos;s photo</div>}
         <div className="text-xs text-gray-500">
           {r.sentBy} · {when(r.sentAt)}
           {r.corrections.length > 0 && ` · corrected by ${[...new Set(r.corrections.map((c) => c.by))].join(", ")} (${r.corrections.length} change${r.corrections.length === 1 ? "" : "s"})`}
@@ -168,6 +172,32 @@ export default function ReceiptRow({ r, jobs, trucks, onChanged }: { r: ReceiptO
             {r.status !== "REJECTED" && r.status !== "SKIPPED" && (
               <button className={quiet} disabled={busy} onClick={() => { const reason = prompt("Why is it being set aside? (e.g. duplicate photo, not ours)"); if (reason) act({ op: "REJECT", reason }, "Set aside."); }}>Set aside</button>
             )}
+            {r.type !== "ODOMETER" && r.photoIds.length > 0 && !adding && (
+              <button className={quiet} disabled={busy} onClick={() => { setDocket({ ...docket, jobId: r.type === "TIP" ? r.jobId ?? "" : "" }); setAdding(true); }}>Add another docket from this photo</button>
+            )}
+          </div>
+        )}
+        {adding && (
+          <div className="mt-2 grid gap-2 rounded-lg border border-sky-500/40 bg-panel2/40 p-2 sm:grid-cols-2">
+            <div className="sm:col-span-2 text-xs text-gray-400">A second docket on the same photo - it shares the photo and goes in as confirmed.</div>
+            <label className="sm:col-span-2 text-xs text-gray-400">Job
+              <select className={input} value={docket.jobId} onChange={(e) => setDocket({ ...docket, jobId: e.target.value })}>
+                <option value="">Which job?</option>
+                {jobs.map((j) => <option key={j.id} value={j.id}>{j.label}</option>)}
+              </select>
+            </label>
+            {([["tipSite", "Tip site", "text"], ["docketNo", "Docket no.", "text"], ["docketAt", "Date and time", "datetime"], ["wasteType", "Waste type", "text"], ["tonnes", "Tonnes (net)", "number"], ["rego", "Rego", "text"]] as const).map(([k, label, kind]) => (
+              <label key={k} className="text-xs text-gray-400">{label}
+                <input className={input} type={kind === "datetime" ? "datetime-local" : "text"} inputMode={kind === "number" ? "decimal" : undefined} value={docket[k]} onChange={(e) => setDocket({ ...docket, [k]: e.target.value })} />
+              </label>
+            ))}
+            <label className="text-xs text-gray-400">Asbestos
+              <select className={input} value={docket.asbestos} onChange={(e) => setDocket({ ...docket, asbestos: e.target.value })}><option value="no">No</option><option value="yes">Yes</option></select>
+            </label>
+            <div className="flex flex-wrap gap-2 sm:col-span-2">
+              <button className={btn} disabled={busy} onClick={() => act({ op: "ADD_DOCKET", fields: { ...docket, asbestos: docket.asbestos === "yes" } }, "Second docket added and confirmed.")}>Add docket</button>
+              <button className={quiet} disabled={busy} onClick={() => setAdding(false)}>Cancel</button>
+            </div>
           </div>
         )}
         {error && <div className="mt-1 text-xs text-red-400">{error}</div>}

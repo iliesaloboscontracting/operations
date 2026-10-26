@@ -18,6 +18,7 @@ export type ReadingLog = {
   result?: unknown; reasons?: string[]; readAt?: string; tries?: number; lastError?: string;
   corrections?: { at: string; by: string; field: string; before: unknown; after: unknown }[];
   rejected?: { at: string; by: string; reason: string };
+  added?: { at: string; by: string; fromReceiptId: string }; // a second docket typed in from another receipt's photo
 };
 export const logOf = (s: string | null | undefined): ReadingLog => { try { return s ? (JSON.parse(s) as ReadingLog) : {}; } catch { return {}; } };
 
