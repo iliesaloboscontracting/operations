@@ -128,6 +128,7 @@ async function main() {
     await checkDenied("GET /api/accounts/purchases (accounts + Admins only)", "/api/accounts/purchases");
     await checkDenied("GET /api/directors/purchases (director access only)", "/api/directors/purchases");
     await checkDenied("GET /api/purchases (Manager+ / accounts only)", "/api/purchases");
+    await checkDenied("GET /api/assets/dates (D4: Managers read asset expiry dates; Viewers nothing)", "/api/assets/dates");
 
     // The Project File (brief 11): every project's page data, as a Viewer -
     // no money keys, no internal notes, and only crew-visible contacts.

@@ -5,11 +5,13 @@ import { ResourceDTO } from "@/lib/types";
 import { effectiveStatus, STATUS_LABEL, whereToday, money } from "@/lib/resource";
 import ServiceHistory from "@/components/ServiceHistory";
 import { TruckIndicatorsPanel } from "@/components/receipts/Indicators";
+import { AssetDatesCell, AssetDatesPanel, AssetDatesProvider } from "@/components/assets/AssetDates";
 
 const TYPES = ["Hook", "Tipper", "Ute", "Other"];
 
 export default function VehiclesPage() {
   return (
+    <AssetDatesProvider>
     <RegisterPage<ResourceDTO>
       config={{
         title: "Vehicles",
@@ -17,7 +19,8 @@ export default function VehiclesPage() {
         addLabel: "Add vehicle",
         itemNoun: "vehicle",
         // Odometer and fuel from Receipts (R4) - Lobos trucks only, Managers and up (it has fuel $).
-        detail: (r) => <><ServiceHistory resourceId={r.id} />{r.ownership === "OWNED" && r.category !== "Other" && <TruckIndicatorsPanel vehicleId={r.id} />}</>,
+        // D4: rego / insurance / service dates, read only (accounts edit them on Accounts -> Assets).
+        detail: (r) => <><AssetDatesPanel resourceId={r.id} /><ServiceHistory resourceId={r.id} />{r.ownership === "OWNED" && r.category !== "Other" && <TruckIndicatorsPanel vehicleId={r.id} />}</>,
         api: "/api/resources",
         query: "type=VEHICLE",
         sectionOf: (r) => (r.category ?? "Other").toUpperCase(),
@@ -33,6 +36,7 @@ export default function VehiclesPage() {
         columns: [
           { label: "Vehicle", render: (r) => <span className="font-medium">{r.name}</span> },
           { label: "Rego", render: (r) => r.identifier },
+          { label: "Rego / insurance / service", render: (r) => <AssetDatesCell resourceId={r.id} /> },
           { label: "Load size", render: (r) => r.loadSize },
           {
             label: "Daily rate",
@@ -62,5 +66,6 @@ export default function VehiclesPage() {
         ],
       }}
     />
+    </AssetDatesProvider>
   );
 }

@@ -6,12 +6,25 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../prisma";
 import { todaySydney } from "../today";
 import { listDocuments } from "../compliance/store";
-import { dueSummary, isAssetResource, linkable } from "./rules";
+import { dueSummary, isAssetResource, linkable, managerDateView, type ManagerDate } from "./rules";
 
 type Problem = { error: string; status: number };
 const bad = (error: string, status = 400): Problem => ({ error, status });
 export type AssetGroup = "VEHICLES" | "PLANT" | "TOOLS";
 const OPEN_TOOL_ISSUES = ["REPORTED", "SWAP_REQUESTED"];
+
+// D4: every owned vehicle / plant item's active dates, for the Vehicles and Plant pages (Manager+), soonest first.
+export async function assetDatesForManagers() {
+  const today = todaySydney();
+  const docs = await prisma.complianceDocument.findMany({
+    where: { holderType: "ASSET", status: "ACTIVE", resourceId: { not: null } },
+    select: { resourceId: true, kind: true, issuer: true, reference: true, expiryDate: true, resource: { select: { type: true, ownership: true } } },
+    orderBy: { expiryDate: "asc" },
+  });
+  const out: Record<string, ManagerDate[]> = {};
+  for (const d of docs) if (d.resource && isAssetResource(d.resource)) (out[d.resourceId!] ??= []).push(managerDateView(d, today));
+  return out;
+}
 
 export async function listAssets(group: AssetGroup) {
   const today = todaySydney();

@@ -1,8 +1,17 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { dueSummary, isAssetResource, linkable, reminderCategory } from "./rules";
+import { dueSummary, isAssetResource, linkable, managerDateView, reminderCategory } from "./rules";
 
 const TODAY = "2026-10-27";
+
+test("D4: what a Manager reads is the date, who issued it and its number - nothing else", () => {
+  const doc = { id: "d1", kind: "ASSET_INSURANCE", issuer: "Insurer", reference: "POL-1", expiryDate: "2026-11-10", title: "Fleet policy - premium paid", notes: "premium 4200", files: [{ id: "f" }] };
+  const v = managerDateView(doc, TODAY);
+  assert.deepEqual(Object.keys(v).sort(), ["expiryDate", "issuer", "kind", "label", "reference", "state"]);
+  assert.equal(v.label, "Insurance");
+  assert.equal(v.state, "EXPIRING");
+  assert.equal(managerDateView({ ...doc, expiryDate: "2026-10-01" }, TODAY).state, "EXPIRED");
+});
 
 test("reminders use the calendar's own categories", () => {
   assert.equal(reminderCategory("REGO"), "REGO");
