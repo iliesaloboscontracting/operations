@@ -51,6 +51,11 @@ export default function CrewSignInPage({ params: paramsP }: { params: Promise<{ 
   const [done, setDone] = useState<string | null>(null);
   // Signed in on a truck: the odometer photo comes next (Receipts R1).
   const [odometer, setOdometer] = useState<string | null>(null);
+  // Accounts stage 2 (Ilies: GPS "with sign in", "do not change the way the current sign in works"): the
+  // phone's position is asked for once, quietly, while the Sign in button shows, and sent with the sign-in
+  // only. Never tracked; a refusal or no fix never holds the sign-in up.
+  const gps = useRef<{ status: string; lat?: number; lng?: number; accuracy?: number } | null>(null);
+  const gpsAsked = useRef(false);
 
   useEffect(() => {
     setMe(store<Me>(ME_KEY));
@@ -63,11 +68,11 @@ export default function CrewSignInPage({ params: paramsP }: { params: Promise<{ 
   }, [params.code]);
 
   const send = useCallback(
-    async (action: "STATUS" | "IN" | "OUT", who: Me) => {
+    async (action: "STATUS" | "IN" | "OUT", who: Me, extra: Record<string, unknown> = {}) => {
       const res = await fetch("/api/site/in/sign", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ticket: scan!.ticket, jobId, action, deviceId: deviceId(), ...who }),
+        body: JSON.stringify({ ticket: scan!.ticket, jobId, action, deviceId: deviceId(), ...who, ...extra }),
       });
       if (!res.ok) throw new Error(await serverErrorMessage(res, "Couldn't send - check your signal and try again."));
       return res.json();
@@ -82,11 +87,25 @@ export default function CrewSignInPage({ params: paramsP }: { params: Promise<{ 
     send("STATUS", me).then(setStatus, (e) => setError((e as Error).message));
   }, [scan, jobId, me, send]);
 
+  // Ask for the position once the Sign in button is showing (the browser asks permission the first time).
+  useEffect(() => {
+    if (!status || status.signedIn || gpsAsked.current) return;
+    gpsAsked.current = true;
+    if (!("geolocation" in navigator)) { gps.current = { status: "UNAVAILABLE" }; return; }
+    navigator.geolocation.getCurrentPosition(
+      (p) => { gps.current = { status: "OK", lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy }; },
+      (e) => { gps.current = { status: e.code === 1 ? "DENIED" : e.code === 3 ? "TIMEOUT" : "UNAVAILABLE" }; },
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 120_000 },
+    );
+  }, [status]);
+
   async function act(action: "IN" | "OUT") {
     setBusy(true);
     setError(null);
     try {
-      const r = await send(action, me!);
+      // Signing in: wait at most 1.5 s for the position, then go without it.
+      if (action === "IN") for (let i = 0; i < 15 && !gps.current; i++) await new Promise((r) => setTimeout(r, 100));
+      const r = await send(action, me!, action === "IN" ? { gps: gps.current ?? { status: "TIMEOUT" } } : {});
       setDone(r.message);
       if (typeof r.odometer === "string") setOdometer(r.odometer);
     } catch (e) {
@@ -152,9 +171,12 @@ export default function CrewSignInPage({ params: paramsP }: { params: Promise<{ 
               </button>
             </>
           ) : (
-            <button className={`${big} bg-brand-600`} disabled={busy} onClick={() => act("IN")}>
-              {busy ? <Loader2 className="animate-spin" /> : <LogIn />} Sign in
-            </button>
+            <>
+              <button className={`${big} bg-brand-600`} disabled={busy} onClick={() => act("IN")}>
+                {busy ? <Loader2 className="animate-spin" /> : <LogIn />} Sign in
+              </button>
+              <p className="text-center text-xs text-gray-500">Lobos notes where you are when you sign in - only at that moment.</p>
+            </>
           )}
           {scan.method === "POSTER" && <p className="text-center text-xs text-gray-500">Signed in from the site poster - your supervisor confirms it.</p>}
         </div>

@@ -8,6 +8,7 @@ import {
   activeApproval, lineIssues, peopleOf, timesheetLines, weekDates, weekEnd, weekHasEnded, weekStartOf,
   type TimesheetSnapshot,
 } from "@/lib/timesheets";
+import { accountsStatusForWeek } from "@/lib/payroll/store";
 
 // GET /api/timesheets?week=YYYY-MM-DD (any date in the week) -> Lobos staff
 // hours for that Monday-Sunday week from site sign-ins, the week's approval
@@ -17,7 +18,7 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
   if (denied) return denied;
   const q = req.nextUrl.searchParams.get("week");
   const weekStart = weekStartOf(q && isISODate(q) ? q : todaySydney());
-  const [lines, approval, history] = await Promise.all([
+  const [lines, approval, history, accounts] = await Promise.all([
     timesheetLines(weekStart),
     activeApproval(weekStart),
     prisma.timesheetWeek.findMany({
@@ -25,6 +26,7 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
       orderBy: { approvedAt: "desc" },
       select: { id: true, approvedBy: true, approvedAt: true, totalHours: true, people: true, reopenedBy: true, reopenedAt: true, reopenReason: true },
     }),
+    accountsStatusForWeek(weekStart), // Accounts stage 2: Victoria's decision per person (status and note only)
   ]);
   // An approved week shows exactly what was approved; anything that differs
   // in the live sign-ins since then is listed so nothing slips by unseen.
@@ -49,6 +51,7 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
     approval: approval && { approvedBy: approval.approvedBy, approvedAt: approval.approvedAt },
     changedSinceApproval,
     history,
+    accounts,
   });
 });
 

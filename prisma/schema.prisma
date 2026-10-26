@@ -340,6 +340,7 @@ model Resource {
   loadSize    String?
   ownership   String       @default("OWNED") // OWNED | HIRED
   payClass    String?
+  engagement  String? // Accounts stage 2: EMPLOYEE | ABN - who goes in the pay run (blank = not set yet; Admin sets it)
   phone       String?
   email       String?
   tickets     String?
@@ -804,6 +805,12 @@ model SiteAttendance {
   confirmedBy   String?
   confirmedAt   DateTime?
   runBy         String? // the supervisor / lead whose QR or link was used
+  // Accounts stage 2 (Ilies: GPS "with sign in", never tracked): where the phone was at sign-in only.
+  // Accounts / Admin only. gpsStatus OK | DENIED | UNAVAILABLE | TIMEOUT; null = not asked (older, office, ticked in).
+  gpsLat        Float?
+  gpsLng        Float?
+  gpsAccuracyM  Float?
+  gpsStatus     String?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   edits         AttendanceEdit[]
@@ -1511,4 +1518,38 @@ model TipRate {
   retiredReason     String?
 
   @@index([tipSite])
+}
+
+// Accounts stage 2 (docs/accounts/STAGE2-DESIGN.md): a supervisor approves one job's hours for one day, on
+// their site link. Append-only - the latest row for a job and day counts. Names and hours only.
+model HoursApproval {
+  id                   String   @id @default(cuid())
+  jobId                String
+  date                 String // YYYY-MM-DD
+  siteLinkId           String
+  approvedBy           String
+  approvedByResourceId String?
+  approvedAt           DateTime @default(now())
+  snapshot             String // JSON [{ attendanceId, name, company, in, out, hours, flag? }]
+  note                 String?
+
+  @@index([jobId, date])
+}
+
+// Accounts stage 2: Victoria's final decision on one person's week (APPROVED | QUERY). Append-only - the
+// latest row per person and week counts. personKey = a Personnel resource id, or "hire:<name>|<company>".
+model PayWeekReview {
+  id         String   @id @default(cuid())
+  weekStart  String // YYYY-MM-DD, the Monday
+  personKey  String
+  personName String
+  status     String // APPROVED | QUERY
+  hours      Float
+  snapshot   String // JSON: the lines as she saw them
+  note       String?
+  by         String
+  byId       String
+  at         DateTime @default(now())
+
+  @@index([weekStart, personKey])
 }

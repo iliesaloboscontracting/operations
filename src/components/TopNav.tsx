@@ -151,6 +151,7 @@ export default function TopNav() {
             {/* The Accounts screen (26 Oct 2026) - separate from Operations. */}
             <NavTab href="/accounts" label="To do" active={path === "/accounts"} />
             <NavTab href="/accounts/calendar" label="Due dates" active={isActive("/accounts/calendar")} />
+            <NavTab href="/accounts/payroll" label="Payroll" active={isActive("/accounts/payroll")} />
             <NavTab href="/invoices" label="Invoices" active={isActive("/invoices")} />
           </>
         ) : onePage ? (

@@ -25,6 +25,7 @@ type Data = {
   approval: { approvedBy: string; approvedAt: string } | null;
   changedSinceApproval: number;
   history: { id: string; approvedBy: string; approvedAt: string; totalHours: number; people: number; reopenedBy: string | null; reopenedAt: string | null; reopenReason: string | null }[];
+  accounts?: Record<string, { status: string; note: string | null; by: string }>; // Accounts stage 2: Victoria's decision per person
 };
 
 const shiftDate = (iso: string, days: number) => {
@@ -316,6 +317,11 @@ export default function TimesheetsPage() {
                       <td className="sticky left-0 z-10 bg-panel px-3 py-2">
                         <div className="font-medium text-gray-100">{p.name}</div>
                         <div className="text-[11px] text-gray-500">{p.role ?? ""}</div>
+                        {data.accounts?.[p.resourceId] && (
+                          <div className={`text-[11px] ${data.accounts[p.resourceId].status === "QUERY" ? "text-amber-300" : "text-emerald-400"}`}>
+                            {data.accounts[p.resourceId].status === "QUERY" ? `Accounts query: ${data.accounts[p.resourceId].note ?? ""}` : "Approved by accounts"}
+                          </div>
+                        )}
                       </td>
                       {data.days.map((d) => (
                         <td key={d} className="w-32 space-y-1 px-1.5 py-1.5">
