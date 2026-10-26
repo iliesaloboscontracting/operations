@@ -300,6 +300,18 @@ business, without becoming unnecessarily complicated.
   decide READ or CHECK; kill switch `RECEIPT_READING=off`) live 26 Oct; R3 tip costs (tip rates, estimate replaced by the tip invoice), R4 truck /
   job indicators follow. Fuel is never a job cost (truck day rate includes
   it - Ilies). The daily log's docket step is replaced by "N dockets sent".
+- **Accounts screen** (26 Oct 2026, plan `docs/accounts/ACCOUNTS-PLAN.md`,
+  Victoria's 16-point list; Ilies: separate accounts login, separate from
+  Operations, nothing duplicated): the ACCOUNTS login now lands on
+  `/accounts` (To do · Due dates · Invoices) via `guardAccounts()` (ACCOUNTS +
+  Admins; never Managers) and still can't open any Operations page or data.
+  "To do" reads existing records only (inbox drafts, unanswered queries,
+  sign-ins with no sign-out); `AccountsItem` holds due dates and reminders
+  (repeats, phone alert once per due date from the tick). Stage 1 live 26
+  Oct; stages 2-7 (payroll, on-costs, ABN invoices, compliance, assets,
+  bank/tax) follow the plan. GPS at sign-in is approved only if sign-in
+  itself doesn't change. The invoices inbox can "Clear from inbox"
+  (`InvoiceUpload.clearedAt`; undecided lines go on hold, nothing deleted).
 - **Money-guard principle:** crew-facing/operational views (day sheets, Day
   Review, the Yard) never carry dollar figures — enforced at both the
   TypeScript type level (narrow DTOs with no money fields) and via a runtime
