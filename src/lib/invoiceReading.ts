@@ -77,11 +77,16 @@ const DOC_SCHEMA = {
           totalIncGst: S("Total including GST as plain digits. Empty if not shown."),
           category: { type: "string", enum: [...CATEGORIES] },
           docketNos: { type: "array", items: { type: "string" }, description: "Tip / weighbridge docket numbers listed on a tip-fees invoice, exactly as printed. Empty for anything else." },
+          // Accounts stage 4: ABN workers' hours, and line prices for the agreed-rate check.
+          supplierAbn: S("The supplier's ABN as printed (11 digits). Empty if none."),
+          workDays: { type: "array", description: "Only for an invoice from a person billing their own hours: each date worked (YYYY-MM-DD) and the hours that day, as printed. Empty for anything else.", items: { type: "object", properties: { date: S("YYYY-MM-DD"), hours: S("Hours as plain digits, e.g. '7.5'.") }, required: ["date", "hours"], additionalProperties: false } },
+          hoursTotal: S("Total hours billed as plain digits, if the invoice bills hours. Empty if not."),
+          lines: { type: "array", description: "Each priced line on the invoice, as printed. Empty if it has no line items.", items: { type: "object", properties: { description: S("The line's description."), quantity: S("Quantity as plain digits, or empty."), unit: S("Unit as printed, e.g. 'day', 'week', 'hr', 'tonne', 'each'. Empty if none."), unitPriceExGst: S("Unit price excluding GST as plain digits, or empty.") }, required: ["description", "quantity", "unit", "unitPriceExGst"], additionalProperties: false } },
           projectId: S("Id of the matching job from the list, or empty."),
           confidence: { type: "string", enum: ["high", "low", "none"] },
           reason: S("One short line: why this job (or why none)."),
         },
-        required: ["documentType", "supplier", "entityBilled", "invoiceNo", "invoiceDate", "periodFrom", "periodTo", "description", "siteText", "hireRef", "amountExGst", "gst", "totalIncGst", "category", "docketNos", "projectId", "confidence", "reason"],
+        required: ["documentType", "supplier", "entityBilled", "invoiceNo", "invoiceDate", "periodFrom", "periodTo", "description", "siteText", "hireRef", "amountExGst", "gst", "totalIncGst", "category", "docketNos", "supplierAbn", "workDays", "hoursTotal", "lines", "projectId", "confidence", "reason"],
         additionalProperties: false,
       },
     },
@@ -96,6 +101,9 @@ export type ReadInvoice = {
   description: string; siteText: string; hireRef: string; amountExGst: string; gst: string; totalIncGst: string;
   category: (typeof CATEGORIES)[number]; projectId: string; confidence: "high" | "low" | "none"; reason: string;
   docketNos?: string[]; // tip fees: the dockets it bills (Receipts R3)
+  // Accounts stage 4 (empty when not printed)
+  supplierAbn?: string; workDays?: { date: string; hours: string }[]; hoursTotal?: string;
+  lines?: { description: string; quantity: string; unit: string; unitPriceExGst: string }[];
 };
 
 export async function readInvoiceDocument(file: Buffer, mime: string, jobs: JobForMatching[]): Promise<ReadInvoice[]> {

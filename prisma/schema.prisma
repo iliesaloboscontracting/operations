@@ -231,6 +231,11 @@ model InvoiceDraft {
   status         String   @default("NEEDS_REVIEW")
   problem        String? // why it needs a person, or why it was skipped
   invoicedCostId String? // the Tracking row it became
+  // Accounts stage 4 (docs/accounts/STAGE4-DESIGN.md) - read from a PDF / photo, empty when not printed.
+  supplierAbn    String?
+  workDays       String? // JSON [{ date, hours }] - a person billing their hours
+  hoursTotal     Float?
+  lines          String? // JSON [{ description, quantity, unit, unitPriceExGst }]
   autoAdded      Boolean  @default(false)
   decidedBy      String?
   decidedAt      DateTime?
@@ -341,6 +346,7 @@ model Resource {
   ownership   String       @default("OWNED") // OWNED | HIRED
   payClass    String?
   engagement  String? // Accounts stage 2: EMPLOYEE | ABN - who goes in the pay run (blank = not set yet; Admin sets it)
+  gstRegistered Boolean? // Accounts stage 4: GST-registered ABN worker (null = not recorded); set on Accounts, Admin-only elsewhere
   phone       String?
   email       String?
   tickets     String?
@@ -1638,4 +1644,55 @@ model OnCostRate {
   retiredReason   String?
 
   @@index([line, effectiveFrom])
+}
+
+// Accounts stage 4: an ABN worker's invoice (from the invoices inbox) checked against their supervisor-approved
+// hours. Never a job cost - own crew are costed from hours. Decisions keep their history; nothing is deleted.
+model AbnInvoice {
+  id         String    @id @default(cuid())
+  draftId    String    @unique
+  resourceId String
+  personName String
+  periodFrom String?
+  periodTo   String?
+  status     String    @default("TO_CHECK") // TO_CHECK | APPROVED | QUERY
+  note       String?
+  decidedBy  String?
+  decidedAt  DateTime?
+  history    String    @default("[]") // JSON [{ status, note, by, at }]
+  attachedBy String
+  createdAt  DateTime  @default(now())
+
+  @@index([resourceId])
+  @@index([status])
+}
+
+// Accounts stage 4: Victoria's OK / Query on a computed invoice flag (hire vs register, over the agreed rate).
+// Append-only; the latest row for a subject + flag counts.
+model InvoiceFlagReview {
+  id          String   @id @default(cuid())
+  subjectKind String // HIRE (an InvoicedCost) | RATE (an InvoiceDraft line: "<draftId>:<line no>")
+  subjectId   String
+  flag        String
+  status      String // OK | QUERY
+  note        String?
+  by          String
+  byId        String
+  at          DateTime @default(now())
+
+  @@index([subjectKind, subjectId])
+}
+
+// Accounts stage 4: "this supplier writes this item like this" -> a rate in Estimating's rate sheet (its id).
+// Remembered when accounts pick or confirm a rate, like SiteAlias for jobs. No rate is stored here.
+model RateLink {
+  id          String   @id @default(cuid())
+  supplierKey String
+  lineKey     String
+  rateId      String
+  label       String
+  createdBy   String
+  createdAt   DateTime @default(now())
+
+  @@unique([supplierKey, lineKey])
 }

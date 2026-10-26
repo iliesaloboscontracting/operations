@@ -4,10 +4,14 @@
 //  - a clear match to a job goes straight onto it (Ilies: "auto when matched"),
 //  - anything unclear waits for a person (NEEDS_REVIEW / NO_JOB),
 //  - already-entered invoices are DUPLICATE, Lobos Civil-billed ones SKIPPED
-//    (Ilies 24 Oct 2026: not counted).
+//    (Ilies 24 Oct 2026: not counted),
+//  - an ABN worker's own invoice is SKIPPED too and checked against their
+//    approved hours on Accounts (stage 4) - own crew are costed from hours.
 // A plant-hire invoice is only added on its own when it can't double count a
 // hire-register estimate: either it links to the item by contract number, or
 // the job has no estimate from that supplier.
+import { abnWorkersNamed } from "./abnInvoices/rules";
+import { ABN_SKIP_REASON, openAbnCheck } from "./abnInvoices/store";
 import { prisma } from "./prisma";
 import { invoiceMimeOf, readInvoiceFile } from "./invoiceFiles";
 import { readInvoiceSheet } from "./invoiceSheet";
@@ -61,6 +65,8 @@ type Raw = {
   amountExGst: number | null; gst: number | null; totalIncGst: number | null;
   category: string | null; projectId: string | null; confidence: "HIGH" | "LOW" | null; matchReason: string | null;
   docketNos?: string[]; // tip invoices read from a file (Receipts R3) - matched to the dockets sent from site
+  // Accounts stage 4: an ABN worker's hours and the priced lines (PDF / photo only), stored as read.
+  supplierAbn?: string | null; workDays?: string | null; hoursTotal?: number | null; lines?: string | null;
 };
 
 const blank = (s: string | null | undefined) => (s && s.trim() ? s.trim() : null);
@@ -85,6 +91,7 @@ async function rawFromDocument(fileName: string, jobs: JobForMatching[]): Promis
     amountExGst: money(r.amountExGst), gst: money(r.gst), totalIncGst: money(r.totalIncGst),
     category: r.category, projectId: blank(r.projectId), confidence: conf(r.confidence), matchReason: blank(r.reason),
     docketNos: r.category === "TIP_FEES" ? r.docketNos ?? [] : [],
+    ...stage4Fields(r),
   }));
 }
 
@@ -147,7 +154,20 @@ async function aliasMap() {
   return new Map((await prisma.siteAlias.findMany()).map((a) => [a.text, a.projectId]));
 }
 
-type Verdict = { status: DraftStatus; problem: string | null; hireResourceId?: string | null };
+type Verdict = { status: DraftStatus; problem: string | null; hireResourceId?: string | null; abnResourceId?: string | null };
+type AbnPerson = { id: string; name: string; engagement: string | null; active: boolean };
+
+// Accounts stage 4: what the reader found for ABN hours and line prices, cleaned ("" -> null, digits -> numbers).
+export function stage4Fields(r: { supplierAbn?: string; workDays?: { date: string; hours: string }[]; hoursTotal?: string; lines?: { description: string; quantity: string; unit: string; unitPriceExGst: string }[] }) {
+  const days = (r.workDays ?? []).map((d) => ({ date: isoDate(d.date), hours: money(d.hours) })).filter((d) => d.date && d.hours != null);
+  const lines = (r.lines ?? []).map((l) => ({ description: blank(l.description), quantity: money(l.quantity), unit: blank(l.unit), unitPriceExGst: money(l.unitPriceExGst) })).filter((l) => l.description);
+  return {
+    supplierAbn: blank(r.supplierAbn)?.replace(/\s+/g, "") || null,
+    workDays: days.length ? JSON.stringify(days) : null,
+    hoursTotal: money(r.hoursTotal ?? null),
+    lines: lines.length ? JSON.stringify(lines) : null,
+  };
+}
 
 // Words accounts use when an invoice isn't settled yet ("check vs TIN89926 -
 // possible duplicate", "FULLY CREDITED", "document is a quote").
@@ -163,7 +183,7 @@ function fiveMonthsAgo() {
   return d.toISOString().slice(0, 10);
 }
 
-async function decide(r: Raw, seen: Set<string>, existing: Set<string>, jobIds: Set<string>): Promise<Verdict> {
+async function decide(r: Raw, seen: Set<string>, existing: Set<string>, jobIds: Set<string>, abnPeople: AbnPerson[] = []): Promise<Verdict> {
   const key = dupKey(r.supplier, r.invoiceNo);
   const site = r.siteText ? `"${r.siteText}"` : "the site on it";
   if (r.documentType && !["invoice", "credit_note", "receipt"].includes(r.documentType)) {
@@ -171,6 +191,11 @@ async function decide(r: Raw, seen: Set<string>, existing: Set<string>, jobIds: 
   }
   if (isCivil(r)) return { status: "SKIPPED", problem: "Billed to Lobos Civil - not counted on Lobos Contracting jobs. Add it by hand if this one should count." };
   if (invoiceKey(r.invoiceNo) && (existing.has(key) || seen.has(key))) return { status: "DUPLICATE", problem: "Already entered." };
+  // Accounts stage 4: an ABN worker's own invoice is never a job cost (own crew are costed from hours) - it's
+  // checked against their approved hours on Accounts instead.
+  const abn = abnWorkersNamed(r.supplier, abnPeople);
+  if (abn.length === 1) return { status: "SKIPPED", problem: ABN_SKIP_REASON, abnResourceId: abn[0].id };
+  if (abn.length > 1) return { status: "NEEDS_REVIEW", problem: `Could be more than one ABN worker (${abn.map((p) => p.name).join(", ")}) - attach it to the right person on Accounts -> Invoice checks.` };
   if (!r.supplier || r.amountExGst == null || !r.invoiceDate) {
     const missing = [!r.supplier && "supplier", r.amountExGst == null && "amount", !r.invoiceDate && "invoice date"].filter(Boolean).join(", ");
     return { status: "NEEDS_REVIEW", problem: `Couldn't read the ${missing}.` };
@@ -236,9 +261,10 @@ export async function processUpload(uploadId: string) {
     const existing = await existingInvoiceKeys();
     const jobIds = new Set(jobs.map((j) => j.id));
     const seen = new Set<string>();
+    const abnPeople = await prisma.resource.findMany({ where: { type: "PERSONNEL", engagement: "ABN" }, select: { id: true, name: true, engagement: true, active: true } });
     const source = `From ${upload.originalName}${upload.uploadedBy ? `, uploaded by ${upload.uploadedBy}` : ""} (invoices inbox)`;
     for (const r of raws) {
-      const v = await decide(r, seen, existing, jobIds);
+      const v = await decide(r, seen, existing, jobIds, abnPeople);
       let status = v.status, problem = v.problem, invoicedCostId: string | null = null;
       if (status === "ADDED") {
         const added = await addToTracking({ ...r, hireResourceId: v.hireResourceId ?? null }, source, "Invoices inbox (automatic)");
@@ -246,15 +272,17 @@ export async function processUpload(uploadId: string) {
         else invoicedCostId = added.id;
       }
       if (invoiceKey(r.invoiceNo)) seen.add(dupKey(r.supplier, r.invoiceNo));
-      await prisma.invoiceDraft.create({
+      const draft = await prisma.invoiceDraft.create({
         data: {
           uploadId, rowNo: r.rowNo ?? null, supplier: r.supplier, entityBilled: r.entityBilled, invoiceNo: r.invoiceNo, invoiceDate: r.invoiceDate,
           periodFrom: r.periodFrom, periodTo: r.periodTo, description: r.description, siteText: r.siteText, hireRef: r.hireRef,
           amountExGst: r.amountExGst, gst: r.gst, totalIncGst: r.totalIncGst, category: r.category, projectId: r.projectId,
           hireResourceId: v.hireResourceId ?? null, confidence: r.confidence, matchReason: r.matchReason,
           status, problem, invoicedCostId, autoAdded: status === "ADDED",
+          supplierAbn: r.supplierAbn ?? null, workDays: r.workDays ?? null, hoursTotal: r.hoursTotal ?? null, lines: r.lines ?? null,
         },
       });
+      if (v.abnResourceId) await openAbnCheck(draft.id, v.abnResourceId, "Invoices inbox (automatic)");
     }
     await prisma.invoiceUpload.update({
       where: { id: uploadId },
