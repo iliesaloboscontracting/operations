@@ -103,7 +103,7 @@ checked by `looksLikeTfnOrBank()`. The check refuses words such as "TFN", "tax f
 2. **D2 Reminder window:** 30 days before expiry. That is the existing `alertDays` maximum. Per item it can be shortened, never lengthened past 30.
 3. **D3 Board flag shows EXPIRED only.** "Expiring within 30 days" shows on the Accounts screen but not on the board, to keep the board quiet.
 4. **D4 Expiry is typed by a person from the card.** Nothing is computed from typical validity periods, so nothing is invented.
-5. **D5 Onboarding fields:** start date, employment type, ABN (contractors), address, date of birth, emergency contact, "set up in Xero" tick, contract / policies signed dates, company induction date, notes. Date of birth and address are personal data: keep or drop?
+5. **D5 Onboarding fields:** start date, employment type, ABN (contractors), address, date of birth, emergency contact, "set up in Xero" tick, contract / policies signed dates, company induction date, notes. Date of birth and address are personal data. **Decided 27 Oct 2026:** address kept, date of birth not collected (the field is left in the database, empty, so it can be switched on later).
 6. **D6 Who edits:** ACCOUNTS and Admins. Managers only see the board flag.
 7. **D7 Nothing is deleted.** Tickets and documents are archived, and a removed file is hidden but stays on disk.
 8. **D8 Company holder names:** free text with suggestions ("Lobos Contracting", "Lobos Civil", and labour-hire agencies already on the hire register). There is no subcontractor table yet.

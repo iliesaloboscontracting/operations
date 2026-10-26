@@ -1607,7 +1607,7 @@ model WorkerOnboarding {
   employmentType    String? // EMPLOYEE_FULL_TIME | EMPLOYEE_PART_TIME | CASUAL | ABN_CONTRACTOR | LABOUR_HIRE
   abn               String?
   address           String?
-  dateOfBirth       String?
+  dateOfBirth       String? // not collected (Ilies go on the lead's recommendation, 27 Oct 2026) - always empty; kept so it can be switched on
   emergencyName     String?
   emergencyPhone    String?
   emergencyRelation String?

@@ -179,7 +179,7 @@ export async function saveOnboarding(by: string, resourceId: string, b: Record<s
       data[key] = f.value;
     }
   }
-  for (const [key, label] of [["startDate", "The start date"], ["dateOfBirth", "The date of birth"], ["contractSigned", "The contract date"], ["policiesSigned", "The policies date"], ["inductionDate", "The induction date"]] as const) {
+  for (const [key, label] of [["startDate", "The start date"], ["contractSigned", "The contract date"], ["policiesSigned", "The policies date"], ["inductionDate", "The induction date"]] as const) {
     if (key in b) {
       const d = dateField(b, key, label);
       if (isProblem(d)) return d;

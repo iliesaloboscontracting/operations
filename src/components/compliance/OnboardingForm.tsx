@@ -45,8 +45,8 @@ export default function OnboardingForm({ resourceId, value, onSaved }: { resourc
         <label className="text-xs text-gray-400">ABN (contractors)<input className={input} value={f.abn} onChange={set("abn")} inputMode="numeric" /></label>
       </div>
       <div className="grid gap-3 sm:grid-cols-3">
-        <label className="text-xs text-gray-400 sm:col-span-2">Address<input className={input} value={f.address} onChange={set("address")} /></label>
-        <label className="text-xs text-gray-400">Date of birth<input type="date" className={input} value={f.dateOfBirth} onChange={set("dateOfBirth")} /></label>
+        {/* No date of birth: the lead recommended leaving it out unless accounts need it; Ilies said go (27 Oct 2026). */}
+        <label className="text-xs text-gray-400 sm:col-span-3">Address<input className={input} value={f.address} onChange={set("address")} /></label>
       </div>
       <div className="grid gap-3 sm:grid-cols-3">
         <label className="text-xs text-gray-400">Emergency contact<input className={input} value={f.emergencyName} onChange={set("emergencyName")} /></label>
