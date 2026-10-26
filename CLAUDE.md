@@ -343,6 +343,28 @@ business, without becoming unnecessarily complicated.
   they stay in Xero. Managers see only a red expired-ticket icon on the board
   (`/api/compliance/flags`, labels + dates) - information only, never blocks
   an allocation. Nothing is deleted (archive; a removed file is hidden).
+  **Stage 4, Invoice checks** (live 27 Oct, `/accounts/invoice-checks`,
+  `docs/accounts/STAGE4-DESIGN.md`): an ABN worker's invoice vs their
+  supervisor-approved hours (`AbnInvoice`; the inbox takes it off job cost
+  automatically ONLY on a recorded-ABN match or a 2+-word full-name match -
+  a first name alone waits for a person); hire invoices vs the register
+  (outside period / more days / billed twice); invoice lines vs Estimating's
+  agreed rates via **rate-sheet.v1** (`GET /api/rate-sheet` on Estimating,
+  `x-lobos-actuals` key, server-to-server, read-only; Lobos's own labour /
+  plant rates are not in it). Supplier rates now reach the Accounts screen
+  (accounts / Admins) - never a link or an Operations page.
+  **Stage 6, Assets & purchases** (live 27 Oct, `docs/accounts/STAGE6-DESIGN.md`):
+  `/accounts/assets` (rego / insurance / service dates on
+  `ComplianceDocument` holderType ASSET, mechanic invoices linked from the
+  inbox as `ServiceRecord`); purchase requests (`PurchaseRequest`): the
+  requester asks (Alex's OFFICE link or `/purchases`, Managers / Admins),
+  accounts price it, a DIRECTOR login approves (never the requester; every
+  purchase, no threshold - Ilies), accounts mark it ordered. The amount is
+  Accounts / Directors only; anything that can reach a link refuses $.
+- **Sign-ins: delete** (27 Oct): an Admin can delete a sign-in (e.g. signed
+  in twice) - `removeAttendance`: status REJECTED + `removedAt`, hidden from
+  the Sign-ins page and the supervisor's list, no hours anywhere, the reason
+  kept in `AttendanceEdit`. Locked weeks refuse it like any office change.
   **Stage 6, Assets & purchases** (`docs/accounts/STAGE6-DESIGN.md`):
   `/accounts/assets` reads the Vehicles / Plant / Tools registers; rego,
   insurance and service dates are `ComplianceDocument`s with holderType ASSET
