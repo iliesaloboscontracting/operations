@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { SESSION_COOKIE, verifySession } from "./lib/session";
+import { crossSite } from "./lib/originCheck";
 
 // Gatekeeper: every page and API route needs a valid signed session cookie, except the
 // sign-in / first-run setup pages and the auth endpoints. Roles (who may edit) are
@@ -8,6 +9,11 @@ const PUBLIC = ["/login", "/setup", "/api/auth/login", "/api/auth/setup"];
 
 export async function middleware(req: NextRequest) {
   const { pathname, search } = req.nextUrl;
+  // SEC-008 (27 Oct 2026): a POST / PUT / PATCH / DELETE to the API or /estimating that another website's page sent
+  // is refused - before the sign-in, setup and site-link early returns below (lib/originCheck.ts).
+  if (crossSite(req.method, pathname, { origin: req.headers.get("origin"), host: req.headers.get("host"), forwardedHost: req.headers.get("x-forwarded-host") })) {
+    return NextResponse.json({ error: "Refused: this request came from another website." }, { status: 403 });
+  }
   // The image optimiser is never used here, and Next 14 has unpatched
   // remote-code-execution holes in it (Oct 2026 audit). The photos tunnel
   // publishes _next/.* to the internet, so refuse it outright until Next is
