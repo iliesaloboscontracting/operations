@@ -93,6 +93,7 @@ const DIRECTORS = [
 ];
 const ACCOUNTS = [
   { href: "/accounts", label: "To do" },
+  { href: "/accounts/questions", label: "Questions" },
   { href: "/accounts/calendar", label: "Due dates" },
   { href: "/accounts/payroll", label: "Payroll" },
   { href: "/accounts/reimbursements", label: "Reimbursements" },

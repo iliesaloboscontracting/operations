@@ -36,5 +36,5 @@ export default function QuestionsBanner({ onOpen, floating }: { onOpen?: () => v
   const cls = "mb-4 flex w-full flex-wrap items-center gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-left text-sm text-amber-100 hover:bg-amber-500/15";
   // On the Invoices page the Queries tab is right there; elsewhere go to My queries.
   if (onOpen) return <button onClick={onOpen} className={cls}>{body}</button>;
-  return <Link href={accountsOnly ? "/invoices?tab=queries" : "/directors/queries"} className={cls}>{body}</Link>;
+  return <Link href={accountsOnly ? "/accounts/questions" : "/directors/queries"} className={cls}>{body}</Link>;
 }

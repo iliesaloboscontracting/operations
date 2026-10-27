@@ -13,7 +13,7 @@ import { OWNER_EMAIL } from "../owner";
 import { addEvent, insertRequest } from "../siteRequests";
 import { QUERY_TYPE, requestNo } from "../requestTypes";
 import { todaySydney } from "../today";
-import { queryTargetError, recordQueryDecision } from "../findings/queries";
+import { assigneeView, queryTargetError, recordQueryDecision } from "../findings/queries";
 import type { Actor } from "../findings/actions";
 import { OPEN_STATUSES, canBeAsked, daysWaiting, parseDraftFile, parseInfoItem, readDetails, resolveTo, whyUnresolved, type InfoItem } from "./rules";
 
@@ -225,4 +225,30 @@ export async function assignDraft(id: string, toUserId: unknown) {
   if (!u || !canBeAsked(u, OWNER_EMAIL)) return { error: "Pick accounts, a director login or someone with director access." };
   await prisma.infoRequestDraft.update({ where: { id }, data: { assigneeUserId: u.id } });
   return { ok: true as const };
+}
+
+// ---------- Accounts -> Questions (27 Oct 2026) ----------
+
+// Every question to an accounts login, with its history - all of them, not only the last two weeks.
+// MINE: the accounts login's own (it answers through /api/queries/:id). ALL: every accounts login's, read-only
+// (owner / an Admin with director access - closing stays on Directors -> Info requests).
+export async function accountsQuestions(viewerId: string, scope: "MINE" | "ALL") {
+  const assignees = scope === "MINE" ? [viewerId] : (await prisma.user.findMany({ where: { role: "ACCOUNTS" }, select: { id: true } })).map((u) => u.id);
+  const rows = await prisma.siteRequest.findMany({
+    where: { kind: QUERY_TYPE.kind, assigneeUserId: { in: assignees } },
+    include: { events: { orderBy: { at: "asc" } } },
+    orderBy: [{ createdAt: "desc" }],
+    take: 300,
+  });
+  return rows.map((r) => {
+    const v = assigneeView(r, false);
+    const mine = r.assigneeUserId === viewerId;
+    return {
+      ...v,
+      canAnswer: mine && v.canAnswer,
+      canMarkRead: mine && v.canMarkRead,
+      to: mine ? null : r.assigneeName,
+      history: r.events.map((e) => ({ action: e.action, by: e.by, at: e.at.toISOString(), note: e.note })),
+    };
+  });
 }

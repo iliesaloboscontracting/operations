@@ -108,7 +108,7 @@ export default function AccountsPage() {
             <Section title="Questions for you" count={p.queries.length}>
               <div className="divide-y divide-edge/60">
                 {p.queries.map((q) => (
-                  <Link key={q.id} href="/invoices?tab=queries" className="flex gap-3 px-3 py-2.5 text-sm hover:bg-panel2">
+                  <Link key={q.id} href="/accounts/questions" className="flex gap-3 px-3 py-2.5 text-sm hover:bg-panel2">
                     <span className="text-gray-500">{q.ref}</span><span className="text-gray-200">{q.summary}</span>
                   </Link>
                 ))}
