@@ -60,8 +60,15 @@ business, without becoming unnecessarily complicated.
   changed - additive only), `npm run build`; then stop, rsync stage → app
   (`--delete`, excluding `.next`, `node_modules`, `.env`, `prisma/dev.db*`),
   swap `.next`, start. Down ~3 s instead of 1-2 min. The DB is in journal
-  mode DELETE (no -wal files). Remove `stage` and `.next.old` afterwards.
-  Prefer deploying outside site hours unless it's urgent.
+  mode DELETE (no -wal files). Prefer deploying outside site hours unless
+  it's urgent. **WARNING (27 Oct 2026 incident):** `next build` bakes the
+  build folder's absolute path into `.next` - after the first staged deploy
+  the live app couldn't open the DB for ~8 min once `stage` was deleted.
+  `/srv/operations/stage` is now a symlink to `/srv/operations/app` and
+  MUST NOT be deleted while that build is live. Don't reuse this recipe
+  until it's replaced by a path-safe one (e.g. building in a folder whose
+  path is the one the app runs from) - until then deploy in place (stop,
+  build, start) outside site hours.
   The old **laptop** install (`OperationsServer` + `cloudflared` Windows
   services, and the laptop's copy of the tunnel token) was **removed on
   2026-10-24** (Ilies) - there is no laptop fallback. Recovery is from the
