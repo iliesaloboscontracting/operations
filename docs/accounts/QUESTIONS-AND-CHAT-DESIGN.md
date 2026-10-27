@@ -24,6 +24,13 @@ These replace the matching drafts below. Each line under it says where in this n
    - The text stays in the history table, visible to **the owner only**.
    - Nobody edits or deletes another person's message.
 4. **D-Q9 (lead):** the Office room sends no push for now.
+5. **D-Q11, Ilies: YES.** The owner (Ilies only, via `isOwner`, not other Admins or the directors) can read **every** one-to-one office conversation, read-only.
+   - Messages has a "My conversations / All conversations" switch, shown to the owner only.
+   - `GET /api/messages?all=1` lists every one-to-one; anyone else gets 403.
+   - When he opens one he isn't in, he isn't added as a participant, and nothing is marked seen for the two people.
+   - He can't post, edit, delete or mark it seen (404).
+   - He sees the edit history and any deleted text, as everywhere.
+6. **D-Q2, Ilies: YES.** The Operations AI may send information-request questions to the owner too, under the same rules: tagged "Operations AI", counted in the 20-a-day limit, and answers never change data. He answers on Directors → My queries.
 
 ## 0. What is reused
 
@@ -64,7 +71,7 @@ These replace the matching drafts below. Each line under it says where in this n
   - DIRECTOR login,
   - or ADMIN / MANAGER login.
   - Never the AI itself, a Viewer or a Timesheets login.
-  - **D-Q2. Never the owner.** Ilies reviews the answers; questions for him come in this chat.
+  - ~~D-Q2. Never the owner.~~ **Replaced by Ilies's decision 6:** the owner can be asked too.
 - **Tag:** the request's "asked by" is **"Operations AI"**, and `details.askedByAi = "1"`. Every screen shows that name: the recipient's card, Accounts → Questions, and Directors → Info requests, which has a "Sent by Operations AI" badge and an "AI only" filter. The owner sees every one there, since the page already lists every information request.
 - **Limits:**
   - **20 a day**, rolling 24 hours, counted from the store. The 21st is refused with a plain message.
@@ -132,7 +139,7 @@ These replace the matching drafts below. Each line under it says where in this n
 
 **"Message about this"** on purchases, reimbursements, pay weeks, ABN invoices and site requests is kept from the branch, in-app only. A message never changes the record.
 
-**D-Q11. Privacy:** only the two people read a one-to-one thread; not even an Admin does. The room is open to every office login. Should Ilies be able to read every one-to-one thread? That is a question for him (same as the branch's D-M4).
+**D-Q11. Privacy:** only the two people read a one-to-one, and the room is open to every office login. **Ilies's decision 5:** the owner alone may also read every one-to-one, read-only ("All conversations"). Other Admins and the directors still can't.
 
 **D-Q12. Export:** none yet. A per-thread print / PDF can follow if wanted.
 
@@ -211,3 +218,19 @@ These replace the matching drafts below. Each line under it says where in this n
 - Browser, as accounts:
   - an edited message with "edited", Edit and Delete, and its two earlier versions;
   - the room showing "message deleted" with no history link.
+
+### Results after Ilies's D-Q11 and D-Q2 answers (5th commit, 27 Oct 2026, a fresh copy of `cloud-dev-20261027-0130`)
+
+- `tsc` clean; `npm test` 314 / 314.
+  - New test: only the owner reads every conversation.
+  - Updated test: the AI may ask the owner.
+- End to end: **100 / 100**.
+  - D-Q2: the AI asks the owner, which counts in the daily limit. The owner sees it "from Operations AI" on My queries and answers it. No project record changed.
+  - D-Q11:
+    - the owner's All conversations lists every one-to-one; Admin, ticked Admin, director, Manager, accounts and the AI get 403;
+    - the owner opens one read-only and sees its edit history;
+    - he can't mark it seen, post or edit (404), and another Admin still can't read it;
+    - the thread keeps exactly two participants with unchanged "seen" times.
+  - All earlier checks still pass.
+- `scripts/check-viewer-safety.ts`: 22 / 22.
+- Browser, as the owner: the switch, the All conversations list ("di-accounts ↔ di-director"), and a conversation opened read-only with no message box.

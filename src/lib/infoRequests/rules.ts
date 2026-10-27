@@ -113,14 +113,13 @@ export const AI_DAILY_LIMIT = 20; // rolling 24 hours
 export const overAiLimit = (sentLast24h: number) => sentLast24h >= AI_DAILY_LIMIT;
 const AI_ASKS = ["ACCOUNTS", "DIRECTOR", "ADMIN", "MANAGER"];
 
-// Who the AI may ask: an active accounts, director, Admin or Manager login - never itself, never the owner (D-Q2:
-// he reviews the answers), never a Viewer / Timesheets login. Amounts are fine, Managers included (Ilies 27 Oct:
+// Who the AI may ask: an active accounts, director, Admin or Manager login - the owner included (Ilies 27 Oct, D-Q2
+// "YES") - never itself, never a Viewer / Timesheets login. Amounts are fine, Managers included (Ilies 27 Oct:
 // "DOLLAR VALUES ARE APPROVED WITHIN THE OFFICE CHATS AND MESSAGES" - questions are office-only and in-app).
-export function aiTargetError(u: Askable | null, aiUserId: string, ownerEmail: string): string | null {
+export function aiTargetError(u: Askable | null, aiUserId: string, _ownerEmail?: string): string | null {
   if (!u) return "Pick who to ask.";
   if (!u.active) return "That login is switched off.";
   if (u.id === aiUserId) return "You can't ask yourself.";
-  if (u.email.toLowerCase() === ownerEmail.toLowerCase()) return "Questions for Ilies go to him directly - he reviews the answers.";
   if (!AI_ASKS.includes(u.role)) return "Operations AI asks accounts, the directors and the office.";
   return null;
 }

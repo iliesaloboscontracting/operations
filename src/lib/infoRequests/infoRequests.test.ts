@@ -140,14 +140,15 @@ test("Operations AI is the Building Agent login by email, never by role", async 
   assert.equal(isOperationsAi(null), false);
 });
 
-test("the AI asks accounts, directors, Admins and Managers - never itself, the owner, a Viewer or a switched-off login", async () => {
+test("the AI asks accounts, directors, Admins, Managers and the owner - never itself, a Viewer or a switched-off login", async () => {
   const { aiTargetError, aiCanAsk } = await import("./rules");
   const u = (o: Partial<Askable>): Askable => ({ id: "x", name: "X", email: "x@l.com", role: "MANAGER", directorAccess: false, active: true, ...o });
   for (const role of ["ACCOUNTS", "DIRECTOR", "ADMIN", "MANAGER"]) assert.equal(aiTargetError(u({ role }), "ai", OWNER), null, role);
   assert.match(aiTargetError(u({ role: "VIEWER" }), "ai", OWNER)!, /accounts, the directors and the office/);
   assert.match(aiTargetError(u({ role: "TIMESHEETS" }), "ai", OWNER)!, /accounts/);
   assert.match(aiTargetError(u({ id: "ai" }), "ai", OWNER)!, /yourself/);
-  assert.match(aiTargetError(u({ role: "ADMIN", email: OWNER }), "ai", OWNER)!, /Ilies/);
+  assert.equal(aiTargetError(u({ role: "ADMIN", email: OWNER }), "ai", OWNER), null, "the owner too (Ilies 27 Oct, D-Q2)");
+  assert.equal(aiCanAsk(u({ role: "ADMIN", email: OWNER }), "ai", OWNER), true);
   assert.match(aiTargetError(u({ active: false }), "ai", OWNER)!, /switched off/);
   assert.equal(aiTargetError(null, "ai", OWNER), "Pick who to ask.");
   assert.equal(aiCanAsk(u({ role: "ACCOUNTS" }), "ai", OWNER), true);

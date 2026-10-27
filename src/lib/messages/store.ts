@@ -7,9 +7,9 @@ import { pushToUsers } from "../push";
 import { purchaseNo } from "../purchases/rules";
 import { requestNo } from "../requestTypes";
 import { AI_DAILY_LIMIT, isOperationsAi } from "../infoRequests/rules";
-import { isOwner } from "../owner";
+import { OWNER_EMAIL, isOwner } from "../owner";
 import {
-  ROOM_FIRST_VISIT_DAYS, ROOM_KEY, ROOM_TITLE, alertText, canChange, canMessage, canStart, canUseSubject, chatName, checkBody, isSubjectType, labelOf,
+  ROOM_FIRST_VISIT_DAYS, ROOM_KEY, ROOM_TITLE, alertText, canChange, canMessage, canReadAllThreads, canStart, canUseSubject, chatName, checkBody, isSubjectType, labelOf,
   roomSeenBy, seenBy, unreadCount, visibleHistory, type SubjectType,
 } from "./rules";
 
@@ -235,22 +235,23 @@ export async function listThreads(me: Viewer) {
 const ROOM_SHOWN = 200; // the room shows its latest 200 messages; nothing is ever deleted
 
 export async function getThread(me: Viewer, threadId: string) {
-  const o = await openFor(me, threadId);
+  const o = (await openFor(me, threadId)) ?? (await ownerReads(me, threadId));
   if (!o) return null;
   const { t, mine, others } = o;
+  const readOnly = !mine; // the owner reading someone else's one-to-one
   const isRoom = t.kind === "ROOM";
   const msgs = (await prisma.message.findMany({
     where: { threadId: t.id }, orderBy: { createdAt: "desc" }, take: isRoom ? ROOM_SHOWN : 2000,
     include: { versions: { orderBy: { at: "asc" } } },
   })).reverse();
   const owner = isOwner(me.email);
-  const other = isRoom ? null : others[0] ?? null;
+  const other = isRoom || readOnly ? null : others[0] ?? null;
   return {
-    id: t.id, room: isRoom, title: isRoom ? ROOM_TITLE : other?.name ?? "Conversation",
+    id: t.id, room: isRoom, readOnly, title: isRoom ? ROOM_TITLE : readOnly ? others.map((p) => p.name).join(" ↔ ") : other?.name ?? "Conversation",
     subjectType: t.subjectType, subjectKey: t.subjectKey, subjectLabel: isRoom ? "Everyone in the office" : t.subjectLabel,
     other: other ? { name: other.name } : null,
     messages: msgs.map((m) => {
-      const own = m.authorId === mine.id;
+      const own = !!mine && m.authorId === mine.id;
       const seenNames = own && isRoom ? roomSeenBy(m.createdAt, others) : [];
       const deleted = !!m.deletedAt;
       return {
@@ -263,6 +264,33 @@ export async function getThread(me: Viewer, threadId: string) {
       };
     }),
   };
+}
+
+// D-Q11: the owner opens a one-to-one he isn't in - read-only, no seat, nothing marked seen.
+async function ownerReads(me: Viewer, threadId: string) {
+  if (!canReadAllThreads(me.email, OWNER_EMAIL)) return null;
+  const t = await prisma.messageThread.findUnique({ where: { id: threadId }, include: { participants: true } });
+  if (!t || t.kind !== "DIRECT") return null;
+  return { t, mine: null as Participant | null, others: t.participants as Participant[] };
+}
+
+// D-Q11: "All conversations" - every one-to-one, for the owner only: the two people, what it's about, the last message.
+export async function allThreads(me: Viewer) {
+  if (!canReadAllThreads(me.email, OWNER_EMAIL)) return null;
+  const threads = await prisma.messageThread.findMany({
+    where: { kind: "DIRECT" },
+    include: { participants: { select: { name: true } }, messages: { orderBy: { createdAt: "desc" }, take: 1, select: { body: true, authorName: true } }, _count: { select: { messages: true } } },
+    orderBy: { lastMessageAt: "desc" },
+    take: 500,
+  });
+  return threads.map((t) => {
+    const last = t.messages[0];
+    return {
+      id: t.id, room: false, title: t.participants.map((p) => p.name).join(" ↔ "), subjectType: t.subjectType, subjectKey: t.subjectKey,
+      subjectLabel: `${t.subjectLabel} · ${t._count.messages} message${t._count.messages === 1 ? "" : "s"}`, other: null,
+      lastMessageAt: t.lastMessageAt.toISOString(), last: last ? { by: last.authorName, text: last.body ? last.body.slice(0, 140) : "message deleted" } : null, unread: 0,
+    };
+  });
 }
 
 // Unread messages for the nav badge.

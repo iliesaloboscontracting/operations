@@ -10,7 +10,7 @@ import { apiFetch, serverErrorMessage } from "@/lib/apiFetch";
 // the owner can still read what it said. Opening the thread marks it seen. In the room, "Seen by N".
 type Version = { kind: string; text: string; at: string };
 export type ThreadDTO = {
-  id: string; room: boolean; title: string; subjectLabel: string; other: { name: string } | null;
+  id: string; room: boolean; readOnly?: boolean; title: string; subjectLabel: string; other: { name: string } | null;
   messages: {
     id: string; mine: boolean; by: string; text: string | null; at: string; edited: boolean; editedAt: string | null; deleted: boolean; deletedAt: string | null;
     history: Version[]; canChange: boolean; seen: boolean | null; seenAt: string | null; seenBy: string[] | null;
@@ -33,12 +33,15 @@ export default function Conversation({ base, onChanged, big = false }: { base: s
 
   const load = useCallback(async () => {
     const res = await apiFetch(base).catch(() => null);
-    if (!res?.ok) return setError(res ? await serverErrorMessage(res, "Couldn't load it.") : "Couldn't load - check your signal.");
+    if (!res?.ok) { setError(res ? await serverErrorMessage(res, "Couldn't load it.") : "Couldn't load - check your signal."); return null; }
     setError(null);
-    setT(await res.json());
+    const d: ThreadDTO = await res.json();
+    setT(d);
+    return d;
   }, [base]);
   useEffect(() => {
-    load().then(() => post(base, { action: "SEEN" }).then(() => changed.current?.()).catch(() => undefined));
+    // The owner reading someone else's conversation (readOnly) never marks it seen.
+    load().then((d) => { if (d && !d.readOnly) post(base, { action: "SEEN" }).then(() => changed.current?.()).catch(() => undefined); });
     const iv = setInterval(load, 20_000);
     return () => clearInterval(iv);
   }, [base, load]);
@@ -69,17 +72,17 @@ export default function Conversation({ base, onChanged, big = false }: { base: s
     <div className="flex flex-col gap-3">
       <div>
         <p className="font-semibold text-gray-100">{t.room ? `# ${t.title}` : t.title}</p>
-        <p className="text-xs text-gray-500">{t.subjectLabel}</p>
+        <p className="text-xs text-gray-500">{t.subjectLabel}{t.readOnly ? " · read-only (you're not in this conversation)" : ""}</p>
       </div>
       <div className="flex flex-col gap-2">
         {t.messages.map((m) => (
           <div key={m.id} className={`max-w-[85%] rounded-xl px-3 py-2 ${m.mine ? "self-end bg-brand-900/50" : "self-start bg-panel2"}`}>
-            {t.room && !m.mine && <p className="mb-0.5 text-[11px] font-semibold text-gray-300">{m.by}</p>}
+            {(t.room || t.readOnly) && !m.mine && <p className="mb-0.5 text-[11px] font-semibold text-gray-300">{m.by}</p>}
             {m.deleted
               ? <p className={`italic text-gray-500 ${big ? "text-base" : "text-sm"}`}>message deleted</p>
               : <p className={`whitespace-pre-wrap text-gray-100 ${big ? "text-base" : "text-sm"}`}>{m.text}</p>}
             <p className="mt-1 flex flex-wrap items-center gap-1 text-[11px] text-gray-500">
-              {!m.mine && !t.room && <span>{m.by} ·</span>}
+              {!m.mine && !t.room && !t.readOnly && <span>{m.by} ·</span>}
               <span>{when(m.at)}</span>
               {(m.edited || (m.deleted && m.history.length > 0)) && (
                 <button type="button" onClick={() => setShowHistory(showHistory === m.id ? null : m.id)} className="underline" title={m.editedAt ? `Edited ${when(m.editedAt)}` : undefined}>
@@ -105,7 +108,7 @@ export default function Conversation({ base, onChanged, big = false }: { base: s
         ))}
         <div ref={end} />
       </div>
-      <form onSubmit={send} className="flex flex-col gap-2">
+      {!t.readOnly && <form onSubmit={send} className="flex flex-col gap-2">
         {editing && <p className="text-xs text-amber-300">Editing your message - the earlier version is kept behind &quot;edited&quot;. <button type="button" className="underline" onClick={() => { setEditing(null); setText(""); }}>Cancel</button></p>}
         <textarea className={input} rows={big ? 3 : 2} value={text} onChange={(e) => setText(e.target.value)} placeholder="Write a message" />
         {error && <p className="text-xs text-red-400">{error}</p>}
@@ -113,7 +116,7 @@ export default function Conversation({ base, onChanged, big = false }: { base: s
           {busy && <Loader2 size={16} className="animate-spin" />} {editing ? "Save change" : "Send"}
         </button>
         <p className="text-[11px] text-gray-600">You can edit or delete your own messages. Every earlier version is kept on record.</p>
-      </form>
+      </form>}
     </div>
   );
 }

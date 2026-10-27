@@ -5,7 +5,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  ROOM_FIRST_VISIT_DAYS, alertText, canChange, canMessage, canStart, canUseSubject, chatName, checkBody, labelOf, roomSeenBy, seenBy, unreadCount,
+  ROOM_FIRST_VISIT_DAYS, alertText, canChange, canMessage, canReadAllThreads, canStart, canUseSubject, chatName, checkBody, labelOf, roomSeenBy, seenBy, unreadCount,
   visibleHistory,
 } from "./rules";
 
@@ -86,4 +86,13 @@ test("unread: others' messages after I last opened it; an unopened room counts o
 test("a phone alert carries who it's from - never the message or the record label", () => {
   const a = alertText("Victoria");
   assert.deepEqual(a, { title: "Message from Victoria", body: "Open Messages to read it." });
+});
+
+test("only the owner reads every one-to-one (Ilies 27 Oct, D-Q11) - not other Admins or the directors", () => {
+  const OWNER = "iliesa@loboscontracting.com.au";
+  assert.equal(canReadAllThreads(OWNER, OWNER), true);
+  assert.equal(canReadAllThreads(" ILIESA@loboscontracting.com.au".trim(), OWNER), true);
+  assert.equal(canReadAllThreads("nick@loboscontracting.com.au", OWNER), false);
+  assert.equal(canReadAllThreads(AI, OWNER), false);
+  assert.equal(canReadAllThreads(null, OWNER), false);
 });

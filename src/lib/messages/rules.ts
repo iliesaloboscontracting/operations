@@ -24,6 +24,10 @@ export function canStart(fromRole: string, toRole: string): { ok: true } | { err
   return { ok: true };
 }
 
+// Ilies, 27 Oct (D-Q11 "YES"): the owner - and only the owner, not other Admins or the directors - may read every
+// one-to-one, read-only ("All conversations"). He isn't a participant and his reading never marks anything seen.
+export const canReadAllThreads = (email: string | null | undefined, ownerEmail: string) => (email ?? "").toLowerCase() === ownerEmail.toLowerCase();
+
 // How a login is named in chat: the Building Agent is "Operations AI" everywhere.
 export const chatName = (name: string, email: string | null | undefined) => (isOperationsAi(email) ? OPERATIONS_AI_NAME : name);
 
