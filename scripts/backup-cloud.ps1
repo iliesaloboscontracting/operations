@@ -50,9 +50,11 @@ function Test-DbGz($path) {
 }
 
 try {
-  # Already have today's copy (the server's 1:30am backup, named by its
-  # Sydney date): nothing to do. Keeps the every-2-hours runs free.
-  if (Get-ChildItem $backupDir -Filter ("cloud-dev-{0}-*.db.gz" -f (Get-Date -Format "yyyyMMdd")) -ErrorAction SilentlyContinue) { exit 0 }
+  # Already have ALL of today's copy (the server's 1:30am backup, named by its Sydney date): nothing to do. Keeps the
+  # every-2-hours runs free. 28 Oct 2026: this used to look at the database file only, so a run cut off part-way
+  # (the laptop went back to sleep after the database and photos) never fetched the rest that day. A run now leaves
+  # a "cloud-done-<db name>.txt" marker only once every file is in.
+  if (Get-ChildItem $backupDir -Filter ("cloud-done-dev-{0}-*.txt" -f (Get-Date -Format "yyyyMMdd")) -ErrorAction SilentlyContinue) { exit 0 }
 
   # Newest database and photos backups on the server (root-owned). SEC-010 (27 Oct 2026): each file is streamed with
   # "sudo cat" straight into the local .part file - never staged world-readable in /tmp. ssh's own
@@ -88,16 +90,27 @@ try {
   $files = @($db, $photos) + @($invoices, $estimating, $receipts, $compliance | Where-Object { $_ })
   # The names come from the server's own listing; anything but a plain file name never reaches a remote command.
   foreach ($f in $files) { if ($f -notmatch '^[A-Za-z0-9._-]+$') { throw "unexpected backup file name on the server: $f" } }
-  # Newest one already downloaded (e.g. before 1:30am, today's isn't made yet).
-  if (Test-Path (Join-Path $backupDir ("cloud-" + $db))) { exit 0 }
+  # Newest set already fully downloaded (e.g. before 1:30am, today's isn't made yet).
+  $done = Join-Path $backupDir ("cloud-done-" + ($db -replace '\.db\.gz$', '.txt'))
+  if (Test-Path $done) { exit 0 }
   foreach ($f in $files) {
       $dest = Join-Path $backupDir ("cloud-" + $f)
       $part = "$dest.part"
       $errFile = "$part.err"
+      # Already in from an earlier, cut-off run: keep it, fetch only what's missing. A half-written .part is dropped.
+      if (Test-Path $dest) { continue }
+      Remove-Item $part, $errFile -Force -ErrorAction SilentlyContinue
       # Start-Process hands ssh a real file handle for stdout, so the bytes land unchanged (PowerShell's own > would
       # re-encode them as text and corrupt the archive).
       $sshArgs = @($sshOpts | ForEach-Object { if ($_ -match '\s') { '"' + $_ + '"' } else { $_ } }) + @($server, "`"sudo cat /srv/operations/backups/$f`"")
-      $p = Start-Process -FilePath "ssh" -ArgumentList $sshArgs -RedirectStandardOutput $part -RedirectStandardError $errFile -NoNewWindow -Wait -PassThru
+      $p = Start-Process -FilePath "ssh" -ArgumentList $sshArgs -RedirectStandardOutput $part -RedirectStandardError $errFile -NoNewWindow -PassThru
+      $null = $p.Handle # keep the process handle, or ExitCode comes back empty without -Wait
+      # A stalled transfer (e.g. the laptop slept mid-download) must not hang the run forever: give up after 20 min.
+      if (-not $p.WaitForExit(20 * 60 * 1000)) {
+        $p.Kill(); $p.WaitForExit()
+        Remove-Item $part, $errFile -Force -ErrorAction SilentlyContinue
+        throw "download of $f stalled - stopped after 20 minutes"
+      }
       $why = if (Test-Path $errFile) { (Get-Content $errFile -Raw) } else { "" }
       Remove-Item $errFile -Force -ErrorAction SilentlyContinue
       if ($p.ExitCode -ne 0) { Remove-Item $part -Force -ErrorAction SilentlyContinue; throw "download of $f failed (ssh exit $($p.ExitCode)): $why" }
@@ -108,6 +121,7 @@ try {
       Move-Item $part $dest -Force
       Write-Log ("OK {0} size={1}" -f $dest, (Get-Item $dest).Length)
   }
+  Set-Content -Path $done -Value ("complete " + (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ"))
 
   # Keep 30 days of these cloud copies (only this script's own files).
   Get-ChildItem $backupDir -Filter "cloud-*" | Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-$keepDays) } | Remove-Item -Force
