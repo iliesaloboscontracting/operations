@@ -12,6 +12,15 @@ body {
   @apply bg-canvas text-gray-200;
 }
 
+/* A dropdown's open list is drawn by the browser, not the page. Without its own colours it can come out as light
+   text on a light list (or dark on dark) - the names in Messages' "To..." list were invisible (28 Oct 2026). Give
+   every option the theme's panel background and text colour, so it reads in both the dark and the light build. */
+select option,
+select optgroup {
+  background-color: theme("colors.panel2");
+  color: theme("colors.gray.200");
+}
+
 /* Drop-zone highlight while dragging a compatible resource over it */
 .drop-zone-active {
   outline: 2px dashed #3b82f6;
