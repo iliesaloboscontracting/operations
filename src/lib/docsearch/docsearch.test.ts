@@ -227,3 +227,20 @@ test("GraphSource: token roles checked, GETs only, download goes to the pre-sign
   await assert.rejects(async () => { for await (const _ of bad.listFiles("03_General")) { /* nothing */ } }, (e: unknown) => e instanceof SourceStop && /ReadWrite/.test((e as Error).message));
   assert.ok(!calls.some((c) => c.url.includes("graph.microsoft.com")), "nothing read from Graph with a write permission");
 });
+
+test("DS-014: the index folder is 0700 and the file 0600 before SQLite opens it", async () => {
+  const { statSync, existsSync } = await import("fs");
+  const idx = await import("./index");
+  const dir = mkdtempSync(path.join(tmpdir(), "ds014-"));
+  try {
+    const file = path.join(dir, "search", "search.db");
+    idx.secureFile(file);
+    assert.ok(existsSync(file), "the file exists before any open");
+    if (process.platform !== "win32") {
+      assert.equal(statSync(path.dirname(file)).mode & 0o777, 0o700, "folder 0700");
+      assert.equal(statSync(file).mode & 0o777, 0o600, "file 0600");
+    }
+    idx.secureFile(file); // idempotent on an existing file
+    assert.ok(existsSync(file));
+  } finally { idx.closeIndex(); rmSync(dir, { recursive: true, force: true }); }
+});

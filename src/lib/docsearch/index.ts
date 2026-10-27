@@ -1,7 +1,7 @@
 // LCI phase 6: the search index - a SEPARATE SQLite file (Node 24's built-in node:sqlite, FTS5), at SEARCH_INDEX_PATH,
 // outside prisma/ so `prisma db push` can never touch it. A derived copy: it can be deleted and rebuilt any time.
 // Role filtering happens here, in SQL - a row a login may not see is never read. Design §3-4.
-import { existsSync, mkdirSync } from "fs";
+import { chmodSync, closeSync, existsSync, mkdirSync, openSync } from "fs";
 import path from "path";
 import type { Level } from "./folders";
 import { MARK_CLOSE, MARK_OPEN, toFtsQuery } from "./query";
@@ -17,13 +17,22 @@ export const indexPath = () => path.resolve(process.env.SEARCH_INDEX_PATH?.trim(
 // Reading (search, status) never creates the file: an unconnected server has no index until its first refresh.
 export const hasIndex = () => existsSync(indexPath());
 
+// DS-014 (security review, Ilies approved 27 Oct): the index holds document text, so only the app's own user may read
+// it - the folder is made 0700 and the file is created 0600 before SQLite opens it. SQLite's -wal / -shm files follow
+// the process umask: the operations service runs with UMask=0077 (deploy note, PHASE6-DESIGN.md §3).
+export function secureFile(file: string) {
+  mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+  if (!existsSync(file)) closeSync(openSync(file, "a", 0o600));
+  chmodSync(file, 0o600);
+}
+
 let db: Db | null = null;
 let openedAt: string | null = null;
 export function openIndex(file = indexPath()): Db {
   if (db && openedAt === file) return db;
   if (db) db.close();
   if (/[\\/]prisma[\\/]/i.test(file)) throw new Error("The search index must live outside prisma/.");
-  if (file !== ":memory:") mkdirSync(path.dirname(file), { recursive: true });
+  if (file !== ":memory:") secureFile(file);
   db = new (sqlite().DatabaseSync)(file);
   openedAt = file;
   db.exec(`

@@ -50,6 +50,11 @@ Plan: `PHASE6-PLAN.md`. The folder list for Ilies to tick: `PHASE6-FOLDERS.md`. 
 
 - It uses Node 24's built-in SQLite (`node:sqlite`, SQLite 3.53, FTS5 with Porter stemming, so "spotters" finds "spotter"). It's loaded through `process.getBuiltinModule`, so the bundler never sees it, and no package is added.
 - The file defaults to `../operations-search/search.db`, beside the app and **outside `prisma/`**, so `prisma db push` can never touch it. On the server it's `/srv/operations/search/search.db`.
+- **Deploy (DS-014):**
+  - set `SEARCH_INDEX_PATH=/srv/operations/search/search.db` in `.env`;
+  - make `/srv/operations/search` owned by the `operations` user with mode `700`;
+  - add `UMask=0077` to the `[Service]` section of the `operations` systemd unit, so SQLite's `-wal` / `-shm` files are `600` too.
+  The app itself makes the folder `0700` and the file `0600` before SQLite opens it, so the index text is readable only by `operations` (and root).
 - It's a derived copy: it can be deleted and rebuilt at any time, so it isn't backed up. Rows for files that left an approved folder are removed from it; that's a cache, not a business record.
 
 ```sql
