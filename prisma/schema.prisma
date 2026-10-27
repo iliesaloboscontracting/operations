@@ -1893,3 +1893,56 @@ model TaxSetting {
 
   @@index([key, at])
 }
+
+// Office chat (27 Oct 2026, docs/accounts/QUESTIONS-AND-CHAT-DESIGN.md part 3; tables from the messaging branch 3c64ff1, no
+// site-link side). kind DIRECT: two people, optionally about a record (subjectType + subjectKey), moneyAllowed fixed at the
+// start (both owner / ADMIN / ACCOUNTS / DIRECTOR). kind ROOM: the one shared "Office" room (roomKey OFFICE), never money.
+// Kept forever: no edit or delete route, Restrict keys; a correction is a new message (correctsId).
+model MessageThread {
+  id            String               @id @default(cuid())
+  kind          String               @default("DIRECT") // DIRECT | ROOM
+  roomKey       String?              @unique // "OFFICE" for the shared room
+  subjectType   String               @default("NONE") // NONE | PURCHASE | REIMBURSEMENT | PAY_WEEK | ABN_INVOICE | SITE_REQUEST
+  subjectKey    String?
+  subjectLabel  String
+  moneyAllowed  Boolean              @default(false)
+  createdBy     String
+  createdAt     DateTime             @default(now())
+  lastMessageAt DateTime             @default(now())
+  participants  MessageParticipant[]
+  messages      Message[]
+
+  @@index([subjectType, subjectKey])
+  @@index([lastMessageAt])
+}
+
+// A person in a thread: an office login (USER, userId). In the room a row is made on first visit. resourceId stays
+// nullable and unused (no site-link side). Plain ids, like User.personnelId. lastSeenAt drives "Seen" and unread.
+model MessageParticipant {
+  id         String        @id @default(cuid())
+  threadId   String
+  thread     MessageThread @relation(fields: [threadId], references: [id], onDelete: Restrict)
+  kind       String // USER | PERSON
+  userId     String?
+  resourceId String?
+  name       String
+  role       String? // the login's role when the thread started (USER)
+  lastSeenAt DateTime?
+
+  @@index([threadId])
+  @@index([userId])
+  @@index([resourceId])
+}
+
+model Message {
+  id         String        @id @default(cuid())
+  threadId   String
+  thread     MessageThread @relation(fields: [threadId], references: [id], onDelete: Restrict)
+  authorId   String // the MessageParticipant who wrote it
+  authorName String
+  body       String
+  correctsId String? // an earlier message in the same thread this one corrects
+  createdAt  DateTime      @default(now())
+
+  @@index([threadId, createdAt])
+}

@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useState } from "react";
+import MessageAbout from "@/components/messages/MessageAbout";
 import Link from "next/link";
 import { Printer, X } from "lucide-react";
 import PageShell from "@/components/PageShell";
@@ -312,6 +313,7 @@ function Detail({
         <div className="mb-3 flex items-start justify-between gap-2">
           <div>
             <div className="text-xs text-gray-500">{requestNo(r.number)} · {type?.label ?? r.kind}</div>
+            <MessageAbout type="SITE_REQUEST" subjectKey={r.id} label={requestNo(r.number)} />
             <h2 className="text-lg font-semibold text-gray-100">{r.summary}</h2>
           </div>
           <button onClick={onClose} className="rounded p-1 text-gray-400 hover:bg-panel2" aria-label="Close"><X size={18} /></button>

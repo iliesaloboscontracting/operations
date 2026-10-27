@@ -148,3 +148,18 @@ The work is three parts, built in this order with one commit each. Draft default
     - no `/api/site/*/messages` route exists.
 - **Viewer-safety:** add `/api/accounts/questions`, `/api/messages` and `/api/messages/directory` as denied.
 - **Browser:** the three screens, and the Accounts and Directors navs with the Messages badge, at phone width.
+
+### Results (27 Oct 2026, on a copy of the server backup `cloud-dev-20261027-0130`)
+
+- `tsc` clean; `npm test` 312 / 312 (+5 Operations AI rules, +10 chat rules).
+- End to end on port 3002: **77 / 77**.
+  - Part 1: who opens `/api/accounts/questions` (accounts, owner, ticked Admin yes; plain Admin, Manager, Viewer, DIRECTOR, Timesheets 403; none 401); the owner asks, accounts answer, the owner sees it read-only with history.
+  - Part 2: the AI asks accounts, a director, an Admin and a Manager; an ordinary Manager gets 403; `$` refused to a Manager in question and in "what we need", fine to accounts; never the owner or a Viewer; "Operations AI" on the cards and on Info requests; the AI reads back only its own; it can't close or batch-send; the 21st in 24 hours is 429.
+  - Part 3: every office role opens Messages with the room first; Viewer and Timesheets 403; room posts with names, `$` refused; unread and "Seen by"; one-to-ones (accounts ↔ director with amounts, accounts ↔ Manager without, Manager ↔ director); only the two people read one, not an Admin or the owner; corrections; PUT / PATCH / DELETE 405; the AI as "Operations AI" in the room, the To list and a one-to-one, with no `$`; no site-link messages route.
+- Found and fixed while testing: a room message refused for a `$` figure marked the room read for its sender. A first room seat now starts unseen, and only a sent message marks it read.
+- `scripts/check-viewer-safety.ts`: 22 / 22 (+3).
+- Browser:
+  - Accounts → Questions with "from Operations AI";
+  - Messages as accounts (the Accounts nav stays), the room open, at phone width. Long lines in the list now shorten instead of overflowing;
+  - a Manager's "Questions for me", with the "My questions" and "Messages" tabs.
+- Not covered: push delivery (the copy has no push keys). The alert text is unit-tested to carry no message.

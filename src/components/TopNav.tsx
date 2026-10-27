@@ -18,6 +18,7 @@ const OPERATIONS = [
   { href: "/office-requests", label: "Directors & accounts" },
   { href: "/purchases", label: "Purchases" },
   { href: "/questions", label: "My questions" },
+  { href: "/messages", label: "Messages" },
   { href: "/changes", label: "Changes" },
   { href: "/completed", label: "Completed" },
   { href: "/day-review", label: "Day Review" },
@@ -90,6 +91,7 @@ const DIRECTORS = [
   { href: "/directors/requests", label: "Info requests" },
   { href: "/directors/kpis", label: "How the numbers work" },
   { href: "/directors/queries", label: "My queries" },
+  { href: "/messages", label: "Messages" },
   { href: "/directors/lessons", label: "Lessons" },
 ];
 const ACCOUNTS = [
@@ -104,6 +106,7 @@ const ACCOUNTS = [
   { href: "/accounts/compliance", label: "Compliance" },
   { href: "/accounts/assets", label: "Assets" },
   { href: "/accounts/purchases", label: "Purchases" },
+  { href: "/messages", label: "Messages" },
   { href: "/accounts/tax", label: "Tax estimates" },
   { href: "/invoices", label: "Invoices" },
 ];
@@ -132,6 +135,18 @@ export default function TopNav() {
   }, [loading, onePage, canEdit]);
   useEffect(refreshQuestions, [refreshQuestions, path]);
   useAutoRefresh(refreshQuestions);
+  // Messages (office chat, 27 Oct 2026): unread in the Office room and my one-to-ones, on every screen that has the tab.
+  const [messages, setMessages] = useState(0);
+  const refreshMessages = useCallback(() => {
+    if (loading || !user || !["ACCOUNTS", "DIRECTOR", "ADMIN", "MANAGER"].includes(user.role)) return;
+    fetch("/api/messages/unread").then((r) => (r.ok ? r.json() : { unread: 0 })).then((d: { unread: number }) => setMessages(d.unread)).catch(() => setMessages(0));
+  }, [loading, user]);
+  useEffect(refreshMessages, [refreshMessages, path]);
+  useEffect(() => {
+    window.addEventListener("messages-changed", refreshMessages);
+    return () => window.removeEventListener("messages-changed", refreshMessages);
+  }, [refreshMessages]);
+  useAutoRefresh(refreshMessages);
 
   // Badge on Calendar: projects starting within a week (refreshed on navigation).
   const refreshBadge = useCallback(() => {
@@ -175,18 +190,21 @@ export default function TopNav() {
   const isActive = (href: string) => path === href || path.startsWith(href + "/");
 
   // Which screen this page belongs to. Remembered for the tab, so the invoices inbox opened from the
-  // Accounts screen keeps the Accounts tabs; any other Operations page puts the Operations tabs back.
-  const [fromAccounts, setFromAccounts] = useState(false);
+  // Accounts screen keeps the Accounts tabs, and Messages keeps the Accounts or Directors tabs it was opened
+  // from; any other Operations page puts the Operations tabs back.
+  const [fromScreen, setFromScreen] = useState<string | null>(null);
   useEffect(() => {
     try {
       if (path === "/accounts" || path.startsWith("/accounts/")) sessionStorage.setItem(SCREEN_KEY, "accounts");
-      else if (path !== "/invoices") sessionStorage.removeItem(SCREEN_KEY);
-      setFromAccounts(sessionStorage.getItem(SCREEN_KEY) === "accounts");
-    } catch { setFromAccounts(false); }
+      else if (path === "/directors" || path.startsWith("/directors/")) sessionStorage.setItem(SCREEN_KEY, "directors");
+      else if (path !== "/invoices" && path !== "/messages") sessionStorage.removeItem(SCREEN_KEY);
+      setFromScreen(sessionStorage.getItem(SCREEN_KEY));
+    } catch { setFromScreen(null); }
   }, [path]);
+  const fromAccounts = fromScreen === "accounts";
   const screen: "directors" | "accounts" | null = directorOnly ? "directors" : accountsOnly ? "accounts"
-    : isDirector && isActive("/directors") ? "directors"
-    : isAdmin && (isActive("/accounts") || (path === "/invoices" && fromAccounts)) ? "accounts" : null;
+    : isDirector && (isActive("/directors") || (path === "/messages" && fromScreen === "directors")) ? "directors"
+    : isAdmin && (isActive("/accounts") || ((path === "/invoices" || path === "/messages") && fromAccounts)) ? "accounts" : null;
   const screenTabs = screen === "directors" ? DIRECTORS : screen === "accounts" ? ACCOUNTS : [];
   // Overview also covers a job opened from it; every other tab is its own page or below it.
   const tabActive = (href: string) => (href === "/directors" ? path === "/directors" || path.startsWith("/directors/jobs") : href === "/accounts" ? path === "/accounts" : isActive(href));
@@ -207,7 +225,7 @@ export default function TopNav() {
                 <Divider />
               </>
             )}
-            {screenTabs.map((i) => <NavTab key={i.href} href={i.href} label={i.label} active={tabActive(i.href)} />)}
+            {screenTabs.map((i) => <NavTab key={i.href} href={i.href} label={i.label} active={tabActive(i.href)} badge={i.href === "/messages" ? messages : undefined} badgeTitle={i.href === "/messages" ? "Unread messages" : undefined} />)}
           </>
         ) : onePage ? (
           <NavTab href={onePage} label="Timesheets" active={isActive(onePage)} />
@@ -224,13 +242,13 @@ export default function TopNav() {
             <Divider />
           </>
         )}
-        {OPERATIONS.filter((i) => (i.href !== "/tracking" && i.href !== "/invoices" && i.href !== "/assistant" && i.href !== "/attendance" && i.href !== "/timesheets" && i.href !== "/requests" && i.href !== "/office-requests" && i.href !== "/purchases" && i.href !== "/questions" && i.href !== "/changes" && i.href !== "/receipts" && i.href !== "/production") || canEdit).filter((i) => i.href !== "/questions" || myQuestions >= 0).map((i) => (
+        {OPERATIONS.filter((i) => (i.href !== "/tracking" && i.href !== "/invoices" && i.href !== "/assistant" && i.href !== "/attendance" && i.href !== "/timesheets" && i.href !== "/requests" && i.href !== "/office-requests" && i.href !== "/purchases" && i.href !== "/questions" && i.href !== "/messages" && i.href !== "/changes" && i.href !== "/receipts" && i.href !== "/production") || canEdit).filter((i) => i.href !== "/questions" || myQuestions >= 0).map((i) => (
           <NavTab
             key={i.href}
             href={i.href}
             label={i.label}
             active={isActive(i.href)}
-            badge={i.href === "/calendar" ? startingSoon : i.href === "/requests" ? requests : i.href === "/office-requests" ? officeRequests : i.href === "/questions" ? Math.max(myQuestions, 0) : i.href === "/changes" ? changes : undefined}
+            badge={i.href === "/calendar" ? startingSoon : i.href === "/requests" ? requests : i.href === "/office-requests" ? officeRequests : i.href === "/questions" ? Math.max(myQuestions, 0) : i.href === "/messages" ? messages : i.href === "/changes" ? changes : undefined}
             badgeTitle={i.href === "/requests" ? "Site requests waiting on a decision, and reminders due" : i.href === "/office-requests" ? "Directors and accounts queries and actions waiting on a decision" : i.href === "/changes" ? "Proposed changes waiting for your approval" : undefined}
           />
         ))}

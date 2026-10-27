@@ -4,6 +4,7 @@
 // supervisor-approved hours; supplier hire invoices against the hire register; invoice lines against the
 // agreed rates in Estimating. Flags for Victoria to approve / query - nothing here changes a job cost.
 import { useCallback, useEffect, useState } from "react";
+import MessageAbout from "@/components/messages/MessageAbout";
 import Link from "next/link";
 import PageShell from "@/components/PageShell";
 import { useAuth } from "@/components/AuthProvider";
@@ -94,6 +95,7 @@ export default function InvoiceChecksPage() {
                 <button className={quiet} disabled={busy} onClick={() => { const note = ask("What needs checking?"); if (note) post({ action: "ABN", id: c.id, status: "QUERY", note }, "Queried."); }}>Query</button>
                 <button className={quiet} disabled={busy} onClick={() => { const note = ask("Why detach it? (wrong person / not an ABN invoice) - it goes back to the inbox"); if (note) post({ action: "ABN", id: c.id, status: "DETACH", note }, "Detached - it's back in the inbox."); }}>Detach</button>
                 <Link className="text-sky-400" href={`/accounts/abn-template?person=${c.resourceId}&from=${c.invoice.periodFrom}&to=${c.invoice.periodTo}`} target="_blank">Hours sheet for {c.personName}</Link>
+                <MessageAbout type="ABN_INVOICE" subjectKey={c.id} label={`ABN invoice · ${c.personName}`} />
               </div>
             </section>
           ))}

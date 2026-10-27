@@ -5,6 +5,7 @@
 // where the phone was at sign-in. Victoria approves or queries each person's week; the pay-run file has the
 // employees she approved (hours per pay item per day, for Xero), the summary has everyone. Hours only.
 import { useCallback, useEffect, useState } from "react";
+import MessageAbout from "@/components/messages/MessageAbout";
 import PageShell from "@/components/PageShell";
 import { useAuth } from "@/components/AuthProvider";
 import { apiFetch, serverErrorMessage } from "@/lib/apiFetch";
@@ -112,6 +113,7 @@ export default function PayrollPage() {
                           <div className="text-sm text-gray-100">{p.name}</div>
                           {p.company && <div className="text-gray-500">{p.company}</div>}
                           {p.issues.map((i) => <div key={i} className="text-amber-300">{i}</div>)}
+                          <MessageAbout type="PAY_WEEK" subjectKey={`${data.weekStart}|${p.personKey}`} label={`Pay week ${data.weekStart} · ${p.name}`} />
                         </td>
                         {data.days.map((d) => <td key={d} className="px-2 py-1.5 tabular-nums"><Day lines={p.days[d] ?? []} /></td>)}
                         <td className="px-2 py-1.5 text-sm font-semibold tabular-nums text-gray-100">{p.hours}</td>

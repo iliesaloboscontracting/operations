@@ -5,6 +5,7 @@
 // "Reimburse to <person>" until Victoria ticks it paid. The same receipt, the same photo, or the same receipt
 // number + amount + date can't be claimed twice. Never a job cost; nothing on any link.
 import { useCallback, useEffect, useState } from "react";
+import MessageAbout from "@/components/messages/MessageAbout";
 import PageShell from "@/components/PageShell";
 import { useAuth } from "@/components/AuthProvider";
 import { apiFetch, serverErrorMessage } from "@/lib/apiFetch";
@@ -22,7 +23,7 @@ function Claim({ c, busy, onPay, onCancel }: { c: ClaimDTO; busy: boolean; onPay
   return (
     <tr className="align-top">
       <td className="px-2 py-1.5"><div className="text-sm text-gray-100">Reimburse to {c.personName}</div><div className="text-gray-500">{c.source === "LINK" ? "Sent from their phone" : c.source === "RECEIPT" ? `From a ${c.receiptKind === "FUEL" ? "fuel receipt" : "receipt"}` : `Entered by ${c.createdBy}`}</div></td>
-      <td className="px-2 py-1.5"><div className="text-gray-200">{c.description}</div><div className="text-gray-500">{[c.supplier, c.refNo && `No. ${c.refNo}`].filter(Boolean).join(" · ")}</div>{c.warnings.map((w) => <div key={w} className="text-amber-300">{w}</div>)}</td>
+      <td className="px-2 py-1.5"><div className="text-gray-200">{c.description}</div><div className="text-gray-500">{[c.supplier, c.refNo && `No. ${c.refNo}`].filter(Boolean).join(" · ")}</div>{c.warnings.map((w) => <div key={w} className="text-amber-300">{w}</div>)}<MessageAbout type="REIMBURSEMENT" subjectKey={c.id} label={`Reimbursement · ${c.personName}`} /></td>
       <td className="px-2 py-1.5 tabular-nums text-gray-300">{c.spentOn}</td>
       <td className="px-2 py-1.5 text-right text-sm font-semibold tabular-nums text-gray-100">{money(c.amountIncGst)}</td>
       <td className="px-2 py-1.5">{c.hasPhoto && <a className="text-sky-400" href={`/api/accounts/reimbursements/${c.id}/photo`} target="_blank" rel="noreferrer">Photo</a>}</td>

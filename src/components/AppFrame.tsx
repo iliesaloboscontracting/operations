@@ -42,7 +42,9 @@ function OnePageGate({ path, children }: { path: string; children: React.ReactNo
   const home = timesheetsOnly ? "/timesheets" : accountsOnly ? "/accounts" : directorOnly ? "/directors" : null;
   // Directors-only logins (25 Oct 2026) have a small section: /directors and the pages under it.
   // Accounts (26 Oct 2026): /accounts and its pages, plus the invoices inbox.
+  // Both have Messages, the office chat (27 Oct 2026, docs/accounts/QUESTIONS-AND-CHAT-DESIGN.md).
   const elsewhere = !!home && path !== home
+    && !((directorOnly || accountsOnly) && path === "/messages")
     && !(directorOnly && path.startsWith("/directors/"))
     && !(accountsOnly && (path.startsWith("/accounts/") || path === "/invoices"));
   useEffect(() => {
