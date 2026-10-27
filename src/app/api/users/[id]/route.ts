@@ -40,10 +40,12 @@ export const PATCH = withErrorHandling(async (
   const data: Record<string, unknown> = {};
   if (typeof body.name === "string" && body.name.trim()) data.name = body.name.trim();
   // SEC-002 (b): no new name that matches another active login - names are how approvals tell people apart.
-  if (data.name !== undefined && normName(data.name as string) !== normName(target.name)) {
-    const clash = (await prisma.user.findMany({ where: { active: true, id: { not: target.id } }, select: { id: true, name: true } }))
-      .find((u) => normName(u.name) === normName(data.name as string) && !sameUser(u.id, target.id));
-    if (clash) return NextResponse.json({ error: "Another login already has that name - use a different one." }, { status: 400 });
+  const nameTaken = async (name: string) =>
+    (await prisma.user.findMany({ where: { active: true, id: { not: target.id } }, select: { id: true, name: true } }))
+      .some((u) => normName(u.name) === normName(name) && !sameUser(u.id, target.id));
+  const NAME_TAKEN = "Another login already has that name - use a different one.";
+  if (data.name !== undefined && normName(data.name as string) !== normName(target.name) && (await nameTaken(data.name as string))) {
+    return NextResponse.json({ error: NAME_TAKEN }, { status: 400 });
   }
 
   if (body.role !== undefined) {
@@ -55,6 +57,10 @@ export const PATCH = withErrorHandling(async (
     data.role = body.role;
   }
   if (body.active !== undefined) data.active = Boolean(body.active);
+  // SEC-002-R1 (27 Oct 2026): switching an old login back on can't create a second active login with the same name.
+  if (data.active === true && !target.active && (await nameTaken((data.name as string | undefined) ?? target.name))) {
+    return NextResponse.json({ error: `${NAME_TAKEN} Rename it before switching it back on.` }, { status: 400 });
+  }
 
   // Director access (24 Oct 2026): the company overview carries contract
   // values and every job's cost, so only the owner hands it out.
