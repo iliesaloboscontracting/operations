@@ -53,6 +53,15 @@ business, without becoming unnecessarily complicated.
   testing on a copy) → `npm run build` → `sudo systemctl restart
   operations`; back up the DB first. Schema/data rules below still apply —
   test on a copy (locally or on the server) before the live DB.
+  **Low-interruption deploy (27 Oct 2026, Ilies: limit interruption during a
+  build):** build in `/srv/operations/stage` while live keeps running - rsync
+  the app there without `.next`/`node_modules`, symlink `node_modules`,
+  extract the new code, (`prisma db push` against the live DB if the schema
+  changed - additive only), `npm run build`; then stop, rsync stage → app
+  (`--delete`, excluding `.next`, `node_modules`, `.env`, `prisma/dev.db*`),
+  swap `.next`, start. Down ~3 s instead of 1-2 min. The DB is in journal
+  mode DELETE (no -wal files). Remove `stage` and `.next.old` afterwards.
+  Prefer deploying outside site hours unless it's urgent.
   The old **laptop** install (`OperationsServer` + `cloudflared` Windows
   services, and the laptop's copy of the tunnel token) was **removed on
   2026-10-24** (Ilies) - there is no laptop fallback. Recovery is from the
