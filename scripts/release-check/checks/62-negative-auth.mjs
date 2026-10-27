@@ -61,6 +61,18 @@ export default {
     t.status(await c.post("/api/users", "ADMIN_PLAIN", { name: taken?.toUpperCase(), email: `rc-dup-${Date.now()}@example.test`, role: "VIEWER", password: "Release-check-pass-1" }), 400, "SEC-002: a new login with an active login's name (any case) is refused");
     t.status(await c.patch(`/api/users/${U.TIMESHEETS.id}`, "ADMIN_PLAIN", { name: taken }), 400, "SEC-002: renaming a login to another active login's name is refused");
 
+    // (4b) SEC-002 (d) / R2-POST / SEC-002-R2: an allowed create and edit each write their UserEvent (no password text).
+    const cr = await c.post("/api/users", "ADMIN_PLAIN", { name: "RC logged login " + Date.now(), email: `rc-log-${Date.now()}@example.test`, role: "VIEWER", password: "Release-check-pass-1" });
+    t.status(cr, 201, "an Admin creates an ordinary VIEWER login");
+    const made = (await cr.json().catch(() => ({}))).id;
+    if (made) {
+      const ev = await c.db.userEvent.findMany({ where: { userId: made }, select: { action: true, byUserId: true, changes: true } });
+      t.ok(ev.length === 1 && ev[0].action === "CREATE" && ev[0].byUserId === U.ADMIN_PLAIN.id && !/Release-check-pass-1/.test(ev[0].changes), "R2-POST: the new login has exactly one CREATE UserEvent by the Admin, no password text", JSON.stringify(ev.map((e) => e.action)));
+      t.status(await c.patch(`/api/users/${made}`, "ADMIN_PLAIN", { password: "Release-check-pass-2" }), 200, "the Admin resets that login's password");
+      const ev2 = await c.db.userEvent.findMany({ where: { userId: made, action: "EDIT" }, select: { changes: true } });
+      t.ok(ev2.length === 1 && /"password":"reset"/.test(ev2[0].changes) && !/Release-check-pass-2/.test(ev2[0].changes), "SEC-002-R2: the reset is one EDIT UserEvent saying 'reset', no password text");
+    } else t.ok(false, "created login id returned");
+
     // (5) CH-023: the reserved name "Operations AI", any case.
     t.status(await c.post("/api/users", "ADMIN_PLAIN", { name: "operations ai", email: `rc-ai-${Date.now()}@example.test`, role: "MANAGER", password: "Release-check-pass-1" }), 400, "CH-023: a new login named 'operations ai' is refused");
     t.status(await c.patch(`/api/users/${U.VIEWER.id}`, "ADMIN_PLAIN", { name: "OPERATIONS AI" }), 400, "CH-023: renaming a login to 'OPERATIONS AI' is refused");
