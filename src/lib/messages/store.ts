@@ -10,7 +10,7 @@ import { AI_DAILY_LIMIT, isOperationsAi } from "../infoRequests/rules";
 import { OWNER_EMAIL, isOwner } from "../owner";
 import {
   ROOM_FIRST_VISIT_DAYS, ROOM_KEY, ROOM_TITLE, alertText, canChange, canMessage, canReadAllThreads, canStart, canUseSubject, chatName, checkBody, isSubjectType, labelOf,
-  overChatLimit, roomSeenBy, seenBy, unreadCount, visibleHistory, type SubjectType,
+  overChatLimit, requestSubjectError, roomSeenBy, seenBy, unreadCount, visibleHistory, type SubjectType,
 } from "./rules";
 
 type Problem = { error: string; status: number };
@@ -97,7 +97,7 @@ export async function startThread(me: Viewer, b: Record<string, unknown>): Promi
   const subjectType = b.subjectType ?? "NONE";
   if (!isSubjectType(subjectType)) return bad("Unknown record type.");
   if (!canUseSubject(me.role, subjectType)) return bad("Your login can't message about that record.", 403);
-  const u = typeof b.toUserId === "string" && b.toUserId ? await prisma.user.findUnique({ where: { id: b.toUserId }, select: { id: true, name: true, email: true, role: true, active: true } }) : null;
+  const u = typeof b.toUserId === "string" && b.toUserId ? await prisma.user.findUnique({ where: { id: b.toUserId }, select: { id: true, name: true, email: true, role: true, active: true, directorAccess: true } }) : null;
   if (!u || !u.active || u.id === me.userId) return bad("Pick who it's to.");
   const allowed = canStart(me.role, u.role);
   if ("error" in allowed) return bad(allowed.error, 403);
@@ -106,6 +106,14 @@ export async function startThread(me: Viewer, b: Record<string, unknown>): Promi
   const body = checkBody(b.body);
   if ("error" in body) return bad(body.error);
   const subjectKey = subjectType === "NONE" ? null : typeof b.subjectKey === "string" ? b.subjectKey.slice(0, 120) : null;
+  // CH-024: a request both people can see on their own board, or not attached at all.
+  if (subjectType === "SITE_REQUEST" && subjectKey) {
+    const r = await prisma.siteRequest.findUnique({ where: { id: subjectKey }, select: { audience: true } });
+    const meUser = await prisma.user.findUnique({ where: { id: me.userId }, select: { email: true, role: true, directorAccess: true } });
+    if (!r || !meUser) return bad("That request isn't there.", 404);
+    const why = requestSubjectError(meUser, { ...u, name: chatName(u.name, u.email) }, r);
+    if (why) return bad(why, 403);
+  }
   const label = await subjectLabel(subjectType, subjectKey);
   if ("error" in label) return label;
 

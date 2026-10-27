@@ -7,6 +7,7 @@
 // site-link side - Ilies scrapped messaging to workers).
 import { OPERATIONS_AI_NAME, isOperationsAi, overAiLimit } from "../infoRequests/rules";
 import { looksLikeTfnOrBank } from "../compliance/rules";
+import { audiencesFor } from "../findings/actions";
 
 // Office logins: the owner and Admins, Managers, accounts and the directors. Viewers and Timesheets logins don't chat.
 export const OFFICE_ROLES = ["ADMIN", "MANAGER", "ACCOUNTS", "DIRECTOR"];
@@ -103,3 +104,16 @@ export const labelOf = (ref: string, detail: string | null | undefined) => (deta
 // A phone alert never carries the message, nor the record label (a label can now carry an amount, and an alert shows
 // on a lock screen through Apple's / Google's servers) - only who it's from. The Office room sends none (D-Q9).
 export const alertText = (fromName: string) => ({ title: `Message from ${fromName}`, body: "Open Messages to read it." });
+
+// CH-024 (security review, Ilies approved 27 Oct): a conversation about a request carries its label (number + summary)
+// to both people, so it may only be about a request that BOTH can see on their own requests board - the board's rule:
+// an Admin or Manager login whose audiences include the request's (queries / actions to directors, and director-only
+// requests, stay with the owner and director-access logins; accounts and director logins have no requests board).
+export type Seer = { email: string | null; role: string; directorAccess: boolean };
+export const seesRequestOnBoard = (u: Seer, r: { audience: string }) =>
+  (u.role === "ADMIN" || u.role === "MANAGER") && audiencesFor({ ...u, email: u.email ?? "" }).includes(r.audience);
+export function requestSubjectError(me: Seer, other: Seer & { name: string }, r: { audience: string }): string | null {
+  if (!seesRequestOnBoard(me, r)) return "You can't see that request on your requests board, so you can't message about it.";
+  if (!seesRequestOnBoard(other, r)) return `${other.name} can't see that request on their board - send the message without attaching it.`;
+  return null;
+}

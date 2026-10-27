@@ -6,7 +6,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   ROOM_FIRST_VISIT_DAYS, alertText, canChange, canMessage, canReadAllThreads, canStart, overChatLimit, canUseSubject, chatName, checkBody, labelOf, roomSeenBy, seenBy, unreadCount,
-  visibleHistory,
+  visibleHistory, requestSubjectError, seesRequestOnBoard,
 } from "./rules";
 
 const AI = "iliesa+agent@loboscontracting.com.au";
@@ -111,4 +111,23 @@ test("CH-022: TFN and bank details are refused in chat (new messages, replies an
     assert.ok("error" in r && /bank details/i.test(r.error), bad);
   }
   for (const ok of ["Call me on 0412 345 678", "Job 26_506 approved at $1,250 ex GST", "ABN 12 345 678 901 on the invoice"]) assert.ok("text" in checkBody(ok), ok);
+});
+
+test("CH-024: a conversation can be about a request only if both people see it on their own requests board", () => {
+  const OWNER = "iliesa@loboscontracting.com.au";
+  const owner = { email: OWNER, role: "ADMIN", directorAccess: false, name: "Iliesa" };
+  const admin = { email: "a@l.com", role: "ADMIN", directorAccess: false, name: "Admin" };
+  const manager = { email: "m@l.com", role: "MANAGER", directorAccess: false, name: "Alex" };
+  const accounts = { email: "acc@l.com", role: "ACCOUNTS", directorAccess: false, name: "Victoria" };
+  const director = { email: "d@l.com", role: "DIRECTOR", directorAccess: false, name: "Yoel" };
+  const site = { audience: "OPERATIONAL" }, commercial = { audience: "COMMERCIAL" }, dirOnly = { audience: "DIRECTOR" };
+  assert.equal(requestSubjectError(manager, admin, site), null, "a site request between office logins");
+  assert.equal(requestSubjectError(manager, admin, commercial), null);
+  assert.match(requestSubjectError(manager, owner, dirOnly)!, /You can't see/, "a director-only query (e.g. an information request) isn't a Manager's");
+  assert.match(requestSubjectError(admin, owner, dirOnly)!, /You can't see/, "nor a plain Admin's");
+  assert.match(requestSubjectError(owner, manager, dirOnly)!, /Alex can't see/, "the owner can't attach it to a Manager either");
+  assert.equal(requestSubjectError(owner, { ...admin, directorAccess: true, name: "Nick" }, dirOnly), null, "owner and a director-access Admin both see it");
+  assert.match(requestSubjectError(manager, accounts, site)!, /Victoria can't see/, "accounts have no requests board");
+  assert.match(requestSubjectError(manager, director, site)!, /Yoel can't see/, "nor do director logins");
+  assert.equal(seesRequestOnBoard({ email: null, role: "VIEWER", directorAccess: false }, site), false);
 });
