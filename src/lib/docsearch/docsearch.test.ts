@@ -9,7 +9,7 @@ import { FOLDERS, denied, folderFor, levelsFor, revisionOf, underPattern, canSea
 import { MARK_CLOSE, MARK_OPEN, snippetParts, toFtsQuery } from "./query";
 import { docxText, zipEntry } from "./zip";
 import { extractText, MAX_FILE_BYTES, WORKER_LIMITS, WORKER_TIMEOUT_MS } from "./extract";
-import { allowedApiHost, allowedDownloadHost, graphSetup, rolesProblem, scrub, tokenRoles } from "./graphSetup";
+import { allowedApiHost, allowedDownloadHost, graphSetup, rolesProblem, safeWebUrl, scrub, tokenRoles } from "./graphSetup";
 import { GraphSource, readCapped, type GFetch } from "./sources/graph";
 import { SourceStop } from "./sources/types";
 
@@ -345,4 +345,31 @@ test("DS-016: search fails closed - no source for any reason means no hits, only
     Object.assign(process.env, keep);
     idx.closeIndex(); rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("DS-017: a document link is kept only if it's https on the tenant's SharePoint host", async () => {
+  const host = "lobosdemolition.sharepoint.com";
+  assert.equal(safeWebUrl("https://lobosdemolition.sharepoint.com/sites/Management/Shared%20Documents/a.pdf", host), "https://lobosdemolition.sharepoint.com/sites/Management/Shared%20Documents/a.pdf");
+  assert.equal(safeWebUrl("https://LobosDemolition.SharePoint.com/x", host)?.startsWith("https://lobosdemolition.sharepoint.com/"), true, "host case doesn't matter");
+  for (const bad of ["http://lobosdemolition.sharepoint.com/x", "https://evil.example/x", "https://lobosdemolition.sharepoint.com.evil.example/x",
+    "javascript:alert(1)", "https://user:pw@lobosdemolition.sharepoint.com/x", "//lobosdemolition.sharepoint.com/x", "not a url", "", null]) {
+    assert.equal(safeWebUrl(bad as string | null, host), null, String(bad));
+  }
+  // and GraphSource applies it to what Microsoft lists
+  const s = graphSetup({ GRAPH_TENANT_ID: "11111111-1111-1111-1111-111111111111", GRAPH_CLIENT_ID: "app", GRAPH_CLIENT_SECRET: "s3cret-value" });
+  assert.ok(s.ok);
+  const res = (status: number, body: unknown) => ({ status, headers: { get: () => null }, text: async () => JSON.stringify(body), arrayBuffer: async () => new ArrayBuffer(0) });
+  const f: GFetch = async (url) => {
+    if (url.includes("/oauth2/v2.0/token")) return res(200, { access_token: jwt(["Sites.Selected"]), expires_in: 3600 });
+    if (url.endsWith("/sites/lobosdemolition.sharepoint.com:/sites/Management")) return res(200, { id: "site1" });
+    if (url.endsWith("/sites/site1/drive")) return res(200, { id: "drive1" });
+    if (url.includes("/children")) return res(200, { value: [
+      { id: "a", name: "Good.pdf", size: 1, webUrl: "https://lobosdemolition.sharepoint.com/good", eTag: "1", file: {} },
+      { id: "b", name: "Bad.pdf", size: 1, webUrl: "javascript:alert(1)", eTag: "1", file: {} },
+      { id: "c", name: "Other.pdf", size: 1, webUrl: "https://phish.example/doc", eTag: "1", file: {} }] });
+    return res(404, {});
+  };
+  const got: Record<string, string | null> = {};
+  for await (const x of new GraphSource(s, f).listFiles("03_General/Methodologies")) got[x.name] = x.webUrl;
+  assert.deepEqual(got, { "Good.pdf": "https://lobosdemolition.sharepoint.com/good", "Bad.pdf": null, "Other.pdf": null });
 });

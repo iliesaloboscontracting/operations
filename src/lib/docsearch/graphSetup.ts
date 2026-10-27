@@ -38,6 +38,15 @@ const hostOf = (url: string) => {
 // The server may call Graph and the token endpoint; the SharePoint host only for a pre-signed download.
 export const allowedApiHost = (url: string) => (GRAPH_HOSTS as readonly string[]).includes(hostOf(url) ?? "");
 export const allowedDownloadHost = (url: string, siteHost: string) => hostOf(url) === siteHost;
+// DS-017 (security review, Ilies approved 27 Oct): the "Open in SharePoint" link is kept only when it's https on the
+// tenant's own SharePoint host - anything else (another host, http, javascript:, a lookalike) is dropped to null.
+export function safeWebUrl(url: string | null | undefined, siteHost: string): string | null {
+  if (!url) return null;
+  try {
+    const u = new URL(url);
+    return u.protocol === "https:" && u.hostname.toLowerCase() === siteHost.toLowerCase() && !u.username && !u.password ? u.toString() : null;
+  } catch { return null; }
+}
 
 // The application permissions in an access token (its "roles" claim). Not verified here - Microsoft issued it to us
 // over TLS; we only read what it says the app may do.

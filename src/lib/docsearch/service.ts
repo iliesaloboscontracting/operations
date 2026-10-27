@@ -1,6 +1,6 @@
 // LCI phase 6: wiring - which source to use, the kill switch, the nightly run (after 2:30am Sydney, after the backup
 // and the Xero read), and an Admin's "Refresh now" (D6-4). Nothing here calls out unless Graph is set up.
-import { graphSetup, NOT_SET_UP } from "./graphSetup";
+import { graphSetup, NOT_SET_UP, safeWebUrl } from "./graphSetup";
 import { GraphSource, realGraphFetch } from "./sources/graph";
 import { LocalFolderSource } from "./sources/local";
 import type { DocSource } from "./sources/types";
@@ -30,7 +30,11 @@ export function pickSource(): { source: DocSource; approvedIds?: Set<string> } |
 export function searchOrClosed(q: string, levels: Level[]) {
   const p = pickSource();
   if ("off" in p) return { off: p.off, hits: [], query: null };
-  return search(q, levels, p.approvedIds);
+  const r = search(q, levels, p.approvedIds);
+  // DS-017: links re-checked as they leave - https on the tenant's SharePoint host only (rows stored before the check,
+  // or from the local test source, carry none).
+  const s = graphSetup();
+  return { ...r, hits: r.hits.map((h) => ({ ...h, webUrl: s.ok && p.source.name === "graph" ? safeWebUrl(h.webUrl, s.siteHost) : null })) };
 }
 
 let running = false;

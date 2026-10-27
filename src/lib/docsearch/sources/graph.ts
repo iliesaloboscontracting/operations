@@ -3,7 +3,7 @@
 // pre-signed URL on the tenant's SharePoint host (no Authorization header sent there). Every URL is checked against
 // graphSetup's allowlist before fetch, each call times out after 20 s, redirects are never followed automatically,
 // and errors are scrubbed. The fetch is passed in so tests never reach Microsoft. Design §5.
-import { allowedApiHost, allowedDownloadHost, rolesProblem, scrub, tokenRoles, type GraphSetup } from "../graphSetup";
+import { allowedApiHost, allowedDownloadHost, rolesProblem, safeWebUrl, scrub, tokenRoles, type GraphSetup } from "../graphSetup";
 import { LIBRARY_ROOT } from "../folders";
 import { MAX_FILE_BYTES } from "../extract";
 import { SourceStop, type DocSource, type SourceFile } from "./types";
@@ -84,7 +84,7 @@ export class GraphSource implements DocSource {
     for await (const it of this.children(relPath)) {
       const p = `${relPath}/${it.name}`;
       if (it.folder) yield* this.walk(p, depth + 1);
-      else if (it.file) yield { id: it.id, name: it.name, path: p, webUrl: it.webUrl ?? null, modified: it.lastModifiedDateTime ?? "", etag: it.eTag ?? it.lastModifiedDateTime ?? "", size: it.size ?? 0 };
+      else if (it.file) yield { id: it.id, name: it.name, path: p, webUrl: safeWebUrl(it.webUrl, this.s.siteHost), modified: it.lastModifiedDateTime ?? "", etag: it.eTag ?? it.lastModifiedDateTime ?? "", size: it.size ?? 0 };
     }
   }
 
