@@ -5,7 +5,7 @@
 // and the link money guard elsewhere is unchanged.
 // Design: docs/accounts/QUESTIONS-AND-CHAT-DESIGN.md part 3 (built on the messaging branch, 3c64ff1, without the
 // site-link side - Ilies scrapped messaging to workers).
-import { OPERATIONS_AI_NAME, isOperationsAi } from "../infoRequests/rules";
+import { OPERATIONS_AI_NAME, isOperationsAi, overAiLimit } from "../infoRequests/rules";
 
 // Office logins: the owner and Admins, Managers, accounts and the directors. Viewers and Timesheets logins don't chat.
 export const OFFICE_ROLES = ["ADMIN", "MANAGER", "ACCOUNTS", "DIRECTOR"];
@@ -27,6 +27,10 @@ export function canStart(fromRole: string, toRole: string): { ok: true } | { err
 // Ilies, 27 Oct (D-Q11 "YES"): the owner - and only the owner, not other Admins or the directors - may read every
 // one-to-one, read-only ("All conversations"). He isn't a participant and his reading never marks anything seen.
 export const canReadAllThreads = (email: string | null | undefined, ownerEmail: string) => (email ?? "").toLowerCase() === ownerEmail.toLowerCase();
+
+// D-Q10: Operations AI may post at most 20 chat messages in a rolling 24 hours (its questions are counted apart).
+// Nobody else has a limit.
+export const overChatLimit = (email: string | null | undefined, sentLast24h: number) => isOperationsAi(email) && overAiLimit(sentLast24h);
 
 // How a login is named in chat: the Building Agent is "Operations AI" everywhere.
 export const chatName = (name: string, email: string | null | undefined) => (isOperationsAi(email) ? OPERATIONS_AI_NAME : name);

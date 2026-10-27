@@ -10,7 +10,7 @@ import { AI_DAILY_LIMIT, isOperationsAi } from "../infoRequests/rules";
 import { OWNER_EMAIL, isOwner } from "../owner";
 import {
   ROOM_FIRST_VISIT_DAYS, ROOM_KEY, ROOM_TITLE, alertText, canChange, canMessage, canReadAllThreads, canStart, canUseSubject, chatName, checkBody, isSubjectType, labelOf,
-  roomSeenBy, seenBy, unreadCount, visibleHistory, type SubjectType,
+  overChatLimit, roomSeenBy, seenBy, unreadCount, visibleHistory, type SubjectType,
 } from "./rules";
 
 type Problem = { error: string; status: number };
@@ -88,7 +88,7 @@ async function aiOverLimit(me: Viewer) {
   if (!isOperationsAi(me.email)) return false;
   const seats = (await prisma.messageParticipant.findMany({ where: { kind: "USER", userId: me.userId }, select: { id: true } })).map((p) => p.id);
   const sent = await prisma.message.count({ where: { authorId: { in: seats }, createdAt: { gte: new Date(Date.now() - 86_400_000) } } });
-  return sent >= AI_DAILY_LIMIT;
+  return overChatLimit(me.email, sent);
 }
 const AI_LIMIT_TEXT = `Operations AI has sent ${AI_DAILY_LIMIT} messages in the last 24 hours - that's the most for a day.`;
 

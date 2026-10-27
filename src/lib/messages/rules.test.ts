@@ -5,7 +5,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  ROOM_FIRST_VISIT_DAYS, alertText, canChange, canMessage, canReadAllThreads, canStart, canUseSubject, chatName, checkBody, labelOf, roomSeenBy, seenBy, unreadCount,
+  ROOM_FIRST_VISIT_DAYS, alertText, canChange, canMessage, canReadAllThreads, canStart, overChatLimit, canUseSubject, chatName, checkBody, labelOf, roomSeenBy, seenBy, unreadCount,
   visibleHistory,
 } from "./rules";
 
@@ -95,4 +95,12 @@ test("only the owner reads every one-to-one (Ilies 27 Oct, D-Q11) - not other Ad
   assert.equal(canReadAllThreads("nick@loboscontracting.com.au", OWNER), false);
   assert.equal(canReadAllThreads(AI, OWNER), false);
   assert.equal(canReadAllThreads(null, OWNER), false);
+});
+
+test("Operations AI may post at most 20 chat messages in 24 hours; nobody else has a limit (D-Q10)", () => {
+  assert.equal(overChatLimit(AI, 19), false);
+  assert.equal(overChatLimit(AI, 20), true, "the 21st is refused");
+  assert.equal(overChatLimit(AI.toUpperCase(), 25), true);
+  assert.equal(overChatLimit("alex@loboscontracting.com.au", 500), false, "an ordinary Manager isn't limited");
+  assert.equal(overChatLimit(null, 500), false);
 });

@@ -7,7 +7,8 @@ import { appViewer } from "@/lib/messages/who";
 // room and my own one-to-ones.
 // GET  -> the Office room, then my one-to-ones, newest first, with unread counts
 // POST { toUserId, subjectType?, subjectKey?, body } -> a new one-to-one with its first message
-// No edit or delete route: messages are kept forever; a correction is a new message.
+// Editing and deleting are POST actions on /api/messages/:id (the sender only - Ilies 27 Oct, decisions 1 and 3); every
+// earlier text is kept in MessageVersion. There's still no PUT / PATCH / DELETE route.
 // GET ?all=1 -> "All conversations": every one-to-one, read-only - the owner only (D-Q11, Ilies 27 Oct); anyone else 403.
 export const GET = withErrorHandling(async (req: NextRequest) => {
   const v = await appViewer();
