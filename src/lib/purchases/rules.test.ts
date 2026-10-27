@@ -5,7 +5,8 @@ import { check, linkSafeText, parseAmount, purchaseNo, requesterView, type Actor
 const R = { status: "REQUESTED", requestedBy: "Test Requester" };
 const acc: Actor = { kind: "ACCOUNTS" }, req: Actor = { kind: "REQUESTER" };
 const nick: Actor = { kind: "DIRECTOR", role: "DIRECTOR", name: "Test Director" };
-const owner: Actor = { kind: "DIRECTOR", role: "ADMIN", name: "Iliesa" };
+const owner: Actor = { kind: "DIRECTOR", role: "ADMIN", name: "Iliesa", owner: true };
+const admin: Actor = { kind: "DIRECTOR", role: "ADMIN", name: "Other Admin" };
 const ok = (x: ReturnType<typeof check>, to: string) => "to" in x && x.to === to;
 const no = (x: ReturnType<typeof check>) => "error" in x;
 
@@ -27,13 +28,15 @@ test("the requester answers a question or cancels; nothing else", () => {
   assert.ok(no(check("APPROVE", { ...R, status: "CHECKED" }, req)));
 });
 
-test("only a DIRECTOR login decides, never the person who asked, and only once checked", () => {
+test("the owner or a DIRECTOR login decides, never the person who asked, and only once checked", () => {
   assert.ok(ok(check("APPROVE", { ...R, status: "CHECKED" }, nick), "APPROVED"));
   assert.ok(ok(check("DECLINE", { ...R, status: "CHECKED" }, nick), "DECLINED"));
   assert.ok(no(check("APPROVE", R, nick)), "not checked by accounts yet");
-  assert.ok(no(check("APPROVE", { ...R, status: "CHECKED" }, owner)), "the owner / an Admin with director access doesn't decide");
+  assert.ok(ok(check("APPROVE", { ...R, status: "CHECKED" }, owner), "APPROVED"), "the owner decides (Ilies, 27 Oct 2026)");
+  assert.ok(no(check("APPROVE", { ...R, status: "CHECKED" }, admin)), "another Admin with director access doesn't decide");
+  assert.ok(no(check("APPROVE", { status: "CHECKED", requestedBy: "iliesa" }, owner)), "not even the owner approves his own request");
   const own = check("APPROVE", { status: "CHECKED", requestedBy: "  test   DIRECTOR " }, nick);
-  assert.ok("error" in own && /another director/.test(own.error), "same person, any spelling of the name");
+  assert.ok("error" in own && /someone else/.test(own.error), "same person, any spelling of the name");
   assert.ok(no(check("APPROVE", { ...R, status: "CHECKED" }, acc)), "accounts can't approve");
 });
 

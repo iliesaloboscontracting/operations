@@ -22,13 +22,13 @@ export const STATUS_FOR_REQUESTER: Record<Status, string> = {
 export type Actor =
   | { kind: "REQUESTER" } // the person who asked: same link, or same login
   | { kind: "ACCOUNTS" } // the ACCOUNTS login or an Admin
-  | { kind: "DIRECTOR"; role: string; name: string }; // anyone with director access; only a DIRECTOR login decides
+  | { kind: "DIRECTOR"; role: string; name: string; owner?: boolean }; // anyone with director access; the owner or a DIRECTOR login decides
 
 export type Action = "CHECK" | "ASK_INFO" | "ANSWER" | "CLOSE" | "CANCEL" | "APPROVE" | "DECLINE" | "ORDERED";
 
-// Ilies (25 Oct 2026) for budgets and contract values: the directors' DIRECTOR logins decide, never the person who
-// asked. Purchases follow the same rule (D10).
-export const PURCHASE_APPROVERS_NOTE = "Nick or Yoel approve purchases, from their director logins.";
+// Purchases (Ilies, 27 Oct 2026: "this approval should be to myself and directors"): the owner or a DIRECTOR login
+// decides, never the person who asked.
+export const PURCHASE_APPROVERS_NOTE = "Ilies, Nick or Yoel approve purchases (Nick and Yoel from their director logins).";
 const person = (s: string | null | undefined) => (s ?? "").trim().toLowerCase().replace(/\s+/g, " ");
 const samePerson = (a: string | null | undefined, b: string | null | undefined) => !!person(a) && person(a) === person(b);
 
@@ -49,8 +49,8 @@ export function check(action: Action, r: { status: string; requestedBy: string }
   const rule = RULES[action];
   if (actor.kind !== rule.by) return { error: "You can't do that on this request." };
   if (actor.kind === "DIRECTOR") {
-    if (actor.role !== "DIRECTOR") return { error: PURCHASE_APPROVERS_NOTE };
-    if (samePerson(actor.name, r.requestedBy)) return { error: "You asked for this, so another director has to approve or decline it." };
+    if (actor.role !== "DIRECTOR" && !actor.owner) return { error: PURCHASE_APPROVERS_NOTE };
+    if (samePerson(actor.name, r.requestedBy)) return { error: "You asked for this, so someone else has to approve or decline it." };
   }
   if (!rule.from.includes(r.status as Status)) return { error: `It's ${STATUS_FOR_REQUESTER[r.status as Status]?.toLowerCase() ?? r.status} - that can't be done now.` };
   return { to: rule.to };

@@ -10,7 +10,7 @@ export default function PurchasesPage() {
   const { canEdit, accountsOnly, loading } = useAuth();
   if (!loading && !canEdit && !accountsOnly) return <PageShell title="Purchase requests"><p className="text-sm text-gray-400">Ask the office to buy it for you.</p></PageShell>;
   return (
-    <PageShell title="Purchase requests" subtitle="Ask to buy something. Accounts check it, a director approves it, accounts order it.">
+    <PageShell title="Purchase requests" subtitle="Ask to buy something. Accounts check it, Ilies or a director approves it, accounts order it.">
       <div className="max-w-xl"><MyPurchases base="/api/purchases" /></div>
     </PageShell>
   );
