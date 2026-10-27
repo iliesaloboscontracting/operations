@@ -38,7 +38,7 @@ export default {
 
     // (2) CH-024: a Manager can't start a chat about a QUERY request (or an office-kind / director-audience one).
     const q = await c.db.siteRequest.findFirst({ where: { kind: "QUERY" }, select: { id: true } });
-    if (q) t.status(await c.post("/api/messages", "MANAGER", { toUserId: U.ACCOUNTS.id, subjectType: "SITE_REQUEST", subjectKey: q.id, body: "about this" }), [400, 403, 404], "CH-024: a Manager chat about a QUERY request is refused");
+    if (q) t.status(await c.post("/api/messages", "MANAGER", { toUserId: U.ACCOUNTS.id, subjectType: "SITE_REQUEST", subjectKey: q.id, body: "about this" }), 403, "CH-024: a Manager chat about a QUERY request is refused (403, not a validation error)");
     else t.note("no QUERY request on the copy - CH-024 route test not exercised");
 
     // (3) CH-021: the Building Agent login is the owner's to change and create.
