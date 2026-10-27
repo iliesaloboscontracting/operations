@@ -6,7 +6,8 @@ const nextConfig = {
   // Sends phone alerts (lib/push.ts); loaded by Node as-is, not bundled.
   // (Next 15: was experimental.serverComponentsExternalPackages. The
   // instrumentation hook - src/instrumentation.ts - is on by default now.)
-  serverExternalPackages: ["web-push"],
+  // unpdf (document search, LCI phase 6): its bundled pdf.js is loaded by Node as-is.
+  serverExternalPackages: ["web-push", "unpdf"],
 };
 
 module.exports = nextConfig;

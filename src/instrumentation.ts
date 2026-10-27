@@ -18,9 +18,13 @@ export async function register() {
     const { readWaiting } = await import("./lib/receipts/runner");
     const { tipTick } = await import("./lib/receipts/tipStore");
     const { alertAccountsDue } = await import("./lib/accounts/store");
+    const { nightlyDocIndex } = await import("./lib/docsearch/service");
     setInterval(() => {
       // Xero (read-only, G3): once a day from 2am Sydney, after the backup. Does nothing until set up and connected.
       nightlyXeroSync().catch((e) => console.error("xero nightly", e instanceof Error ? e.message : "failed"));
+      // Document search (LCI phase 6): once a day from 2:30am Sydney, after the backup and Xero. Does nothing until
+      // Microsoft Graph is set up; DOC_SEARCH=off stops it.
+      nightlyDocIndex().catch((e) => console.error("document index", e instanceof Error ? e.message : "failed"));
       // Director Insights: this week's KPI snapshot, if not taken yet (looks at most hourly).
       recordWeeklySnapshot().catch((e) => console.error("director snapshot", e));
       // Findings (Phase 2): signals -> stored findings, at most every 30 min, never two at once.
