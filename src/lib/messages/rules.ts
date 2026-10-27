@@ -6,6 +6,7 @@
 // Design: docs/accounts/QUESTIONS-AND-CHAT-DESIGN.md part 3 (built on the messaging branch, 3c64ff1, without the
 // site-link side - Ilies scrapped messaging to workers).
 import { OPERATIONS_AI_NAME, isOperationsAi, overAiLimit } from "../infoRequests/rules";
+import { looksLikeTfnOrBank } from "../compliance/rules";
 
 // Office logins: the owner and Admins, Managers, accounts and the directors. Viewers and Timesheets logins don't chat.
 export const OFFICE_ROLES = ["ADMIN", "MANAGER", "ACCOUNTS", "DIRECTOR"];
@@ -37,11 +38,16 @@ export const chatName = (name: string, email: string | null | undefined) => (isO
 
 export const MAX_BODY = 2000;
 
+// CH-022 (security review, Ilies approved 27 Oct): TFN and bank details never go in chat - they stay in Xero, and a
+// bank detail change is never taken from a message (the usual invoice-fraud route). Same check as Compliance.
+export const NO_TFN_OR_BANK = "Tax file numbers and bank details aren't sent in chat - they stay in Xero. Bank detail changes are never taken from chat.";
+
 // A message as typed (new, or an edit) -> the text to keep, or why not. Amounts are allowed.
 export function checkBody(body: unknown): { text: string } | { error: string } {
   const text = typeof body === "string" ? body.replace(/\r\n/g, "\n").trim() : "";
   if (!text) return { error: "Write the message." };
   if (text.length > MAX_BODY) return { error: `Keep it under ${MAX_BODY} characters.` };
+  if (looksLikeTfnOrBank(text, { freeText: true })) return { error: NO_TFN_OR_BANK };
   return { text };
 }
 

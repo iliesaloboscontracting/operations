@@ -104,3 +104,11 @@ test("Operations AI may post at most 20 chat messages in 24 hours; nobody else h
   assert.equal(overChatLimit("alex@loboscontracting.com.au", 500), false, "an ordinary Manager isn't limited");
   assert.equal(overChatLimit(null, 500), false);
 });
+
+test("CH-022: TFN and bank details are refused in chat (new messages, replies and edits all use checkBody)", () => {
+  for (const bad of ["Our new BSB is 062-000, account 12345678", "My TFN is 123 456 789", "please update their bank details", "acct no 1234", "062-000 12345678"]) {
+    const r = checkBody(bad);
+    assert.ok("error" in r && /bank details/i.test(r.error), bad);
+  }
+  for (const ok of ["Call me on 0412 345 678", "Job 26_506 approved at $1,250 ex GST", "ABN 12 345 678 901 on the invoice"]) assert.ok("text" in checkBody(ok), ok);
+});

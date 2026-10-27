@@ -175,3 +175,12 @@ test("the AI opens the answer file only on a question it sent", async () => {
   const manager = { ...ai, id: "m", email: "alex@loboscontracting.com.au" };
   assert.equal(canSeeAnswerFile({ assigneeUserId: "acc", audience: "DIRECTOR", requestedBy: "Operations AI" }, manager), false);
 });
+
+test("CH-022: an Operations AI question never asks for or carries a TFN or bank details", async () => {
+  const { aiQuestionError } = await import("./rules");
+  const base = { title: "Supplier details", question: "Which supplier billed the Kanga?", need: null, why: null };
+  assert.equal(aiQuestionError(base), null);
+  assert.match(aiQuestionError({ ...base, question: "Please send the supplier's new bank details" })!, /bank details/);
+  assert.match(aiQuestionError({ ...base, need: "their BSB and account number" })!, /bank details/);
+  assert.match(aiQuestionError({ ...base, why: "TFN 123 456 789 on file" })!, /tax file/);
+});

@@ -16,7 +16,7 @@ import { todaySydney } from "../today";
 import { assigneeView, queryTargetError, recordQueryDecision } from "../findings/queries";
 import type { Actor } from "../findings/actions";
 import {
-  OPEN_STATUSES, OPERATIONS_AI_NAME, aiTargetError, canBeAsked, daysWaiting, isOperationsAi, overAiLimit, parseDraftFile, parseInfoItem, readDetails, resolveTo, whyUnresolved,
+  OPEN_STATUSES, OPERATIONS_AI_NAME, aiQuestionError, aiTargetError, canBeAsked, daysWaiting, isOperationsAi, overAiLimit, parseDraftFile, parseInfoItem, readDetails, resolveTo, whyUnresolved,
   AI_DAILY_LIMIT, type InfoItem,
 } from "./rules";
 
@@ -32,7 +32,7 @@ export async function raiseInfoRequest(item: InfoItem, assigneeUserId: string, a
   const user = await prisma.user.findUnique({ where: { id: assigneeUserId }, select: ASKABLE_SELECT });
   // Operations AI (the Building Agent login) asks a wider group, at most 20 a day.
   const ai = isOperationsAi(actor.email);
-  const bad = ai ? aiTargetError(user, actor.id, OWNER_EMAIL) : queryTargetError(user ? { type: "USER", user } : null, actor, item.question);
+  const bad = ai ? aiTargetError(user, actor.id, OWNER_EMAIL) ?? aiQuestionError(item) : queryTargetError(user ? { type: "USER", user } : null, actor, item.question);
   if (bad || !user) return { error: bad ?? "Pick who to ask." };
   if (ai) {
     const sent = await prisma.siteRequest.count({ where: { kind: QUERY_TYPE.kind, requestedBy: OPERATIONS_AI_NAME, createdAt: { gte: new Date(Date.now() - 86_400_000) } } });

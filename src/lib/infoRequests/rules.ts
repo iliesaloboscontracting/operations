@@ -6,6 +6,7 @@
 // what a question needs, the draft file format, who a draft's "to" means.
 // No server imports; `npm test` (infoRequests.test.ts).
 import { BUILDING_AGENT_EMAIL } from "../session";
+import { looksLikeTfnOrBank } from "../compliance/rules";
 
 export const INFO_TYPES = ["QUESTION", "FYI"] as const; // QUESTION needs an answer; FYI is just marked read
 export type InfoType = (typeof INFO_TYPES)[number];
@@ -124,3 +125,10 @@ export function aiTargetError(u: Askable | null, aiUserId: string, _ownerEmail?:
   return null;
 }
 export const aiCanAsk = (u: Askable, aiUserId: string, ownerEmail: string) => aiTargetError(u, aiUserId, ownerEmail) === null;
+
+// CH-022 (security review, Ilies approved 27 Oct): a question from Operations AI never asks for or carries a TFN or
+// bank details (they stay in Xero; bank detail changes are never taken from a message).
+export function aiQuestionError(item: Pick<InfoItem, "title" | "question" | "need" | "why">): string | null {
+  return [item.title, item.question, item.need, item.why].some((t) => looksLikeTfnOrBank(t, { freeText: true }))
+    ? "Operations AI doesn't ask for tax file numbers or bank details - they stay in Xero." : null;
+}
