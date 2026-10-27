@@ -20,6 +20,7 @@ export default function ApproveHours({ api, onDone }: { api: string; onDone: (me
   const [flags, setFlags] = useState<Record<string, string>>({});
   const [editing, setEditing] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const isToday = date === sydneyDay();
 
   const load = useCallback(async () => {
     setData(null);
@@ -79,9 +80,10 @@ export default function ApproveHours({ api, onDone }: { api: string; onDone: (me
                   </li>
                 ))}
               </ul>
-              {open > 0 && <p className="mt-2 text-sm text-amber-300">{open} not signed out yet - sign them out on Sign in crew first.</p>}
-              {toConfirm > 0 && <p className="mt-1 text-sm text-amber-300">{toConfirm} poster sign-in{toConfirm === 1 ? "" : "s"} to confirm first.</p>}
-              <button className={`${primary} mt-3`} disabled={open > 0 || toConfirm > 0 || busy === j.jobId} onClick={() => approve(j.jobId)}>
+              {/* Today: sign them out / confirm first. A past day can't be fixed here, so it's sent flagged to the office. */}
+              {open > 0 && <p className="mt-2 text-sm text-amber-300">{open} not signed out{isToday ? " yet - sign them out on Sign in crew first." : " - you can still approve; the office will set their time."}</p>}
+              {toConfirm > 0 && <p className="mt-1 text-sm text-amber-300">{toConfirm} poster sign-in{toConfirm === 1 ? "" : "s"} not confirmed{isToday ? " - confirm on Sign in crew first." : " - you can still approve; the office will check."}</p>}
+              <button className={`${primary} mt-3`} disabled={(isToday && (open > 0 || toConfirm > 0)) || busy === j.jobId} onClick={() => approve(j.jobId)}>
                 {busy === j.jobId ? <Loader2 size={18} className="animate-spin" /> : <Check size={18} />} {j.approved ? "Approve again" : "Approve the day"}
               </button>
             </div>

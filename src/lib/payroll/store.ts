@@ -7,6 +7,7 @@ import { jobLabel, POINT_BREAK_MINUTES, signedHours, sydneyTime } from "../signi
 import { matchHireSignIns } from "../labourHireMatch";
 import { activeApproval, weekDates, weekEnd, weekHasEnded } from "../timesheets";
 import { assertNoMoney } from "../moneyGuard";
+import { todaySydney } from "../today";
 import type { ResolvedLink } from "../siteLinks";
 import {
   canAccountsApprove, dayState, fileIsSafe, groupOf, inPayRun, payRunRows, personKeyOf, summarise, toCsv, TRAVEL_HOOK,
@@ -204,11 +205,18 @@ export async function approveDay(link: ResolvedLink, b: Record<string, unknown>)
   const day = await dayHoursForLink(link, date);
   const job = day.jobs.find((j) => j.jobId === jobId);
   if (!job) return { error: "That isn't one of your jobs that day.", status: 404 };
-  if (job.crew.some((c) => !c.out)) return { error: "Someone hasn't signed out yet - sign them out first.", status: 409 };
-  if (job.crew.some((c) => c.toConfirm)) return { error: "Confirm the poster sign-ins first.", status: 409 };
+  // Today the supervisor can still sign people out / confirm posters on "Sign in crew", so today waits for that.
+  // A past day can't be fixed from the link (only the office changes a past time - 27 Oct 2026: supervisors were
+  // stuck approving yesterday), so a missing sign-out or an unconfirmed poster never blocks it: it's flagged for
+  // the office automatically, next to anything the supervisor flags.
+  const past = date < todaySydney();
+  if (!past && job.crew.some((c) => !c.out)) return { error: "Someone hasn't signed out yet - sign them out first.", status: 409 };
+  if (!past && job.crew.some((c) => c.toConfirm)) return { error: "Confirm the poster sign-ins first.", status: 409 };
   const flagsIn = b.flags && typeof b.flags === "object" ? (b.flags as Record<string, unknown>) : {};
   const snapshot: ApprovalSnapshotLine[] = job.crew.map((c) => {
-    const f = typeof flagsIn[c.attendanceId] === "string" ? (flagsIn[c.attendanceId] as string).trim().slice(0, 200) : "";
+    const own = typeof flagsIn[c.attendanceId] === "string" ? (flagsIn[c.attendanceId] as string).trim().slice(0, 200) : "";
+    const auto = [!c.out && "No sign-out - office to set the time", c.toConfirm && "Poster sign-in not confirmed"].filter(Boolean).join("; ");
+    const f = [own, auto].filter(Boolean).join(" · ").slice(0, 300);
     return { attendanceId: c.attendanceId, name: c.name, company: c.company, in: c.in, out: c.out, hours: c.hours, ...(f ? { flag: f } : {}) };
   });
   if (!assertNoMoney(JSON.stringify(snapshot))) return { error: "No dollar figures in a note, please.", status: 400 };
