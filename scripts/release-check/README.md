@@ -74,6 +74,7 @@ Exit code: **0** everything passed (SKIPPED only where a check is not applicable
 | signin-remove | Admin removal with a reason, locked weeks refuse, gone from Sign-ins and timesheets (writes) |
 | docsearch | only when `src/lib/docsearch` exists: roles, never on links, OFF with no Graph keys, no index file, folders unapproved, index refuses `prisma/`, kill switch |
 | questions-chat | only when `src/app/api/messages` exists: Accounts -> Questions access, Operations AI questions (targets, 20 a day, tag), answers change nothing, office chat roles, never on links, edit / delete own only, history, owner-only read-all without marking seen |
+| negative-auth | strangers to a one-to-one can't read / post / edit / delete / mark seen; non-owner Admins can't change or create the Building Agent or a director login; unique and reserved names; TFN / bank refused in chat; Manager chat about a QUERY refused; cross-site writes 403; security headers (writes a thread) |
 | viewer-safety | the candidate's own `scripts/check-viewer-safety.ts` |
 | no-outbound | zero outbound connection attempts from the test server |
 | cleanup | server stopped, test files gone, snapshot unchanged |
