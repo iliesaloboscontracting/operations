@@ -29,8 +29,10 @@ export const FOLDERS: Folder[] = [
   { id: "proj-minutes", label: "Project meeting minutes", pattern: `${P}/22_001_06_ Meeting Minutes`, level: "MANAGER", approved: false },
   { id: "proj-quality", label: "Project quality management", pattern: `${P}/22_001_13_Quality Management`, level: "MANAGER", approved: false },
   { id: "proj-registers", label: "Project registers (tools & equipment)", pattern: `${P}/22_001_08_Registers (Tools & Equipment)`, level: "MANAGER", approved: false },
-  { id: "proj-estimate", label: "Project estimate stage (scope)", pattern: `${P}/ESTIMATE STAGE`, level: "MANAGER", approved: false },
   // Contracts, variations, tenders and quotes - Admins and directors
+  // DS-019 (security review, Ilies approved 27 Oct): the estimate stage holds the tender build-up and quote, so it's
+  // COMMERCIAL, not MANAGER.
+  { id: "proj-estimate", label: "Project estimate stage (scope and quote)", pattern: `${P}/ESTIMATE STAGE`, level: "COMMERCIAL", approved: false },
   { id: "proj-contract", label: "Project contract", pattern: `${P}/22_001_05_Contract`, level: "COMMERCIAL", approved: false },
   { id: "proj-variations", label: "Project variations", pattern: `${P}/22_001_15_Variations`, level: "COMMERCIAL", approved: false },
   { id: "proj-eot", label: "Project EOTs & NODs", pattern: `${P}/22_001_17_EOT's & NOD's`, level: "COMMERCIAL", approved: false },

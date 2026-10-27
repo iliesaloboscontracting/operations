@@ -373,3 +373,14 @@ test("DS-017: a document link is kept only if it's https on the tenant's SharePo
   for await (const x of new GraphSource(s, f).listFiles("03_General/Methodologies")) got[x.name] = x.webUrl;
   assert.deepEqual(got, { "Good.pdf": "https://lobosdemolition.sharepoint.com/good", "Bad.pdf": null, "Other.pdf": null });
 });
+
+test("DS-019: the estimate stage is COMMERCIAL - a Manager without director access never sees it", () => {
+  const est = FOLDERS.find((f) => f.id === "proj-estimate")!;
+  assert.equal(est.level, "COMMERCIAL");
+  assert.equal(est.approved, false, "still off until Ilies ticks it");
+  const file = "01_Projects - Live/26_161 - Test Job/ESTIMATE STAGE/26_161 Quote Rev B.pdf";
+  assert.equal(folderFor(file, new Set(["proj-estimate"]))?.level, "COMMERCIAL");
+  assert.ok(!levelsFor({ role: "MANAGER" }).includes(est.level), "a plain Manager's levels don't include it");
+  assert.ok(levelsFor({ role: "MANAGER", directorAccess: true }).includes(est.level));
+  assert.ok(levelsFor({ role: "ADMIN" }).includes(est.level));
+});
