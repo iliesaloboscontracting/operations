@@ -3,6 +3,7 @@
 // what Operations already records (the invoices inbox, questions to accounts,
 // sign-ins with no sign-out), never a second copy. Design: the plan approved
 // by Ilies 26 Oct 2026 (stage 1).
+import { reviewList } from "../xero/imports";
 import { prisma } from "../prisma";
 import { todaySydney } from "../today";
 import { pushToUsers } from "../push";
@@ -123,7 +124,7 @@ export async function alertAccountsDue() {
 export async function pendingForAccounts() {
   const today = todaySydney();
   const weekAgo = addDays(today, -14);
-  const [inbox, queries, noSignOut, items, reimbursements, abnToCheck, purchasesToCheck, purchasesToOrder] = await Promise.all([
+  const [inbox, queries, noSignOut, items, reimbursements, abnToCheck, purchasesToCheck, purchasesToOrder, salesReview] = await Promise.all([
     prisma.invoiceDraft.count({ where: { status: { in: ["NEEDS_REVIEW", "NO_JOB"] }, upload: { clearedAt: null } } }),
     prisma.siteRequest.findMany({
       where: { kind: "QUERY", assigneeName: "Accounts", answer: null, status: { in: OPEN_STATUSES } },
@@ -140,12 +141,14 @@ export async function pendingForAccounts() {
     prisma.abnInvoice.count({ where: { status: "TO_CHECK" } }), // stage 4
     prisma.purchaseRequest.count({ where: { status: "REQUESTED" } }), // stage 6: to check
     prisma.purchaseRequest.count({ where: { status: "APPROVED" } }), // stage 6: to order
+    reviewList().catch(() => ({ invoices: [] })), // Accounts data: sales invoices not tied to a job (Xero mirror)
   ]);
   return {
     today,
     inboxWaiting: inbox,
     reimbursementsToPay: reimbursements,
     abnInvoicesToCheck: abnToCheck,
+    salesNotTied: salesReview.invoices.length,
     purchasesToCheck,
     purchasesToOrder,
     queries: queries.map((q) => ({ id: q.id, ref: `R-${String(q.number).padStart(4, "0")}`, summary: q.summary, neededBy: q.neededBy })),

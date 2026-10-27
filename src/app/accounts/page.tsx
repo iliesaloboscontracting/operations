@@ -18,6 +18,7 @@ type Pending = {
   inboxWaiting: number;
   reimbursementsToPay?: number;
   abnInvoicesToCheck?: number;
+  salesNotTied?: number;
   purchasesToCheck?: number;
   purchasesToOrder?: number;
   queries: { id: string; ref: string; summary: string }[];
@@ -47,7 +48,7 @@ export default function AccountsPage() {
 
   if (!loading && !accountsOnly && !isAdmin) return <PageShell title="Accounts"><p className="text-sm text-gray-400">This screen is for accounts.</p></PageShell>;
 
-  const nothing = p && !p.inboxWaiting && !p.reimbursementsToPay && !p.abnInvoicesToCheck && !p.purchasesToCheck && !p.purchasesToOrder && !p.queries.length && !p.noSignOut.length && !p.due.length;
+  const nothing = p && !p.inboxWaiting && !p.reimbursementsToPay && !p.abnInvoicesToCheck && !p.salesNotTied && !p.purchasesToCheck && !p.purchasesToOrder && !p.queries.length && !p.noSignOut.length && !p.due.length;
   return (
     <PageShell
       title="Accounts"
@@ -76,6 +77,12 @@ export default function AccountsPage() {
           {p.inboxWaiting > 0 && (
             <Section title="Invoices waiting for you" count={p.inboxWaiting}>
               <Link href="/invoices" className="block px-3 py-3 text-sm text-brand-300 hover:underline">Open the invoices inbox →</Link>
+            </Section>
+          )}
+
+          {!!p.salesNotTied && (
+            <Section title="Sales invoices not tied to a job" count={p.salesNotTied}>
+              <Link href="/accounts/xero" className="block px-3 py-3 text-sm text-brand-300 hover:underline">Open Accounts data →</Link>
             </Section>
           )}
 

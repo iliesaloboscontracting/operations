@@ -98,6 +98,7 @@ const ACCOUNTS = [
   { href: "/accounts/reimbursements", label: "Reimbursements" },
   { href: "/accounts/labour-cost", label: "Labour cost" },
   { href: "/accounts/invoice-checks", label: "Invoice checks" },
+  { href: "/accounts/xero", label: "Accounts data" },
   { href: "/accounts/compliance", label: "Compliance" },
   { href: "/accounts/assets", label: "Assets" },
   { href: "/accounts/purchases", label: "Purchases" },

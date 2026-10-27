@@ -15,7 +15,9 @@ type Status = {
 };
 const when = (iso: string | null) => (iso ? new Date(iso).toLocaleString("en-AU", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }) : "not yet");
 
-export default function XeroConnectionCard({ onSynced }: { onSynced?: () => void }) {
+// base: where status and "Refresh now" go - the Directors routes, or the Accounts ones on Victoria's screen.
+// Connect / disconnect always use the Directors routes and stay the owner's (canConnect is false for others).
+export default function XeroConnectionCard({ onSynced, base = "/api/directors/xero" }: { onSynced?: () => void; base?: string }) {
   const params = useSearchParams();
   const [s, setS] = useState<Status | null>(null);
   const [busy, setBusy] = useState<"sync" | "disconnect" | null>(null);
@@ -24,8 +26,8 @@ export default function XeroConnectionCard({ onSynced }: { onSynced?: () => void
       : params.get("xero") === "error" ? { ok: false, text: params.get("msg") ?? "Xero wasn't connected." } : null,
   );
   const load = useCallback(() => {
-    apiFetch("/api/directors/xero").then(async (r) => (r.ok ? setS(await r.json()) : setMsg({ ok: false, text: await serverErrorMessage(r, "Couldn't load the Xero connection.") })));
-  }, []);
+    apiFetch(base).then(async (r) => (r.ok ? setS(await r.json()) : setMsg({ ok: false, text: await serverErrorMessage(r, "Couldn't load the Xero connection.") })));
+  }, [base]);
   useEffect(() => { load(); }, [load]);
 
   async function post(path: "sync" | "disconnect") {
@@ -33,7 +35,7 @@ export default function XeroConnectionCard({ onSynced }: { onSynced?: () => void
     setBusy(path);
     setMsg(null);
     try {
-      const res = await apiFetch(`/api/directors/xero/${path}`, { method: "POST" });
+      const res = await apiFetch(path === "sync" ? `${base}/sync` : `/api/directors/xero/${path}`, { method: "POST" });
       if (!res.ok) throw new Error(await serverErrorMessage(res, path === "sync" ? "Couldn't read Xero." : "Couldn't disconnect."));
       const r = await res.json();
       setMsg({ ok: true, text: path === "sync" ? `Read ${r.invoices} sales invoices and credit notes, ${r.bills} bills and ${r.pnlLines} P&L lines from Xero.` : "Xero is disconnected." });
