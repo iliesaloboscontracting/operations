@@ -3,7 +3,7 @@
 // Role filtering happens here, in SQL - a row a login may not see is never read. Design §3-4.
 import { chmodSync, closeSync, existsSync, mkdirSync, openSync } from "fs";
 import path from "path";
-import type { Level } from "./folders";
+import { folderFor, type Level } from "./folders";
 import { MARK_CLOSE, MARK_OPEN, toFtsQuery } from "./query";
 
 // The few node:sqlite calls used (its types aren't in this project's @types/node). Loaded with getBuiltinModule so the
@@ -89,18 +89,44 @@ export function removeUnseen(source: string, run: number): number {
 
 export type Hit = { id: string; name: string; folder: string; path: string; webUrl: string | null; modified: string | null; revision: string | null; snippet: string };
 
-// Search, filtered to the levels this login may see. No levels -> nothing (and no query is run).
-export function search(input: string, levels: Level[], limit = 30): { hits: Hit[]; query: string | null } {
+// DS-016 (security review, Ilies approved 27 Oct): a stored row is still in the index only because a past run put it
+// there. It counts only while TODAY's rules agree: its path is in an approved folder, not denied, and that folder is
+// the same one, at the same level, the row was filed under.
+export const stillAllowed = (r: { path: string; folderId: string; level: string }, approvedIds?: Set<string>) => {
+  const f = folderFor(r.path, approvedIds);
+  return !!f && f.id === r.folderId && f.level === r.level;
+};
+
+// Search, filtered to the levels this login may see (in SQL), then every hit re-checked against today's folder rules
+// (DS-016). No levels -> nothing (and no query is run). approvedIds: the local test source's override only.
+export function search(input: string, levels: Level[], approvedIds?: Set<string>, limit = 30): { hits: Hit[]; query: string | null } {
   const q = toFtsQuery(input);
   if (!q || !levels.length || !hasIndex()) return { hits: [], query: q };
   const marks = levels.map(() => "?").join(",");
+  const want = Math.min(Math.max(limit, 1), 50);
   const rows = openIndex().prepare(`
-    SELECT d.id, d.name, d.folder_label AS folder, d.path, d.web_url AS webUrl, d.modified, d.revision,
+    SELECT d.id, d.name, d.folder_label AS folder, d.path, d.web_url AS webUrl, d.modified, d.revision, d.folder_id AS folderId, d.level,
            snippet(docs_fts, 1, '${MARK_OPEN}', '${MARK_CLOSE}', '…', 14) AS snippet
     FROM docs_fts JOIN docs d ON d.rowid = docs_fts.rowid
     WHERE docs_fts MATCH ? AND d.level IN (${marks}) AND d.status = 'OK'
-    ORDER BY bm25(docs_fts, 3.0, 1.0) LIMIT ?`).all(q, ...levels, Math.min(Math.max(limit, 1), 50)) as Hit[];
-  return { hits: rows, query: q };
+    ORDER BY bm25(docs_fts, 3.0, 1.0) LIMIT ?`).all(q, ...levels, want * 2) as (Hit & { folderId: string; level: string })[];
+  const hits = rows.filter((r) => stillAllowed(r, approvedIds)).slice(0, want).map(({ folderId: _f, level: _l, ...h }) => h);
+  return { hits, query: q };
+}
+
+// DS-016: at the start of every run, rows that today's rules no longer allow (folder un-approved, path now denied,
+// folder / level changed) leave the index at once - not only after a complete run.
+export function purgeNotAllowed(approvedIds?: Set<string>): number {
+  const x = openIndex();
+  const rows = x.prepare("SELECT rowid, path, folder_id AS folderId, level FROM docs").all() as { rowid: number; path: string; folderId: string; level: string }[];
+  let n = 0;
+  for (const r of rows) {
+    if (stillAllowed(r, approvedIds)) continue;
+    x.prepare("DELETE FROM docs_fts WHERE rowid = ?").run(r.rowid);
+    x.prepare("DELETE FROM docs WHERE rowid = ?").run(r.rowid);
+    n++;
+  }
+  return n;
 }
 
 export function status(levels: Level[]) {
@@ -113,7 +139,10 @@ export function status(levels: Level[]) {
   return { documents: counts.find((c) => c.status === "OK")?.n ?? 0, notReadable: counts.filter((c) => c.status !== "OK").reduce((n, c) => n + c.n, 0), lastRun: last, unreadable };
 }
 
-export function startRun(source: string) { return Number(openIndex().prepare("INSERT INTO runs(source, started_at) VALUES(?, ?)").run(source, new Date().toISOString()).lastInsertRowid); }
+export function startRun(source: string, approvedIds?: Set<string>) {
+  purgeNotAllowed(approvedIds);
+  return Number(openIndex().prepare("INSERT INTO runs(source, started_at) VALUES(?, ?)").run(source, new Date().toISOString()).lastInsertRowid);
+}
 export function finishRun(id: number, r: { seen: number; added: number; updated: number; removed: number; unreadable: number; error: string | null }) {
   openIndex().prepare("UPDATE runs SET finished_at=?, seen=?, added=?, updated=?, removed=?, unreadable=?, error=? WHERE id=?").run(new Date().toISOString(), r.seen, r.added, r.updated, r.removed, r.unreadable, r.error, id);
 }

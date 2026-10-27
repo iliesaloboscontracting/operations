@@ -5,7 +5,8 @@ import { GraphSource, realGraphFetch } from "./sources/graph";
 import { LocalFolderSource } from "./sources/local";
 import type { DocSource } from "./sources/types";
 import { refreshIndex, type RunResult } from "./indexer";
-import { getMeta, setMeta } from "./index";
+import { getMeta, search, setMeta } from "./index";
+import type { Level } from "./folders";
 
 export const switchedOff = () => (process.env.DOC_SEARCH ?? "").trim().toLowerCase() === "off";
 
@@ -22,6 +23,14 @@ export function pickSource(): { source: DocSource; approvedIds?: Set<string> } |
   const s = graphSetup();
   if (!s.ok) return { off: s.reason === NOT_SET_UP ? NOT_SET_UP : s.reason };
   return { source: new GraphSource(s, realGraphFetch) };
+}
+
+// DS-016: search fails closed - whenever there's no source (switched off, not set up, refused, the local test source in
+// production, anything), no stored row is shown, only the reason.
+export function searchOrClosed(q: string, levels: Level[]) {
+  const p = pickSource();
+  if ("off" in p) return { off: p.off, hits: [], query: null };
+  return search(q, levels, p.approvedIds);
 }
 
 let running = false;

@@ -140,25 +140,25 @@ test("search returns only the levels a role may see (filter in SQL)", async () =
   process.env.SEARCH_INDEX_PATH = path.join(dir, "search.db");
   const idx = await import("./index");
   try {
-    const run = idx.startRun("test");
+    const run = idx.startRun("test", ALL);
     const row = (id: string, p: string, text: string) => {
       const f = folderFor(p, ALL)!;
       idx.putDoc({ id: `test:${id}`, folderId: f.id, folderLabel: f.label, level: f.level, name: p.split("/").pop()!, path: p, webUrl: null, modified: "2026-10-01", revision: null, etag: "1", size: 1, ext: "pdf", status: "OK", why: null, text }, run);
     };
     row("swms", SWMS, "Night works need a spotter and a lighting plan.");
     row("contract", CONTRACT, "The principal provides the hoarding and a night works allowance.");
-    const asRole = (u: { role: string; directorAccess?: boolean }) => idx.search("night works", levelsFor(u)).hits.map((h) => h.id).sort();
+    const asRole = (u: { role: string; directorAccess?: boolean }) => idx.search("night works", levelsFor(u), ALL).hits.map((h) => h.id).sort();
     assert.deepEqual(asRole({ role: "ADMIN" }), ["test:contract", "test:swms"]);
     assert.deepEqual(asRole({ role: "MANAGER" }), ["test:swms"], "a Manager never sees contracts");
     assert.deepEqual(asRole({ role: "MANAGER", directorAccess: true }), ["test:contract", "test:swms"]);
     for (const role of ["VIEWER", "TIMESHEETS", "DIRECTOR", "ACCOUNTS"]) assert.deepEqual(asRole({ role }), [], role);
-    assert.match(idx.search("spotters", ["MANAGER"]).hits[0].snippet, /spotter/, "stemming: spotters finds spotter");
+    assert.match(idx.search("spotters", ["MANAGER"], ALL).hits[0].snippet, /spotter/, "stemming: spotters finds spotter");
     assert.equal(idx.status(["MANAGER"]).documents, 1, "status counts only what this login may see");
     // A complete run that no longer sees the contract removes it.
-    const run2 = idx.startRun("test");
+    const run2 = idx.startRun("test", ALL);
     idx.markSeen("test:swms", run2);
     assert.equal(idx.removeUnseen("test", run2), 1);
-    assert.deepEqual(idx.search("night", ["MANAGER", "COMMERCIAL"]).hits.map((h) => h.id), ["test:swms"]);
+    assert.deepEqual(idx.search("night", ["MANAGER", "COMMERCIAL"], ALL).hits.map((h) => h.id), ["test:swms"]);
   } finally {
     idx.closeIndex();
     rmSync(dir, { recursive: true, force: true });
@@ -289,4 +289,60 @@ test("DS-015: downloads stream with a byte cap - refused by Content-Length, or c
   assert.equal(stop.signal.aborted, true, "the request is aborted");
   const small = new ReadableStream<Uint8Array>({ start(c) { c.enqueue(new TextEncoder().encode("PDF")); c.enqueue(new TextEncoder().encode("BYTES")); c.close(); } });
   assert.equal((await readCapped({ headers: hdr(), arrayBuffer: async () => new ArrayBuffer(0), body: small }, MAX_FILE_BYTES)).toString(), "PDFBYTES");
+});
+
+test("DS-016: every hit is re-checked against today's folder rules; un-approved / denied rows are purged at each run start", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "ds016-"));
+  process.env.SEARCH_INDEX_PATH = path.join(dir, "search.db");
+  const idx = await import("./index");
+  try {
+    idx.closeIndex();
+    const run = idx.startRun("test", ALL);
+    const put = (id: string, p: string, folderId: string, level: "MANAGER" | "COMMERCIAL") => {
+      const f = FOLDERS.find((x) => x.id === folderId)!;
+      idx.putDoc({ id: `test:${id}`, folderId, folderLabel: f.label, level, name: p.split("/").pop()!, path: p, webUrl: null, modified: "2026-10-01", revision: null, etag: "1", size: 1, ext: "pdf", status: "OK", why: null, text: "night works lighting plan for the crane lift" }, run);
+    };
+    put("ok", SWMS, "proj-swms", "MANAGER");
+    put("denied", "01_Projects - Live/26_161 - Test Job/22_001_09_HSE & Site Management/04_SWMS/payroll night works.pdf", "proj-swms", "MANAGER");
+    put("wronglevel", CONTRACT, "proj-contract", "MANAGER"); // filed at a lower level than its folder now has
+    put("wrongfolder", SWMS.replace("SWMS Night", "Other Night"), "proj-toolbox", "MANAGER");
+    const ids = (approved?: Set<string>) => idx.search("night works", ["MANAGER", "COMMERCIAL"], approved).hits.map((h) => h.id).sort();
+    assert.deepEqual(ids(ALL), ["test:ok"], "denied, wrong-level and wrong-folder rows never show");
+    assert.deepEqual(ids(new Set(["proj-toolbox"])), [], "a folder no longer approved shows nothing, even though its rows are stored");
+    assert.deepEqual(ids(undefined), [], "production flags (all off today) show nothing");
+    assert.ok(!("folderId" in (idx.search("night", ["MANAGER"], ALL).hits[0] ?? {})), "the filter fields aren't sent to the browser");
+    idx.startRun("test", new Set(["proj-contract"])); // proj-swms un-approved since the last run
+    const left = idx.status(["MANAGER", "COMMERCIAL"]).documents;
+    assert.equal(left, 0, "the next run purged every row today's rules don't allow");
+  } finally { idx.closeIndex(); rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("DS-016: search fails closed - no source for any reason means no hits, only the reason", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "ds016b-"));
+  const keep = { ...process.env };
+  process.env.SEARCH_INDEX_PATH = path.join(dir, "search.db");
+  const idx = await import("./index");
+  const { searchOrClosed } = await import("./service");
+  try {
+    idx.closeIndex();
+    const run = idx.startRun("graph", ALL);
+    const f = folderFor(SWMS, ALL)!;
+    idx.putDoc({ id: "graph:1", folderId: f.id, folderLabel: f.label, level: f.level, name: "SWMS.pdf", path: SWMS, webUrl: null, modified: "2026-10-01", revision: null, etag: "1", size: 1, ext: "pdf", status: "OK", why: null, text: "night works lighting plan for the crane lift" }, run);
+    for (const k of ["DOC_SEARCH", "DOC_SEARCH_SOURCE", "GRAPH_TENANT_ID", "GRAPH_CLIENT_ID", "GRAPH_CLIENT_SECRET"]) delete process.env[k];
+    const notSetUp = searchOrClosed("night works", ["MANAGER"]) as { off?: string; hits: unknown[] };
+    assert.deepEqual(notSetUp.hits, [], "not set up: nothing shown though a row is stored");
+    assert.match(notSetUp.off ?? "", /isn't connected/);
+    process.env.DOC_SEARCH = "off";
+    assert.match((searchOrClosed("night works", ["MANAGER"]) as { off?: string }).off ?? "", /switched off/);
+    delete process.env.DOC_SEARCH;
+    process.env.DOC_SEARCH_SOURCE = "local";
+    (process.env as Record<string, string>).NODE_ENV = "production";
+    const prod = searchOrClosed("night works", ["MANAGER"]) as { off?: string; hits: unknown[] };
+    assert.deepEqual(prod.hits, []);
+    assert.match(prod.off ?? "", /production/);
+  } finally {
+    for (const k of Object.keys(process.env)) if (!(k in keep)) delete process.env[k];
+    Object.assign(process.env, keep);
+    idx.closeIndex(); rmSync(dir, { recursive: true, force: true });
+  }
 });

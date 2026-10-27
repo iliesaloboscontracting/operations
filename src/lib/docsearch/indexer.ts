@@ -11,7 +11,7 @@ import { scrub } from "./graphSetup";
 export type RunResult = { seen: number; added: number; updated: number; removed: number; unreadable: number; error: string | null; complete: boolean };
 
 export async function refreshIndex(source: DocSource, approvedIds?: Set<string>): Promise<RunResult> {
-  const run = startRun(source.name);
+  const run = startRun(source.name, approvedIds); // DS-016: purges rows today's rules no longer allow
   const r: RunResult = { seen: 0, added: 0, updated: 0, removed: 0, unreadable: 0, error: null, complete: false };
   const folders = FOLDERS.filter((f) => (approvedIds ? approvedIds.has(f.id) : f.approved));
   try {
