@@ -1,0 +1,104 @@
+{
+  "batch": "02 - questions for accounts (drafted by the lead 27 Oct 2026 from Ilies's open list; nothing is sent until Ilies ticks and sends; answers never change Operations data until Ilies approves the change)",
+  "items": [
+    {
+      "to": "Accounts",
+      "type": "QUESTION",
+      "title": "Microsoft 365 admin access",
+      "question": "Ilies says admin access to Microsoft 365 will be provided. Two things need it: (1) Operations sending pay breakdowns, ABN discrepancy notices and 'reimbursement paid' emails FROM accounts@loboscontracting.com.au (send-as that one mailbox only), and (2) read-only access to the SharePoint folders Ilies approves, for the document search. Who is the Microsoft 365 admin, and when can they spend about 30 minutes setting this up with Ilies?",
+      "need": "The admin's name and a day / time that suits.",
+      "why": "Nothing can be sent from accounts@ or searched in SharePoint until an admin grants it.",
+      "dueDate": "2026-10-31"
+    },
+    {
+      "to": "Accounts",
+      "type": "QUESTION",
+      "title": "Travel time - regional jobs and driver / passenger",
+      "question": "For payroll: how is travel paid on regional jobs, and is the driver paid differently from passengers? For example: paid from the yard or from home, travel at ordinary time or another rate, and whether a passenger's travel is paid at all.",
+      "need": "The rule as you apply it today (a short description or your spreadsheet is fine).",
+      "why": "The pay-run file has a 'Travel' column waiting on this rule.",
+      "dueDate": "2026-11-07"
+    },
+    {
+      "to": "Accounts",
+      "type": "QUESTION",
+      "title": "Public holidays - how are they paid?",
+      "question": "When the crew work on a public holiday, how is it paid (for example double time and a half, or a set day rate), and does it differ between employees and ABN workers? When they don't work, is the public holiday paid for employees?",
+      "need": "The rule you apply, per type of worker.",
+      "why": "Operations' labour costing has no public holiday rate yet, so those days are costed like a normal day.",
+      "dueDate": "2026-11-07"
+    },
+    {
+      "to": "Accounts",
+      "type": "QUESTION",
+      "title": "Payroll tax - do contractor payments count?",
+      "question": "Much of Lobos's labour is paid through 'Contractors', 'Contractors - Non Reportable for TARP' and 'Service Fees - Labour' in Xero, not 'Wages & Salaries'. For payroll tax, which of those payments are counted as wages (NSW contractor provisions), and which aren't?",
+      "need": "Which Xero accounts count towards payroll tax.",
+      "why": "The payroll tax estimate on your Tax estimates page only counts wages and super at the moment, so it could be well under the real figure.",
+      "dueDate": "2026-11-07"
+    },
+    {
+      "to": "Accounts",
+      "type": "QUESTION",
+      "title": "GST - cash or accruals (invoice) basis?",
+      "question": "Does Lobos report GST on its BAS on a cash basis or on an accruals (invoice) basis?",
+      "need": "Cash or accruals.",
+      "why": "The BAS estimate on the Tax estimates page currently uses invoice dates; if Lobos reports on cash it needs to use payment dates instead.",
+      "dueDate": "2026-10-31"
+    },
+    {
+      "to": "Accounts",
+      "type": "QUESTION",
+      "title": "Pay-run file - does it match your Xero import?",
+      "question": "On Accounts -> Payroll you can download a pay-run file (hours only). Please compare its column names and earnings rate names with the timesheet import template Lobos uses in Xero Payroll.",
+      "need": "OK as is, or the column names / earnings rate names Xero expects (a blank copy of your template is ideal).",
+      "why": "So the file imports into Xero without editing.",
+      "dueDate": "2026-11-07"
+    },
+    {
+      "to": "Accounts",
+      "type": "QUESTION",
+      "title": "On-cost rates - super, workers comp, payroll tax",
+      "question": "Accounts -> Labour cost works out the full cost of labour per job with on-costs, using the method from your 'Labour Cost by Site' workbook. It needs the current rates: super %, workers comp % (Lobos's own rate), payroll tax % and the threshold, each with the date it started.",
+      "need": "Each rate and its start date. An Admin enters them; nothing is entered from this answer until Ilies approves it.",
+      "why": "Labour cost shows 'Not set' until the rates are entered.",
+      "dueDate": "2026-11-07"
+    },
+    {
+      "to": "Accounts",
+      "type": "QUESTION",
+      "title": "Who is paid as an ABN contractor?",
+      "question": "For payroll, each person on the Labour register needs to be marked Employee or ABN. Fourteen people have 'ABN' in their notes, but the notes may be out of date. Who is currently paid as an ABN contractor (and their ABN, if you have it)?",
+      "need": "A list of names: ABN or employee (and ABNs if known).",
+      "why": "The pay-run file only includes employees, and ABN invoices are checked against approved hours.",
+      "dueDate": "2026-11-07"
+    },
+    {
+      "to": "Accounts",
+      "type": "QUESTION",
+      "title": "Two trucks on tip dockets: DA81DT and DA18JT",
+      "question": "Tip dockets this week show trucks with rego DA81DT and DA18JT. They aren't on Operations' truck list. Whose trucks are they (a hired truck, a subcontractor, or one of ours under another rego)?",
+      "need": "Who owns each one, or 'not ours'.",
+      "why": "So their dockets and fuel are put against the right truck.",
+      "dueDate": "2026-10-31"
+    },
+    {
+      "to": "Accounts",
+      "type": "QUESTION",
+      "title": "Missing email addresses - 5 workers",
+      "question": "We have no email address on file for Jose, Justinian, Mikdat, Nathan and Sinan. Do you have them?",
+      "need": "Each person's email, or 'none'.",
+      "why": "For pay breakdowns and messages from accounts@ once that is set up.",
+      "dueDate": "2026-11-07"
+    },
+    {
+      "to": "Accounts",
+      "type": "QUESTION",
+      "title": "Full names - Daniel, Aaron and Ezra",
+      "question": "The Labour register has Daniel, Aaron and Ezra without surnames. What are their full names?",
+      "need": "First name and surname for each.",
+      "why": "So pay runs, tickets and invoices match the right person.",
+      "dueDate": "2026-11-07"
+    }
+  ]
+}
