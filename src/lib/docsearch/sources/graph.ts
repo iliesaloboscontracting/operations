@@ -10,7 +10,7 @@ import { SourceStop, type DocSource, type SourceFile } from "./types";
 
 type Ok = Extract<GraphSetup, { ok: true }>;
 export type GFetch = (url: string, init: { method: "GET" | "POST"; headers: Record<string, string>; body?: string; redirect: "manual"; signal: AbortSignal }) =>
-  Promise<{ status: number; headers: { get(n: string): string | null }; text(): Promise<string>; arrayBuffer(): Promise<ArrayBuffer> }>;
+  Promise<{ status: number; headers: { get(n: string): string | null }; text(): Promise<string>; arrayBuffer(): Promise<ArrayBuffer>; body?: ReadableStream<Uint8Array> | null }>;
 const TIMEOUT_MS = 20_000;
 const G = "https://graph.microsoft.com/v1.0";
 
@@ -105,18 +105,42 @@ export class GraphSource implements DocSource {
     if (res.status === 429 || res.status === 503) throw new SourceStop("Microsoft asked us to slow down - the rest is read next night.");
     const loc = res.headers.get("location");
     if (res.status !== 302 || !loc || !allowedDownloadHost(loc, this.s.siteHost)) throw new Error(scrub(`download refused (HTTP ${res.status})`, this.secrets()));
-    let bytes: { status: number; arrayBuffer(): Promise<ArrayBuffer> };
+    // DS-015: the bytes are streamed and the download is cut off the moment it passes 25 MB, whatever the listing
+    // said - never buffered whole first.
+    const stop = new AbortController();
+    let bytes: Awaited<ReturnType<GFetch>>;
     try {
       // The pre-signed URL carries its own short-lived permission: no Authorization header goes to it.
-      bytes = await this.f(loc, { method: "GET", headers: {}, redirect: "manual", signal: AbortSignal.timeout(TIMEOUT_MS) });
+      bytes = await this.f(loc, { method: "GET", headers: {}, redirect: "manual", signal: AbortSignal.any([AbortSignal.timeout(TIMEOUT_MS), stop.signal]) });
     } catch {
       throw new Error("download timed out");
     }
     if (bytes.status !== 200) throw new Error(`download failed (HTTP ${bytes.status})`);
-    const buf = Buffer.from(await bytes.arrayBuffer());
-    if (buf.length > MAX_FILE_BYTES) throw new Error("too big");
+    return readCapped(bytes, MAX_FILE_BYTES, stop);
+  }
+}
+
+// Read a response body up to `cap` bytes: refused at once by its Content-Length, or cut off (and the request aborted)
+// as soon as the running total passes the cap. A response with no stream falls back to arrayBuffer, still checked.
+export async function readCapped(res: { headers: { get(n: string): string | null }; arrayBuffer(): Promise<ArrayBuffer>; body?: ReadableStream<Uint8Array> | null }, cap: number, stop?: AbortController): Promise<Buffer> {
+  const declared = Number(res.headers.get("content-length") ?? NaN);
+  if (Number.isFinite(declared) && declared > cap) { stop?.abort(); throw new Error("too big"); }
+  if (!res.body) {
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (buf.length > cap) throw new Error("too big");
     return buf;
   }
+  const reader = res.body.getReader();
+  const parts: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > cap) { await reader.cancel().catch(() => undefined); stop?.abort(); throw new Error("too big"); }
+    parts.push(value);
+  }
+  return Buffer.concat(parts);
 }
 
 export const realGraphFetch: GFetch = (url, init) => fetch(url, { ...init, cache: "no-store" });

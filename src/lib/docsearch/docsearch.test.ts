@@ -8,9 +8,9 @@ import ExcelJS from "exceljs";
 import { FOLDERS, denied, folderFor, levelsFor, revisionOf, underPattern, canSearch } from "./folders";
 import { MARK_CLOSE, MARK_OPEN, snippetParts, toFtsQuery } from "./query";
 import { docxText, zipEntry } from "./zip";
-import { extractText } from "./extract";
+import { extractText, MAX_FILE_BYTES, WORKER_LIMITS, WORKER_TIMEOUT_MS } from "./extract";
 import { allowedApiHost, allowedDownloadHost, graphSetup, rolesProblem, scrub, tokenRoles } from "./graphSetup";
-import { GraphSource, type GFetch } from "./sources/graph";
+import { GraphSource, readCapped, type GFetch } from "./sources/graph";
 import { SourceStop } from "./sources/types";
 
 const SWMS = "01_Projects - Live/26_161 - Test Job/22_001_09_HSE & Site Management/04_SWMS/SWMS Night Works Rev C.pdf";
@@ -243,4 +243,50 @@ test("DS-014: the index folder is 0700 and the file 0600 before SQLite opens it"
     idx.secureFile(file); // idempotent on an existing file
     assert.ok(existsSync(file));
   } finally { idx.closeIndex(); rmSync(dir, { recursive: true, force: true }); }
+});
+
+// ---------- DS-015: reading in a capped worker; xlsx unpack limit; capped downloads ----------
+test("DS-015: text is read in a worker thread (512 MB heap, 60 s) - unpdf and exceljs load inside it", async () => {
+  assert.deepEqual(WORKER_LIMITS, { maxOldGenerationSizeMb: 512 });
+  assert.equal(WORKER_TIMEOUT_MS, 60_000);
+  const pdf = await extractText("SWMS.pdf", Buffer.from(PDF));
+  assert.equal(pdf.status, "OK", "unpdf works inside the worker");
+  const wb = new ExcelJS.Workbook();
+  wb.addWorksheet("Plant").addRow(["Excavator 5.5t", "needs a spotter at night on this job"]);
+  const xl = await extractText("Register.xlsx", Buffer.from(await wb.xlsx.writeBuffer()));
+  assert.equal(xl.status, "OK", "exceljs works inside the worker");
+});
+
+test("DS-015: a read that runs past the time limit is stopped and 'not readable'", async () => {
+  const r = await extractText("SWMS.pdf", Buffer.from(PDF), { timeoutMs: 1 });
+  assert.equal(r.status, "UNREADABLE");
+  assert.match((r as { why: string }).why, /too long/);
+});
+
+test("DS-015: an .xlsx that would unpack past 100 MB is refused from its zip directory, before it's opened", async () => {
+  // A tiny zip whose central directory claims one entry of 150 MB unpacked.
+  const name = Buffer.from("xl/worksheets/sheet1.xml");
+  const data = deflateRawSync(Buffer.from("<x/>"));
+  const loc = Buffer.alloc(30); loc.writeUInt32LE(0x04034b50, 0); loc.writeUInt16LE(8, 8); loc.writeUInt32LE(data.length, 18); loc.writeUInt32LE(150 * 1024 * 1024, 22); loc.writeUInt16LE(name.length, 26);
+  const cen = Buffer.alloc(46); cen.writeUInt32LE(0x02014b50, 0); cen.writeUInt16LE(8, 10); cen.writeUInt32LE(data.length, 20); cen.writeUInt32LE(150 * 1024 * 1024, 24); cen.writeUInt16LE(name.length, 28); cen.writeUInt32LE(0, 42);
+  const body = Buffer.concat([loc, name, data]);
+  const eocd = Buffer.alloc(22); eocd.writeUInt32LE(0x06054b50, 0); eocd.writeUInt16LE(1, 8); eocd.writeUInt16LE(1, 10); eocd.writeUInt32LE(cen.length + name.length, 12); eocd.writeUInt32LE(body.length, 16);
+  const r = await extractText("Huge.xlsx", Buffer.concat([body, cen, name, eocd]));
+  assert.equal(r.status, "TOO_BIG");
+  assert.match((r as { why: string }).why, /100 MB unpacked/);
+  assert.equal((await extractText("NotAZip.xlsx", Buffer.from("plain text, not a zip"))).status, "UNREADABLE");
+});
+
+test("DS-015: downloads stream with a byte cap - refused by Content-Length, or cut off as soon as they pass it", async () => {
+  const hdr = (h: Record<string, string> = {}) => ({ get: (n: string) => h[n.toLowerCase()] ?? null });
+  await assert.rejects(readCapped({ headers: hdr({ "content-length": String(MAX_FILE_BYTES + 1) }), arrayBuffer: async () => { throw new Error("must not be read"); } }, MAX_FILE_BYTES), /too big/);
+  let pulled = 0;
+  const chunk = new Uint8Array(4 * 1024 * 1024);
+  const endless = new ReadableStream<Uint8Array>({ pull(c) { pulled++; c.enqueue(chunk); } });
+  const stop = new AbortController();
+  await assert.rejects(readCapped({ headers: hdr(), arrayBuffer: async () => new ArrayBuffer(0), body: endless }, MAX_FILE_BYTES, stop), /too big/);
+  assert.ok(pulled <= 8, `stopped after ${pulled} chunks of 4 MB`);
+  assert.equal(stop.signal.aborted, true, "the request is aborted");
+  const small = new ReadableStream<Uint8Array>({ start(c) { c.enqueue(new TextEncoder().encode("PDF")); c.enqueue(new TextEncoder().encode("BYTES")); c.close(); } });
+  assert.equal((await readCapped({ headers: hdr(), arrayBuffer: async () => new ArrayBuffer(0), body: small }, MAX_FILE_BYTES)).toString(), "PDFBYTES");
 });
