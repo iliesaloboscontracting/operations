@@ -16,11 +16,12 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
-import { EXPECTED_NOTES } from "./expected.mjs";
+import { AUDIT_EXCEPTIONS, EXPECTED_NOTES } from "./expected.mjs";
+import { judgeAudit } from "./lib/audit.mjs";
 import { makeContext, makeTally } from "./lib/context.mjs";
 import { startServer, stopServer } from "./lib/server.mjs";
 import { childEnv, compareCounts, copySnapshot, dbPush, ENV_MARKER, makeLinks, makeSpecialUsers, makeUsers, paths, prismaFor, refusals, rowCounts, writeEnv } from "./lib/setup.mjs";
-import { npmCommand, run, scrub, sha256File } from "./lib/util.mjs";
+import { npmCommand, run, scrub, sha256File, sydneyDate } from "./lib/util.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const { values: o } = parseArgs({
@@ -105,16 +106,19 @@ try {
     if (!cfg.length) record("lint", "Lint", "SKIPPED", "no ESLint configuration in the repo (`next lint` would stop to ask) - lint is not a configured check yet", 0);
     else { const [lc, la] = npmRun("lint"); await command("lint", "Lint (npm run lint)", lc, la, { cwd: appDir, env: staticEnv, timeoutMs: 600_000 }); }
   }
+  // The release check's own unit tests (the audit gate and its exceptions) - a broken gate must never pass silently.
+  await command("tool-selftest", "Release-check self-tests (node --test scripts/release-check)", process.execPath, ["--test", path.join(HERE, "lib", "audit.test.mjs")],
+    { cwd: HERE, env: staticEnv, timeoutMs: 120_000 }, (r) => ({ status: r.code === 0 ? "PASS" : "FAIL", reason: `${r.out.match(/ℹ pass (\d+)/)?.[1] ?? "?"} passed, ${r.out.match(/ℹ fail (\d+)/)?.[1] ?? "?"} failed` }));
   if (wanted("audit")) {
     if (o["no-audit"]) record("audit", "npm audit (production dependencies)", "SKIPPED", "--no-audit given: needs the release owner's recorded exception", 0);
     else {
       const ac = npm ? [npm.cmd, [...npm.pre, "audit", "--omit=dev", "--json"]] : ["npm", ["audit", "--omit=dev", "--json"]];
-      await command("audit", "npm audit (production dependencies, high/critical fail)", ac[0], ac[1], { cwd: appDir, env: staticEnv, timeoutMs: 180_000 }, (r) => {
+      let nextVersion = null;
+      try { nextVersion = JSON.parse(readFileSync(path.join(appDir, "node_modules", "next", "package.json"), "utf8")).version; } catch { /* not installed */ }
+      await command("audit", "npm audit (production dependencies; moderate+ fails unless accepted in expected.mjs)", ac[0], ac[1], { cwd: appDir, env: staticEnv, timeoutMs: 180_000 }, (r) => {
         let j = null; try { j = JSON.parse(r.out.slice(r.out.indexOf("{"))); } catch { /* not JSON */ }
-        const v = j?.metadata?.vulnerabilities;
-        if (!v) return { status: "BLOCKED", reason: `couldn't read the audit (registry unreachable?): ${r.out.trim().slice(-160)}` };
-        const names = Object.entries(j.vulnerabilities ?? {}).map(([n, x]) => `${n}(${x.severity})`).join(", ");
-        return { status: v.high + v.critical > 0 ? "FAIL" : "PASS", reason: `critical ${v.critical}, high ${v.high}, moderate ${v.moderate}, low ${v.low}${names ? ": " + names : ""}` };
+        const res = judgeAudit(j, AUDIT_EXCEPTIONS, { today: sydneyDate(), nextVersion });
+        return { status: res.status, reason: res.status === "BLOCKED" ? `${res.reason}: ${r.out.trim().slice(-160)}` : res.reason };
       });
     }
   }

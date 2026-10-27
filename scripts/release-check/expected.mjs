@@ -25,6 +25,30 @@ export const MAY_ANSWER = {
 // from these as a refusal, and FAILS one that points at any other host (e.g. Xero's sign-in).
 export const REFUSE_BY_REDIRECT = [/^\/api\/directors\/xero\/(connect|callback)$/];
 
+// AUDIT EXCEPTIONS - npm audit advisories the release owner has accepted, keyed by package + GHSA id (lib/audit.mjs).
+// Only an exact match passes, and only while the exception is active: anything new or worse FAILS, and from the expiry
+// date (or the event named) the exception stops applying. Add one only with a record in docs/security/EXCEPTIONS.md.
+export const AUDIT_EXCEPTIONS = [
+  {
+    id: "EX-001", // docs/security/EXCEPTIONS.md on main 33e8ec7 - accepted by Ilies (owner), 27 Oct 2026
+    expires: "2027-01-25", // Sydney date; from this day on it no longer applies
+    endsAtNextMajor: 16, // or at the Next.js 16 upgrade, whichever comes first
+    entries: [
+      // postcss <= 8.5.22, only the copy nested in next (build-time CSS).
+      { pkg: "postcss", maxSeverity: "high", effectsWithin: ["next"], nodes: [/^node_modules\/next\/node_modules\/postcss$/],
+        ghsa: { "GHSA-qx2v-qp2m-jg93": "moderate", "GHSA-6g55-p6wh-862q": "high", "GHSA-fxqj-rqcc-2cmp": "moderate", "GHSA-r28c-9q8g-f849": "high" } },
+      // next (moderate) - only as the parent of that postcss.
+      { pkg: "next", maxSeverity: "moderate", via: ["postcss"] },
+      { pkg: "source-map-js", maxSeverity: "high", ghsa: { "GHSA-68fv-2mgg-jv7q": "high" } },
+      // Dev dependencies only today (not in the gated --omit=dev audit); listed because EX-001 names it.
+      { pkg: "postcss-selector-parser", maxSeverity: "moderate", ghsa: { "GHSA-rj75-hqrm-r3gf": "moderate" } },
+      // uuid < 11.1.1, only through exceljs (which calls v4 only).
+      { pkg: "uuid", maxSeverity: "moderate", effectsWithin: ["exceljs"], ghsa: { "GHSA-w5hq-g745-h8pq": "moderate" } },
+      { pkg: "exceljs", maxSeverity: "moderate", via: ["uuid"] },
+    ],
+  },
+];
+
 // Single results that look like failures but are correct.
 export const EXPECTED_NOTES = [
   "/api/users answers 403 to a Manager (only Admins manage logins) - the smoke check expects 403 there, not 200.",

@@ -32,7 +32,12 @@ Exit code: **0** everything passed (SKIPPED only where a check is not applicable
    port, `SEARCH_INDEX_PATH` in the temp folder. **Never** `VAPID_*`, `XERO_*`, `GRAPH_*`, `ANTHROPIC_API_KEY`,
    `OPENAI_API_KEY` or `ACTUALS_SECRET` - and those are stripped from the inherited environment too.
 4. Static checks: candidate has no uncommitted changes, `tsc --noEmit`, `npm test`, lint (SKIPPED while the repo has
-   no ESLint config), `npm audit --omit=dev` (high / critical fail).
+   no ESLint config), the tool's own self-tests (`node --test scripts/release-check/lib/audit.test.mjs`), and
+   `npm audit --omit=dev`: every advisory of moderate or worse FAILS unless an active exception in
+   `expected.mjs` `AUDIT_EXCEPTIONS` accepts it exactly (package + GHSA id, no worse severity, no new package or
+   install path affected) - those show as "accepted: EX-001". From an exception's expiry date (or the event it
+   names, e.g. the Next.js 16 upgrade for EX-001) it stops applying. Low / info advisories are listed, not gating.
+   Each exception needs its record in `docs/security/EXCEPTIONS.md` (EX-001: main 33e8ec7, expires 2027-01-25).
 5. Row counts, `prisma db push`, row counts again. A data-loss warning stops the run (FAIL, warning listed) unless
    `--accept-data-loss`. Any existing table dropped or changing row count is a FAIL.
 6. `npm run build`.
