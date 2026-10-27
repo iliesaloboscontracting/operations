@@ -56,7 +56,8 @@ export const TRAVEL_HOOK = "rule to be agreed"; // driver / passenger and region
 export const EXPORT_COLUMNS = ["Employee", "Email", "Earnings Rate", "Date", "Hours", "Site", "Travel"] as const; // Draft: match Xero's import template
 export const csvCell = (v: string | number | null | undefined) => {
   const s = v == null ? "" : String(v);
-  return /[",\r\n]/.test(s) || /^[=+\-@]/.test(s) ? `"${(/^[=+\-@]/.test(s) ? "'" : "") + s.replace(/"/g, '""')}"` : s; // no spreadsheet formulas
+  // No spreadsheet formulas: a cell starting with = + - @ (or a tab / CR, SEC-012) is quoted and prefixed with '.
+  return /[",\r\n]/.test(s) || /^[=+\-@\t\r]/.test(s) ? `"${(/^[=+\-@\t\r]/.test(s) ? "'" : "") + s.replace(/"/g, '""')}"` : s;
 };
 export const toCsv = (rows: (string | number | null)[][]) => rows.map((r) => r.map(csvCell).join(",")).join("\r\n") + "\r\n";
 

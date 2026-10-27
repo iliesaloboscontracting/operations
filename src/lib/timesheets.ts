@@ -6,6 +6,7 @@
 import { prisma } from "./prisma";
 import { jobLabel, POINT_BREAK_MINUTES, signedHours, STILL_ON_HOURS, sydneyTime } from "./signin";
 import { todaySydney } from "./today";
+import { csvCell } from "./payroll/rules";
 
 export type TimesheetIssue = "NO_SIGN_OUT" | "TO_CONFIRM";
 
@@ -135,10 +136,9 @@ export const weekHasEnded = (weekStart: string) => todaySydney() > weekEnd(weekS
 
 // Spreadsheet for accounts: one line per sign-in, then each person's total.
 export function timesheetCsv(weekStart: string, lines: TimesheetLine[], approval: { approvedBy: string; approvedAt: Date } | null) {
-  const cell = (v: string | number | null | undefined) => {
-    const s = v == null ? "" : String(v);
-    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-  };
+  // SEC-012 (27 Oct 2026): the same cell writer as the payroll exports - a name or note starting with = + - @ can't
+  // become a formula when accounts open the file.
+  const cell = csvCell;
   const dayName = (d: string) => new Date(d + "T12:00:00Z").toLocaleDateString("en-AU", { weekday: "short", timeZone: "UTC" });
   const out: (string | number | null)[][] = [
     [`Lobos Contracting - staff timesheet, week ${weekStart} to ${weekEnd(weekStart)}`],
