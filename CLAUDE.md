@@ -441,6 +441,19 @@ business, without becoming unnecessarily complicated.
   tests under `src/**/*.test.ts`, added 24 Oct 2026 - Director Insights KPIs
   so far). Both must pass before a deploy. Everything else is still verified
   on a throwaway copy of live data and in the browser.
+  **Release check** (27 Oct 2026, built by the Test & Release agent):
+  `npm run release-check -- --snapshot <copy of live data .db>` in your own
+  worktree (never the shared folder or the server) runs everything on a
+  throwaway copy and prints a PASS/FAIL report in `release-check-reports/`:
+  - tsc, unit tests, npm audit (exception EX-001 in `docs/security/EXCEPTIONS.md`);
+  - schema push with row counts, refusing data loss unless allowed;
+  - smoke, the access matrix for every role, the director / accounts walls,
+    Tracking integrity, the per-feature and money-guard checks, viewer-safety;
+  - a no-outbound-calls guard.
+  Builders run it before handing work over; the Test & Release agent
+  (`lobos-test-release`, led by the lead builder) integrates and packages
+  releases; the lead deploys after Ilies's go. Snapshots of live data come
+  from the lead (agents can't read the server).
 - **Code on GitHub** (24 Oct 2026, Ilies approved): private repo
   `iliesaloboscontracting/operations`, remote `origin`, branch `main` -
   off-machine copy with full history. Code only: `.env`, databases, backups,
