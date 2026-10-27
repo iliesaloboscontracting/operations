@@ -1910,3 +1910,78 @@ model UserEvent {
 
   @@index([userId])
 }
+
+// Office chat (27 Oct 2026, docs/accounts/QUESTIONS-AND-CHAT-DESIGN.md part 3; tables from the messaging branch 3c64ff1, no
+// site-link side). kind DIRECT: two people, optionally about a record (subjectType + subjectKey). kind ROOM: the one
+// shared "Office" room (roomKey OFFICE). Amounts are allowed in both (Ilies 27 Oct; moneyAllowed is always true now).
+// The sender may edit or delete their own message (Ilies 27 Oct, decisions 1 and 3) - POST actions, no PUT / PATCH /
+// DELETE route; every earlier text is kept in MessageVersion (append-only) and the rows use Restrict keys. The owner can
+// read every one-to-one (D-Q11). correctsId is unused since edits are in place.
+model MessageThread {
+  id            String               @id @default(cuid())
+  kind          String               @default("DIRECT") // DIRECT | ROOM
+  roomKey       String?              @unique // "OFFICE" for the shared room
+  subjectType   String               @default("NONE") // NONE | PURCHASE | REIMBURSEMENT | PAY_WEEK | ABN_INVOICE | SITE_REQUEST
+  subjectKey    String?
+  subjectLabel  String
+  moneyAllowed  Boolean              @default(false)
+  createdBy     String
+  createdAt     DateTime             @default(now())
+  lastMessageAt DateTime             @default(now())
+  participants  MessageParticipant[]
+  messages      Message[]
+
+  @@index([subjectType, subjectKey])
+  @@index([lastMessageAt])
+}
+
+// A person in a thread: an office login (USER, userId). In the room a row is made on first visit. resourceId stays
+// nullable and unused (no site-link side). Plain ids, like User.personnelId. lastSeenAt drives "Seen" and unread.
+model MessageParticipant {
+  id         String        @id @default(cuid())
+  threadId   String
+  thread     MessageThread @relation(fields: [threadId], references: [id], onDelete: Restrict)
+  kind       String // USER | PERSON
+  userId     String?
+  resourceId String?
+  name       String
+  role       String? // the login's role when the thread started (USER)
+  lastSeenAt DateTime?
+  lastAlertedAt DateTime? // CH-026: last phone alert to this person for this thread (at most one every 2 minutes)
+
+  @@index([threadId])
+  @@index([userId])
+  @@index([resourceId])
+}
+
+model Message {
+  id         String        @id @default(cuid())
+  threadId   String
+  thread     MessageThread @relation(fields: [threadId], references: [id], onDelete: Restrict)
+  authorId   String // the MessageParticipant who wrote it
+  authorName String
+  body       String
+  correctsId String? // (unused since 27 Oct - edits are in place) an earlier message this one corrects
+  createdAt  DateTime      @default(now())
+  editedAt   DateTime? // the sender changed it in place (Ilies 27 Oct); every earlier text is a MessageVersion
+  deletedAt  DateTime? // the sender deleted it: "message deleted" for everyone; its text stays in MessageVersion (owner only)
+  versions   MessageVersion[]
+
+  @@index([threadId, createdAt])
+}
+
+// Every text a chat message had before its sender edited or deleted it (Ilies 27 Oct 2026: "ALLOW EDITING AND
+// CORRECTIONS WITHOUT SAYING A NEW MESSAGE"; "...editing or changes or deletion to the message without directors
+// approval"). Append-only - never updated or deleted. EDIT versions show behind "edited"; a DELETE version (the text
+// at deletion) is shown to the owner only.
+model MessageVersion {
+  id        String   @id @default(cuid())
+  messageId String
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Restrict)
+  kind      String // EDIT | DELETE
+  body      String // the text before this change
+  by        String
+  at        DateTime @default(now())
+
+  @@index([messageId, at])
+}

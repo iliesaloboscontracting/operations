@@ -131,3 +131,96 @@ test("a draft that can't be sent says why, plainly", async () => {
   const twins = [u({ id: "a", name: "Sam", role: "DIRECTOR" }), u({ id: "b", name: "Sam", role: "DIRECTOR" })];
   assert.match(whyUnresolved("Sam", twins, OWNER), /More than one/);
 });
+
+// ---------- Operations AI (27 Oct 2026, docs/accounts/QUESTIONS-AND-CHAT-DESIGN.md part 2) ----------
+test("Operations AI is the Building Agent login by email, never by role", async () => {
+  const { isOperationsAi } = await import("./rules");
+  assert.equal(isOperationsAi("iliesa+agent@loboscontracting.com.au", "MANAGER"), true);
+  assert.equal(isOperationsAi(" ILIESA+AGENT@loboscontracting.com.au ", "MANAGER"), true);
+  assert.equal(isOperationsAi("alex@loboscontracting.com.au", "MANAGER"), false); // an ordinary Manager
+  assert.equal(isOperationsAi(null, "MANAGER"), false);
+});
+
+test("the AI asks accounts, directors, Admins, Managers and the owner - never itself, a Viewer or a switched-off login", async () => {
+  const { aiTargetError, aiCanAsk } = await import("./rules");
+  const u = (o: Partial<Askable>): Askable => ({ id: "x", name: "X", email: "x@l.com", role: "MANAGER", directorAccess: false, active: true, ...o });
+  for (const role of ["ACCOUNTS", "DIRECTOR", "ADMIN", "MANAGER"]) assert.equal(aiTargetError(u({ role }), "ai", OWNER), null, role);
+  assert.match(aiTargetError(u({ role: "VIEWER" }), "ai", OWNER)!, /accounts, the directors and the office/);
+  assert.match(aiTargetError(u({ role: "TIMESHEETS" }), "ai", OWNER)!, /accounts/);
+  assert.match(aiTargetError(u({ id: "ai" }), "ai", OWNER)!, /yourself/);
+  assert.equal(aiTargetError(u({ role: "ADMIN", email: OWNER }), "ai", OWNER), null, "the owner too (Ilies 27 Oct, D-Q2)");
+  assert.equal(aiCanAsk(u({ role: "ADMIN", email: OWNER }), "ai", OWNER), true);
+  assert.match(aiTargetError(u({ active: false }), "ai", OWNER)!, /switched off/);
+  assert.equal(aiTargetError(null, "ai", OWNER), "Pick who to ask.");
+  assert.equal(aiCanAsk(u({ role: "ACCOUNTS" }), "ai", OWNER), true);
+  assert.equal(aiCanAsk(u({ role: "VIEWER" }), "ai", OWNER), false);
+});
+
+test("amounts are fine in a question to anyone the AI asks, Managers included (Ilies 27 Oct)", async () => {
+  const { aiTargetError } = await import("./rules");
+  const u = (role: string): Askable => ({ id: "m", name: "M", email: "m@l.com", role, directorAccess: false, active: true });
+  for (const role of ["MANAGER", "ACCOUNTS", "DIRECTOR", "ADMIN"]) assert.equal(aiTargetError(u(role), "ai", OWNER), null, role);
+});
+
+test("the AI's limit is 20 questions in a rolling 24 hours", async () => {
+  const { overAiLimit, AI_DAILY_LIMIT } = await import("./rules");
+  assert.equal(AI_DAILY_LIMIT, 20);
+  assert.equal(overAiLimit(19), false);
+  assert.equal(overAiLimit(20), true);
+});
+
+test("the AI opens the answer file only on a question it sent", async () => {
+  const ai = { id: "ai", name: "Building Agent", email: "iliesa+agent@loboscontracting.com.au", role: "MANAGER", directorAccess: false };
+  const mine = JSON.stringify({ question: "q", askedByAi: "1", askedByUserId: "ai" });
+  assert.equal(canSeeAnswerFile({ assigneeUserId: "acc", audience: "DIRECTOR", details: mine }, ai), true);
+  assert.equal(canSeeAnswerFile({ assigneeUserId: "acc", audience: "DIRECTOR", details: JSON.stringify({ question: "q" }) }, ai), false);
+  const manager = { ...ai, id: "m", email: "alex@loboscontracting.com.au" };
+  assert.equal(canSeeAnswerFile({ assigneeUserId: "acc", audience: "DIRECTOR", details: mine }, manager), false);
+});
+
+test("CH-022: an Operations AI question never asks for or carries a TFN or bank details", async () => {
+  const { aiQuestionError } = await import("./rules");
+  const base = { title: "Supplier details", question: "Which supplier billed the Kanga?", need: null, why: null };
+  assert.equal(aiQuestionError(base), null);
+  assert.match(aiQuestionError({ ...base, question: "Please send the supplier's new bank details" })!, /bank details/);
+  assert.match(aiQuestionError({ ...base, need: "their BSB and account number" })!, /bank details/);
+  assert.match(aiQuestionError({ ...base, why: "TFN 123 456 789 on file" })!, /tax file/);
+});
+
+test("CH-023: nobody may be called 'Operations AI' (any case or spacing)", async () => {
+  const { isReservedUserName } = await import("./rules");
+  for (const n of ["Operations AI", "operations ai", "  OPERATIONS   AI ", "Operations\tAI"]) assert.equal(isReservedUserName(n), true, n);
+  for (const n of ["Operations", "AI", "Operations AIs", "Ops AI", "", null, 42]) assert.equal(isReservedUserName(n), false, String(n));
+});
+
+test("CH-023: an AI question is recognised by the stored marker and the AI's user id, never by the name", async () => {
+  const { askedByAiUser, AI_DETAILS_MARKER } = await import("./rules");
+  const stored = JSON.stringify({ question: "When does it go back?", askedByAi: "1", askedByUserId: "ai-1" });
+  assert.ok(stored.includes(AI_DETAILS_MARKER), "the marker is what JSON.stringify writes");
+  assert.equal(askedByAiUser(stored, "ai-1"), true);
+  assert.equal(askedByAiUser(stored, "someone-else"), false);
+  // a person typing the marker into a question doesn't make it an AI question
+  const typed = JSON.stringify({ question: 'fake "askedByAi":"1" here', askedByUserId: "ai-1" });
+  assert.ok(!typed.includes(AI_DETAILS_MARKER), "JSON escapes the quotes inside a value");
+  assert.equal(askedByAiUser(typed, "ai-1"), false);
+  assert.equal(askedByAiUser(JSON.stringify({ question: "x" }), "ai-1"), false, "no marker: not the AI's");
+  // the answer file follows the same rule
+  const ai = { id: "ai-1", name: "Building Agent", email: "iliesa+agent@loboscontracting.com.au", role: "MANAGER", directorAccess: false };
+  assert.equal(canSeeAnswerFile({ assigneeUserId: "acc", audience: "DIRECTOR", details: stored }, ai), true);
+  assert.equal(canSeeAnswerFile({ assigneeUserId: "acc", audience: "DIRECTOR", details: JSON.stringify({ question: "x" }) }, ai), false, "a question someone named 'Operations AI' asked isn't the AI's");
+});
+
+test("CH-021: the AI is the Building Agent's email AND a Manager login - an Admin or Viewer with that email is not", async () => {
+  const { isOperationsAi } = await import("./rules");
+  const AI = "iliesa+agent@loboscontracting.com.au";
+  assert.equal(isOperationsAi(AI, "MANAGER"), true);
+  for (const role of ["ADMIN", "VIEWER", "TIMESHEETS", "ACCOUNTS", "DIRECTOR", "", null, undefined]) assert.equal(isOperationsAi(AI, role as string), false, String(role));
+  // and so no AI powers follow: no answer files, no AI name in chat
+  const asAdmin = { id: "ai", name: "Building Agent", email: AI, role: "ADMIN", directorAccess: false };
+  const asViewer = { ...asAdmin, role: "VIEWER" };
+  const mine = JSON.stringify({ question: "q", askedByAi: "1", askedByUserId: "ai" });
+  assert.equal(canSeeAnswerFile({ assigneeUserId: "acc", audience: "DIRECTOR", details: mine }, asViewer), false, "a Viewer with the email gets no AI answer files");
+  const { chatName } = await import("../messages/rules");
+  assert.equal(chatName("Building Agent", AI, "MANAGER"), "Operations AI");
+  assert.equal(chatName("Building Agent", AI, "ADMIN"), "Building Agent", "an Admin with the email isn't shown as the AI");
+});

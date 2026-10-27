@@ -10,6 +10,10 @@ import { apiFetch, serverErrorMessage } from "@/lib/apiFetch";
 import { whenText } from "@/lib/requestTypes";
 import type { AssigneeQueryView } from "@/lib/findings/queries";
 
+// Accounts -> Questions adds who it was to (when someone else is reading) and the full history.
+export type QuestionRow = AssigneeQueryView & { to?: string | null; history?: { action: string; by: string; at: string; note: string | null }[] };
+const EVENT: Record<string, string> = { SENT: "Sent", ASKED_QUERY: "Asked", ANSWERED: "Answered", ASK: "Follow-up asked", REMINDED: "Reminder", DONE: "Closed", DECLINE: "Declined", REOPEN: "Reopened", READ: "Marked read" };
+
 const input = "w-full rounded-lg border border-edge bg-panel2 px-3 py-2 text-sm text-gray-200 placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40";
 const STATUS: Record<string, string> = { TODO: "To answer", SEEN: "To answer", NEEDS_INFO: "Follow-up question", ANSWERED: "Answered - with Ilies", DONE: "Closed", DECLINED: "Closed", CANCELLED: "Cancelled" };
 
@@ -29,17 +33,19 @@ export function useMyQueries() {
   return { rows, load, waiting: (rows ?? []).filter((q) => q.canAnswer || q.canMarkRead).length };
 }
 
-export default function MyQueries({ rows, onChange }: { rows: AssigneeQueryView[] | null; onChange: () => void }) {
+export default function MyQueries({ rows, onChange, restLabel = "Answered and closed (last 2 weeks)", noneWaiting = "No questions waiting on you." }: { rows: QuestionRow[] | null; onChange: () => void; restLabel?: string; noneWaiting?: string }) {
   if (!rows) return <p className="py-6 text-center text-sm text-gray-500">Loading...</p>;
-  const open = rows.filter((q) => q.canAnswer || q.canMarkRead);
-  const rest = rows.filter((q) => !q.canAnswer && !q.canMarkRead);
+  // Someone else reading (Accounts -> Questions for the owner): still waiting on the person = open.
+  const isOpen = (q: QuestionRow) => q.canAnswer || q.canMarkRead || (!!q.to && ["SENT", "SEEN", "TODO", "NEEDS_INFO"].includes(q.status));
+  const open = rows.filter(isOpen);
+  const rest = rows.filter((q) => !isOpen(q));
   return (
     <div className="space-y-4">
-      {open.length === 0 && <p className="rounded-xl border border-edge bg-panel p-4 text-sm text-emerald-400">No questions waiting on you.</p>}
+      {open.length === 0 && <p className="rounded-xl border border-edge bg-panel p-4 text-sm text-emerald-400">{noneWaiting}</p>}
       {open.map((q) => <QueryCard key={q.id} q={q} onChange={onChange} />)}
       {rest.length > 0 && (
         <div>
-          <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-gray-500">Answered and closed (last 2 weeks)</div>
+          <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-gray-500">{restLabel}</div>
           <div className="space-y-2">{rest.map((q) => <QueryCard key={q.id} q={q} onChange={onChange} />)}</div>
         </div>
       )}
@@ -47,7 +53,7 @@ export default function MyQueries({ rows, onChange }: { rows: AssigneeQueryView[
   );
 }
 
-function QueryCard({ q, onChange }: { q: AssigneeQueryView; onChange: () => void }) {
+function QueryCard({ q, onChange }: { q: QuestionRow; onChange: () => void }) {
   const [answer, setAnswer] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
@@ -71,7 +77,7 @@ function QueryCard({ q, onChange }: { q: AssigneeQueryView; onChange: () => void
   return (
     <div className={`rounded-xl border border-edge bg-panel p-4 ${q.canAnswer || q.canMarkRead ? "" : "opacity-80"}`}>
       <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-gray-500">
-        <span>{q.ref} · {q.site} · from {q.askedBy}, {whenText(q.askedAt)}</span>
+        <span>{q.ref} · {q.site} · from {q.askedBy}{q.to ? ` to ${q.to}` : ""}, {whenText(q.askedAt)}</span>
         <span className={q.canAnswer || q.canMarkRead ? "text-amber-300" : ""}>{q.canMarkRead ? "For your information" : q.infoType === "FYI" && q.status === "DONE" ? "Read" : STATUS[q.status] ?? q.status}{q.canAnswer ? ` · by ${whenText(q.neededBy)}` : ""}</span>
       </div>
       {q.title && <p className="mt-1 text-sm font-semibold text-gray-100">{q.title}</p>}
@@ -80,8 +86,14 @@ function QueryCard({ q, onChange }: { q: AssigneeQueryView; onChange: () => void
       {q.remindedAt && (q.canAnswer || q.canMarkRead) && <p className="mt-1 text-[12px] text-amber-300">Reminder sent {whenText(q.remindedAt)}</p>}
       {q.finding && <p className="mt-0.5 text-[11px] text-gray-500">About: {q.finding}</p>}
       {q.followUp && <p className="mt-2 text-sm text-amber-300">Follow-up: {q.followUp}</p>}
-      {q.answer && <p className="mt-2 text-sm text-sky-300">Your answer: {q.answer}{q.hasFile ? " (file attached)" : ""}</p>}
+      {q.answer && <p className="mt-2 text-sm text-sky-300">{q.to ? `Answer from ${q.to}` : "Your answer"}: {q.answer}{q.hasFile ? " (file attached)" : ""}</p>}
       {q.outcome && <p className="mt-1 text-sm text-emerald-300">Closed: {q.outcome}</p>}
+      {q.history && q.history.length > 0 && (
+        <details className="mt-2 text-[12px] text-gray-500">
+          <summary className="cursor-pointer">History</summary>
+          {q.history.map((e, i) => <p key={i}>{whenText(e.at)} · {e.by} · {EVENT[e.action] ?? e.action.toLowerCase()}{e.note ? ` - ${e.note}` : ""}</p>)}
+        </details>
+      )}
       {q.canAnswer && (
         <div className="mt-3 space-y-2">
           <textarea rows={3} className={input} placeholder="Your answer" value={answer} onChange={(e) => setAnswer(e.target.value)} />

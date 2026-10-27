@@ -128,6 +128,10 @@ async function main() {
     await checkDenied("GET /api/accounts/purchases (accounts + Admins only)", "/api/accounts/purchases");
     await checkDenied("GET /api/directors/purchases (director access only)", "/api/directors/purchases");
     await checkDenied("GET /api/purchases (Manager+ / accounts only)", "/api/purchases");
+    // Questions and office chat (27 Oct 2026): Viewers see no questions to accounts, can't chat and can't list who could be messaged.
+    await checkDenied("GET /api/accounts/questions (accounts / owner only)", "/api/accounts/questions");
+    await checkDenied("GET /api/messages (office logins only)", "/api/messages");
+    await checkDenied("GET /api/messages/directory (office logins only)", "/api/messages/directory");
     await checkDenied("GET /api/assets/dates (D4: Managers read asset expiry dates; Viewers nothing)", "/api/assets/dates");
 
     // The Project File (brief 11): every project's page data, as a Viewer -

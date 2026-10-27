@@ -5,6 +5,8 @@
 // answering, files and closing work the same. These are the plain rules -
 // what a question needs, the draft file format, who a draft's "to" means.
 // No server imports; `npm test` (infoRequests.test.ts).
+import { BUILDING_AGENT_EMAIL } from "../session";
+import { looksLikeTfnOrBank } from "../compliance/rules";
 
 export const INFO_TYPES = ["QUESTION", "FYI"] as const; // QUESTION needs an answer; FYI is just marked read
 export type InfoType = (typeof INFO_TYPES)[number];
@@ -100,3 +102,50 @@ export function whyUnresolved(to: string, users: Askable[], ownerEmail: string):
   if (!askable.length) return `${to} has no director login (or director tick) yet - set it on Users, or choose who it's for.`;
   return "More than one login matches - choose who it's for.";
 }
+
+// ---------- Operations AI (27 Oct 2026, Ilies: "where you as the AI can send questions directly to the people
+// information is required from"; docs/accounts/QUESTIONS-AND-CHAT-DESIGN.md part 2) ----------
+
+// The Building Agent login is the AI - known by its email (the constant in session.ts), never by role: an ordinary
+// Manager still can't send information requests.
+export const OPERATIONS_AI_NAME = "Operations AI";
+// CH-021 (security review, Ilies approved 27 Oct): the email AND the role - an Admin, Viewer or any other role that
+// somehow carries the Building Agent's email is not the AI. (Who may create or change that account is the owner-only
+// rule in the users routes, the Estimating agent's half of CH-021.)
+export const isOperationsAi = (email: string | null | undefined, role: string | null | undefined) =>
+  role === "MANAGER" && (email ?? "").trim().toLowerCase() === BUILDING_AGENT_EMAIL;
+export const AI_DAILY_LIMIT = 20; // rolling 24 hours
+export const overAiLimit = (sentLast24h: number) => sentLast24h >= AI_DAILY_LIMIT;
+const AI_ASKS = ["ACCOUNTS", "DIRECTOR", "ADMIN", "MANAGER"];
+
+// Who the AI may ask: an active accounts, director, Admin or Manager login - the owner included (Ilies 27 Oct, D-Q2
+// "YES") - never itself, never a Viewer / Timesheets login. Amounts are fine, Managers included (Ilies 27 Oct:
+// "DOLLAR VALUES ARE APPROVED WITHIN THE OFFICE CHATS AND MESSAGES" - questions are office-only and in-app).
+export function aiTargetError(u: Askable | null, aiUserId: string, _ownerEmail?: string): string | null {
+  if (!u) return "Pick who to ask.";
+  if (!u.active) return "That login is switched off.";
+  if (u.id === aiUserId) return "You can't ask yourself.";
+  if (!AI_ASKS.includes(u.role)) return "Operations AI asks accounts, the directors and the office.";
+  return null;
+}
+export const aiCanAsk = (u: Askable, aiUserId: string, ownerEmail: string) => aiTargetError(u, aiUserId, ownerEmail) === null;
+
+// CH-022 (security review, Ilies approved 27 Oct): a question from Operations AI never asks for or carries a TFN or
+// bank details (they stay in Xero; bank detail changes are never taken from a message).
+export function aiQuestionError(item: Pick<InfoItem, "title" | "question" | "need" | "why">): string | null {
+  return [item.title, item.question, item.need, item.why].some((t) => looksLikeTfnOrBank(t, { freeText: true }))
+    ? "Operations AI doesn't ask for tax file numbers or bank details - they stay in Xero." : null;
+}
+
+// CH-023 (security review, Ilies approved 27 Oct): "Operations AI" is the AI's name only. No login may be called that
+// (any case, any spacing), so a person can't pass as the AI on a card, in chat or on Info requests. And an AI question
+// is recognised by what the server stored when it was asked (details.askedByAi + askedByUserId), never by the name.
+export const isReservedUserName = (name: unknown) => typeof name === "string" && name.replace(/\s+/g, " ").trim().toLowerCase() === OPERATIONS_AI_NAME.toLowerCase();
+export const RESERVED_NAME_ERROR = `"${OPERATIONS_AI_NAME}" is reserved for the AI - pick another name.`;
+// The marker as JSON.stringify writes it into SiteRequest.details. A value typed by a person can't contain it: JSON
+// escapes the quotes inside values.
+export const AI_DETAILS_MARKER = '"askedByAi":"1"';
+export const askedByAiUser = (details: string | null | undefined, userId: string) => {
+  const d = readDetails(details ?? null) as InfoDetails & { askedByAi?: string; askedByUserId?: string };
+  return d.askedByAi === "1" && d.askedByUserId === userId;
+};

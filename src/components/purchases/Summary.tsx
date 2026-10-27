@@ -1,6 +1,7 @@
 "use client";
 
 import { money } from "@/lib/resource";
+import MessageAbout from "@/components/messages/MessageAbout";
 
 // One purchase request as accounts and the directors see it (stage 6) - amount included. Never used on a link.
 export type PurchaseDTO = {
@@ -33,6 +34,7 @@ export default function Summary({ r, children }: { r: PurchaseDTO; children?: Re
       {r.decisionNote && <p className="mt-1 text-sm text-gray-300">Director: {r.decisionNote}</p>}
       {r.closedReason && <p className="mt-1 text-sm text-gray-400">Closed: {r.closedReason}</p>}
       {children}
+      <div className="mt-2"><MessageAbout type="PURCHASE" subjectKey={r.id} label={r.ref} /></div>
       <details className="mt-2 text-xs text-gray-500">
         <summary className="cursor-pointer">History</summary>
         {r.events.map((e, i) => <p key={i}>{when(e.at)} · {e.by} · {e.action.toLowerCase().replace("_", " ")}{e.note ? ` - ${e.note}` : ""}</p>)}

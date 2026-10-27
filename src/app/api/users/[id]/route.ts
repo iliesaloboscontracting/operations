@@ -6,6 +6,7 @@ import { isOwner } from "@/lib/owner";
 import { BUILDING_AGENT_EMAIL } from "@/lib/session";
 import { normName, sameUser } from "@/lib/samePerson";
 import { saveUserEdit } from "@/lib/userEdit";
+import { RESERVED_NAME_ERROR, isReservedUserName } from "@/lib/infoRequests/rules";
 
 // PATCH /api/users/:id { name?, role?, active?, password? } (admin only)
 // Safety rules: you can't demote or deactivate yourself, the last active admin
@@ -39,6 +40,7 @@ export const PATCH = withErrorHandling(async (
   }
 
   const data: Record<string, unknown> = {};
+  if (isReservedUserName(body.name)) return NextResponse.json({ error: RESERVED_NAME_ERROR }, { status: 400 }); // CH-023
   if (typeof body.name === "string" && body.name.trim()) data.name = body.name.trim();
   // SEC-002 (b): no new name that matches another active login - names are how approvals tell people apart.
   const nameTaken = async (name: string) =>
