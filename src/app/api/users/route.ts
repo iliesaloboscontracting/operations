@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser, guard, hashPassword, MIN_PASSWORD, normaliseEmail, ROLES } from "@/lib/auth";
 import { normName } from "@/lib/samePerson";
+import { saveUserCreate } from "@/lib/userEdit";
 import { BUILDING_AGENT_EMAIL } from "@/lib/session";
 import { isOwner } from "@/lib/owner";
 import { withErrorHandling } from "@/lib/apiHandler";
@@ -55,11 +56,9 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
     return NextResponse.json({ error: "Another login already has that name - use a different one." }, { status: 400 });
   }
 
-  const user = await prisma.user.create({
-    data: { name, email, role, passwordHash: await hashPassword(password) },
-    select: PUBLIC_FIELDS,
-  });
+  // R2-POST: the login and its CREATE log entry are saved together, or not at all.
   const me = await getCurrentUser();
-  if (me) await prisma.userEvent.create({ data: { userId: user.id, action: "CREATE", changes: JSON.stringify({ name, email, role }), by: me.name, byUserId: me.id } });
+  if (!me) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+  const user = await saveUserCreate(prisma, { name, email, role, passwordHash: await hashPassword(password) }, me, PUBLIC_FIELDS);
   return NextResponse.json(user, { status: 201 });
 });
