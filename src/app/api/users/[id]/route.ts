@@ -5,6 +5,7 @@ import { withErrorHandling } from "@/lib/apiHandler";
 import { isOwner } from "@/lib/owner";
 import { BUILDING_AGENT_EMAIL } from "@/lib/session";
 import { normName, sameUser } from "@/lib/samePerson";
+import { saveUserEdit } from "@/lib/userEdit";
 
 // PATCH /api/users/:id { name?, role?, active?, password? } (admin only)
 // Safety rules: you can't demote or deactivate yourself, the last active admin
@@ -104,12 +105,9 @@ export const PATCH = withErrorHandling(async (
   const changes: Record<string, unknown> = {};
   for (const k of ["name", "role", "active", "directorAccess"] as const) if (data[k] !== undefined && data[k] !== target[k]) changes[k] = [target[k], data[k]];
   if (data.passwordHash !== undefined) changes.password = "reset";
-  if (Object.keys(changes).length && me) await prisma.userEvent.create({ data: { userId: target.id, action: "EDIT", changes: JSON.stringify(changes), by: me.name, byUserId: me.id } });
+  const event = Object.keys(changes).length && me ? { userId: target.id, action: "EDIT" as const, changes: JSON.stringify(changes), by: me.name, byUserId: me.id } : null;
 
-  const user = await prisma.user.update({
-    where: { id: params.id },
-    data,
-    select: { id: true, email: true, name: true, role: true, active: true, lastLoginAt: true, createdAt: true, directorAccess: true },
-  });
+  // SEC-002-R2: the change and its log entry are saved together, or not at all.
+  const user = await saveUserEdit(prisma, params.id, data, event, { id: true, email: true, name: true, role: true, active: true, lastLoginAt: true, createdAt: true, directorAccess: true });
   return NextResponse.json(user);
 });
