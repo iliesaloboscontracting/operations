@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Check, CheckCheck, Loader2 } from "lucide-react";
 import { apiFetch, serverErrorMessage } from "@/lib/apiFetch";
+import { DELETE_CONFIRM } from "@/lib/messages/notices";
 
 // One conversation (docs/accounts/QUESTIONS-AND-CHAT-DESIGN.md part 3) - the Office room or a one-to-one
 // (`base` = /api/messages/<id>). The sender can edit or delete their own message, no approval (Ilies 27 Oct): an edit
@@ -63,7 +64,7 @@ export default function Conversation({ base, onChanged, big = false }: { base: s
     if (done) { setText(""); setEditing(null); }
   }
   function remove(id: string) {
-    if (window.confirm("Delete this message? Everyone will see \"message deleted\".")) act({ action: "DELETE", messageId: id }, "Couldn't delete it.");
+    if (window.confirm(DELETE_CONFIRM)) act({ action: "DELETE", messageId: id }, "Couldn't delete it.");
   }
 
   if (!t) return <p className="text-sm text-gray-500">{error ?? "Loading…"}</p>;
@@ -115,7 +116,7 @@ export default function Conversation({ base, onChanged, big = false }: { base: s
         <button disabled={busy || !text.trim()} className={`inline-flex items-center justify-center gap-2 rounded-lg bg-brand-600 px-4 ${big ? "py-3 text-base" : "py-2 text-sm"} font-semibold text-white disabled:opacity-50`}>
           {busy && <Loader2 size={16} className="animate-spin" />} {editing ? "Save change" : "Send"}
         </button>
-        <p className="text-[11px] text-gray-600">You can edit or delete your own messages. Every earlier version is kept on record.</p>
+        <p className="text-[11px] text-gray-600">You can edit or delete your own messages. Every earlier version, and the text of a deleted message, is kept on record.</p>
       </form>}
     </div>
   );

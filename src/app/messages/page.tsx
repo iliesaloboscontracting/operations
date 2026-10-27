@@ -9,6 +9,7 @@ import ThreadList, { type ThreadRow } from "@/components/messages/ThreadList";
 import { useAuth } from "@/components/AuthProvider";
 import { apiFetch, serverErrorMessage } from "@/lib/apiFetch";
 import { isOwner } from "@/lib/owner";
+import { BANK_NOTICE, CHAT_NOTICE } from "@/lib/messages/notices";
 
 // Messages - office chat (27 Oct 2026, Ilies: "a internal chat room between office personnel";
 // docs/accounts/QUESTIONS-AND-CHAT-DESIGN.md part 3): the shared "Office" room for every office login, and one-to-one
@@ -79,7 +80,10 @@ function Messages() {
   return (
     <PageShell title="Messages" subtitle="The Office room is for everyone in the office; a one-to-one is only for its two people. You can edit or delete your own messages - earlier versions are kept on record."
       actions={<button onClick={() => { setComposing(true); router.replace("/messages"); }} className="inline-flex items-center gap-1 rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white"><Plus size={12} /> New message</button>}>
-      <p className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">Bank detail changes are never taken from chat. Tax file numbers and bank details stay in Xero.</p>
+      <div className="mb-3 space-y-1 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
+        <p>{CHAT_NOTICE}</p>
+        <p>{BANK_NOTICE}</p>
+      </div>
       <div className="grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,320px)_minmax(0,1fr)]">
         <div className="min-w-0">
           {owner && (

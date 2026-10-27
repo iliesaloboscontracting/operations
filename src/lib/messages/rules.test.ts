@@ -3,6 +3,7 @@
 // sees, "seen" in a one-to-one and the room, unread with the room's first-visit window, and phone alerts that never
 // carry the message. `npm test`.
 import { test } from "node:test";
+import { BANK_NOTICE, CHAT_NOTICE, DELETE_CONFIRM } from "./notices";
 import assert from "node:assert/strict";
 import {
   ROOM_FIRST_VISIT_DAYS, alertText, canChange, canMessage, canReadAllThreads, canStart, overChatLimit, canUseSubject, chatName, checkBody, labelOf, roomSeenBy, seenBy, unreadCount,
@@ -130,4 +131,12 @@ test("CH-024: a conversation can be about a request only if both people see it o
   assert.match(requestSubjectError(manager, accounts, site)!, /Victoria can't see/, "accounts have no requests board");
   assert.match(requestSubjectError(manager, director, site)!, /Yoel can't see/, "nor do director logins");
   assert.equal(seesRequestOnBoard({ email: null, role: "VIEWER", directorAccess: false }, site), false);
+});
+
+test("CH-025: the chat always says the owner can read it and nothing is truly erased", () => {
+  assert.match(CHAT_NOTICE, /Iliesa can read all conversations/);
+  assert.match(CHAT_NOTICE, /Edits and deleted messages are kept/);
+  assert.match(DELETE_CONFIRM, /kept on record/);
+  assert.match(DELETE_CONFIRM, /Iliesa can still read it/);
+  assert.match(BANK_NOTICE, /Bank detail changes are never taken from chat/, "CH-022's standing line");
 });

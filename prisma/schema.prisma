@@ -1895,9 +1895,11 @@ model TaxSetting {
 }
 
 // Office chat (27 Oct 2026, docs/accounts/QUESTIONS-AND-CHAT-DESIGN.md part 3; tables from the messaging branch 3c64ff1, no
-// site-link side). kind DIRECT: two people, optionally about a record (subjectType + subjectKey), moneyAllowed fixed at the
-// start (both owner / ADMIN / ACCOUNTS / DIRECTOR). kind ROOM: the one shared "Office" room (roomKey OFFICE), never money.
-// Kept forever: no edit or delete route, Restrict keys; a correction is a new message (correctsId).
+// site-link side). kind DIRECT: two people, optionally about a record (subjectType + subjectKey). kind ROOM: the one
+// shared "Office" room (roomKey OFFICE). Amounts are allowed in both (Ilies 27 Oct; moneyAllowed is always true now).
+// The sender may edit or delete their own message (Ilies 27 Oct, decisions 1 and 3) - POST actions, no PUT / PATCH /
+// DELETE route; every earlier text is kept in MessageVersion (append-only) and the rows use Restrict keys. The owner can
+// read every one-to-one (D-Q11). correctsId is unused since edits are in place.
 model MessageThread {
   id            String               @id @default(cuid())
   kind          String               @default("DIRECT") // DIRECT | ROOM
