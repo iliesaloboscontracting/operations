@@ -17,7 +17,7 @@ import { notifyNewRequest, notifyRequestUpdate } from "../requestAlerts";
 import { ANSWER_EXTS, saveInvoiceFile } from "../invoiceFiles";
 import { QUERY_TYPE, requestNo, type Priority } from "../requestTypes";
 import type { Actor } from "./actions";
-import { OPERATIONS_AI_NAME, isOperationsAi } from "../infoRequests/rules";
+import { askedByAiUser, isOperationsAi } from "../infoRequests/rules";
 
 // While these, the assignee can answer; ANSWERED waits on Ilies.
 export const ANSWERABLE = ["TODO", "SEEN", "NEEDS_INFO"];
@@ -188,6 +188,7 @@ export async function recordQueryDecision(r: SiteRequest, action: string, note: 
 
 // Directors-only questions (information requests) never open for an Admin without director access.
 // Operations AI opens the files answered to the questions it sent (27 Oct 2026).
-export const canSeeAnswerFile = (r: Pick<SiteRequest, "assigneeUserId" | "audience"> & { requestedBy?: string }, u: Actor) =>
+// (CH-023: by what the server stored when the AI asked - its user id - never by the "asked by" name.)
+export const canSeeAnswerFile = (r: Pick<SiteRequest, "assigneeUserId" | "audience"> & { details?: string | null }, u: Actor) =>
   r.assigneeUserId === u.id || isOwner(u.email) || u.directorAccess || u.role === "DIRECTOR" || (u.role === "ADMIN" && r.audience !== "DIRECTOR")
-  || (isOperationsAi(u.email) && r.requestedBy === OPERATIONS_AI_NAME);
+  || (isOperationsAi(u.email) && askedByAiUser(r.details, u.id));

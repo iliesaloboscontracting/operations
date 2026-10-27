@@ -17,7 +17,7 @@ import { assigneeView, queryTargetError, recordQueryDecision } from "../findings
 import type { Actor } from "../findings/actions";
 import {
   OPEN_STATUSES, OPERATIONS_AI_NAME, aiQuestionError, aiTargetError, canBeAsked, daysWaiting, isOperationsAi, overAiLimit, parseDraftFile, parseInfoItem, readDetails, resolveTo, whyUnresolved,
-  AI_DAILY_LIMIT, type InfoItem,
+  AI_DAILY_LIMIT, AI_DETAILS_MARKER, askedByAiUser, type InfoItem,
 } from "./rules";
 
 const ASKABLE_SELECT = { id: true, name: true, email: true, role: true, directorAccess: true, active: true } as const;
@@ -35,7 +35,9 @@ export async function raiseInfoRequest(item: InfoItem, assigneeUserId: string, a
   const bad = ai ? aiTargetError(user, actor.id, OWNER_EMAIL) ?? aiQuestionError(item) : queryTargetError(user ? { type: "USER", user } : null, actor, item.question);
   if (bad || !user) return { error: bad ?? "Pick who to ask." };
   if (ai) {
-    const sent = await prisma.siteRequest.count({ where: { kind: QUERY_TYPE.kind, requestedBy: OPERATIONS_AI_NAME, createdAt: { gte: new Date(Date.now() - 86_400_000) } } });
+    // Counted by what the server stored (CH-023), not by the "asked by" name.
+    const sent = (await prisma.siteRequest.findMany({ where: { kind: QUERY_TYPE.kind, details: { contains: AI_DETAILS_MARKER }, createdAt: { gte: new Date(Date.now() - 86_400_000) } }, select: { details: true } }))
+      .filter((r) => askedByAiUser(r.details, actor.id)).length;
     if (overAiLimit(sent)) return { error: `Operations AI has sent ${AI_DAILY_LIMIT} questions in the last 24 hours - that's the most for a day.`, status: 429 };
   }
   const by = ai ? OPERATIONS_AI_NAME : actor.name;
@@ -48,7 +50,7 @@ export async function raiseInfoRequest(item: InfoItem, assigneeUserId: string, a
   if (item.need) details.need = item.need;
   if (item.why) details.why = item.why;
   if (batch) details.batch = batch;
-  if (ai) details.askedByAi = "1";
+  if (ai) { details.askedByAi = "1"; details.askedByUserId = actor.id; }
   const made = await insertRequest({
     kind: QUERY_TYPE.kind,
     priority: item.infoType === "FYI" ? "LOW" : "HIGH",
@@ -140,14 +142,15 @@ export async function sendBatch(items: unknown, actor: Actor) {
 
 // ---------- the tracker (owner + director access) ----------
 
-// aiOnly: the Building Agent reads back only the questions it sent (D-Q5).
-export async function tracker(now = new Date(), aiOnly = false) {
-  const rows = await prisma.siteRequest.findMany({
-    where: { kind: QUERY_TYPE.kind, assigneeUserId: { not: null }, ...(aiOnly ? { requestedBy: OPERATIONS_AI_NAME } : {}) },
+// aiUserId: the Building Agent reads back only the questions it sent (D-Q5) - by its user id, not a name (CH-023).
+export async function tracker(now = new Date(), aiUserId: string | null = null) {
+  const found = await prisma.siteRequest.findMany({
+    where: { kind: QUERY_TYPE.kind, assigneeUserId: { not: null }, ...(aiUserId ? { details: { contains: AI_DETAILS_MARKER } } : {}) },
     include: { events: { orderBy: { at: "asc" } } },
     orderBy: [{ createdAt: "desc" }],
     take: 300,
   });
+  const rows = aiUserId ? found.filter((r) => askedByAiUser(r.details, aiUserId)) : found;
   const findingTitles = new Map(
     (await prisma.finding.findMany({ where: { id: { in: rows.map((r) => r.findingId).filter((x): x is string => !!x) } }, select: { id: true, title: true } })).map((f) => [f.id, f.title]),
   );
@@ -159,7 +162,7 @@ export async function tracker(now = new Date(), aiOnly = false) {
       id: r.id, ref: requestNo(r.number), title: r.findingId ? (d.question ?? r.summary).slice(0, 120) : r.summary,
       question: d.question ?? r.summary, need: d.need ?? null, why: d.why ?? null, infoType: d.infoType ?? "QUESTION", batch: d.batch ?? null,
       finding: r.findingId ? findingTitles.get(r.findingId) ?? "a finding" : null,
-      to: r.assigneeName, askedBy: r.requestedBy, askedByAi: (d as { askedByAi?: string }).askedByAi === "1", askedAt: r.createdAt, dueBy: r.neededBy, status: r.status,
+      to: r.assigneeName, askedBy: r.requestedBy, askedByAi: (d as { askedByAi?: string }).askedByAi === "1" && !!(d as { askedByUserId?: string }).askedByUserId, askedAt: r.createdAt, dueBy: r.neededBy, status: r.status,
       daysWaiting: open ? daysWaiting(r.createdAt, now) : null,
       followUp: r.status === "NEEDS_INFO" ? r.question : null,
       answer: r.answer, answeredAt: last("ANSWERED"), readAt: last("READ"), hasFile: !!r.answerFile,
@@ -248,12 +251,12 @@ export async function assignDraft(id: string, toUserId: unknown) {
 export async function accountsQuestions(viewerId: string, scope: "MINE" | "ALL" | "AI") {
   const assignees = scope === "MINE" ? [viewerId] : (await prisma.user.findMany({ where: { role: "ACCOUNTS" }, select: { id: true } })).map((u) => u.id);
   const rows = await prisma.siteRequest.findMany({
-    where: { kind: QUERY_TYPE.kind, assigneeUserId: { in: assignees }, ...(scope === "AI" ? { requestedBy: OPERATIONS_AI_NAME } : {}) },
+    where: { kind: QUERY_TYPE.kind, assigneeUserId: { in: assignees }, ...(scope === "AI" ? { details: { contains: AI_DETAILS_MARKER } } : {}) },
     include: { events: { orderBy: { at: "asc" } } },
     orderBy: [{ createdAt: "desc" }],
     take: 300,
   });
-  return rows.map((r) => {
+  return rows.filter((r) => scope !== "AI" || askedByAiUser(r.details, viewerId)).map((r) => {
     const v = assigneeView(r, false);
     const mine = r.assigneeUserId === viewerId;
     return {

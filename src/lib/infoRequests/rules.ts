@@ -132,3 +132,16 @@ export function aiQuestionError(item: Pick<InfoItem, "title" | "question" | "nee
   return [item.title, item.question, item.need, item.why].some((t) => looksLikeTfnOrBank(t, { freeText: true }))
     ? "Operations AI doesn't ask for tax file numbers or bank details - they stay in Xero." : null;
 }
+
+// CH-023 (security review, Ilies approved 27 Oct): "Operations AI" is the AI's name only. No login may be called that
+// (any case, any spacing), so a person can't pass as the AI on a card, in chat or on Info requests. And an AI question
+// is recognised by what the server stored when it was asked (details.askedByAi + askedByUserId), never by the name.
+export const isReservedUserName = (name: unknown) => typeof name === "string" && name.replace(/\s+/g, " ").trim().toLowerCase() === OPERATIONS_AI_NAME.toLowerCase();
+export const RESERVED_NAME_ERROR = `"${OPERATIONS_AI_NAME}" is reserved for the AI - pick another name.`;
+// The marker as JSON.stringify writes it into SiteRequest.details. A value typed by a person can't contain it: JSON
+// escapes the quotes inside values.
+export const AI_DETAILS_MARKER = '"askedByAi":"1"';
+export const askedByAiUser = (details: string | null | undefined, userId: string) => {
+  const d = readDetails(details ?? null) as InfoDetails & { askedByAi?: string; askedByUserId?: string };
+  return d.askedByAi === "1" && d.askedByUserId === userId;
+};

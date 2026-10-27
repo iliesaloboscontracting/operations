@@ -170,10 +170,11 @@ test("the AI's limit is 20 questions in a rolling 24 hours", async () => {
 
 test("the AI opens the answer file only on a question it sent", async () => {
   const ai = { id: "ai", name: "Building Agent", email: "iliesa+agent@loboscontracting.com.au", role: "MANAGER", directorAccess: false };
-  assert.equal(canSeeAnswerFile({ assigneeUserId: "acc", audience: "DIRECTOR", requestedBy: "Operations AI" }, ai), true);
-  assert.equal(canSeeAnswerFile({ assigneeUserId: "acc", audience: "DIRECTOR", requestedBy: "Iliesa" }, ai), false);
+  const mine = JSON.stringify({ question: "q", askedByAi: "1", askedByUserId: "ai" });
+  assert.equal(canSeeAnswerFile({ assigneeUserId: "acc", audience: "DIRECTOR", details: mine }, ai), true);
+  assert.equal(canSeeAnswerFile({ assigneeUserId: "acc", audience: "DIRECTOR", details: JSON.stringify({ question: "q" }) }, ai), false);
   const manager = { ...ai, id: "m", email: "alex@loboscontracting.com.au" };
-  assert.equal(canSeeAnswerFile({ assigneeUserId: "acc", audience: "DIRECTOR", requestedBy: "Operations AI" }, manager), false);
+  assert.equal(canSeeAnswerFile({ assigneeUserId: "acc", audience: "DIRECTOR", details: mine }, manager), false);
 });
 
 test("CH-022: an Operations AI question never asks for or carries a TFN or bank details", async () => {
@@ -183,4 +184,27 @@ test("CH-022: an Operations AI question never asks for or carries a TFN or bank 
   assert.match(aiQuestionError({ ...base, question: "Please send the supplier's new bank details" })!, /bank details/);
   assert.match(aiQuestionError({ ...base, need: "their BSB and account number" })!, /bank details/);
   assert.match(aiQuestionError({ ...base, why: "TFN 123 456 789 on file" })!, /tax file/);
+});
+
+test("CH-023: nobody may be called 'Operations AI' (any case or spacing)", async () => {
+  const { isReservedUserName } = await import("./rules");
+  for (const n of ["Operations AI", "operations ai", "  OPERATIONS   AI ", "Operations\tAI"]) assert.equal(isReservedUserName(n), true, n);
+  for (const n of ["Operations", "AI", "Operations AIs", "Ops AI", "", null, 42]) assert.equal(isReservedUserName(n), false, String(n));
+});
+
+test("CH-023: an AI question is recognised by the stored marker and the AI's user id, never by the name", async () => {
+  const { askedByAiUser, AI_DETAILS_MARKER } = await import("./rules");
+  const stored = JSON.stringify({ question: "When does it go back?", askedByAi: "1", askedByUserId: "ai-1" });
+  assert.ok(stored.includes(AI_DETAILS_MARKER), "the marker is what JSON.stringify writes");
+  assert.equal(askedByAiUser(stored, "ai-1"), true);
+  assert.equal(askedByAiUser(stored, "someone-else"), false);
+  // a person typing the marker into a question doesn't make it an AI question
+  const typed = JSON.stringify({ question: 'fake "askedByAi":"1" here', askedByUserId: "ai-1" });
+  assert.ok(!typed.includes(AI_DETAILS_MARKER), "JSON escapes the quotes inside a value");
+  assert.equal(askedByAiUser(typed, "ai-1"), false);
+  assert.equal(askedByAiUser(JSON.stringify({ question: "x" }), "ai-1"), false, "no marker: not the AI's");
+  // the answer file follows the same rule
+  const ai = { id: "ai-1", name: "Building Agent", email: "iliesa+agent@loboscontracting.com.au", role: "MANAGER", directorAccess: false };
+  assert.equal(canSeeAnswerFile({ assigneeUserId: "acc", audience: "DIRECTOR", details: stored }, ai), true);
+  assert.equal(canSeeAnswerFile({ assigneeUserId: "acc", audience: "DIRECTOR", details: JSON.stringify({ question: "x" }) }, ai), false, "a question someone named 'Operations AI' asked isn't the AI's");
 });

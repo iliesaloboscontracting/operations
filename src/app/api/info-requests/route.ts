@@ -31,7 +31,7 @@ export const GET = withErrorHandling(async () => {
   const users = await prisma.user.findMany({ select: { id: true, name: true, email: true, role: true, directorAccess: true, active: true }, orderBy: { name: "asc" } });
   if (a.ai) {
     return NextResponse.json({
-      requests: await tracker(new Date(), true),
+      requests: await tracker(new Date(), a.user.id),
       people: users.filter((u) => aiCanAsk(u, a.user.id, OWNER_EMAIL)).map((u) => ({ id: u.id, name: u.name, kind: KIND[u.role] ?? u.role })),
       canBatch: false,
     });

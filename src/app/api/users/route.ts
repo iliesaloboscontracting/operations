@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentUser, guard, hashPassword, MIN_PASSWORD, normaliseEmail, ROLES } from "@/lib/auth";
 import { isOwner } from "@/lib/owner";
 import { withErrorHandling } from "@/lib/apiHandler";
+import { RESERVED_NAME_ERROR, isReservedUserName } from "@/lib/infoRequests/rules";
 
 const PUBLIC_FIELDS = {
   id: true, email: true, name: true, role: true, active: true, lastLoginAt: true, createdAt: true, directorAccess: true,
@@ -30,6 +31,7 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   if (!name || !/^\S+@\S+\.\S+$/.test(email)) {
     return NextResponse.json({ error: "Enter a name and a valid email" }, { status: 400 });
   }
+  if (isReservedUserName(name)) return NextResponse.json({ error: RESERVED_NAME_ERROR }, { status: 400 }); // CH-023
   if (!ROLES.includes(role as (typeof ROLES)[number])) {
     return NextResponse.json({ error: "Invalid role" }, { status: 400 });
   }

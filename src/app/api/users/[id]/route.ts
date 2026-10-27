@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentUser, guard, hashPassword, MIN_PASSWORD, ROLES } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { isOwner } from "@/lib/owner";
+import { RESERVED_NAME_ERROR, isReservedUserName } from "@/lib/infoRequests/rules";
 
 // PATCH /api/users/:id { name?, role?, active?, password? } (admin only)
 // Safety rules: you can't demote or deactivate yourself, the last active admin
@@ -24,6 +25,7 @@ export const PATCH = withErrorHandling(async (
   }
 
   const data: Record<string, unknown> = {};
+  if (isReservedUserName(body.name)) return NextResponse.json({ error: RESERVED_NAME_ERROR }, { status: 400 }); // CH-023
   if (typeof body.name === "string" && body.name.trim()) data.name = body.name.trim();
 
   if (body.role !== undefined) {
