@@ -2,6 +2,7 @@
 // money rules, and the narrow shapes a link / Manager may see. No server imports; `npm test` (rules.test.ts).
 // Design: docs/accounts/STAGE6-DESIGN.md §3.
 import { assertNoMoney } from "../moneyGuard";
+import { sameUser } from "../samePerson";
 
 export const STATUSES = ["REQUESTED", "NEEDS_INFO", "CHECKED", "APPROVED", "DECLINED", "ORDERED", "CLOSED", "CANCELLED"] as const;
 export type Status = (typeof STATUSES)[number];
@@ -22,7 +23,7 @@ export const STATUS_FOR_REQUESTER: Record<Status, string> = {
 export type Actor =
   | { kind: "REQUESTER" } // the person who asked: same link, or same login
   | { kind: "ACCOUNTS" } // the ACCOUNTS login or an Admin
-  | { kind: "DIRECTOR"; role: string; name: string }; // anyone with director access; only a DIRECTOR login decides
+  | { kind: "DIRECTOR"; role: string; name: string; userId?: string }; // anyone with director access; only a DIRECTOR login decides
 
 export type Action = "CHECK" | "ASK_INFO" | "ANSWER" | "CLOSE" | "CANCEL" | "APPROVE" | "DECLINE" | "ORDERED";
 
@@ -45,12 +46,13 @@ const RULES: Record<Action, { from: Status[]; by: Actor["kind"]; to: Status }> =
 export const isAction = (a: unknown): a is Action => typeof a === "string" && a in RULES;
 
 // Why this actor can't do this action now (null = allowed), and the status it leads to.
-export function check(action: Action, r: { status: string; requestedBy: string }, actor: Actor): { error: string } | { to: Status } {
+export function check(action: Action, r: { status: string; requestedBy: string; requestedByUserId?: string | null }, actor: Actor): { error: string } | { to: Status } {
   const rule = RULES[action];
   if (actor.kind !== rule.by) return { error: "You can't do that on this request." };
   if (actor.kind === "DIRECTOR") {
     if (actor.role !== "DIRECTOR") return { error: PURCHASE_APPROVERS_NOTE };
-    if (samePerson(actor.name, r.requestedBy)) return { error: "You asked for this, so another director has to approve or decline it." };
+    // SEC-002 (c): by name, and by login id (another login of the same person counts - lib/samePerson.ts).
+    if (samePerson(actor.name, r.requestedBy) || sameUser(actor.userId, r.requestedByUserId)) return { error: "You asked for this, so another director has to approve or decline it." };
   }
   if (!rule.from.includes(r.status as Status)) return { error: `It's ${STATUS_FOR_REQUESTER[r.status as Status]?.toLowerCase() ?? r.status} - that can't be done now.` };
   return { to: rule.to };

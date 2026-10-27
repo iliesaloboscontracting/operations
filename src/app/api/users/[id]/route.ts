@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentUser, guard, hashPassword, MIN_PASSWORD, ROLES } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { isOwner } from "@/lib/owner";
+import { normName, sameUser } from "@/lib/samePerson";
 
 // PATCH /api/users/:id { name?, role?, active?, password? } (admin only)
 // Safety rules: you can't demote or deactivate yourself, the last active admin
@@ -22,9 +23,24 @@ export const PATCH = withErrorHandling(async (
   if (isOwner(target.email) && !isOwner(me?.email)) {
     return NextResponse.json({ error: "Only Iliesa can change this account." }, { status: 403 });
   }
+  // SEC-002 (a): a director's login (DIRECTOR role or director access) - its password, name and on/off switch are
+  // the owner's to change, so another Admin can't take it over and approve as them.
+  // (The Users page sends name and active on every save, so only a real change counts.)
+  const changesProtected = body.password !== undefined
+    || (typeof body.name === "string" && normName(body.name) !== normName(target.name))
+    || (body.active !== undefined && Boolean(body.active) !== target.active);
+  if ((target.role === "DIRECTOR" || target.directorAccess) && !isOwner(me?.email) && changesProtected) {
+    return NextResponse.json({ error: "Only Iliesa can change a director's password, name or access." }, { status: 403 });
+  }
 
   const data: Record<string, unknown> = {};
   if (typeof body.name === "string" && body.name.trim()) data.name = body.name.trim();
+  // SEC-002 (b): no new name that matches another active login - names are how approvals tell people apart.
+  if (data.name !== undefined && normName(data.name as string) !== normName(target.name)) {
+    const clash = (await prisma.user.findMany({ where: { active: true, id: { not: target.id } }, select: { id: true, name: true } }))
+      .find((u) => normName(u.name) === normName(data.name as string) && !sameUser(u.id, target.id));
+    if (clash) return NextResponse.json({ error: "Another login already has that name - use a different one." }, { status: 400 });
+  }
 
   if (body.role !== undefined) {
     if (!ROLES.includes(body.role)) return NextResponse.json({ error: "Invalid role" }, { status: 400 });
@@ -73,6 +89,12 @@ export const PATCH = withErrorHandling(async (
       return NextResponse.json({ error: "There must be at least one active admin" }, { status: 400 });
     }
   }
+
+  // SEC-002 (d): the log - which fields changed, never a password.
+  const changes: Record<string, unknown> = {};
+  for (const k of ["name", "role", "active", "directorAccess"] as const) if (data[k] !== undefined && data[k] !== target[k]) changes[k] = [target[k], data[k]];
+  if (data.passwordHash !== undefined) changes.password = "reset";
+  if (Object.keys(changes).length && me) await prisma.userEvent.create({ data: { userId: target.id, action: "EDIT", changes: JSON.stringify(changes), by: me.name, byUserId: me.id } });
 
   const user = await prisma.user.update({
     where: { id: params.id },

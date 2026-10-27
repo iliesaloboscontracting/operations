@@ -200,7 +200,7 @@ export async function decide(by: ChangeUser, id: string, body: Record<string, un
     return { proposal: (await prisma.changeProposal.findUnique({ where: { id } }))! };
   }
 
-  const why = cannotApprove(by, { kind, requestedBy: p.requestedBy, sourcePerson: p.sourcePerson });
+  const why = cannotApprove(by, { kind, requestedBy: p.requestedBy, requestedByUserId: p.requestedByUserId, sourcePerson: p.sourcePerson });
   if (action === "REJECT") {
     if (why) return refuse(p, by, why, seen, 403);
     const reason = typeof body.reason === "string" ? body.reason.trim().slice(0, 500) : "";
@@ -312,7 +312,7 @@ export async function listChanges(by: ChangeUser, opts: { open?: boolean; record
   const numbers = new Map(rows.map((r) => [r.id, r.number]));
   return rows.filter((p) => isKind(p.kind) && canViewKind(by, p.kind)).map((p) => {
     const kind = p.kind as ChangeKind;
-    const whyNot = p.status === "PROPOSED" ? cannotApprove(by, { kind, requestedBy: p.requestedBy, sourcePerson: p.sourcePerson }) : null;
+    const whyNot = p.status === "PROPOSED" ? cannotApprove(by, { kind, requestedBy: p.requestedBy, requestedByUserId: p.requestedByUserId, sourcePerson: p.sourcePerson }) : null;
     return {
       id: p.id, ref: proposalRef(p.number), kind, label: A3_RULES[kind].label, recordType: p.recordType, recordId: p.recordId, recordName: p.recordName,
       before: describe(kind, parse<ChangeValue | null>(p.before, null)), after: describe(kind, parse<ChangeValue>(p.after, {})),
@@ -329,8 +329,8 @@ export async function listChanges(by: ChangeUser, opts: { open?: boolean; record
 
 // Waiting proposals this person could approve (the nav badge).
 export async function countToApprove(by: ChangeUser, now = new Date()): Promise<number> {
-  const open = await prisma.changeProposal.findMany({ where: { status: "PROPOSED", expiresAt: { gt: now } }, select: { kind: true, requestedBy: true, sourcePerson: true } });
-  return open.filter((p) => isKind(p.kind) && canViewKind(by, p.kind) && kindEnabled(p.kind) && !cannotApprove(by, { kind: p.kind, requestedBy: p.requestedBy, sourcePerson: p.sourcePerson })).length;
+  const open = await prisma.changeProposal.findMany({ where: { status: "PROPOSED", expiresAt: { gt: now } }, select: { kind: true, requestedBy: true, requestedByUserId: true, sourcePerson: true } });
+  return open.filter((p) => isKind(p.kind) && canViewKind(by, p.kind) && kindEnabled(p.kind) && !cannotApprove(by, { kind: p.kind, requestedBy: p.requestedBy, requestedByUserId: p.requestedByUserId, sourcePerson: p.sourcePerson })).length;
 }
 
 // Projects to pick from when proposing a project change (names and numbers only).

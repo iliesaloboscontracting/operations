@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser, guard, hashPassword, MIN_PASSWORD, normaliseEmail, ROLES } from "@/lib/auth";
+import { normName } from "@/lib/samePerson";
 import { isOwner } from "@/lib/owner";
 import { withErrorHandling } from "@/lib/apiHandler";
 
@@ -43,10 +44,17 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   if (await prisma.user.findUnique({ where: { email } })) {
     return NextResponse.json({ error: "A user with that email already exists" }, { status: 409 });
   }
+  // SEC-002 (b): a new login can't share an active login's name (the second login of one person is set up by the
+  // owner in code - lib/samePerson.ts - after it's created under a distinct name).
+  if ((await prisma.user.findMany({ where: { active: true }, select: { name: true } })).some((u) => normName(u.name) === normName(name))) {
+    return NextResponse.json({ error: "Another login already has that name - use a different one." }, { status: 400 });
+  }
 
   const user = await prisma.user.create({
     data: { name, email, role, passwordHash: await hashPassword(password) },
     select: PUBLIC_FIELDS,
   });
+  const me = await getCurrentUser();
+  if (me) await prisma.userEvent.create({ data: { userId: user.id, action: "CREATE", changes: JSON.stringify({ name, email, role }), by: me.name, byUserId: me.id } });
   return NextResponse.json(user, { status: 201 });
 });

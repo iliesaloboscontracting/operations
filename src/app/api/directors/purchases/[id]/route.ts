@@ -12,7 +12,7 @@ export const POST = withErrorHandling(async (req: NextRequest, { params }: { par
   const body = await req.json().catch(() => ({}));
   const b = body && typeof body === "object" ? body : {};
   if (b.action !== "APPROVE" && b.action !== "DECLINE") return NextResponse.json({ error: "Unknown action." }, { status: 400 });
-  const out = await actOnRequest((await params).id, b.action, { kind: "DIRECTOR", role: user.role, name: user.name }, { name: user.name, userId: user.id }, b);
+  const out = await actOnRequest((await params).id, b.action, { kind: "DIRECTOR", role: user.role, name: user.name, userId: user.id }, { name: user.name, userId: user.id }, b);
   if ("error" in out) return NextResponse.json({ error: out.error }, { status: out.status });
   return NextResponse.json(out);
 });

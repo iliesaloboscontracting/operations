@@ -173,12 +173,12 @@ export async function listForAccounts() {
 
 // Directors: the checked ones to decide, and the last 30 days decided. cannotDecide says why this login can't
 // (not a DIRECTOR login, or they asked for it) - the page shows it instead of the buttons, as budgets do.
-export async function listForDirectors(user: { role: string; name: string }) {
+export async function listForDirectors(user: { id: string; role: string; name: string }) {
   const since = new Date(`${addDays(todaySydney(), -30)}T00:00:00Z`);
   const rows = await prisma.purchaseRequest.findMany({
     where: { OR: [{ status: "CHECKED" }, { decidedAt: { gte: since } }] }, include: withEvents, orderBy: { number: "desc" }, take: 200,
   });
-  const actor: Actor = { kind: "DIRECTOR", role: user.role, name: user.name };
+  const actor: Actor = { kind: "DIRECTOR", role: user.role, name: user.name, userId: user.id };
   return rows.map((r) => {
     const c = r.status === "CHECKED" ? check("APPROVE", r, actor) : null;
     return { ...accountsView(r), cannotDecide: c && "error" in c ? c.error : null };

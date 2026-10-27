@@ -1896,3 +1896,17 @@ model TaxSetting {
 
   @@index([key, at])
 }
+
+// SEC-002 (27 Oct 2026): who changed which login, what and when (Users page). Append-only. Passwords are never
+// recorded - only that one was reset.
+model UserEvent {
+  id       String   @id @default(cuid())
+  userId   String // the login that was changed (a plain id, like personnelId)
+  action   String // CREATE | EDIT
+  changes  String // JSON: { field: [before, after] }, password -> "reset"
+  by       String
+  byUserId String
+  at       DateTime @default(now())
+
+  @@index([userId])
+}
