@@ -434,3 +434,52 @@ test("DS-015: an .xlsx whose real expansion passes 100 MB is refused, even when 
   assert.equal(r.status, "TOO_BIG");
   assert.match((r as { why: string }).why, /100 MB unpacked/);
 });
+
+// ---------- RT-001: only a zip laid out exactly as its end record says ----------
+const rtZip = (entries: { name: string; data: Buffer; usize: number }[]) => {
+  const locals: Buffer[] = [], cens: Buffer[] = [];
+  let off = 0;
+  for (const e of entries) {
+    const n = Buffer.from(e.name), d = deflateRawSync(e.data);
+    const loc = Buffer.alloc(30); loc.writeUInt32LE(0x04034b50, 0); loc.writeUInt16LE(8, 8); loc.writeUInt32LE(d.length, 18); loc.writeUInt32LE(e.usize, 22); loc.writeUInt16LE(n.length, 26);
+    const cen = Buffer.alloc(46); cen.writeUInt32LE(0x02014b50, 0); cen.writeUInt16LE(8, 10); cen.writeUInt32LE(d.length, 20); cen.writeUInt32LE(e.usize, 24); cen.writeUInt16LE(n.length, 28); cen.writeUInt32LE(off, 42);
+    locals.push(loc, n, d); cens.push(cen, n);
+    off += 30 + n.length + d.length;
+  }
+  const body = Buffer.concat(locals), cd = Buffer.concat(cens);
+  const eocd = Buffer.alloc(22); eocd.writeUInt32LE(0x06054b50, 0); eocd.writeUInt16LE(entries.length, 8); eocd.writeUInt16LE(entries.length, 10); eocd.writeUInt32LE(cd.length, 12); eocd.writeUInt32LE(body.length, 16);
+  return { body, cd, eocd, zip: Buffer.concat([body, cd, eocd]) };
+};
+
+test("RT-001: a well-formed zip still reads; anything laid out differently from its end record is unreadable", async () => {
+  const { zipDirectory } = await import("./zip");
+  const ok = rtZip([{ name: "word/document.xml", data: Buffer.from("<w:p>hello</w:p>"), usize: 16 }]);
+  assert.equal(zipDirectory(ok.zip)?.length, 1, "a normal zip reads");
+  const withEocd = (patch: (e: Buffer) => void) => { const e = Buffer.from(ok.eocd); patch(e); return Buffer.concat([ok.body, ok.cd, e]); };
+  assert.equal(zipDirectory(withEocd((e) => e.writeUInt16LE(0xffff, 10))), null, "zip64 marker in the entry count");
+  assert.equal(zipDirectory(withEocd((e) => e.writeUInt32LE(0xffffffff, 16))), null, "zip64 marker in the directory offset");
+  assert.equal(zipDirectory(withEocd((e) => e.writeUInt16LE(2, 8))), null, "entries on this disk != total");
+  assert.equal(zipDirectory(withEocd((e) => e.writeUInt16LE(1, 4))), null, "another disk");
+  assert.equal(zipDirectory(Buffer.concat([ok.zip, Buffer.from("trailing")])), null, "bytes after the end record");
+  const locator = Buffer.alloc(20); locator.writeUInt32LE(0x07064b50, 0);
+  const z64 = Buffer.concat([ok.body, ok.cd, locator, ok.eocd]);
+  z64.writeUInt32LE(ok.body.length, z64.length - 22 + 16);
+  assert.equal(zipDirectory(z64), null, "a zip64 end-of-central-directory locator");
+});
+
+test("RT-001: data prepended with a benign directory at the stated offset and the real one before the end record -> refused", async () => {
+  const { zipDirectory, zipUnpackedSize } = await import("./zip");
+  // What we'd be shown: a small, harmless entry. What JSZip would find: the real directory just before the end record.
+  const benign = rtZip([{ name: "xl/workbook.xml", data: Buffer.from("<w/>"), usize: 20 * 1024 }]);
+  const real = rtZip([{ name: "xl/sharedStrings.xml", data: Buffer.alloc(6 * 1024 * 1024), usize: 6 * 1024 * 1024 }]);
+  const front = Buffer.concat([benign.body, benign.cd]); // stuck on the front
+  const eocd = Buffer.from(real.eocd);
+  eocd.writeUInt32LE(benign.cd.length, 12); eocd.writeUInt32LE(benign.body.length, 16); // points at the benign directory
+  const evil = Buffer.concat([front, real.body, real.cd, eocd]);
+  assert.equal(zipDirectory(evil), null, "the stated directory doesn't end where the end record starts");
+  assert.equal(zipUnpackedSize(evil), null);
+  const r = await extractText("Shifty.xlsx", evil);
+  assert.ok(r.status === "UNREADABLE" || r.status === "TOO_BIG", r.status);
+  // and plain prepended junk (offsets shifted) is refused too
+  assert.equal(zipDirectory(Buffer.concat([Buffer.from("JUNK-AT-THE-FRONT"), real.zip])), null, "offsets not matching the file start");
+});
