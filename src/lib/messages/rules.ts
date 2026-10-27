@@ -117,3 +117,12 @@ export function requestSubjectError(me: Seer, other: Seer & { name: string }, r:
   if (!seesRequestOnBoard(other, r)) return `${other.name} can't see that request on their board - send the message without attaching it.`;
   return null;
 }
+
+// CH-026 (security review, Ilies approved 27 Oct): no flood. The Office room has a fixed id, so reading Messages never
+// has to create anything; a phone alert goes to a person at most once every 2 minutes per conversation; anyone can
+// post at most 30 messages a minute.
+export const ROOM_ID = "office-room";
+export const ALERT_GAP_MS = 2 * 60_000;
+export const alertDue = (lastAlertedAt: Date | string | null | undefined, now: Date) => !lastAlertedAt || now.getTime() - new Date(lastAlertedAt).getTime() >= ALERT_GAP_MS;
+export const POSTS_PER_MINUTE = 30;
+export const overPostRate = (sentLastMinute: number) => sentLastMinute >= POSTS_PER_MINUTE;

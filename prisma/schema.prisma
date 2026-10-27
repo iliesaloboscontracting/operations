@@ -1930,6 +1930,7 @@ model MessageParticipant {
   name       String
   role       String? // the login's role when the thread started (USER)
   lastSeenAt DateTime?
+  lastAlertedAt DateTime? // CH-026: last phone alert to this person for this thread (at most one every 2 minutes)
 
   @@index([threadId])
   @@index([userId])

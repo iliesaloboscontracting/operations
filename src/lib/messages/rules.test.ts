@@ -7,7 +7,7 @@ import { BANK_NOTICE, CHAT_NOTICE, DELETE_CONFIRM } from "./notices";
 import assert from "node:assert/strict";
 import {
   ROOM_FIRST_VISIT_DAYS, alertText, canChange, canMessage, canReadAllThreads, canStart, overChatLimit, canUseSubject, chatName, checkBody, labelOf, roomSeenBy, seenBy, unreadCount,
-  visibleHistory, requestSubjectError, seesRequestOnBoard,
+  visibleHistory, requestSubjectError, seesRequestOnBoard, alertDue, overPostRate, ALERT_GAP_MS, POSTS_PER_MINUTE, ROOM_ID,
 } from "./rules";
 
 const AI = "iliesa+agent@loboscontracting.com.au";
@@ -139,4 +139,16 @@ test("CH-025: the chat always says the owner can read it and nothing is truly er
   assert.match(DELETE_CONFIRM, /kept on record/);
   assert.match(DELETE_CONFIRM, /Iliesa can still read it/);
   assert.match(BANK_NOTICE, /Bank detail changes are never taken from chat/, "CH-022's standing line");
+});
+
+test("CH-026: one alert per conversation per person every 2 minutes; 30 posts a minute; the room has a fixed id", () => {
+  const now = new Date("2026-10-27T05:00:00Z");
+  assert.equal(ALERT_GAP_MS, 120_000);
+  assert.equal(alertDue(null, now), true, "never alerted");
+  assert.equal(alertDue(new Date(now.getTime() - 119_000), now), false, "1:59 ago: no");
+  assert.equal(alertDue(new Date(now.getTime() - 120_000), now), true, "2:00 ago: yes");
+  assert.equal(POSTS_PER_MINUTE, 30);
+  assert.equal(overPostRate(29), false);
+  assert.equal(overPostRate(30), true, "the 31st in a minute is refused");
+  assert.equal(ROOM_ID, "office-room", "reading Messages needs no row created for the room");
 });

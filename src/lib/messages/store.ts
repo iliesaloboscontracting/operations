@@ -10,7 +10,7 @@ import { AI_DAILY_LIMIT, isOperationsAi } from "../infoRequests/rules";
 import { OWNER_EMAIL, isOwner } from "../owner";
 import {
   ROOM_FIRST_VISIT_DAYS, ROOM_KEY, ROOM_TITLE, alertText, canChange, canMessage, canReadAllThreads, canStart, canUseSubject, chatName, checkBody, isSubjectType, labelOf,
-  overChatLimit, requestSubjectError, roomSeenBy, seenBy, unreadCount, visibleHistory, type SubjectType,
+  ALERT_GAP_MS, POSTS_PER_MINUTE, ROOM_ID, overChatLimit, overPostRate, requestSubjectError, roomSeenBy, seenBy, visibleHistory, type SubjectType,
 } from "./rules";
 
 type Problem = { error: string; status: number };
@@ -20,16 +20,20 @@ const bad = (error: string, status = 400): Problem => ({ error, status });
 export type Viewer = { userId: string; role: string; email: string; name: string };
 type Participant = { id: string; userId: string | null; name: string; lastSeenAt: Date | null };
 
-// The Office room: one thread, made the first time anyone opens Messages.
-async function room() {
+// The Office room: one thread with a fixed id (CH-026). Reading never creates it - until the first post or "seen" it
+// shows as an empty room; writing makes it.
+const emptyRoom = () => ({ id: ROOM_ID, kind: "ROOM", roomKey: ROOM_KEY, subjectType: "NONE", subjectKey: null, subjectLabel: ROOM_TITLE, moneyAllowed: true, createdBy: "Operations", createdAt: new Date(0), lastMessageAt: new Date(0), participants: [] as Participant[] });
+const findRoom = () => prisma.messageThread.findUnique({ where: { roomKey: ROOM_KEY }, include: { participants: true } });
+async function ensureRoom() {
   return prisma.messageThread.upsert({
     where: { roomKey: ROOM_KEY },
-    create: { kind: "ROOM", roomKey: ROOM_KEY, subjectLabel: ROOM_TITLE, moneyAllowed: true, createdBy: "Operations" },
+    create: { id: ROOM_ID, kind: "ROOM", roomKey: ROOM_KEY, subjectLabel: ROOM_TITLE, moneyAllowed: true, createdBy: "Operations" },
     update: {},
+    include: { participants: true },
   });
 }
 
-// My row in the room, made on first visit - it holds my "seen".
+// My row in the room, made the first time I write to it (a post, or "seen") - it holds my "seen".
 async function roomSeat(threadId: string, me: Viewer, seen: boolean) {
   const p = await prisma.messageParticipant.findFirst({ where: { threadId, kind: "USER", userId: me.userId } });
   if (p) return p;
@@ -74,23 +78,34 @@ async function subjectLabel(type: SubjectType, key: string | null): Promise<{ la
 }
 
 // Phone alert to the other person in a one-to-one - who it's from, never the text or label. The room sends none (D-Q9).
-async function alertOther(thread: { id: string }, otherUserId: string | null, fromName: string) {
-  if (!otherUserId) return;
+// CH-026: at most one per thread per recipient every 2 minutes - claimed in one conditional update, so two quick
+// messages can't both alert.
+async function alertOther(thread: { id: string }, other: { id: string; userId: string | null } | undefined, fromName: string) {
+  if (!other?.userId) return;
+  const now = new Date();
+  const claimed = await prisma.messageParticipant.updateMany({
+    where: { id: other.id, OR: [{ lastAlertedAt: null }, { lastAlertedAt: { lt: new Date(now.getTime() - ALERT_GAP_MS) } }] },
+    data: { lastAlertedAt: now },
+  });
+  if (!claimed.count) return;
   try {
-    await pushToUsers([otherUserId], { ...alertText(fromName), url: `/messages?t=${thread.id}`, tag: `msg-${thread.id}` }, "high");
+    await pushToUsers([other.userId], { ...alertText(fromName), url: `/messages?t=${thread.id}`, tag: `msg-${thread.id}` }, "high");
   } catch (e) {
     console.error("message alert failed", e);
   }
 }
 
-// Operations AI shares a 20-a-day limit on chat posts (D-Q10; its questions are counted separately).
-async function aiOverLimit(me: Viewer) {
-  if (!isOperationsAi(me.email)) return false;
-  const seats = (await prisma.messageParticipant.findMany({ where: { kind: "USER", userId: me.userId }, select: { id: true } })).map((p) => p.id);
-  const sent = await prisma.message.count({ where: { authorId: { in: seats }, createdAt: { gte: new Date(Date.now() - 86_400_000) } } });
-  return overChatLimit(me.email, sent);
-}
+// Posting limits: everyone 30 a minute (CH-026); Operations AI also 20 a day (D-Q10; its questions are counted apart).
 const AI_LIMIT_TEXT = `Operations AI has sent ${AI_DAILY_LIMIT} messages in the last 24 hours - that's the most for a day.`;
+const RATE_TEXT = `That's ${POSTS_PER_MINUTE} messages in a minute - wait a moment and try again.`;
+async function postLimit(me: Viewer): Promise<Problem | null> {
+  const seats = (await prisma.messageParticipant.findMany({ where: { kind: "USER", userId: me.userId }, select: { id: true } })).map((p) => p.id);
+  if (!seats.length) return null;
+  const now = Date.now();
+  if (overPostRate(await prisma.message.count({ where: { authorId: { in: seats }, createdAt: { gte: new Date(now - 60_000) } } }))) return bad(RATE_TEXT, 429);
+  if (isOperationsAi(me.email) && overChatLimit(me.email, await prisma.message.count({ where: { authorId: { in: seats }, createdAt: { gte: new Date(now - 86_400_000) } } }))) return bad(AI_LIMIT_TEXT, 429);
+  return null;
+}
 
 // Start a one-to-one (optionally about a record) with its first message.
 export async function startThread(me: Viewer, b: Record<string, unknown>): Promise<{ id: string } | Problem> {
@@ -101,7 +116,8 @@ export async function startThread(me: Viewer, b: Record<string, unknown>): Promi
   if (!u || !u.active || u.id === me.userId) return bad("Pick who it's to.");
   const allowed = canStart(me.role, u.role);
   if ("error" in allowed) return bad(allowed.error, 403);
-  if (await aiOverLimit(me)) return bad(AI_LIMIT_TEXT, 429);
+  const limited = await postLimit(me);
+  if (limited) return limited;
 
   const body = checkBody(b.body);
   if ("error" in body) return bad(body.error);
@@ -121,35 +137,43 @@ export async function startThread(me: Viewer, b: Record<string, unknown>): Promi
   const thread = await prisma.$transaction(async (tx) => {
     const t = await tx.messageThread.create({ data: { kind: "DIRECT", subjectType, subjectKey, subjectLabel: label.label, moneyAllowed: true, createdBy: me.name, lastMessageAt: now } });
     const mine = await tx.messageParticipant.create({ data: { threadId: t.id, kind: "USER", userId: me.userId, name: me.name, role: me.role, lastSeenAt: now } });
-    await tx.messageParticipant.create({ data: { threadId: t.id, kind: "USER", userId: u.id, name: chatName(u.name, u.email), role: u.role } });
+    const other = await tx.messageParticipant.create({ data: { threadId: t.id, kind: "USER", userId: u.id, name: chatName(u.name, u.email), role: u.role } });
     await tx.message.create({ data: { threadId: t.id, authorId: mine.id, authorName: me.name, body: body.text, createdAt: now } });
-    return t;
+    return { ...t, other };
   });
-  await alertOther(thread, u.id, me.name);
+  await alertOther(thread, thread.other, me.name);
   return { id: thread.id };
 }
 
-// The thread and my seat in it: the room for any office login (seat made on first visit), a one-to-one for its two people.
-async function openFor(me: Viewer, threadId: string, seen = false) {
-  const t = await prisma.messageThread.findUnique({ where: { id: threadId }, include: { participants: true } });
-  if (!t || !canMessage(me.role)) return null;
+// The thread and my seat in it: the room for any office login, a one-to-one for its two people.
+// mode "read" writes nothing (CH-026): no room, no seat is created - mine is null until I first write to the room.
+// mode "write" makes the room and my seat if needed (seen: whether a new seat starts as seen).
+type Opened = { t: { id: string; kind: string; subjectType: string; subjectKey: string | null; subjectLabel: string; moneyAllowed: boolean }; mine: Participant | null; others: Participant[]; readOnly: boolean };
+async function openFor(me: Viewer, threadId: string, mode: "read" | "write", seen = false): Promise<Opened | null> {
+  if (!canMessage(me.role)) return null;
+  let t: (Opened["t"] & { participants: Participant[] }) | null = await prisma.messageThread.findUnique({ where: { id: threadId }, include: { participants: true } });
+  if (!t && threadId === ROOM_ID) t = mode === "write" ? await ensureRoom() : ((await findRoom()) ?? emptyRoom());
+  if (!t) return null;
   if (t.kind === "ROOM") {
-    const seat = await roomSeat(t.id, me, seen);
-    return { t, mine: seat as Participant, others: t.participants.filter((p) => p.id !== seat.id) as Participant[] };
+    const seat = mode === "write" ? await roomSeat(t.id, me, seen) : (t.participants.find((p) => p.userId === me.userId) ?? null);
+    return { t, mine: seat as Participant | null, others: t.participants.filter((p) => p.id !== seat?.id) as Participant[], readOnly: false };
   }
   const mine = t.participants.find((p) => p.userId === me.userId);
-  return mine ? { t, mine: mine as Participant, others: t.participants.filter((p) => p.id !== mine.id) as Participant[] } : null;
+  return mine ? { t, mine: mine as Participant, others: t.participants.filter((p) => p.id !== mine.id) as Participant[], readOnly: false } : null;
 }
 
 // A reply.
 export async function postMessage(me: Viewer, threadId: string, b: Record<string, unknown>): Promise<{ id: string } | Problem> {
-  // A first-time room seat starts unseen: a refused message mustn't mark the room read; a sent one does, below.
-  const o = await openFor(me, threadId, false);
-  if (!o) return bad("Not found.", 404);
-  const { t, mine } = o;
+  const peek = await openFor(me, threadId, "read");
+  if (!peek) return bad("Not found.", 404);
   const body = checkBody(b.body);
   if ("error" in body) return bad(body.error);
-  if (await aiOverLimit(me)) return bad(AI_LIMIT_TEXT, 429);
+  const limited = await postLimit(me);
+  if (limited) return limited;
+  // Only now make the room / my seat (a first-time seat starts unseen; the post marks it seen, below).
+  const o = await openFor(me, threadId, "write", false);
+  if (!o || !o.mine) return bad("Not found.", 404);
+  const { t, mine } = o;
   const now = new Date();
   const m = await prisma.$transaction(async (tx) => {
     const row = await tx.message.create({ data: { threadId: t.id, authorId: mine.id, authorName: me.name, body: body.text, createdAt: now } });
@@ -157,17 +181,18 @@ export async function postMessage(me: Viewer, threadId: string, b: Record<string
     await tx.messageParticipant.update({ where: { id: mine.id }, data: { lastSeenAt: now } });
     return row;
   });
-  if (t.kind === "DIRECT") await alertOther(t, o.others[0]?.userId ?? null, me.name);
+  if (t.kind === "DIRECT") await alertOther(t, o.others[0], me.name);
   return { id: m.id };
 }
 
 // The sender edits their own message in place (the earlier text kept as an EDIT version), or deletes it (the text
 // kept as a DELETE version - the owner only sees it). No approval, no alert; nobody changes someone else's message.
 async function ownMessage(me: Viewer, threadId: string, messageId: unknown) {
-  const o = await openFor(me, threadId);
+  const o = await openFor(me, threadId, "read");
   if (!o || typeof messageId !== "string") return bad("Not found.", 404);
   const m = await prisma.message.findUnique({ where: { id: messageId } });
   if (!m || m.threadId !== o.t.id) return bad("That message isn't in this conversation.", 404);
+  if (!o.mine) return bad("You can only change your own messages.", 403);
   const can = canChange(m, o.mine.id);
   return "error" in can ? bad(can.error, 403) : m;
 }
@@ -197,56 +222,70 @@ export async function deleteMessage(me: Viewer, threadId: string, b: Record<stri
 
 // Opening a thread marks it seen for me.
 export async function markSeen(me: Viewer, threadId: string): Promise<{ ok: true } | Problem> {
-  const o = await openFor(me, threadId, true);
-  if (!o) return bad("Not found.", 404);
+  const o = await openFor(me, threadId, "write", true);
+  if (!o || !o.mine) return bad("Not found.", 404);
   await prisma.messageParticipant.update({ where: { id: o.mine.id }, data: { lastSeenAt: new Date() } });
   return { ok: true };
 }
 
 const roomFloor = () => new Date(Date.now() - ROOM_FIRST_VISIT_DAYS * 86_400_000);
 
-// My conversations: the Office room first, then my one-to-ones, newest first, with my unread counts.
-export async function listThreads(me: Viewer) {
-  const r = await room();
-  const seat = await prisma.messageParticipant.findFirst({ where: { threadId: r.id, kind: "USER", userId: me.userId } });
-  const roomLast = await prisma.message.findFirst({ where: { threadId: r.id }, orderBy: { createdAt: "desc" }, select: { body: true, authorName: true } });
-  const roomUnread = await prisma.message.count({
-    where: { threadId: r.id, createdAt: { gt: seat?.lastSeenAt ?? roomFloor() }, ...(seat ? { authorId: { not: seat.id } } : {}) },
-  });
-  const roomRow = {
-    id: r.id, room: true, title: ROOM_TITLE, subjectType: "NONE", subjectKey: null, subjectLabel: "Everyone in the office", other: null,
-    lastMessageAt: r.lastMessageAt.toISOString(), last: roomLast ? { by: roomLast.authorName, text: roomLast.body ? roomLast.body.slice(0, 140) : "message deleted" } : null,
-    unread: roomUnread,
-  };
-
-  const parts = await prisma.messageParticipant.findMany({ where: { kind: "USER", userId: me.userId, thread: { kind: "DIRECT" } }, select: { threadId: true } });
-  const threads = await prisma.messageThread.findMany({
-    where: { id: { in: parts.map((p) => p.threadId) } },
-    include: { participants: true, messages: { orderBy: { createdAt: "asc" }, select: { authorId: true, createdAt: true, body: true, authorName: true } } },
-    orderBy: { lastMessageAt: "desc" },
+// Unread in SQL (CH-026): messages by someone else after my last "seen" (an unopened room: the last week only).
+// Nothing is written and no conversation is loaded whole. A conversation with nothing since I last looked isn't counted.
+async function roomUnreadFor(me: Viewer) {
+  const r = await prisma.messageThread.findUnique({ where: { roomKey: ROOM_KEY }, select: { id: true, lastMessageAt: true } });
+  if (!r) return { room: null, seat: null, unread: 0 };
+  const seat = await prisma.messageParticipant.findFirst({ where: { threadId: r.id, kind: "USER", userId: me.userId }, select: { id: true, lastSeenAt: true } });
+  const since = seat?.lastSeenAt ?? roomFloor();
+  const unread = r.lastMessageAt > since
+    ? await prisma.message.count({ where: { threadId: r.id, createdAt: { gt: since }, ...(seat ? { authorId: { not: seat.id } } : {}) } })
+    : 0;
+  return { room: r, seat, unread };
+}
+async function directSeats(me: Viewer) {
+  return prisma.messageParticipant.findMany({
+    where: { kind: "USER", userId: me.userId, thread: { kind: "DIRECT" } },
+    select: { id: true, threadId: true, lastSeenAt: true, thread: { select: { lastMessageAt: true } } },
+    orderBy: { thread: { lastMessageAt: "desc" } },
     take: 300,
   });
-  const direct = threads.map((t) => {
-    const mine = t.participants.find((p) => p.userId === me.userId)!;
-    const other = t.participants.find((p) => p.id !== mine.id);
-    const last = t.messages[t.messages.length - 1];
+}
+const unreadIn = (s: { id: string; threadId: string; lastSeenAt: Date | null; thread: { lastMessageAt: Date } }) =>
+  s.lastSeenAt && s.thread.lastMessageAt <= s.lastSeenAt
+    ? Promise.resolve(0)
+    : prisma.message.count({ where: { threadId: s.threadId, authorId: { not: s.id }, ...(s.lastSeenAt ? { createdAt: { gt: s.lastSeenAt } } : {}) } });
+const lastIn = (threadId: string) => prisma.message.findFirst({ where: { threadId }, orderBy: { createdAt: "desc" }, select: { body: true, authorName: true } });
+const lastText = (m: { body: string; authorName: string } | null) => (m ? { by: m.authorName, text: m.body ? m.body.slice(0, 140) : "message deleted" } : null);
+
+// My conversations: the Office room first, then my one-to-ones, newest first, with my unread counts. Reads only.
+export async function listThreads(me: Viewer) {
+  const room = await roomUnreadFor(me);
+  const roomRow = {
+    id: room.room?.id ?? ROOM_ID, room: true, title: ROOM_TITLE, subjectType: "NONE", subjectKey: null, subjectLabel: "Everyone in the office", other: null,
+    lastMessageAt: (room.room?.lastMessageAt ?? new Date(0)).toISOString(), last: room.room ? lastText(await lastIn(room.room.id)) : null,
+    unread: room.unread,
+  };
+  const seats = await directSeats(me);
+  const threads = await prisma.messageThread.findMany({ where: { id: { in: seats.map((s) => s.threadId) } }, include: { participants: { select: { id: true, name: true } } } });
+  const byId = new Map(threads.map((t) => [t.id, t]));
+  const direct = await Promise.all(seats.map(async (s) => {
+    const t = byId.get(s.threadId)!;
+    const other = t.participants.find((p) => p.id !== s.id);
+    const [unread, last] = await Promise.all([unreadIn(s), lastIn(t.id)]);
     return {
       id: t.id, room: false, title: other?.name ?? "Conversation", subjectType: t.subjectType, subjectKey: t.subjectKey, subjectLabel: t.subjectLabel,
-      other: other ? { name: other.name } : null,
-      lastMessageAt: t.lastMessageAt.toISOString(), last: last ? { by: last.authorName, text: last.body ? last.body.slice(0, 140) : "message deleted" } : null,
-      unread: unreadCount(t.messages, mine.id, mine.lastSeenAt),
+      other: other ? { name: other.name } : null, lastMessageAt: t.lastMessageAt.toISOString(), last: lastText(last), unread,
     };
-  });
+  }));
   return [roomRow, ...direct];
 }
 
 const ROOM_SHOWN = 200; // the room shows its latest 200 messages; nothing is ever deleted
 
 export async function getThread(me: Viewer, threadId: string) {
-  const o = (await openFor(me, threadId)) ?? (await ownerReads(me, threadId));
+  const o = (await openFor(me, threadId, "read")) ?? (await ownerReads(me, threadId));
   if (!o) return null;
-  const { t, mine, others } = o;
-  const readOnly = !mine; // the owner reading someone else's one-to-one
+  const { t, mine, others, readOnly } = o; // readOnly: the owner reading someone else's one-to-one
   const isRoom = t.kind === "ROOM";
   const msgs = (await prisma.message.findMany({
     where: { threadId: t.id }, orderBy: { createdAt: "desc" }, take: isRoom ? ROOM_SHOWN : 2000,
@@ -279,7 +318,7 @@ async function ownerReads(me: Viewer, threadId: string) {
   if (!canReadAllThreads(me.email, OWNER_EMAIL)) return null;
   const t = await prisma.messageThread.findUnique({ where: { id: threadId }, include: { participants: true } });
   if (!t || t.kind !== "DIRECT") return null;
-  return { t, mine: null as Participant | null, others: t.participants as Participant[] };
+  return { t, mine: null as Participant | null, others: t.participants as Participant[], readOnly: true };
 }
 
 // D-Q11: "All conversations" - every one-to-one, for the owner only: the two people, what it's about, the last message.
@@ -301,7 +340,8 @@ export async function allThreads(me: Viewer) {
   });
 }
 
-// Unread messages for the nav badge.
+// Unread messages for the nav badge - counts only (CH-026), no previews, nothing written.
 export async function unreadTotal(me: Viewer) {
-  return (await listThreads(me)).reduce((n, t) => n + t.unread, 0);
+  const [room, seats] = await Promise.all([roomUnreadFor(me), directSeats(me)]);
+  return room.unread + (await Promise.all(seats.map(unreadIn))).reduce((n, x) => n + x, 0);
 }
