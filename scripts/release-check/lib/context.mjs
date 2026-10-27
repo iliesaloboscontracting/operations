@@ -21,6 +21,8 @@ export function makeContext({ base, p, db, users, links, port, options }) {
       cookies[key] = { cookie: c, body: await r.json().catch(() => ({})) };
       return cookies[key];
     },
+    // SEC-001: a sign-out ends every session of that login - a check that signs one out drops the cached cookie too.
+    forget(key) { delete cookies[key]; },
     async req(method, pth, who, body, headers = {}) {
       const s = who ? await ctx.login(who) : null;
       const h = { ...(s ? { cookie: s.cookie } : {}), ...(body !== undefined ? { "Content-Type": "application/json" } : {}), ...headers };

@@ -51,11 +51,16 @@ export default {
     t.status(await c.get("/command", null), 307, "signed out: a page redirects to sign-in");
     t.status(await c.get("/api/tracking", null), 401, "signed out: data refused");
     t.status(await c.get("/_next/image?url=%2Flogo.png&w=64&q=75", null), 404, "the image optimiser stays refused");
-    // Logout clears the cookie (a separate session, so the cached ones stay valid).
+    // Logout clears the cookie. Since SEC-001 a sign-out ends EVERY session of that login, so: two fresh VIEWER
+    // sessions, sign one out, the other must stop working too; then drop the cached VIEWER cookie so later checks
+    // log in again.
     const u = c.users.VIEWER;
-    const lr = await fetch(c.base + "/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: u.email, password: u.password }) });
-    const ck = lr.headers.get("set-cookie")?.split(";")[0];
+    const fresh = async () => (await fetch(c.base + "/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: u.email, password: u.password }) })).headers.get("set-cookie")?.split(";")[0];
+    const ck = await fresh(), other = await fresh();
+    t.status(await fetch(c.base + "/api/auth/me", { headers: { cookie: other ?? "" } }), 200, "a second VIEWER session works before sign-out");
     const lo = await fetch(c.base + "/api/auth/logout", { method: "POST", headers: { cookie: ck ?? "" } });
     t.ok(lo.status === 200 && /Max-Age=0/i.test(lo.headers.get("set-cookie") ?? ""), "logout clears the session", lo.status);
+    t.status(await fetch(c.base + "/api/auth/me", { headers: { cookie: other ?? "" } }), 401, "SEC-001: the other VIEWER session is signed out too");
+    c.forget("VIEWER");
   },
 };
