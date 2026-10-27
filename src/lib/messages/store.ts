@@ -78,16 +78,25 @@ async function subjectLabel(type: SubjectType, key: string | null): Promise<{ la
 }
 
 // Phone alert to the other person in a one-to-one - who it's from, never the text or label. The room sends none (D-Q9).
-// CH-026: at most one per thread per recipient every 2 minutes - claimed in one conditional update, so two quick
-// messages can't both alert.
-async function alertOther(thread: { id: string }, other: { id: string; userId: string | null } | undefined, fromName: string) {
+// CH-026: at most one per thread per recipient every 2 minutes. RT-005 (security retest, Ilies approved 27 Oct): and
+// at most one from the same sender to the same recipient every 2 minutes on ANY thread, so starting new threads
+// doesn't get round it. The check and the claim run in one transaction, so two quick messages can't both alert.
+async function alertOther(thread: { id: string }, other: { id: string; userId: string | null } | undefined, fromName: string, senderUserId: string) {
   if (!other?.userId) return;
+  const recipient = other.userId;
   const now = new Date();
-  const claimed = await prisma.messageParticipant.updateMany({
-    where: { id: other.id, OR: [{ lastAlertedAt: null }, { lastAlertedAt: { lt: new Date(now.getTime() - ALERT_GAP_MS) } }] },
-    data: { lastAlertedAt: now },
+  const since = new Date(now.getTime() - ALERT_GAP_MS);
+  const claimed = await prisma.$transaction(async (tx) => {
+    const recentFromSender = await tx.messageParticipant.count({
+      where: { userId: recipient, lastAlertedAt: { gte: since }, thread: { kind: "DIRECT", participants: { some: { userId: senderUserId } } } },
+    });
+    if (recentFromSender) return 0;
+    return (await tx.messageParticipant.updateMany({
+      where: { id: other.id, OR: [{ lastAlertedAt: null }, { lastAlertedAt: { lt: since } }] },
+      data: { lastAlertedAt: now },
+    })).count;
   });
-  if (!claimed.count) return;
+  if (!claimed) return;
   try {
     await pushToUsers([other.userId], { ...alertText(fromName), url: `/messages?t=${thread.id}`, tag: `msg-${thread.id}` }, "high");
   } catch (e) {
@@ -141,7 +150,7 @@ export async function startThread(me: Viewer, b: Record<string, unknown>): Promi
     await tx.message.create({ data: { threadId: t.id, authorId: mine.id, authorName: me.name, body: body.text, createdAt: now } });
     return { ...t, other };
   });
-  await alertOther(thread, thread.other, me.name);
+  await alertOther(thread, thread.other, me.name, me.userId);
   return { id: thread.id };
 }
 
@@ -181,7 +190,7 @@ export async function postMessage(me: Viewer, threadId: string, b: Record<string
     await tx.messageParticipant.update({ where: { id: mine.id }, data: { lastSeenAt: now } });
     return row;
   });
-  if (t.kind === "DIRECT") await alertOther(t, o.others[0], me.name);
+  if (t.kind === "DIRECT") await alertOther(t, o.others[0], me.name, me.userId);
   return { id: m.id };
 }
 
