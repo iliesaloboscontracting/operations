@@ -1,5 +1,5 @@
 // Loads a file of drafted information requests (Task I, 25 Oct 2026) - e.g.
-// the lead builder's docs/info-requests/batch-01.json - as DRAFTS for Ilies
+// the lead builder's docs/info-requests/batch-NN.json (kept out of git, SEC-003) - as DRAFTS for Ilies
 // to review on Directors -> Information requests -> Draft questions. NOTHING
 // is sent: he ticks and sends them himself. Uses the same reader as the
 // owner's "Load a draft file" button (lib/infoRequests), so a file that loads

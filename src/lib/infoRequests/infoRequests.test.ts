@@ -24,8 +24,9 @@ test("a question needs a title and the question; FYI or QUESTION only; the due d
   assert.equal((parseInfoItem({ type: "FYI", title: "Heads up", question: "Xero goes live Monday" }, today) as { infoType: string }).infoType, "FYI");
 });
 
-test("the lead's draft file (docs/info-requests/batch-01.json) reads: every item has a 'to'", () => {
-  const p = path.join(process.cwd(), "docs", "info-requests", "batch-01.json");
+// SEC-003 (27 Oct 2026): a synthetic fixture in the draft-file format - the real batches stay out of git.
+test("a draft file in the lead's format reads: every item has a 'to'", () => {
+  const p = path.join(process.cwd(), "src", "lib", "infoRequests", "fixtures", "batch-sample.json");
   const r = parseDraftFile(JSON.parse(fs.readFileSync(p, "utf8")), today);
   if ("error" in r) assert.fail(r.error);
   assert.ok(r.items.length > 0); // the lead trims the batch as answers come in
