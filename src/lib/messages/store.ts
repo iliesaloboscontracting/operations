@@ -4,6 +4,7 @@
 // Design: docs/accounts/QUESTIONS-AND-CHAT-DESIGN.md part 3 (no site-link side).
 import { prisma } from "../prisma";
 import { pushToUsers } from "../push";
+import { alertSafely } from "./alertGuard";
 import { purchaseNo } from "../purchases/rules";
 import { requestNo } from "../requestTypes";
 import { AI_DAILY_LIMIT, isOperationsAi } from "../infoRequests/rules";
@@ -81,27 +82,26 @@ async function subjectLabel(type: SubjectType, key: string | null): Promise<{ la
 // CH-026: at most one per thread per recipient every 2 minutes. RT-005 (security retest, Ilies approved 27 Oct): and
 // at most one from the same sender to the same recipient every 2 minutes on ANY thread, so starting new threads
 // doesn't get round it. The check and the claim run in one transaction, so two quick messages can't both alert.
+// RT-007: the claim and the push are both inside alertSafely - a failed claim (e.g. SQLITE_BUSY when two posts
+// collide) just means no alert; it never turns a saved message into a 500.
 async function alertOther(thread: { id: string }, other: { id: string; userId: string | null } | undefined, fromName: string, senderUserId: string) {
   if (!other?.userId) return;
   const recipient = other.userId;
   const now = new Date();
   const since = new Date(now.getTime() - ALERT_GAP_MS);
-  const claimed = await prisma.$transaction(async (tx) => {
-    const recentFromSender = await tx.messageParticipant.count({
-      where: { userId: recipient, lastAlertedAt: { gte: since }, thread: { kind: "DIRECT", participants: { some: { userId: senderUserId } } } },
-    });
-    if (recentFromSender) return 0;
-    return (await tx.messageParticipant.updateMany({
-      where: { id: other.id, OR: [{ lastAlertedAt: null }, { lastAlertedAt: { lt: since } }] },
-      data: { lastAlertedAt: now },
-    })).count;
-  });
-  if (!claimed) return;
-  try {
-    await pushToUsers([other.userId], { ...alertText(fromName), url: `/messages?t=${thread.id}`, tag: `msg-${thread.id}` }, "high");
-  } catch (e) {
-    console.error("message alert failed", e);
-  }
+  await alertSafely(
+    () => prisma.$transaction(async (tx) => {
+      const recentFromSender = await tx.messageParticipant.count({
+        where: { userId: recipient, lastAlertedAt: { gte: since }, thread: { kind: "DIRECT", participants: { some: { userId: senderUserId } } } },
+      });
+      if (recentFromSender) return 0;
+      return (await tx.messageParticipant.updateMany({
+        where: { id: other.id, OR: [{ lastAlertedAt: null }, { lastAlertedAt: { lt: since } }] },
+        data: { lastAlertedAt: now },
+      })).count;
+    }),
+    () => pushToUsers([recipient], { ...alertText(fromName), url: `/messages?t=${thread.id}`, tag: `msg-${thread.id}` }, "high"),
+  );
 }
 
 // Posting limits: everyone 30 a minute (CH-026); Operations AI also 20 a day (D-Q10; its questions are counted apart).

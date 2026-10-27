@@ -3,6 +3,7 @@
 // sees, "seen" in a one-to-one and the room, unread with the room's first-visit window, and phone alerts that never
 // carry the message. `npm test`.
 import { test } from "node:test";
+import { alertSafely } from "./alertGuard";
 import { BANK_NOTICE, CHAT_NOTICE, DELETE_CONFIRM } from "./notices";
 import assert from "node:assert/strict";
 import {
@@ -151,4 +152,24 @@ test("CH-026: one alert per conversation per person every 2 minutes; 30 posts a 
   assert.equal(overPostRate(29), false);
   assert.equal(overPostRate(30), true, "the 31st in a minute is refused");
   assert.equal(ROOM_ID, "office-room", "reading Messages needs no row created for the room");
+});
+
+test("RT-007: a failed alert claim (e.g. SQLITE_BUSY) means no alert - it never escapes to fail the post", async () => {
+  const logged: string[] = [];
+  const log = (m: string) => { logged.push(m); };
+  let pushed = 0;
+  const push = async () => { pushed++; };
+  const busy = async (): Promise<number> => { throw Object.assign(new Error("SQLITE_BUSY: database is locked"), { code: "SQLITE_BUSY" }); };
+  // the post's own work carries on: alertSafely resolves (never rejects) when the claim throws
+  assert.equal(await alertSafely(busy, push, log), false);
+  assert.equal(pushed, 0, "no push after a failed claim");
+  assert.deepEqual(logged, ["message alert failed"], "the failure is logged");
+  assert.equal(await alertSafely(async () => 0, push, log), false, "claim not won (inside the 2-minute window): no push");
+  assert.equal(pushed, 0);
+  assert.equal(await alertSafely(async () => 1, push, log), true, "claim won: one push");
+  assert.equal(pushed, 1);
+  assert.equal(await alertSafely(async () => 1, async () => { throw new Error("push service down"); }, log), false, "a failed push is guarded too");
+  // a 'post' that awaits the guard completes normally even when the claim throws (the 201 path)
+  const post = async () => { const saved = "message saved"; await alertSafely(busy, push, log); return { status: 201, saved }; };
+  assert.deepEqual(await post(), { status: 201, saved: "message saved" });
 });
