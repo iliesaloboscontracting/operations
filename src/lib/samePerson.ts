@@ -6,6 +6,9 @@
 export const SAME_PERSON: [string, string][] = [
   // Nick Giannopoulos: his ADMIN (operations) login and his DIRECTOR login.
   ["cmvnh13p80001c8w58nolsvnj", "cmvko5k240001se8qoimhzk4w"],
+  // Iliesa: the owner login and the Building Agent login (PUR-001, 27 Oct 2026) - neither approves the other's
+  // purchase or change requests.
+  ["cmubx963700004t2nskaa059p", "cmv81x7om0000cfw714gqtmz2"],
 ];
 
 // The same login, or two logins listed above as one person.

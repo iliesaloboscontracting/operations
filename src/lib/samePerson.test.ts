@@ -33,6 +33,15 @@ test("purchases: the owner may approve (Ilies 27 Oct), but never their own reque
   assert.ok("error" in check("APPROVE", { ...r, requestedByUserId: "u-9" }, { kind: "DIRECTOR", role: "ADMIN", name: "An Admin", userId: "a-1" }), "another Admin still can't");
 });
 
+test("PUR-001: the owner and the Building Agent are one person for approvals", () => {
+  const [ownerId, agentId] = SAME_PERSON[1];
+  const fromAgent = { status: "CHECKED", requestedBy: "Agent", requestedByUserId: agentId };
+  assert.ok("error" in check("APPROVE", fromAgent, { kind: "DIRECTOR", role: "ADMIN", name: "Iliesa", userId: ownerId, owner: true }), "owner can't approve the agent's");
+  assert.equal(sameUser(agentId, ownerId), true);
+  const p = { kind: "PROJECT_JOB_NO" as never, requestedBy: "Agent", requestedByUserId: agentId, sourcePerson: null };
+  assert.match(cannotApprove({ id: ownerId, name: "Iliesa", email: "x@test.localhost", role: "ADMIN", directorAccess: true }, p) ?? "", /You proposed this change/);
+});
+
 test("SEC-002 (c): a change proposal can't be approved by its proposer's login id", () => {
   // Contract values are approved by a DIRECTOR login, so the approver here is one.
   const u = (id: string, name = "Somebody") => ({ id, name, email: "x@test.localhost", role: "DIRECTOR", directorAccess: true });

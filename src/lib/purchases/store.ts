@@ -3,6 +3,7 @@
 // records an event per step and sends the existing push alerts. Amounts only ever leave here in accountsView().
 // Design: docs/accounts/STAGE6-DESIGN.md §3.
 import { Prisma } from "@prisma/client";
+import { BUILDING_AGENT_EMAIL } from "../session";
 import { prisma } from "../prisma";
 import { isOwner, OWNER_EMAIL } from "../owner";
 import { pushToSiteLinks, pushToUsers, type PushMessage } from "../push";
@@ -64,6 +65,11 @@ async function tellRequester(r: { siteLinkId: string | null; requestedByUserId: 
 }
 
 export async function createRequest(who: Requester, b: Record<string, unknown>): Promise<{ id: string; ref: string } | Problem> {
+  // PUR-001 (27 Oct 2026): the Building Agent login never raises a purchase request - on any route.
+  if (who.kind === "APP") {
+    const u = await prisma.user.findUnique({ where: { id: who.userId }, select: { email: true } });
+    if (u?.email.toLowerCase() === BUILDING_AGENT_EMAIL) return bad("The Building Agent login can't ask to buy things.", 403);
+  }
   const p = parseNew(b);
   if ("error" in p) return bad(p.error!);
   if (p.data.projectId && !(await prisma.project.findUnique({ where: { id: p.data.projectId }, select: { id: true } }))) return bad("Pick the job again.");
