@@ -25,6 +25,14 @@ test("SEC-002 (c): a director can't approve a purchase they asked for, even unde
   assert.ok("error" in check("APPROVE", { ...r, requestedBy: "Renamed Director", requestedByUserId: null }, me("u-2")), "the name check still holds");
 });
 
+test("purchases: the owner may approve (Ilies 27 Oct), but never their own request - by id, under any name", () => {
+  const r = { status: "CHECKED", requestedBy: "Someone Else", requestedByUserId: "owner-id" };
+  const owner = (userId: string) => ({ kind: "DIRECTOR" as const, role: "ADMIN", name: "Renamed Owner", userId, owner: true });
+  assert.ok("to" in check("APPROVE", { ...r, requestedByUserId: "u-9" }, owner("owner-id")), "the owner approves someone else's");
+  assert.ok("error" in check("APPROVE", r, owner("owner-id")), "but not their own, matched by id");
+  assert.ok("error" in check("APPROVE", { ...r, requestedByUserId: "u-9" }, { kind: "DIRECTOR", role: "ADMIN", name: "An Admin", userId: "a-1" }), "another Admin still can't");
+});
+
 test("SEC-002 (c): a change proposal can't be approved by its proposer's login id", () => {
   // Contract values are approved by a DIRECTOR login, so the approver here is one.
   const u = (id: string, name = "Somebody") => ({ id, name, email: "x@test.localhost", role: "DIRECTOR", directorAccess: true });
