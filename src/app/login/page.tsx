@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { safeHome, safeNext } from "@/lib/safeNext";
 import AuthCard, { authInput } from "@/components/AuthCard";
 
 export default function LoginPage() {
@@ -31,10 +32,11 @@ export default function LoginPage() {
       });
       const j = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(j.error || "Couldn't sign in");
-      // Only follow same-site relative redirects.
+      // SEC-006: each role lands on its own home (accounts / directors / timesheets / Operations). Only an Operations
+      // login follows ?next=, and only to a path on this same site (lib/safeNext.ts).
       const next = new URLSearchParams(window.location.search).get("next");
-      const home = j.home === "/timesheets" ? "/timesheets" : "/command";
-      window.location.assign(home === "/command" && next && next.startsWith("/") && !next.startsWith("//") ? next : home);
+      const home = safeHome(j.home);
+      window.location.assign(home === "/command" ? safeNext(next, window.location.origin, home) : home);
     } catch (err) {
       setError((err as Error).message);
       setBusy(false);

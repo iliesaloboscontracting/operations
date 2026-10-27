@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import { safeNext as safeNextPath } from "./safeNext";
 import { randomBytes, scrypt as scryptCb, timingSafeEqual } from "crypto";
 import { promisify } from "util";
 import { prisma } from "./prisma";
@@ -185,6 +186,7 @@ export function normaliseEmail(email: string) {
 }
 
 // Only allow same-site relative redirects after login.
+// SEC-006: same-site paths only (backslashes, control characters, encoded tricks and other origins refused).
 export function safeNext(next: string | null | undefined) {
-  return next && next.startsWith("/") && !next.startsWith("//") ? next : "/command";
+  return safeNextPath(next, "https://app.invalid", "/command");
 }
