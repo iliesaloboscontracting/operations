@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser, guard, hashPassword, MIN_PASSWORD, normaliseEmail, ROLES } from "@/lib/auth";
 import { normName } from "@/lib/samePerson";
+import { BUILDING_AGENT_EMAIL } from "@/lib/session";
 import { isOwner } from "@/lib/owner";
 import { withErrorHandling } from "@/lib/apiHandler";
 
@@ -40,6 +41,10 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   }
   if (password.length < MIN_PASSWORD) {
     return NextResponse.json({ error: `Password must be at least ${MIN_PASSWORD} characters` }, { status: 400 });
+  }
+  // CH-021: only the owner creates the Building Agent login.
+  if (email === BUILDING_AGENT_EMAIL && !isOwner((await getCurrentUser())?.email)) {
+    return NextResponse.json({ error: "Only Iliesa can create this account." }, { status: 403 });
   }
   if (await prisma.user.findUnique({ where: { email } })) {
     return NextResponse.json({ error: "A user with that email already exists" }, { status: 409 });

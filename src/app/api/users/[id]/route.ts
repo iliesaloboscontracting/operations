@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentUser, guard, hashPassword, MIN_PASSWORD, ROLES } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { isOwner } from "@/lib/owner";
+import { BUILDING_AGENT_EMAIL } from "@/lib/session";
 import { normName, sameUser } from "@/lib/samePerson";
 
 // PATCH /api/users/:id { name?, role?, active?, password? } (admin only)
@@ -20,7 +21,10 @@ export const PATCH = withErrorHandling(async (
   const body = await req.json().catch(() => ({}));
   const target = await prisma.user.findUnique({ where: { id: params.id } });
   if (!target) return NextResponse.json({ error: "User not found" }, { status: 404 });
-  if (isOwner(target.email) && !isOwner(me?.email)) {
+  // CH-021 (27 Oct 2026): the Building Agent login (approved data changes are applied through it) is treated like
+  // the owner's own - only the owner changes its password, name, role or on/off switch.
+  const agentAccount = target.email.toLowerCase() === BUILDING_AGENT_EMAIL;
+  if ((isOwner(target.email) || agentAccount) && !isOwner(me?.email)) {
     return NextResponse.json({ error: "Only Iliesa can change this account." }, { status: 403 });
   }
   // SEC-002 (a): a director's login (DIRECTOR role or director access) - its password, name and on/off switch are
