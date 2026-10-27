@@ -264,6 +264,11 @@ business, without becoming unnecessarily complicated.
   ≤ every 15 min) into the same Xero mirror tables accounts' uploads use
   (`XeroImport` source API; the upload path is `/api/xero/imports`).
   Directors-only figures; bills are a cross-check only, never job cost.
+  Since 27 Oct (Ilies) accounts also have it: Accounts -> "Accounts data"
+  (`/accounts/xero`, guardAccounts) shows the connection status, Refresh now,
+  export uploads and the "Not tied to a job" sales invoices for Victoria to
+  match (the one `XeroJobMatch` store, so Directors see the same decisions).
+  Connect / Disconnect stay owner-only.
   Never add a write scope or a non-Xero host without Ilies's approval.
 - **Daily site log** (LCI phase 1, 25 Oct 2026; Ilies: "yes to all, build";
   `src/lib/dailyLog/`): pilot supervisors (`DAILY_LOG_PILOT_LINKS` = their
