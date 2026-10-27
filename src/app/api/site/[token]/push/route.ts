@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { resolveLink } from "@/lib/siteLinks";
 import { pushPublicKey } from "@/lib/push";
+import { isPushHost } from "@/lib/pushHost";
 
 // Phone alerts on a supervisor's link (24 Oct 2026) - e.g. the 20-minute
 // "still signed in" reminder. Supervisor and one-day hand-over links only.
@@ -28,7 +29,8 @@ export const POST = withErrorHandling(async (req: NextRequest, { params: paramsP
   const endpoint = typeof sub.endpoint === "string" ? sub.endpoint : "";
   const p256dh = typeof sub.keys?.p256dh === "string" ? sub.keys.p256dh : "";
   const auth = typeof sub.keys?.auth === "string" ? sub.keys.auth : "";
-  if (!/^https:\/\/\S{10,1000}$/.test(endpoint) || !p256dh || !auth || p256dh.length > 200 || auth.length > 100) {
+  // SEC-013: only a real browser push service (lib/pushHost.ts) - never another server we'd then send requests to.
+  if (!/^https:\/\/\S{10,1000}$/.test(endpoint) || !isPushHost(endpoint) || !p256dh || !auth || p256dh.length > 200 || auth.length > 100) {
     return NextResponse.json({ error: "That phone didn't give a usable notification address." }, { status: 400 });
   }
   const label = typeof body.label === "string" ? body.label.slice(0, 60) : null;

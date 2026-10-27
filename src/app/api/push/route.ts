@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentUser, guard } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { pushPublicKey } from "@/lib/push";
+import { isPushHost } from "@/lib/pushHost";
 
 // Phone alerts for site requests - Admin only (Ilies is the one who decides).
 // GET    -> { publicKey, devices }   the key the browser subscribes with
@@ -36,7 +37,8 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   const endpoint = typeof sub.endpoint === "string" ? sub.endpoint : "";
   const p256dh = typeof sub.keys?.p256dh === "string" ? sub.keys.p256dh : "";
   const auth = typeof sub.keys?.auth === "string" ? sub.keys.auth : "";
-  if (!/^https:\/\/\S{10,1000}$/.test(endpoint) || !p256dh || !auth || p256dh.length > 200 || auth.length > 100) {
+  // SEC-013: only a real browser push service (lib/pushHost.ts) - never another server we'd then send requests to.
+  if (!/^https:\/\/\S{10,1000}$/.test(endpoint) || !isPushHost(endpoint) || !p256dh || !auth || p256dh.length > 200 || auth.length > 100) {
     return NextResponse.json({ error: "That browser didn't give a usable notification address." }, { status: 400 });
   }
   const label = typeof body.label === "string" ? body.label.slice(0, 60) : null;

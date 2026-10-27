@@ -5,6 +5,7 @@
 // VAPID_PRIVATE_KEY, VAPID_SUBJECT (mailto:). No keys -> nothing is sent.
 import webpush from "web-push";
 import { prisma } from "./prisma";
+import { isPushHost } from "./pushHost";
 
 export type PushMessage = {
   title: string;
@@ -34,6 +35,8 @@ type Store = { sent(id: string): Promise<unknown>; gone(id: string): Promise<unk
 // Sends to each device. Never throws - a failed alert must not stop whatever
 // triggered it. Returns how many devices it reached.
 async function sendToDevices(devices: Device[], msg: PushMessage, urgency: "high" | "normal" | "low", store: Store) {
+  // SEC-013: re-checked here too, so an address stored before the check (or written any other way) is never called.
+  devices = devices.filter((d) => isPushHost(d.endpoint));
   if (!ready() || !devices.length) return 0;
   let sent = 0;
   await Promise.all(
