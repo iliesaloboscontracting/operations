@@ -10,10 +10,10 @@ import { useAuth } from "@/components/AuthProvider";
 import { apiFetch, serverErrorMessage } from "@/lib/apiFetch";
 
 // Messages - office chat (27 Oct 2026, Ilies: "a internal chat room between office personnel";
-// docs/accounts/QUESTIONS-AND-CHAT-DESIGN.md part 3): the shared "Office" room for every office login (no amounts), and
-// one-to-one conversations between any two office logins - only those two read them. Kept forever: nothing is edited
-// or deleted. No site-link side. ?t=<id> opens a conversation (from a phone alert); ?new=1&type=&key=&label= starts one
-// about a record.
+// docs/accounts/QUESTIONS-AND-CHAT-DESIGN.md part 3): the shared "Office" room for every office login, and one-to-one
+// conversations between any two office logins - only those two read them. Amounts are fine (Ilies 27 Oct). The sender
+// edits or deletes their own message; every earlier text is kept. No site-link side. ?t=<id> opens a conversation
+// (from a phone alert); ?new=1&type=&key=&label= starts one about a record.
 type Person = { id: string; name: string; role: string | null };
 const ROLE: Record<string, string> = { ACCOUNTS: "Accounts", DIRECTOR: "Director", ADMIN: "Admin", MANAGER: "Manager" };
 
@@ -45,7 +45,7 @@ function NewMessage({ subject, onDone, onCancel }: { subject: { type: string; ke
         {dir?.users.map((u) => <option key={u.id} value={u.id}>{u.name} ({ROLE[u.role ?? ""] ?? u.role})</option>)}
       </select>
       <textarea className={input} rows={4} value={body} onChange={(e) => setBody(e.target.value)} placeholder="Message" />
-      <p className="text-xs text-gray-500">Amounts are allowed only between accounts, directors and Admins. A conversation with a Manager (or Operations AI) can&apos;t carry a dollar figure. For everyone at once, use the Office room.</p>
+      <p className="text-xs text-gray-500">Only the two of you will see this conversation. For everyone at once, use the Office room.</p>
       {error && <p className="text-xs text-red-400">{error}</p>}
       <div className="flex gap-2">
         <button disabled={busy || !to || !body.trim()} className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">Send</button>
@@ -73,7 +73,7 @@ function Messages() {
 
   if (!loading && (!user || !["ACCOUNTS", "DIRECTOR", "ADMIN", "MANAGER"].includes(user.role))) return <PageShell title="Messages"><p className="text-sm text-gray-400">Messages are for accounts, directors and the office.</p></PageShell>;
   return (
-    <PageShell title="Messages" subtitle="Kept as a record: nothing is edited or deleted. The Office room is for everyone in the office; a one-to-one is only for its two people."
+    <PageShell title="Messages" subtitle="The Office room is for everyone in the office; a one-to-one is only for its two people. You can edit or delete your own messages - earlier versions are kept on record."
       actions={<button onClick={() => { setComposing(true); router.replace("/messages"); }} className="inline-flex items-center gap-1 rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white"><Plus size={12} /> New message</button>}>
       <div className="grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,320px)_minmax(0,1fr)]">
         <div className="min-w-0">{rows ? <ThreadList rows={rows} selected={open} onOpen={(id) => { setComposing(false); router.replace(`/messages?t=${id}`); }} /> : <p className="text-sm text-gray-500">Loading…</p>}</div>

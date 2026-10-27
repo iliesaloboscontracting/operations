@@ -6,6 +6,25 @@ Ilies (27 Oct), verbatim:
 
 The work is three parts, built in this order with one commit each. Draft defaults are marked **D-Q1 … D-Q12**. Each is a setting or a rule, not data, so each can be reversed.
 
+## Ilies's decisions after the first build (27 Oct 2026, passed on by the lead)
+
+These replace the matching drafts below. Each line under it says where in this note it applies.
+
+1. **"ALLOW EDITING AND CORRECTIONS WITHOUT SAYING A NEW MESSAGE"**
+   - The sender edits their own chat message in place, and it shows a small **"edited"** marker.
+   - Every earlier text is kept in an append-only history table (`MessageVersion`), shown behind "edited".
+   - Correction-as-a-new-message is gone.
+2. **"DOLLAR VALUES ARE APPROVED WITHIN THE OFFICE CHATS AND MESSAGES"**
+   - Dollar figures are allowed in the Office room and in every one-to-one, Managers and Operations AI included. Questions the AI sends to a Manager may carry them too.
+   - It is office-only and in-app: nothing from the chat ever reaches a site, driver or office link, and the link money guard is unchanged everywhere else.
+   - The 20-a-day limit stays.
+3. **"everyone that sends a message within the office communications should have the ability to allow editing or changes or deletion to the message without directors approval"**
+   - The sender can also **delete** their own message at any time, with no approval step.
+   - Everyone then sees a "message deleted" line.
+   - The text stays in the history table, visible to **the owner only**.
+   - Nobody edits or deletes another person's message.
+4. **D-Q9 (lead):** the Office room sends no push for now.
+
 ## 0. What is reused
 
 | Need | Already there | Used how |
@@ -49,7 +68,7 @@ The work is three parts, built in this order with one commit each. Draft default
 - **Tag:** the request's "asked by" is **"Operations AI"**, and `details.askedByAi = "1"`. Every screen shows that name: the recipient's card, Accounts → Questions, and Directors → Info requests, which has a "Sent by Operations AI" badge and an "AI only" filter. The owner sees every one there, since the page already lists every information request.
 - **Limits:**
   - **20 a day**, rolling 24 hours, counted from the store. The 21st is refused with a plain message.
-  - **No dollar figure in a question to a Manager**: title, question, need and why are all checked. Questions to accounts, directors and Admins may carry amounts, as today.
+  - ~~No dollar figure in a question to a Manager~~ **Replaced by Ilies's decision 2:** amounts are fine in a question to anyone the AI asks.
 - **Where Admins and Managers answer.** Today only accounts and directors have a "My queries" screen, so this adds:
   - **`/questions` "Questions for me"** (the same `MyQueries` component);
   - an Operations tab "My questions" with a badge, **shown only when this login has any question** (**D-Q3**), so the nav doesn't grow for everyone;
@@ -72,12 +91,24 @@ The work is three parts, built in this order with one commit each. Draft default
   - A participant row is made the first time a person opens it, and holds their "seen".
 - **One-to-one threads** between any two office logins. The branch blocked directors ↔ office; that block is lifted, because Ilies asked for chat between office personnel.
 
-**Money:**
-- The Office room refuses `$` figures, because Managers are in it.
-- A one-to-one thread may carry amounts only when **both** people are owner / ADMIN / ACCOUNTS / DIRECTOR. It is fixed when the thread starts.
-- A thread with a Manager refuses `$`. That includes the AI, which is a Manager login.
+**Money (Ilies's decision 2):**
+- Dollar figures are allowed in the Office room and in every one-to-one, Managers and Operations AI included.
+- There is no "amounts fixed at the start" rule any more. `MessageThread.moneyAllowed` stays in the schema, set true.
+- A record label keeps its full detail.
+- Chat never reaches a link, so the link money guard elsewhere is untouched.
 
-**Kept forever:** no edit or delete route (405). A correction is a new message, and the original stays and shows as corrected.
+**Edit and delete (Ilies's decisions 1 and 3):**
+- `POST /api/messages/:id` takes `{ action: "EDIT", messageId, body }` or `{ action: "DELETE", messageId }`.
+  - Only the sender may use them, at any time, with no approval and no alert. Anyone else gets 403, the owner included.
+  - PUT, PATCH and DELETE on the route stay 405.
+- **Edit:** the text changes in place and `editedAt` is set. The text before the change is written as an EDIT `MessageVersion`. Everyone in the conversation can open the earlier versions from "edited".
+- **Delete:**
+  - `deletedAt` is set and the text is cleared from the message row. The row itself stays, so the conversation keeps its order.
+  - The text is written as a DELETE `MessageVersion`.
+  - Everyone sees "message deleted", and the list preview says the same.
+  - Only the owner sees the deleted text and the edits before it, in the conversations he can open.
+  - A deleted message can't be edited or deleted again.
+- `MessageVersion` is append-only: nothing updates or deletes it. `Message.correctsId` stays in the schema, unused.
 
 **Seen:**
 - One-to-one: "Seen" with its time, as in the branch.
@@ -90,13 +121,13 @@ The work is three parts, built in this order with one commit each. Draft default
 
 **Push:**
 - "Message from <name>". The text is never included.
-- **D-Q8.** The body is the record label only in a thread without amounts; otherwise "Open Messages to read it".
+- **D-Q8 (revised for decision 2):** a label can now carry an amount, and an alert shows on a lock screen through Apple's or Google's servers. So the alert body is always "Open Messages to read it", never the label.
 - **D-Q9.** The Office room sends **no** push, badge only, so 20 people's phones don't buzz on every message. One-to-one messages do.
 
 **The AI in chat:**
 - The Building Agent can post in the room and start or reply to one-to-one threads.
 - Its name everywhere is **"Operations AI"**, including the "To" list. People can message it back.
-- It follows the same money rules as a Manager.
+- It may include amounts, like everyone in the chat (decision 2).
 - **D-Q10.** Its chat posts share the 20-a-day limit with its questions: 20 questions plus 20 messages, counted separately.
 
 **"Message about this"** on purchases, reimbursements, pay weeks, ABN invoices and site requests is kept from the branch, in-app only. A message never changes the record.
@@ -109,6 +140,7 @@ The work is three parts, built in this order with one commit each. Draft default
 - the branch's three tables;
 - `MessageThread.kind String @default("DIRECT")` (DIRECT | ROOM) and `roomKey String? @unique`;
 - `MessageParticipant.kind` stays (always USER now), and `resourceId` stays nullable and unused, so a later link side needs no migration.
+- From the 4th commit: `Message.editedAt`, `Message.deletedAt`, and the append-only `MessageVersion` table (messageId Restrict, kind EDIT | DELETE, body, by, at).
 
 ## 4. Files not touched
 
@@ -163,3 +195,19 @@ The work is three parts, built in this order with one commit each. Draft default
   - Messages as accounts (the Accounts nav stays), the room open, at phone width. Long lines in the list now shorten instead of overflowing;
   - a Manager's "Questions for me", with the "My questions" and "Messages" tabs.
 - Not covered: push delivery (the copy has no push keys). The alert text is unit-tested to carry no message.
+
+### Results after Ilies's decisions (4th commit, 27 Oct 2026, a fresh copy of `cloud-dev-20261027-0130`)
+
+- `tsc` clean; `npm test` 313 / 313.
+  - The chat rule tests were rewritten for edit, delete, the history each reader sees, amounts, and an alert with no label.
+  - The AI question tests now check that amounts are fine to a Manager.
+- End to end: **84 / 84**.
+  - Amounts go through in the room, to a Manager, in an AI one-to-one, and in an AI question to a Manager.
+  - Edit in place: one message marked edited, the earlier version visible to the other person, two edits keep two versions.
+  - Nobody else edits or deletes a message: the director 403, and the owner 403 on someone else's message.
+  - Delete: others see "message deleted" with no text and no history, and the list preview hides it. The owner reads the DELETE version. A deleted message can't be edited back. The row is kept.
+  - Every earlier check (access per role, only two people read a one-to-one, 405s, the AI as "Operations AI", the 20-a-day limit) still passes.
+- `scripts/check-viewer-safety.ts`: 22 / 22. No new GET routes, so there are no new checks; a Viewer still gets 403 on every chat route.
+- Browser, as accounts:
+  - an edited message with "edited", Edit and Delete, and its two earlier versions;
+  - the room showing "message deleted" with no history link.

@@ -1941,8 +1941,27 @@ model Message {
   authorId   String // the MessageParticipant who wrote it
   authorName String
   body       String
-  correctsId String? // an earlier message in the same thread this one corrects
+  correctsId String? // (unused since 27 Oct - edits are in place) an earlier message this one corrects
   createdAt  DateTime      @default(now())
+  editedAt   DateTime? // the sender changed it in place (Ilies 27 Oct); every earlier text is a MessageVersion
+  deletedAt  DateTime? // the sender deleted it: "message deleted" for everyone; its text stays in MessageVersion (owner only)
+  versions   MessageVersion[]
 
   @@index([threadId, createdAt])
+}
+
+// Every text a chat message had before its sender edited or deleted it (Ilies 27 Oct 2026: "ALLOW EDITING AND
+// CORRECTIONS WITHOUT SAYING A NEW MESSAGE"; "...editing or changes or deletion to the message without directors
+// approval"). Append-only - never updated or deleted. EDIT versions show behind "edited"; a DELETE version (the text
+// at deletion) is shown to the owner only.
+model MessageVersion {
+  id        String   @id @default(cuid())
+  messageId String
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Restrict)
+  kind      String // EDIT | DELETE
+  body      String // the text before this change
+  by        String
+  at        DateTime @default(now())
+
+  @@index([messageId, at])
 }

@@ -1,8 +1,10 @@
-// Office chat (27 Oct 2026): the plain rules - who uses it, who may start a thread with whom, when a thread may carry
-// amounts, what a message may say, and "seen" / unread. No server imports; `npm test` (rules.test.ts).
+// Office chat (27 Oct 2026): the plain rules - who uses it, who may start a thread with whom, what a message may say,
+// who may edit or delete it, and "seen" / unread. No server imports; `npm test` (rules.test.ts).
+// Ilies, 27 Oct: "DOLLAR VALUES ARE APPROVED WITHIN THE OFFICE CHATS AND MESSAGES" - amounts are fine everywhere in the
+// chat (room and one-to-ones, Managers and Operations AI included). Chat never reaches a site / driver / office link,
+// and the link money guard elsewhere is unchanged.
 // Design: docs/accounts/QUESTIONS-AND-CHAT-DESIGN.md part 3 (built on the messaging branch, 3c64ff1, without the
 // site-link side - Ilies scrapped messaging to workers).
-import { assertNoMoney } from "../moneyGuard";
 import { OPERATIONS_AI_NAME, isOperationsAi } from "../infoRequests/rules";
 
 // Office logins: the owner and Admins, Managers, accounts and the directors. Viewers and Timesheets logins don't chat.
@@ -22,25 +24,34 @@ export function canStart(fromRole: string, toRole: string): { ok: true } | { err
   return { ok: true };
 }
 
-// Amounts only when both people are owner / Admin / accounts / director logins - never a Manager, never Operations AI
-// (a Manager login), and never in the Office room (Managers read it).
-const MONEY_ROLES = ["ACCOUNTS", "DIRECTOR", "ADMIN"];
-export type Person = { role: string; email?: string | null };
-export const moneyAllowed = (a: Person, b: Person) => [a, b].every((p) => MONEY_ROLES.includes(p.role) && !isOperationsAi(p.email));
-
 // How a login is named in chat: the Building Agent is "Operations AI" everywhere.
 export const chatName = (name: string, email: string | null | undefined) => (isOperationsAi(email) ? OPERATIONS_AI_NAME : name);
 
 export const MAX_BODY = 2000;
-const NO_MONEY = "Leave amounts out - a Manager can read this conversation. Accounts keep the figures.";
 
-// A message as typed -> the text to keep, or why not.
-export function checkBody(body: unknown, money: boolean): { text: string } | { error: string } {
+// A message as typed (new, or an edit) -> the text to keep, or why not. Amounts are allowed.
+export function checkBody(body: unknown): { text: string } | { error: string } {
   const text = typeof body === "string" ? body.replace(/\r\n/g, "\n").trim() : "";
   if (!text) return { error: "Write the message." };
   if (text.length > MAX_BODY) return { error: `Keep it under ${MAX_BODY} characters.` };
-  if (!money && !assertNoMoney(text)) return { error: NO_MONEY };
   return { text };
+}
+
+// Ilies, 27 Oct: "ALLOW EDITING AND CORRECTIONS WITHOUT SAYING A NEW MESSAGE" and "everyone that sends a message ...
+// should have the ability to allow editing or changes or deletion to the message without directors approval".
+// The sender edits or deletes their own message, any time, no approval; nobody touches someone else's. A deleted
+// message stays deleted (no edit, no second delete).
+export function canChange(m: { authorId: string; deletedAt: Date | string | null }, myParticipantId: string): { ok: true } | { error: string } {
+  if (m.authorId !== myParticipantId) return { error: "You can only change your own messages." };
+  if (m.deletedAt) return { error: "That message was deleted." };
+  return { ok: true };
+}
+
+// What a reader sees of a message's history: edits behind "edited" for everyone in the conversation; deleted text
+// (the DELETE version, and the edits before it) for the owner only.
+export function visibleHistory(versions: { kind: string; body: string; at: Date | string }[], deleted: boolean, viewerIsOwner: boolean) {
+  if (deleted && !viewerIsOwner) return [];
+  return versions.filter((v) => v.kind === "EDIT" || viewerIsOwner).map((v) => ({ kind: v.kind, text: v.body, at: new Date(v.at).toISOString() }));
 }
 
 // "Seen": the other person opened the thread at or after the message.
@@ -72,14 +83,9 @@ const SUBJECT_ROLES: Record<SubjectType, string[]> = {
 };
 export const canUseSubject = (role: string, t: SubjectType) => SUBJECT_ROLES[t].includes(role);
 
-// A record's label as both people see it. When a Manager can read the thread, a part carrying a dollar figure is
-// dropped (the reference alone finds the record).
-export const labelOf = (ref: string, detail: string | null | undefined, money: boolean) =>
-  detail && (money || assertNoMoney(detail)) ? `${ref} · ${detail.replace(/\s+/g, " ").trim().slice(0, 80)}` : ref;
+// A record's label as both people see it.
+export const labelOf = (ref: string, detail: string | null | undefined) => (detail ? `${ref} · ${detail.replace(/\s+/g, " ").trim().slice(0, 80)}` : ref);
 
-// A phone alert never carries the message - who it's from, and (D-Q8) the record label only in a thread with no
-// amounts. The Office room sends no alerts (D-Q9).
-export const alertText = (fromName: string, subjectLabel: string, money: boolean) => ({
-  title: `Message from ${fromName}`,
-  body: !money && subjectLabel && subjectLabel !== "Message" ? subjectLabel : "Open Messages to read it.",
-});
+// A phone alert never carries the message, nor the record label (a label can now carry an amount, and an alert shows
+// on a lock screen through Apple's / Google's servers) - only who it's from. The Office room sends none (D-Q9).
+export const alertText = (fromName: string) => ({ title: `Message from ${fromName}`, body: "Open Messages to read it." });

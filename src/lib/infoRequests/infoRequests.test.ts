@@ -143,27 +143,21 @@ test("Operations AI is the Building Agent login by email, never by role", async 
 test("the AI asks accounts, directors, Admins and Managers - never itself, the owner, a Viewer or a switched-off login", async () => {
   const { aiTargetError, aiCanAsk } = await import("./rules");
   const u = (o: Partial<Askable>): Askable => ({ id: "x", name: "X", email: "x@l.com", role: "MANAGER", directorAccess: false, active: true, ...o });
-  const q = { title: "Hire dates", question: "When does the Kanga go back?", need: null, why: null };
-  for (const role of ["ACCOUNTS", "DIRECTOR", "ADMIN", "MANAGER"]) assert.equal(aiTargetError(u({ role }), "ai", OWNER, q), null, role);
-  assert.match(aiTargetError(u({ role: "VIEWER" }), "ai", OWNER, q)!, /accounts, the directors and the office/);
-  assert.match(aiTargetError(u({ role: "TIMESHEETS" }), "ai", OWNER, q)!, /accounts/);
-  assert.match(aiTargetError(u({ id: "ai" }), "ai", OWNER, q)!, /yourself/);
-  assert.match(aiTargetError(u({ role: "ADMIN", email: OWNER }), "ai", OWNER, q)!, /Ilies/);
-  assert.match(aiTargetError(u({ active: false }), "ai", OWNER, q)!, /switched off/);
-  assert.equal(aiTargetError(null, "ai", OWNER, q), "Pick who to ask.");
+  for (const role of ["ACCOUNTS", "DIRECTOR", "ADMIN", "MANAGER"]) assert.equal(aiTargetError(u({ role }), "ai", OWNER), null, role);
+  assert.match(aiTargetError(u({ role: "VIEWER" }), "ai", OWNER)!, /accounts, the directors and the office/);
+  assert.match(aiTargetError(u({ role: "TIMESHEETS" }), "ai", OWNER)!, /accounts/);
+  assert.match(aiTargetError(u({ id: "ai" }), "ai", OWNER)!, /yourself/);
+  assert.match(aiTargetError(u({ role: "ADMIN", email: OWNER }), "ai", OWNER)!, /Ilies/);
+  assert.match(aiTargetError(u({ active: false }), "ai", OWNER)!, /switched off/);
+  assert.equal(aiTargetError(null, "ai", OWNER), "Pick who to ask.");
   assert.equal(aiCanAsk(u({ role: "ACCOUNTS" }), "ai", OWNER), true);
   assert.equal(aiCanAsk(u({ role: "VIEWER" }), "ai", OWNER), false);
 });
 
-test("no dollar figure in a question to a Manager (title, question, need, why); amounts fine to accounts / directors / Admins", async () => {
+test("amounts are fine in a question to anyone the AI asks, Managers included (Ilies 27 Oct)", async () => {
   const { aiTargetError } = await import("./rules");
   const u = (role: string): Askable => ({ id: "m", name: "M", email: "m@l.com", role, directorAccess: false, active: true });
-  const plain = { title: "Fuel", question: "Which card paid for the fuel?", need: null, why: null };
-  assert.equal(aiTargetError(u("MANAGER"), "ai", OWNER, plain), null);
-  for (const k of ["title", "question", "need", "why"] as const) {
-    assert.match(aiTargetError(u("MANAGER"), "ai", OWNER, { ...plain, [k]: "It was $ 120 at the servo" })!, /dollar figure/, k);
-  }
-  for (const role of ["ACCOUNTS", "DIRECTOR", "ADMIN"]) assert.equal(aiTargetError(u(role), "ai", OWNER, { ...plain, question: "Was the $120 fuel ours?" }), null, role);
+  for (const role of ["MANAGER", "ACCOUNTS", "DIRECTOR", "ADMIN"]) assert.equal(aiTargetError(u(role), "ai", OWNER), null, role);
 });
 
 test("the AI's limit is 20 questions in a rolling 24 hours", async () => {

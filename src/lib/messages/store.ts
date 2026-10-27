@@ -1,14 +1,16 @@
 // Office chat (27 Oct 2026), server side: the shared "Office" room and one-to-one threads between office logins,
-// optionally about a record, kept forever. The rules are rules.ts; this file loads, saves and sends the existing push
-// alerts. Design: docs/accounts/QUESTIONS-AND-CHAT-DESIGN.md part 3 (no site-link side).
+// optionally about a record. The sender may edit or delete their own message (every earlier text kept in
+// MessageVersion, append-only). The rules are rules.ts; this file loads, saves and sends the existing push alerts.
+// Design: docs/accounts/QUESTIONS-AND-CHAT-DESIGN.md part 3 (no site-link side).
 import { prisma } from "../prisma";
 import { pushToUsers } from "../push";
 import { purchaseNo } from "../purchases/rules";
 import { requestNo } from "../requestTypes";
 import { AI_DAILY_LIMIT, isOperationsAi } from "../infoRequests/rules";
+import { isOwner } from "../owner";
 import {
-  ROOM_FIRST_VISIT_DAYS, ROOM_KEY, ROOM_TITLE, alertText, canMessage, canStart, canUseSubject, chatName, checkBody, isSubjectType, labelOf,
-  moneyAllowed, roomSeenBy, seenBy, unreadCount, type SubjectType,
+  ROOM_FIRST_VISIT_DAYS, ROOM_KEY, ROOM_TITLE, alertText, canChange, canMessage, canStart, canUseSubject, chatName, checkBody, isSubjectType, labelOf,
+  roomSeenBy, seenBy, unreadCount, visibleHistory, type SubjectType,
 } from "./rules";
 
 type Problem = { error: string; status: number };
@@ -18,11 +20,11 @@ const bad = (error: string, status = 400): Problem => ({ error, status });
 export type Viewer = { userId: string; role: string; email: string; name: string };
 type Participant = { id: string; userId: string | null; name: string; lastSeenAt: Date | null };
 
-// The Office room: one thread, made the first time anyone opens Messages. Never carries amounts.
+// The Office room: one thread, made the first time anyone opens Messages.
 async function room() {
   return prisma.messageThread.upsert({
     where: { roomKey: ROOM_KEY },
-    create: { kind: "ROOM", roomKey: ROOM_KEY, subjectLabel: ROOM_TITLE, moneyAllowed: false, createdBy: "Operations" },
+    create: { kind: "ROOM", roomKey: ROOM_KEY, subjectLabel: ROOM_TITLE, moneyAllowed: true, createdBy: "Operations" },
     update: {},
   });
 }
@@ -41,41 +43,41 @@ export async function directory(me: Viewer) {
 }
 
 // The record a thread is about: it must exist; its label is what both people see.
-async function subjectLabel(type: SubjectType, key: string | null, money: boolean): Promise<{ label: string } | Problem> {
+async function subjectLabel(type: SubjectType, key: string | null): Promise<{ label: string } | Problem> {
   if (type === "NONE") return { label: "Message" };
   if (!key) return bad("Which record is it about?");
   switch (type) {
     case "PURCHASE": {
       const r = await prisma.purchaseRequest.findUnique({ where: { id: key }, select: { number: true, what: true } });
-      return r ? { label: labelOf(purchaseNo(r.number), r.what, money) } : bad("That purchase request isn't there.", 404);
+      return r ? { label: labelOf(purchaseNo(r.number), r.what) } : bad("That purchase request isn't there.", 404);
     }
     case "REIMBURSEMENT": {
       const r = await prisma.reimbursement.findUnique({ where: { id: key }, select: { description: true, spentOn: true, personName: true } });
-      return r ? { label: labelOf(`Reimbursement ${r.spentOn.split("-").reverse().join("/")}`, `${r.personName} · ${r.description}`, money) } : bad("That reimbursement isn't there.", 404);
+      return r ? { label: labelOf(`Reimbursement ${r.spentOn.split("-").reverse().join("/")}`, `${r.personName} · ${r.description}`) } : bad("That reimbursement isn't there.", 404);
     }
     case "PAY_WEEK": {
       const [weekStart, personKey] = key.split("|");
       if (!/^\d{4}-\d{2}-\d{2}$/.test(weekStart ?? "") || !personKey) return bad("Pick the pay week and person.");
       const r = await prisma.payWeekReview.findFirst({ where: { weekStart, personKey }, select: { personName: true }, orderBy: { at: "desc" } });
-      return { label: labelOf(`Pay week from ${weekStart.split("-").reverse().join("/")}`, r?.personName ?? null, money) };
+      return { label: labelOf(`Pay week from ${weekStart.split("-").reverse().join("/")}`, r?.personName ?? null) };
     }
     case "ABN_INVOICE": {
       const r = await prisma.abnInvoice.findUnique({ where: { id: key }, select: { personName: true, periodFrom: true, periodTo: true } });
-      return r ? { label: labelOf("ABN invoice", [r.personName, r.periodFrom && r.periodTo ? `${r.periodFrom} to ${r.periodTo}` : null].filter(Boolean).join(" · "), money) } : bad("That ABN invoice isn't there.", 404);
+      return r ? { label: labelOf("ABN invoice", [r.personName, r.periodFrom && r.periodTo ? `${r.periodFrom} to ${r.periodTo}` : null].filter(Boolean).join(" · ")) } : bad("That ABN invoice isn't there.", 404);
     }
     case "SITE_REQUEST": {
       const r = await prisma.siteRequest.findUnique({ where: { id: key }, select: { number: true, summary: true } });
-      return r ? { label: labelOf(requestNo(r.number), r.summary, money) } : bad("That request isn't there.", 404);
+      return r ? { label: labelOf(requestNo(r.number), r.summary) } : bad("That request isn't there.", 404);
     }
   }
   return bad("Unknown record type.");
 }
 
-// Phone alert to the other person in a one-to-one - never the text (D-Q8). The room sends none (D-Q9).
-async function alertOther(thread: { id: string; subjectLabel: string; moneyAllowed: boolean }, otherUserId: string | null, fromName: string) {
+// Phone alert to the other person in a one-to-one - who it's from, never the text or label. The room sends none (D-Q9).
+async function alertOther(thread: { id: string }, otherUserId: string | null, fromName: string) {
   if (!otherUserId) return;
   try {
-    await pushToUsers([otherUserId], { ...alertText(fromName, thread.subjectLabel, thread.moneyAllowed), url: `/messages?t=${thread.id}`, tag: `msg-${thread.id}` }, "high");
+    await pushToUsers([otherUserId], { ...alertText(fromName), url: `/messages?t=${thread.id}`, tag: `msg-${thread.id}` }, "high");
   } catch (e) {
     console.error("message alert failed", e);
   }
@@ -101,16 +103,15 @@ export async function startThread(me: Viewer, b: Record<string, unknown>): Promi
   if ("error" in allowed) return bad(allowed.error, 403);
   if (await aiOverLimit(me)) return bad(AI_LIMIT_TEXT, 429);
 
-  const money = moneyAllowed(me, u);
-  const body = checkBody(b.body, money);
+  const body = checkBody(b.body);
   if ("error" in body) return bad(body.error);
   const subjectKey = subjectType === "NONE" ? null : typeof b.subjectKey === "string" ? b.subjectKey.slice(0, 120) : null;
-  const label = await subjectLabel(subjectType, subjectKey, money);
+  const label = await subjectLabel(subjectType, subjectKey);
   if ("error" in label) return label;
 
   const now = new Date();
   const thread = await prisma.$transaction(async (tx) => {
-    const t = await tx.messageThread.create({ data: { kind: "DIRECT", subjectType, subjectKey, subjectLabel: label.label, moneyAllowed: money, createdBy: me.name, lastMessageAt: now } });
+    const t = await tx.messageThread.create({ data: { kind: "DIRECT", subjectType, subjectKey, subjectLabel: label.label, moneyAllowed: true, createdBy: me.name, lastMessageAt: now } });
     const mine = await tx.messageParticipant.create({ data: { threadId: t.id, kind: "USER", userId: me.userId, name: me.name, role: me.role, lastSeenAt: now } });
     await tx.messageParticipant.create({ data: { threadId: t.id, kind: "USER", userId: u.id, name: chatName(u.name, u.email), role: u.role } });
     await tx.message.create({ data: { threadId: t.id, authorId: mine.id, authorName: me.name, body: body.text, createdAt: now } });
@@ -132,30 +133,57 @@ async function openFor(me: Viewer, threadId: string, seen = false) {
   return mine ? { t, mine: mine as Participant, others: t.participants.filter((p) => p.id !== mine.id) as Participant[] } : null;
 }
 
-// A reply (or a correction of an earlier message).
+// A reply.
 export async function postMessage(me: Viewer, threadId: string, b: Record<string, unknown>): Promise<{ id: string } | Problem> {
   // A first-time room seat starts unseen: a refused message mustn't mark the room read; a sent one does, below.
   const o = await openFor(me, threadId, false);
   if (!o) return bad("Not found.", 404);
   const { t, mine } = o;
-  const body = checkBody(b.body, t.moneyAllowed);
+  const body = checkBody(b.body);
   if ("error" in body) return bad(body.error);
-  let correctsId: string | null = null;
-  if (typeof b.correctsId === "string" && b.correctsId) {
-    const old = await prisma.message.findUnique({ where: { id: b.correctsId }, select: { threadId: true, authorId: true } });
-    if (!old || old.threadId !== t.id) return bad("That message isn't in this conversation.");
-    if (old.authorId !== mine.id) return bad("You can only correct your own message.");
-    correctsId = b.correctsId;
-  }
   if (await aiOverLimit(me)) return bad(AI_LIMIT_TEXT, 429);
   const now = new Date();
   const m = await prisma.$transaction(async (tx) => {
-    const row = await tx.message.create({ data: { threadId: t.id, authorId: mine.id, authorName: me.name, body: body.text, correctsId, createdAt: now } });
+    const row = await tx.message.create({ data: { threadId: t.id, authorId: mine.id, authorName: me.name, body: body.text, createdAt: now } });
     await tx.messageThread.update({ where: { id: t.id }, data: { lastMessageAt: now } });
     await tx.messageParticipant.update({ where: { id: mine.id }, data: { lastSeenAt: now } });
     return row;
   });
   if (t.kind === "DIRECT") await alertOther(t, o.others[0]?.userId ?? null, me.name);
+  return { id: m.id };
+}
+
+// The sender edits their own message in place (the earlier text kept as an EDIT version), or deletes it (the text
+// kept as a DELETE version - the owner only sees it). No approval, no alert; nobody changes someone else's message.
+async function ownMessage(me: Viewer, threadId: string, messageId: unknown) {
+  const o = await openFor(me, threadId);
+  if (!o || typeof messageId !== "string") return bad("Not found.", 404);
+  const m = await prisma.message.findUnique({ where: { id: messageId } });
+  if (!m || m.threadId !== o.t.id) return bad("That message isn't in this conversation.", 404);
+  const can = canChange(m, o.mine.id);
+  return "error" in can ? bad(can.error, 403) : m;
+}
+
+export async function editMessage(me: Viewer, threadId: string, b: Record<string, unknown>): Promise<{ id: string } | Problem> {
+  const m = await ownMessage(me, threadId, b.messageId);
+  if ("error" in m) return m;
+  const body = checkBody(b.body);
+  if ("error" in body) return bad(body.error);
+  if (body.text === m.body) return { id: m.id };
+  await prisma.$transaction([
+    prisma.messageVersion.create({ data: { messageId: m.id, kind: "EDIT", body: m.body, by: me.name } }),
+    prisma.message.update({ where: { id: m.id }, data: { body: body.text, editedAt: new Date() } }),
+  ]);
+  return { id: m.id };
+}
+
+export async function deleteMessage(me: Viewer, threadId: string, b: Record<string, unknown>): Promise<{ id: string } | Problem> {
+  const m = await ownMessage(me, threadId, b.messageId);
+  if ("error" in m) return m;
+  await prisma.$transaction([
+    prisma.messageVersion.create({ data: { messageId: m.id, kind: "DELETE", body: m.body, by: me.name } }),
+    prisma.message.update({ where: { id: m.id }, data: { body: "", deletedAt: new Date() } }),
+  ]);
   return { id: m.id };
 }
 
@@ -179,8 +207,8 @@ export async function listThreads(me: Viewer) {
   });
   const roomRow = {
     id: r.id, room: true, title: ROOM_TITLE, subjectType: "NONE", subjectKey: null, subjectLabel: "Everyone in the office", other: null,
-    lastMessageAt: r.lastMessageAt.toISOString(), last: roomLast ? { by: roomLast.authorName, text: roomLast.body.slice(0, 140) } : null,
-    unread: roomUnread, moneyAllowed: false,
+    lastMessageAt: r.lastMessageAt.toISOString(), last: roomLast ? { by: roomLast.authorName, text: roomLast.body ? roomLast.body.slice(0, 140) : "message deleted" } : null,
+    unread: roomUnread,
   };
 
   const parts = await prisma.messageParticipant.findMany({ where: { kind: "USER", userId: me.userId, thread: { kind: "DIRECT" } }, select: { threadId: true } });
@@ -197,8 +225,8 @@ export async function listThreads(me: Viewer) {
     return {
       id: t.id, room: false, title: other?.name ?? "Conversation", subjectType: t.subjectType, subjectKey: t.subjectKey, subjectLabel: t.subjectLabel,
       other: other ? { name: other.name } : null,
-      lastMessageAt: t.lastMessageAt.toISOString(), last: last ? { by: last.authorName, text: last.body.slice(0, 140) } : null,
-      unread: unreadCount(t.messages, mine.id, mine.lastSeenAt), moneyAllowed: t.moneyAllowed,
+      lastMessageAt: t.lastMessageAt.toISOString(), last: last ? { by: last.authorName, text: last.body ? last.body.slice(0, 140) : "message deleted" } : null,
+      unread: unreadCount(t.messages, mine.id, mine.lastSeenAt),
     };
   });
   return [roomRow, ...direct];
@@ -211,18 +239,24 @@ export async function getThread(me: Viewer, threadId: string) {
   if (!o) return null;
   const { t, mine, others } = o;
   const isRoom = t.kind === "ROOM";
-  const msgs = (await prisma.message.findMany({ where: { threadId: t.id }, orderBy: { createdAt: "desc" }, take: isRoom ? ROOM_SHOWN : 2000 })).reverse();
-  const corrected = new Set(msgs.map((m) => m.correctsId).filter(Boolean) as string[]);
+  const msgs = (await prisma.message.findMany({
+    where: { threadId: t.id }, orderBy: { createdAt: "desc" }, take: isRoom ? ROOM_SHOWN : 2000,
+    include: { versions: { orderBy: { at: "asc" } } },
+  })).reverse();
+  const owner = isOwner(me.email);
   const other = isRoom ? null : others[0] ?? null;
   return {
     id: t.id, room: isRoom, title: isRoom ? ROOM_TITLE : other?.name ?? "Conversation",
-    subjectType: t.subjectType, subjectKey: t.subjectKey, subjectLabel: isRoom ? "Everyone in the office · no amounts" : t.subjectLabel, moneyAllowed: t.moneyAllowed,
+    subjectType: t.subjectType, subjectKey: t.subjectKey, subjectLabel: isRoom ? "Everyone in the office" : t.subjectLabel,
     other: other ? { name: other.name } : null,
     messages: msgs.map((m) => {
       const own = m.authorId === mine.id;
       const seenNames = own && isRoom ? roomSeenBy(m.createdAt, others) : [];
+      const deleted = !!m.deletedAt;
       return {
-        id: m.id, mine: own, by: m.authorName, text: m.body, at: m.createdAt.toISOString(), correctsId: m.correctsId, corrected: corrected.has(m.id),
+        id: m.id, mine: own, by: m.authorName, text: deleted ? null : m.body, at: m.createdAt.toISOString(),
+        edited: !!m.editedAt && !deleted, editedAt: m.editedAt?.toISOString() ?? null, deleted, deletedAt: m.deletedAt?.toISOString() ?? null,
+        history: visibleHistory(m.versions, deleted, owner), canChange: own && !deleted,
         seen: own ? (isRoom ? seenNames.length > 0 : seenBy(m.createdAt, other?.lastSeenAt)) : null,
         seenAt: own && !isRoom && other?.lastSeenAt && seenBy(m.createdAt, other.lastSeenAt) ? other.lastSeenAt.toISOString() : null,
         seenBy: own && isRoom ? seenNames : null,
