@@ -34,7 +34,11 @@ business, without becoming unnecessarily complicated.
   (`INVOICE_FILE_DIR`; in the nightly backup since 2026-10-24),
   Node 24 in `/opt/node`. systemd units: `operations` (`next start` bound to
   **127.0.0.1:3000 only**), `cloudflared-operations` (the tunnel, token in
-  `/etc/cloudflared/token`), `operations-backup.timer` (1:30am: SQLite
+  `/etc/cloudflared/token`), `operations-backup.timer` (runs as root since
+  27 Oct 2026, Ilies "A" - as the `operations` user it couldn't read
+  Estimating's folder and failed every night from 25 Oct; each step now
+  runs on its own, empty files are never kept, the 14-day prune always
+  runs, exit 1 if any step failed) (1:30am: SQLite
   `.backup` + integrity check + photos tar, 14 days in
   `/srv/operations/backups`) plus Lightsail's daily snapshot; an off-AWS
   copy is pulled nightly at 2am by the laptop's "Operations DB Backup" task
