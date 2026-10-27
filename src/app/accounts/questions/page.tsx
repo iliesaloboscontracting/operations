@@ -12,6 +12,7 @@ import PageShell from "@/components/PageShell";
 import { useAuth } from "@/components/AuthProvider";
 import MyQueries, { type QuestionRow } from "@/components/queries/MyQueries";
 import { apiFetch, serverErrorMessage } from "@/lib/apiFetch";
+import { isOperationsAi } from "@/lib/infoRequests/rules";
 
 type Data = { questions: QuestionRow[]; canAsk: boolean; accounts: { id: string; name: string }[] };
 const input = "w-full rounded-lg border border-edge bg-panel2 px-3 py-2 text-sm text-gray-200 placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40";
@@ -61,25 +62,26 @@ function AskVictoria({ accounts, onSent }: { accounts: Data["accounts"]; onSent:
 }
 
 export default function AccountsQuestionsPage() {
-  const { accountsOnly, isAdmin, loading } = useAuth();
+  const { accountsOnly, isAdmin, user, loading } = useAuth();
+  const ai = isOperationsAi(user?.email); // Operations AI (the Building Agent login): its own questions to accounts
   const [d, setD] = useState<Data | null>(null);
   const [error, setError] = useState<string | null>(null);
   const load = useCallback(() => {
     apiFetch("/api/accounts/questions").then(async (r) => (r.ok ? (setD(await r.json()), setError(null)) : setError(await serverErrorMessage(r, "Couldn't load the questions."))));
   }, []);
-  useEffect(() => { if (!loading && (accountsOnly || isAdmin)) load(); }, [loading, accountsOnly, isAdmin, load]);
+  useEffect(() => { if (!loading && (accountsOnly || isAdmin || ai)) load(); }, [loading, accountsOnly, isAdmin, ai, load]);
 
   if (loading) return null;
-  if (!accountsOnly && !isAdmin) return <PageShell title="Questions"><p className="text-sm text-gray-400">This screen is for accounts.</p></PageShell>;
+  if (!accountsOnly && !isAdmin && !ai) return <PageShell title="Questions"><p className="text-sm text-gray-400">This screen is for accounts.</p></PageShell>;
   const waiting = d?.questions.filter((q) => q.canAnswer || q.canMarkRead).length ?? 0;
   return (
-    <PageShell title="Questions" subtitle={accountsOnly ? (waiting ? `${waiting} waiting on you` : "Questions from Ilies and the office") : "Questions to accounts"}>
+    <PageShell title="Questions" subtitle={accountsOnly ? (waiting ? `${waiting} waiting on you` : "Questions from Ilies and the office") : ai ? "Questions Operations AI sent to accounts" : "Questions to accounts"}>
       <div className="max-w-2xl space-y-4">
         <p className="rounded-xl border border-sky-500/30 bg-sky-500/10 px-4 py-2.5 text-sm text-sky-100">Answers are reviewed by Ilies before anything changes.</p>
         {error ? <p className="text-sm text-red-400">{error}</p> : !d ? <p className="text-sm text-gray-500">Loading...</p> : (
           <>
             {d.canAsk && <AskVictoria accounts={d.accounts} onSent={load} />}
-            {d.canAsk && <p className="text-xs text-gray-500">Close an answered question or ask a follow-up on <Link href="/directors/requests" className="text-sky-400 hover:underline">Directors → Info requests</Link>.</p>}
+            {d.canAsk && !ai && <p className="text-xs text-gray-500">Close an answered question or ask a follow-up on <Link href="/directors/requests" className="text-sky-400 hover:underline">Directors → Info requests</Link>.</p>}
             <MyQueries rows={d.questions} onChange={load} restLabel="Answered and closed" noneWaiting={accountsOnly ? "No questions waiting on you." : "Nothing waiting on accounts."} />
           </>
         )}

@@ -5,6 +5,8 @@
 // answering, files and closing work the same. These are the plain rules -
 // what a question needs, the draft file format, who a draft's "to" means.
 // No server imports; `npm test` (infoRequests.test.ts).
+import { BUILDING_AGENT_EMAIL } from "../session";
+import { assertNoMoney } from "../moneyGuard";
 
 export const INFO_TYPES = ["QUESTION", "FYI"] as const; // QUESTION needs an answer; FYI is just marked read
 export type InfoType = (typeof INFO_TYPES)[number];
@@ -100,3 +102,27 @@ export function whyUnresolved(to: string, users: Askable[], ownerEmail: string):
   if (!askable.length) return `${to} has no director login (or director tick) yet - set it on Users, or choose who it's for.`;
   return "More than one login matches - choose who it's for.";
 }
+
+// ---------- Operations AI (27 Oct 2026, Ilies: "where you as the AI can send questions directly to the people
+// information is required from"; docs/accounts/QUESTIONS-AND-CHAT-DESIGN.md part 2) ----------
+
+// The Building Agent login is the AI - known by its email (the constant in session.ts), never by role: an ordinary
+// Manager still can't send information requests.
+export const OPERATIONS_AI_NAME = "Operations AI";
+export const isOperationsAi = (email: string | null | undefined) => (email ?? "").trim().toLowerCase() === BUILDING_AGENT_EMAIL;
+export const AI_DAILY_LIMIT = 20; // rolling 24 hours
+export const overAiLimit = (sentLast24h: number) => sentLast24h >= AI_DAILY_LIMIT;
+const AI_ASKS = ["ACCOUNTS", "DIRECTOR", "ADMIN", "MANAGER"];
+
+// Who the AI may ask: an active accounts, director, Admin or Manager login - never itself, never the owner (D-Q2:
+// he reviews the answers), never a Viewer / Timesheets login. A question to a Manager carries no dollar figure.
+export function aiTargetError(u: Askable | null, aiUserId: string, ownerEmail: string, item: Pick<InfoItem, "title" | "question" | "need" | "why">): string | null {
+  if (!u) return "Pick who to ask.";
+  if (!u.active) return "That login is switched off.";
+  if (u.id === aiUserId) return "You can't ask yourself.";
+  if (u.email.toLowerCase() === ownerEmail.toLowerCase()) return "Questions for Ilies go to him directly - he reviews the answers.";
+  if (!AI_ASKS.includes(u.role)) return "Operations AI asks accounts, the directors and the office.";
+  if (u.role === "MANAGER" && ![item.title, item.question, item.need ?? "", item.why ?? ""].every(assertNoMoney)) return "A question to a Manager can't include a dollar figure.";
+  return null;
+}
+export const aiCanAsk = (u: Askable, aiUserId: string, ownerEmail: string) => aiTargetError(u, aiUserId, ownerEmail, { title: "", question: "", need: null, why: null }) === null;

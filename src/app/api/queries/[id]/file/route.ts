@@ -11,7 +11,7 @@ export const GET = withErrorHandling(async (_req: NextRequest, { params: paramsP
   const params = await paramsP;
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
-  const r = await prisma.siteRequest.findUnique({ where: { id: params.id }, select: { kind: true, answerFile: true, assigneeUserId: true, audience: true } });
+  const r = await prisma.siteRequest.findUnique({ where: { id: params.id }, select: { kind: true, answerFile: true, assigneeUserId: true, audience: true, requestedBy: true } });
   if (!r || r.kind !== "QUERY" || !r.answerFile || !canSeeAnswerFile(r, user)) return NextResponse.json({ error: "Not found." }, { status: 404 });
   const bytes = await readInvoiceFile(r.answerFile).catch(() => null);
   if (!bytes) return NextResponse.json({ error: "The file is missing." }, { status: 404 });

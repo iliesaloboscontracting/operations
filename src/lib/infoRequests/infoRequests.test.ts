@@ -130,3 +130,53 @@ test("a draft that can't be sent says why, plainly", async () => {
   const twins = [u({ id: "a", name: "Sam", role: "DIRECTOR" }), u({ id: "b", name: "Sam", role: "DIRECTOR" })];
   assert.match(whyUnresolved("Sam", twins, OWNER), /More than one/);
 });
+
+// ---------- Operations AI (27 Oct 2026, docs/accounts/QUESTIONS-AND-CHAT-DESIGN.md part 2) ----------
+test("Operations AI is the Building Agent login by email, never by role", async () => {
+  const { isOperationsAi } = await import("./rules");
+  assert.equal(isOperationsAi("iliesa+agent@loboscontracting.com.au"), true);
+  assert.equal(isOperationsAi(" ILIESA+AGENT@loboscontracting.com.au "), true);
+  assert.equal(isOperationsAi("alex@loboscontracting.com.au"), false); // an ordinary Manager
+  assert.equal(isOperationsAi(null), false);
+});
+
+test("the AI asks accounts, directors, Admins and Managers - never itself, the owner, a Viewer or a switched-off login", async () => {
+  const { aiTargetError, aiCanAsk } = await import("./rules");
+  const u = (o: Partial<Askable>): Askable => ({ id: "x", name: "X", email: "x@l.com", role: "MANAGER", directorAccess: false, active: true, ...o });
+  const q = { title: "Hire dates", question: "When does the Kanga go back?", need: null, why: null };
+  for (const role of ["ACCOUNTS", "DIRECTOR", "ADMIN", "MANAGER"]) assert.equal(aiTargetError(u({ role }), "ai", OWNER, q), null, role);
+  assert.match(aiTargetError(u({ role: "VIEWER" }), "ai", OWNER, q)!, /accounts, the directors and the office/);
+  assert.match(aiTargetError(u({ role: "TIMESHEETS" }), "ai", OWNER, q)!, /accounts/);
+  assert.match(aiTargetError(u({ id: "ai" }), "ai", OWNER, q)!, /yourself/);
+  assert.match(aiTargetError(u({ role: "ADMIN", email: OWNER }), "ai", OWNER, q)!, /Ilies/);
+  assert.match(aiTargetError(u({ active: false }), "ai", OWNER, q)!, /switched off/);
+  assert.equal(aiTargetError(null, "ai", OWNER, q), "Pick who to ask.");
+  assert.equal(aiCanAsk(u({ role: "ACCOUNTS" }), "ai", OWNER), true);
+  assert.equal(aiCanAsk(u({ role: "VIEWER" }), "ai", OWNER), false);
+});
+
+test("no dollar figure in a question to a Manager (title, question, need, why); amounts fine to accounts / directors / Admins", async () => {
+  const { aiTargetError } = await import("./rules");
+  const u = (role: string): Askable => ({ id: "m", name: "M", email: "m@l.com", role, directorAccess: false, active: true });
+  const plain = { title: "Fuel", question: "Which card paid for the fuel?", need: null, why: null };
+  assert.equal(aiTargetError(u("MANAGER"), "ai", OWNER, plain), null);
+  for (const k of ["title", "question", "need", "why"] as const) {
+    assert.match(aiTargetError(u("MANAGER"), "ai", OWNER, { ...plain, [k]: "It was $ 120 at the servo" })!, /dollar figure/, k);
+  }
+  for (const role of ["ACCOUNTS", "DIRECTOR", "ADMIN"]) assert.equal(aiTargetError(u(role), "ai", OWNER, { ...plain, question: "Was the $120 fuel ours?" }), null, role);
+});
+
+test("the AI's limit is 20 questions in a rolling 24 hours", async () => {
+  const { overAiLimit, AI_DAILY_LIMIT } = await import("./rules");
+  assert.equal(AI_DAILY_LIMIT, 20);
+  assert.equal(overAiLimit(19), false);
+  assert.equal(overAiLimit(20), true);
+});
+
+test("the AI opens the answer file only on a question it sent", async () => {
+  const ai = { id: "ai", name: "Building Agent", email: "iliesa+agent@loboscontracting.com.au", role: "MANAGER", directorAccess: false };
+  assert.equal(canSeeAnswerFile({ assigneeUserId: "acc", audience: "DIRECTOR", requestedBy: "Operations AI" }, ai), true);
+  assert.equal(canSeeAnswerFile({ assigneeUserId: "acc", audience: "DIRECTOR", requestedBy: "Iliesa" }, ai), false);
+  const manager = { ...ai, id: "m", email: "alex@loboscontracting.com.au" };
+  assert.equal(canSeeAnswerFile({ assigneeUserId: "acc", audience: "DIRECTOR", requestedBy: "Operations AI" }, manager), false);
+});

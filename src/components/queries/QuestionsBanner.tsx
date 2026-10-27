@@ -12,13 +12,14 @@ import { whenText } from "@/lib/requestTypes";
 import { useMyQueries } from "./MyQueries";
 
 export default function QuestionsBanner({ onOpen, floating }: { onOpen?: () => void; floating?: boolean }) {
-  const { accountsOnly } = useAuth();
+  const { accountsOnly, isDirector } = useAuth();
+  const where = accountsOnly ? "/accounts/questions" : isDirector ? "/directors/queries" : "/questions";
   const { rows, waiting } = useMyQueries();
   if (!rows || waiting === 0) return null;
   // On the full-screen board: a small pill that doesn't move the board.
   if (floating) {
     return (
-      <Link href="/directors/queries" className="fixed bottom-4 right-4 z-40 inline-flex items-center gap-2 rounded-full border border-amber-500/50 bg-amber-500/20 px-4 py-2 text-sm font-semibold text-amber-100 shadow-lg backdrop-blur hover:bg-amber-500/30">
+      <Link href={where} className="fixed bottom-4 right-4 z-40 inline-flex items-center gap-2 rounded-full border border-amber-500/50 bg-amber-500/20 px-4 py-2 text-sm font-semibold text-amber-100 shadow-lg backdrop-blur hover:bg-amber-500/30">
         <HelpCircle size={16} /> Questions for you ({waiting})
       </Link>
     );
@@ -36,5 +37,5 @@ export default function QuestionsBanner({ onOpen, floating }: { onOpen?: () => v
   const cls = "mb-4 flex w-full flex-wrap items-center gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-left text-sm text-amber-100 hover:bg-amber-500/15";
   // On the Invoices page the Queries tab is right there; elsewhere go to My queries.
   if (onOpen) return <button onClick={onOpen} className={cls}>{body}</button>;
-  return <Link href={accountsOnly ? "/accounts/questions" : "/directors/queries"} className={cls}>{body}</Link>;
+  return <Link href={where} className={cls}>{body}</Link>;
 }

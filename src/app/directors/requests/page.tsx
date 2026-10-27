@@ -17,7 +17,7 @@ import ProposeChange from "@/components/changes/ProposeChange";
 
 type Row = {
   id: string; ref: string; title: string; question: string; need: string | null; why: string | null; infoType: "QUESTION" | "FYI"; batch: string | null;
-  finding: string | null; to: string | null; askedBy: string; askedAt: string; dueBy: string; status: string; daysWaiting: number | null;
+  finding: string | null; to: string | null; askedBy: string; askedByAi?: boolean; askedAt: string; dueBy: string; status: string; daysWaiting: number | null;
   followUp: string | null; answer: string | null; answeredAt: string | null; readAt: string | null; hasFile: boolean; remindedAt: string | null;
   outcome: string | null; closedAt: string | null;
 };
@@ -40,6 +40,7 @@ export default function InfoRequestsPage() {
   const [d, setD] = useState<Data | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showClosed, setShowClosed] = useState(false);
+  const [aiOnly, setAiOnly] = useState(false); // questions Operations AI sent (27 Oct 2026)
   const load = useCallback(() => {
     apiFetch("/api/info-requests").then(async (r) => (r.ok ? setD(await r.json()) : setError(await serverErrorMessage(r, "Couldn't load the requests."))));
   }, []);
@@ -59,9 +60,16 @@ export default function InfoRequestsPage() {
     >
       {error ? <p className="text-sm text-red-400">{error}</p> : !d ? <p className="text-sm text-gray-500">Loading...</p> : (
         <div className="max-w-5xl space-y-5">
-          <AskForm people={d.people} onDone={load} />
+          <div className="flex flex-wrap items-center gap-3">
+            <AskForm people={d.people} onDone={load} />
+            {d.requests.some((r) => r.askedByAi) && (
+              <label className="inline-flex items-center gap-2 text-sm text-gray-300">
+                <input type="checkbox" checked={aiOnly} onChange={(e) => setAiOnly(e.target.checked)} /> Only sent by Operations AI ({d.requests.filter((r) => r.askedByAi).length})
+              </label>
+            )}
+          </div>
           {GROUPS.filter((g) => g.key !== "closed" || showClosed).map((g) => {
-            const rows = d.requests.filter(g.test);
+            const rows = d.requests.filter((r) => g.test(r) && (!aiOnly || r.askedByAi));
             return (
               <section key={g.key}>
                 <h2 className="mb-2 text-sm font-semibold text-gray-300">{g.label} ({rows.length})</h2>
@@ -155,6 +163,7 @@ function RequestRow({ r, onDone }: { r: Row; onDone: () => void }) {
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <div className="min-w-0">
           <span className="text-sm font-semibold text-gray-100">{r.title}</span>
+          {r.askedByAi && <span className="ml-2 rounded-full border border-violet-400/40 bg-violet-500/15 px-2 py-0.5 text-[11px] text-violet-200">Sent by Operations AI</span>}
           <span className="text-[12px] text-gray-500"> · {r.ref} · to {r.to} · {r.infoType === "FYI" ? "FYI · " : ""}asked {whenText(r.askedAt)} by {r.askedBy}</span>
         </div>
         <span className={`text-[12px] font-medium ${tone}`}>

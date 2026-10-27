@@ -17,6 +17,7 @@ const OPERATIONS = [
   { href: "/requests", label: "Requests" },
   { href: "/office-requests", label: "Directors & accounts" },
   { href: "/purchases", label: "Purchases" },
+  { href: "/questions", label: "My questions" },
   { href: "/changes", label: "Changes" },
   { href: "/completed", label: "Completed" },
   { href: "/day-review", label: "Day Review" },
@@ -121,6 +122,16 @@ export default function TopNav() {
   const [requests, setRequests] = useState(0);
   const [officeRequests, setOfficeRequests] = useState(0);
   const [changes, setChanges] = useState(0);
+  // Questions for me (27 Oct 2026): -1 = this login has never been asked, so the tab stays hidden.
+  const [myQuestions, setMyQuestions] = useState(-1);
+  const refreshQuestions = useCallback(() => {
+    if (loading || onePage || !canEdit) return;
+    fetch("/api/queries").then((r) => (r.ok ? r.json() : { queries: [] }))
+      .then((d: { queries: { canAnswer: boolean; canMarkRead: boolean }[] }) => setMyQuestions(d.queries.length ? d.queries.filter((q) => q.canAnswer || q.canMarkRead).length : -1))
+      .catch(() => setMyQuestions(-1));
+  }, [loading, onePage, canEdit]);
+  useEffect(refreshQuestions, [refreshQuestions, path]);
+  useAutoRefresh(refreshQuestions);
 
   // Badge on Calendar: projects starting within a week (refreshed on navigation).
   const refreshBadge = useCallback(() => {
@@ -213,13 +224,13 @@ export default function TopNav() {
             <Divider />
           </>
         )}
-        {OPERATIONS.filter((i) => (i.href !== "/tracking" && i.href !== "/invoices" && i.href !== "/assistant" && i.href !== "/attendance" && i.href !== "/timesheets" && i.href !== "/requests" && i.href !== "/office-requests" && i.href !== "/purchases" && i.href !== "/changes" && i.href !== "/receipts" && i.href !== "/production") || canEdit).map((i) => (
+        {OPERATIONS.filter((i) => (i.href !== "/tracking" && i.href !== "/invoices" && i.href !== "/assistant" && i.href !== "/attendance" && i.href !== "/timesheets" && i.href !== "/requests" && i.href !== "/office-requests" && i.href !== "/purchases" && i.href !== "/questions" && i.href !== "/changes" && i.href !== "/receipts" && i.href !== "/production") || canEdit).filter((i) => i.href !== "/questions" || myQuestions >= 0).map((i) => (
           <NavTab
             key={i.href}
             href={i.href}
             label={i.label}
             active={isActive(i.href)}
-            badge={i.href === "/calendar" ? startingSoon : i.href === "/requests" ? requests : i.href === "/office-requests" ? officeRequests : i.href === "/changes" ? changes : undefined}
+            badge={i.href === "/calendar" ? startingSoon : i.href === "/requests" ? requests : i.href === "/office-requests" ? officeRequests : i.href === "/questions" ? Math.max(myQuestions, 0) : i.href === "/changes" ? changes : undefined}
             badgeTitle={i.href === "/requests" ? "Site requests waiting on a decision, and reminders due" : i.href === "/office-requests" ? "Directors and accounts queries and actions waiting on a decision" : i.href === "/changes" ? "Proposed changes waiting for your approval" : undefined}
           />
         ))}
