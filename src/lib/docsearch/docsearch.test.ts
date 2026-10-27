@@ -384,3 +384,17 @@ test("DS-019: the estimate stage is COMMERCIAL - a Manager without director acce
   assert.ok(levelsFor({ role: "MANAGER", directorAccess: true }).includes(est.level));
   assert.ok(levelsFor({ role: "ADMIN" }).includes(est.level));
 });
+
+test("DS-014: the folder is made with mode 0700 and the file opened 0600 and chmodded 0600 (checked on any OS)", async () => {
+  const idx = await import("./index");
+  const calls: string[] = [];
+  const spy = {
+    mkdirSync: ((p: string, o: { recursive: boolean; mode: number }) => { calls.push(`mkdir ${path.basename(p)} ${o.mode.toString(8)} ${o.recursive}`); return undefined; }) as never,
+    existsSync: (() => false) as never,
+    openSync: ((p: string, fl: string, mode: number) => { calls.push(`open ${path.basename(p)} ${fl} ${mode.toString(8)}`); return 7; }) as never,
+    closeSync: ((fd: number) => { calls.push(`close ${fd}`); }) as never,
+    chmodSync: ((p: string, mode: number) => { calls.push(`chmod ${path.basename(p)} ${mode.toString(8)}`); }) as never,
+  };
+  idx.secureFile(path.join("srv", "operations", "search", "search.db"), spy);
+  assert.deepEqual(calls, ["mkdir search 700 true", "open search.db a 600", "close 7", "chmod search.db 600"]);
+});

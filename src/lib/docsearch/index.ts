@@ -20,10 +20,13 @@ export const hasIndex = () => existsSync(indexPath());
 // DS-014 (security review, Ilies approved 27 Oct): the index holds document text, so only the app's own user may read
 // it - the folder is made 0700 and the file is created 0600 before SQLite opens it. SQLite's -wal / -shm files follow
 // the process umask: the operations service runs with UMask=0077 (deploy note, PHASE6-DESIGN.md §3).
-export function secureFile(file: string) {
-  mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
-  if (!existsSync(file)) closeSync(openSync(file, "a", 0o600));
-  chmodSync(file, 0o600);
+// The fs calls are passed in only so a test can see the modes on any OS (Windows ignores them).
+type SecureFs = { mkdirSync: typeof mkdirSync; existsSync: typeof existsSync; openSync: typeof openSync; closeSync: typeof closeSync; chmodSync: typeof chmodSync };
+const realFs: SecureFs = { mkdirSync, existsSync, openSync, closeSync, chmodSync };
+export function secureFile(file: string, f: SecureFs = realFs) {
+  f.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+  if (!f.existsSync(file)) f.closeSync(f.openSync(file, "a", 0o600));
+  f.chmodSync(file, 0o600);
 }
 
 let db: Db | null = null;
