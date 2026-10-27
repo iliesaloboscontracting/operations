@@ -398,3 +398,39 @@ test("DS-014: the folder is made with mode 0700 and the file opened 0600 and chm
   idx.secureFile(path.join("srv", "operations", "search", "search.db"), spy);
   assert.deepEqual(calls, ["mkdir search 700 true", "open search.db a 600", "close 7", "chmod search.db 600"]);
 });
+
+test("DS-015: a looping or memory-eating file is stopped and 'not readable' - and the app keeps going", async () => {
+  const { writeFileSync } = await import("fs");
+  const dir = mkdtempSync(path.join(tmpdir(), "ds015w-"));
+  try {
+    const loop = path.join(dir, "loop.mjs"), oom = path.join(dir, "oom.mjs");
+    writeFileSync(loop, "for (;;) {}\n");
+    writeFileSync(oom, "const keep = []; for (;;) keep.push(new Array(1e6).fill(Math.random()));\n");
+    const t0 = Date.now();
+    const looped = await extractText("SWMS.pdf", Buffer.from(PDF), { timeoutMs: 400, test: { workerFile: loop } });
+    assert.equal(looped.status, "UNREADABLE");
+    assert.match((looped as { why: string }).why, /too long/);
+    assert.ok(Date.now() - t0 < 5000, "stopped at the time limit");
+    const ate = await extractText("SWMS.pdf", Buffer.from(PDF), { timeoutMs: 30_000, test: { workerFile: oom, heapMb: 32 } });
+    assert.equal(ate.status, "UNREADABLE", "the heap cap stops it");
+    const after = await extractText("SWMS.pdf", Buffer.from(PDF));
+    assert.equal(after.status, "OK", "the process survived both and still reads documents");
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("DS-015: an .xlsx whose real expansion passes 100 MB is refused, even when its directory claims less", async () => {
+  // One entry declaring 10 bytes unpacked, whose deflated data really expands to 101 MB of zeros.
+  const name = Buffer.from("xl/sharedStrings.xml");
+  const data = deflateRawSync(Buffer.alloc(101 * 1024 * 1024));
+  const loc = Buffer.alloc(30); loc.writeUInt32LE(0x04034b50, 0); loc.writeUInt16LE(8, 8); loc.writeUInt32LE(data.length, 18); loc.writeUInt32LE(10, 22); loc.writeUInt16LE(name.length, 26);
+  const cen = Buffer.alloc(46); cen.writeUInt32LE(0x02014b50, 0); cen.writeUInt16LE(8, 10); cen.writeUInt32LE(data.length, 20); cen.writeUInt32LE(10, 24); cen.writeUInt16LE(name.length, 28); cen.writeUInt32LE(0, 42);
+  const body = Buffer.concat([loc, name, data]);
+  const eocd = Buffer.alloc(22); eocd.writeUInt32LE(0x06054b50, 0); eocd.writeUInt16LE(1, 8); eocd.writeUInt16LE(1, 10); eocd.writeUInt32LE(cen.length + name.length, 12); eocd.writeUInt32LE(body.length, 16);
+  const liar = Buffer.concat([body, cen, name, eocd]);
+  const { zipExpandsPast, zipUnpackedSize } = await import("./zip");
+  assert.equal(zipUnpackedSize(liar), 10, "the directory lies");
+  assert.equal(zipExpandsPast(liar, 100 * 1024 * 1024), true, "the real expansion is caught, with no more than the cap inflated");
+  const r = await extractText("Liar.xlsx", liar);
+  assert.equal(r.status, "TOO_BIG");
+  assert.match((r as { why: string }).why, /100 MB unpacked/);
+});

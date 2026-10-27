@@ -25,10 +25,22 @@ const fail = (status: "UNREADABLE" | "TOO_BIG" | "UNSUPPORTED", why: string): Ex
 // bundler never rewrites it.
 const workerFile = () => path.join(process.cwd(), "src", "lib", "docsearch", "extract-worker.mjs");
 
-function inWorker(ext: string, buf: Buffer, timeoutMs: number): Promise<Extracted> {
+// A worker's answer, trusted only in the shapes it may take.
+const fromWorker = (r: unknown): Extracted => {
+  const x = r as { status?: string; text?: unknown; why?: unknown };
+  if (x?.status === "OK" && typeof x.text === "string") return { status: "OK", text: x.text };
+  const why = typeof x?.why === "string" ? x.why : "the file couldn't be opened";
+  return fail(x?.status === "TOO_BIG" ? "TOO_BIG" : "UNREADABLE", why);
+};
+
+// `test`: the tests only - a stand-in worker script (one that loops, or eats memory) and a smaller heap cap.
+type Opts = { timeoutMs?: number; test?: { workerFile?: string; heapMb?: number } };
+
+function inWorker(ext: string, buf: Buffer, opts: Opts): Promise<Extracted> {
   return new Promise((resolve) => {
     let done = false;
-    const w = new Worker(workerFile(), { workerData: { ext, bytes: buf }, resourceLimits: WORKER_LIMITS });
+    const limits = opts.test?.heapMb ? { maxOldGenerationSizeMb: opts.test.heapMb } : WORKER_LIMITS;
+    const w = new Worker(opts.test?.workerFile ?? workerFile(), { workerData: { ext, bytes: buf }, resourceLimits: limits });
     const finish = (r: Extracted) => {
       if (done) return;
       done = true;
@@ -36,14 +48,14 @@ function inWorker(ext: string, buf: Buffer, timeoutMs: number): Promise<Extracte
       w.terminate().catch(() => undefined);
       resolve(r);
     };
-    const timer = setTimeout(() => finish(fail("UNREADABLE", "took too long to read")), timeoutMs);
-    w.once("message", (r: Extracted) => finish(r?.status === "OK" && typeof r.text === "string" ? r : fail("UNREADABLE", (r as { why?: string })?.why ?? "the file couldn't be opened")));
+    const timer = setTimeout(() => finish(fail("UNREADABLE", "took too long to read")), opts.timeoutMs ?? WORKER_TIMEOUT_MS);
+    w.once("message", (r: unknown) => finish(fromWorker(r)));
     w.once("error", () => finish(fail("UNREADABLE", "the file couldn't be opened")));
     w.once("exit", () => finish(fail("UNREADABLE", "the file couldn't be opened")));
   });
 }
 
-export async function extractText(name: string, buf: Buffer, opts: { timeoutMs?: number } = {}): Promise<Extracted> {
+export async function extractText(name: string, buf: Buffer, opts: Opts = {}): Promise<Extracted> {
   const ext = extOf(name);
   if (!isSupported(name)) return fail("UNSUPPORTED", ext ? `.${ext} files aren't read` : "no file type");
   if (buf.length > MAX_FILE_BYTES) return fail("TOO_BIG", "over 25 MB");
@@ -52,5 +64,5 @@ export async function extractText(name: string, buf: Buffer, opts: { timeoutMs?:
     if (unpacked === null) return fail("UNREADABLE", "the file couldn't be opened");
     if (unpacked > MAX_XLSX_UNPACKED) return fail("TOO_BIG", "over 100 MB unpacked");
   }
-  return inWorker(ext, buf, opts.timeoutMs ?? WORKER_TIMEOUT_MS);
+  return inWorker(ext, buf, opts);
 }

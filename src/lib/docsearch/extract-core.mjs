@@ -35,14 +35,39 @@ export function zipUnpackedSize(buf) {
   return dir ? dir.reduce((n, e) => n + e.usize, 0) : null;
 }
 
+// An entry's stored bytes, from its local header. @returns {Buffer | null}
+function entryData(buf, e) {
+  if (e.off + 30 > buf.length || buf.readUInt32LE(e.off) !== LOC) return null;
+  const start = e.off + 30 + buf.readUInt16LE(e.off + 26) + buf.readUInt16LE(e.off + 28);
+  return buf.subarray(start, start + e.csize);
+}
+
+/** DS-015: does the zip REALLY unpack past `cap` bytes, whatever its directory claims? Each entry is inflated with a
+ * budget of what's left, so nothing past the cap is ever produced. null = not a readable zip.
+ * @param {Buffer} buf @param {number} cap @returns {boolean | null} */
+export function zipExpandsPast(buf, cap) {
+  const dir = zipDirectory(buf);
+  if (!dir) return null;
+  let total = 0;
+  for (const e of dir) {
+    const data = entryData(buf, e);
+    if (!data) return null;
+    if (e.method === 0) total += data.length;
+    else if (e.method === 8) {
+      try { total += inflateRawSync(data, { maxOutputLength: cap - total + 1 }).length; } catch (err) { if (err && err.code === "ERR_BUFFER_TOO_LARGE") return true; return null; }
+    } else return null;
+    if (total > cap) return true;
+  }
+  return false;
+}
+
 /** One file out of a zip - stored or deflated only, refused past 50 MB (zip bombs). @param {Buffer} buf @param {string} name @returns {Buffer | null} */
 export function zipEntry(buf, name) {
   const dir = zipDirectory(buf);
   const e = dir?.find((x) => x.name === name);
-  if (!e) return null;
-  if (e.usize > MAX_ENTRY_OUT || e.off + 30 > buf.length || buf.readUInt32LE(e.off) !== LOC) return null;
-  const start = e.off + 30 + buf.readUInt16LE(e.off + 26) + buf.readUInt16LE(e.off + 28);
-  const data = buf.subarray(start, start + e.csize);
+  if (!e || e.usize > MAX_ENTRY_OUT) return null;
+  const data = entryData(buf, e);
+  if (!data) return null;
   if (e.method === 0) return Buffer.from(data);
   if (e.method === 8) return inflateRawSync(data, { maxOutputLength: MAX_ENTRY_OUT });
   return null;
@@ -73,9 +98,13 @@ async function pdfText(buf) {
   return out;
 }
 
+class TooBig extends Error {}
+
 async function xlsxText(buf) {
   const unpacked = zipUnpackedSize(buf);
-  if (unpacked === null || unpacked > MAX_XLSX_UNPACKED) throw new Error("xlsx refused");
+  if (unpacked === null) throw new Error("not a zip");
+  // DS-015: refused on what the directory declares AND on what it really inflates to, before exceljs sees it.
+  if (unpacked > MAX_XLSX_UNPACKED || zipExpandsPast(buf, MAX_XLSX_UNPACKED) !== false) throw new TooBig();
   const { default: ExcelJS } = await import("exceljs");
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.load(buf);
@@ -93,14 +122,15 @@ async function xlsxText(buf) {
 
 const clean = (t) => t.replace(/\u0000/g, "").replace(/[ \t\f\v]+/g, " ").replace(/\s*\n\s*/g, "\n").trim().slice(0, MAX_CHARS);
 
-/** Read one supported file. @param {string} ext @param {Buffer} buf @returns {Promise<{ status: "OK", text: string } | { status: "UNREADABLE", text: "", why: string }>} */
+/** Read one supported file. @param {string} ext @param {Buffer} buf @returns {Promise<{ status: "OK", text: string } | { status: "UNREADABLE" | "TOO_BIG", text: "", why: string }>} */
 export async function extractCore(ext, buf) {
   try {
     const raw = ext === "pdf" ? await pdfText(buf) : ext === "docx" ? docxText(buf) : ext === "xlsx" ? await xlsxText(buf) : buf.toString("utf8");
     const text = clean(raw ?? "");
     if (text.replace(/\s/g, "").length < 20) return { status: "UNREADABLE", text: "", why: ext === "pdf" ? "no text layer (a scan?)" : "no text found" };
     return { status: "OK", text };
-  } catch {
+  } catch (e) {
+    if (e instanceof TooBig) return { status: "TOO_BIG", text: "", why: "over 100 MB unpacked" };
     return { status: "UNREADABLE", text: "", why: "the file couldn't be opened" };
   }
 }
