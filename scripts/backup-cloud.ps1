@@ -54,8 +54,8 @@ try {
   # Sydney date): nothing to do. Keeps the every-2-hours runs free.
   if (Get-ChildItem $backupDir -Filter ("cloud-dev-{0}-*.db.gz" -f (Get-Date -Format "yyyyMMdd")) -ErrorAction SilentlyContinue) { exit 0 }
 
-  # Newest database and photos backups on the server (root-owned, so copy to
-  # /tmp readable, download, then remove the temporary copies). ssh's own
+  # Newest database and photos backups on the server (root-owned). SEC-010 (27 Oct 2026): each file is streamed with
+  # "sudo cat" straight into the local .part file - never staged world-readable in /tmp. ssh's own
   # error text is kept for the log if it fails. A connection failure (ssh
   # exit 255 - often Wi-Fi still reconnecting after sleep) is retried every
   # minute, 15 tries.
@@ -86,27 +86,27 @@ try {
   # Ticket / licence and company document files (Accounts compliance, 27 Oct 2026) - optional too.
   $compliance = @($list | Where-Object { $_ -like "compliance-files-*.tar.gz" })[0]
   $files = @($db, $photos) + @($invoices, $estimating, $receipts, $compliance | Where-Object { $_ })
+  # The names come from the server's own listing; anything but a plain file name never reaches a remote command.
+  foreach ($f in $files) { if ($f -notmatch '^[A-Za-z0-9._-]+$') { throw "unexpected backup file name on the server: $f" } }
   # Newest one already downloaded (e.g. before 1:30am, today's isn't made yet).
   if (Test-Path (Join-Path $backupDir ("cloud-" + $db))) { exit 0 }
-  $src = ($files | ForEach-Object { "/srv/operations/backups/$_" }) -join " "
-  $tmp = ($files | ForEach-Object { "/tmp/$_" }) -join " "
-  & ssh @sshOpts $server "sudo cp $src /tmp/ && sudo chmod 644 $tmp"
-  if ($LASTEXITCODE -ne 0) { throw "couldn't stage $db on the server" }
-  try {
-    foreach ($f in $files) {
+  foreach ($f in $files) {
       $dest = Join-Path $backupDir ("cloud-" + $f)
       $part = "$dest.part"
-      & scp @sshOpts -q "${server}:/tmp/$f" $part
-      if ($LASTEXITCODE -ne 0) { throw "download of $f failed (scp exit $LASTEXITCODE)" }
+      $errFile = "$part.err"
+      # Start-Process hands ssh a real file handle for stdout, so the bytes land unchanged (PowerShell's own > would
+      # re-encode them as text and corrupt the archive).
+      $sshArgs = @($sshOpts | ForEach-Object { if ($_ -match '\s') { '"' + $_ + '"' } else { $_ } }) + @($server, "`"sudo cat /srv/operations/backups/$f`"")
+      $p = Start-Process -FilePath "ssh" -ArgumentList $sshArgs -RedirectStandardOutput $part -RedirectStandardError $errFile -NoNewWindow -Wait -PassThru
+      $why = if (Test-Path $errFile) { (Get-Content $errFile -Raw) } else { "" }
+      Remove-Item $errFile -Force -ErrorAction SilentlyContinue
+      if ($p.ExitCode -ne 0) { Remove-Item $part -Force -ErrorAction SilentlyContinue; throw "download of $f failed (ssh exit $($p.ExitCode)): $why" }
       if ($f -eq $db -and -not (Test-DbGz $part)) { Remove-Item $part -Force; throw "$f is not a complete database - kept the previous backups" }
       # An empty file is a failed backup on the server (27 Oct 2026: the estimating step failed and left 0 bytes,
       # which used to be logged as OK). Never keep it; say so in the log.
       if ((Get-Item $part).Length -eq 0) { Remove-Item $part -Force; Write-Log ("FAILED {0} is empty on the server - not kept" -f $f); continue }
       Move-Item $part $dest -Force
       Write-Log ("OK {0} size={1}" -f $dest, (Get-Item $dest).Length)
-    }
-  } finally {
-    & ssh @sshOpts $server "sudo rm -f $tmp" | Out-Null
   }
 
   # Keep 30 days of these cloud copies (only this script's own files).
