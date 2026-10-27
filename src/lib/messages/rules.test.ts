@@ -29,8 +29,8 @@ test("a one-to-one between any two office logins - directors and the office incl
 });
 
 test("Operations AI is named that in chat; everyone else by their name", () => {
-  assert.equal(chatName("Building Agent", AI), "Operations AI");
-  assert.equal(chatName("Victoria", "accounts@loboscontracting.com.au"), "Victoria");
+  assert.equal(chatName("Building Agent", AI, "MANAGER"), "Operations AI");
+  assert.equal(chatName("Victoria", "accounts@loboscontracting.com.au", "ACCOUNTS"), "Victoria");
 });
 
 test("message text: required and capped; dollar figures are allowed (Ilies 27 Oct)", () => {
@@ -99,11 +99,11 @@ test("only the owner reads every one-to-one (Ilies 27 Oct, D-Q11) - not other Ad
 });
 
 test("Operations AI may post at most 20 chat messages in 24 hours; nobody else has a limit (D-Q10)", () => {
-  assert.equal(overChatLimit(AI, 19), false);
-  assert.equal(overChatLimit(AI, 20), true, "the 21st is refused");
-  assert.equal(overChatLimit(AI.toUpperCase(), 25), true);
-  assert.equal(overChatLimit("alex@loboscontracting.com.au", 500), false, "an ordinary Manager isn't limited");
-  assert.equal(overChatLimit(null, 500), false);
+  assert.equal(overChatLimit(AI, "MANAGER", 19), false);
+  assert.equal(overChatLimit(AI, "MANAGER", 20), true, "the 21st is refused");
+  assert.equal(overChatLimit(AI.toUpperCase(), "MANAGER", 25), true);
+  assert.equal(overChatLimit("alex@loboscontracting.com.au", "MANAGER", 500), false, "an ordinary Manager isn't limited");
+  assert.equal(overChatLimit(null, "MANAGER", 500), false);
 });
 
 test("CH-022: TFN and bank details are refused in chat (new messages, replies and edits all use checkBody)", () => {

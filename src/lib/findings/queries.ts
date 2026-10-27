@@ -191,4 +191,4 @@ export async function recordQueryDecision(r: SiteRequest, action: string, note: 
 // (CH-023: by what the server stored when the AI asked - its user id - never by the "asked by" name.)
 export const canSeeAnswerFile = (r: Pick<SiteRequest, "assigneeUserId" | "audience"> & { details?: string | null }, u: Actor) =>
   r.assigneeUserId === u.id || isOwner(u.email) || u.directorAccess || u.role === "DIRECTOR" || (u.role === "ADMIN" && r.audience !== "DIRECTOR")
-  || (isOperationsAi(u.email) && askedByAiUser(r.details, u.id));
+  || (isOperationsAi(u.email, u.role) && askedByAiUser(r.details, u.id));

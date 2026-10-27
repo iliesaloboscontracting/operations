@@ -43,7 +43,7 @@ async function roomSeat(threadId: string, me: Viewer, seen: boolean) {
 // Who this login can start a one-to-one with: every other active office login, by chat name.
 export async function directory(me: Viewer) {
   const users = await prisma.user.findMany({ where: { active: true, id: { not: me.userId } }, select: { id: true, name: true, email: true, role: true }, orderBy: { name: "asc" } });
-  return { users: users.filter((u) => "ok" in canStart(me.role, u.role)).map((u) => ({ id: u.id, name: chatName(u.name, u.email), role: u.role })) };
+  return { users: users.filter((u) => "ok" in canStart(me.role, u.role)).map((u) => ({ id: u.id, name: chatName(u.name, u.email, u.role), role: u.role })) };
 }
 
 // The record a thread is about: it must exist; its label is what both people see.
@@ -112,7 +112,7 @@ async function postLimit(me: Viewer): Promise<Problem | null> {
   if (!seats.length) return null;
   const now = Date.now();
   if (overPostRate(await prisma.message.count({ where: { authorId: { in: seats }, createdAt: { gte: new Date(now - 60_000) } } }))) return bad(RATE_TEXT, 429);
-  if (isOperationsAi(me.email) && overChatLimit(me.email, await prisma.message.count({ where: { authorId: { in: seats }, createdAt: { gte: new Date(now - 86_400_000) } } }))) return bad(AI_LIMIT_TEXT, 429);
+  if (isOperationsAi(me.email, me.role) && overChatLimit(me.email, me.role, await prisma.message.count({ where: { authorId: { in: seats }, createdAt: { gte: new Date(now - 86_400_000) } } }))) return bad(AI_LIMIT_TEXT, 429);
   return null;
 }
 
@@ -136,7 +136,7 @@ export async function startThread(me: Viewer, b: Record<string, unknown>): Promi
     const r = await prisma.siteRequest.findUnique({ where: { id: subjectKey }, select: { audience: true } });
     const meUser = await prisma.user.findUnique({ where: { id: me.userId }, select: { email: true, role: true, directorAccess: true } });
     if (!r || !meUser) return bad("That request isn't there.", 404);
-    const why = requestSubjectError(meUser, { ...u, name: chatName(u.name, u.email) }, r);
+    const why = requestSubjectError(meUser, { ...u, name: chatName(u.name, u.email, u.role) }, r);
     if (why) return bad(why, 403);
   }
   const label = await subjectLabel(subjectType, subjectKey);
@@ -146,7 +146,7 @@ export async function startThread(me: Viewer, b: Record<string, unknown>): Promi
   const thread = await prisma.$transaction(async (tx) => {
     const t = await tx.messageThread.create({ data: { kind: "DIRECT", subjectType, subjectKey, subjectLabel: label.label, moneyAllowed: true, createdBy: me.name, lastMessageAt: now } });
     const mine = await tx.messageParticipant.create({ data: { threadId: t.id, kind: "USER", userId: me.userId, name: me.name, role: me.role, lastSeenAt: now } });
-    const other = await tx.messageParticipant.create({ data: { threadId: t.id, kind: "USER", userId: u.id, name: chatName(u.name, u.email), role: u.role } });
+    const other = await tx.messageParticipant.create({ data: { threadId: t.id, kind: "USER", userId: u.id, name: chatName(u.name, u.email, u.role), role: u.role } });
     await tx.message.create({ data: { threadId: t.id, authorId: mine.id, authorName: me.name, body: body.text, createdAt: now } });
     return { ...t, other };
   });

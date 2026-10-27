@@ -10,5 +10,5 @@ export const GET = withErrorHandling(async () => {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
   if (!canMessage(user.role)) return NextResponse.json({ unread: 0 });
-  return NextResponse.json({ unread: await unreadTotal({ userId: user.id, role: user.role, email: user.email, name: chatName(user.name, user.email) }) });
+  return NextResponse.json({ unread: await unreadTotal({ userId: user.id, role: user.role, email: user.email, name: chatName(user.name, user.email, user.role) }) });
 });

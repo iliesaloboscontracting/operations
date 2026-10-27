@@ -63,7 +63,7 @@ function AskVictoria({ accounts, onSent }: { accounts: Data["accounts"]; onSent:
 
 export default function AccountsQuestionsPage() {
   const { accountsOnly, isAdmin, user, loading } = useAuth();
-  const ai = isOperationsAi(user?.email); // Operations AI (the Building Agent login): its own questions to accounts
+  const ai = isOperationsAi(user?.email, user?.role); // Operations AI (the Building Agent login): its own questions to accounts
   const [d, setD] = useState<Data | null>(null);
   const [error, setError] = useState<string | null>(null);
   const load = useCallback(() => {

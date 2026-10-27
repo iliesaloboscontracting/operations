@@ -15,7 +15,7 @@ export const GET = withErrorHandling(async () => {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
   const all = user.role === "ADMIN" && (isOwner(user.email) || user.directorAccess);
-  const ai = !all && isOperationsAi(user.email);
+  const ai = !all && isOperationsAi(user.email, user.role);
   if (user.role !== "ACCOUNTS" && !all && !ai) return NextResponse.json({ error: "You don't have permission to do that" }, { status: 403 });
   const canAsk = all || ai;
   const accounts = canAsk ? await prisma.user.findMany({ where: { role: "ACCOUNTS", active: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }) : [];

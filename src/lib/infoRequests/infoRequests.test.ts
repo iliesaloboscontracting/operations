@@ -134,10 +134,10 @@ test("a draft that can't be sent says why, plainly", async () => {
 // ---------- Operations AI (27 Oct 2026, docs/accounts/QUESTIONS-AND-CHAT-DESIGN.md part 2) ----------
 test("Operations AI is the Building Agent login by email, never by role", async () => {
   const { isOperationsAi } = await import("./rules");
-  assert.equal(isOperationsAi("iliesa+agent@loboscontracting.com.au"), true);
-  assert.equal(isOperationsAi(" ILIESA+AGENT@loboscontracting.com.au "), true);
-  assert.equal(isOperationsAi("alex@loboscontracting.com.au"), false); // an ordinary Manager
-  assert.equal(isOperationsAi(null), false);
+  assert.equal(isOperationsAi("iliesa+agent@loboscontracting.com.au", "MANAGER"), true);
+  assert.equal(isOperationsAi(" ILIESA+AGENT@loboscontracting.com.au ", "MANAGER"), true);
+  assert.equal(isOperationsAi("alex@loboscontracting.com.au", "MANAGER"), false); // an ordinary Manager
+  assert.equal(isOperationsAi(null, "MANAGER"), false);
 });
 
 test("the AI asks accounts, directors, Admins, Managers and the owner - never itself, a Viewer or a switched-off login", async () => {
@@ -207,4 +207,19 @@ test("CH-023: an AI question is recognised by the stored marker and the AI's use
   const ai = { id: "ai-1", name: "Building Agent", email: "iliesa+agent@loboscontracting.com.au", role: "MANAGER", directorAccess: false };
   assert.equal(canSeeAnswerFile({ assigneeUserId: "acc", audience: "DIRECTOR", details: stored }, ai), true);
   assert.equal(canSeeAnswerFile({ assigneeUserId: "acc", audience: "DIRECTOR", details: JSON.stringify({ question: "x" }) }, ai), false, "a question someone named 'Operations AI' asked isn't the AI's");
+});
+
+test("CH-021: the AI is the Building Agent's email AND a Manager login - an Admin or Viewer with that email is not", async () => {
+  const { isOperationsAi } = await import("./rules");
+  const AI = "iliesa+agent@loboscontracting.com.au";
+  assert.equal(isOperationsAi(AI, "MANAGER"), true);
+  for (const role of ["ADMIN", "VIEWER", "TIMESHEETS", "ACCOUNTS", "DIRECTOR", "", null, undefined]) assert.equal(isOperationsAi(AI, role as string), false, String(role));
+  // and so no AI powers follow: no answer files, no AI name in chat
+  const asAdmin = { id: "ai", name: "Building Agent", email: AI, role: "ADMIN", directorAccess: false };
+  const asViewer = { ...asAdmin, role: "VIEWER" };
+  const mine = JSON.stringify({ question: "q", askedByAi: "1", askedByUserId: "ai" });
+  assert.equal(canSeeAnswerFile({ assigneeUserId: "acc", audience: "DIRECTOR", details: mine }, asViewer), false, "a Viewer with the email gets no AI answer files");
+  const { chatName } = await import("../messages/rules");
+  assert.equal(chatName("Building Agent", AI, "MANAGER"), "Operations AI");
+  assert.equal(chatName("Building Agent", AI, "ADMIN"), "Building Agent", "an Admin with the email isn't shown as the AI");
 });

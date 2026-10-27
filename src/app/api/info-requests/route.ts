@@ -19,7 +19,7 @@ async function allowed(): Promise<{ denied: NextResponse } | { user: AuthUser; a
   const user = await getCurrentUser();
   if (!user) return { denied: NextResponse.json({ error: "Not signed in" }, { status: 401 }) };
   if (canActOnFindings(user)) return { user, ai: false };
-  if (isOperationsAi(user.email)) return { user, ai: true };
+  if (isOperationsAi(user.email, user.role)) return { user, ai: true };
   return { denied: NextResponse.json({ error: "You don't have permission to do that" }, { status: 403 }) };
 }
 

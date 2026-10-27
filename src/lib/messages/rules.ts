@@ -32,10 +32,10 @@ export const canReadAllThreads = (email: string | null | undefined, ownerEmail: 
 
 // D-Q10: Operations AI may post at most 20 chat messages in a rolling 24 hours (its questions are counted apart).
 // Nobody else has a limit.
-export const overChatLimit = (email: string | null | undefined, sentLast24h: number) => isOperationsAi(email) && overAiLimit(sentLast24h);
+export const overChatLimit = (email: string | null | undefined, role: string | null | undefined, sentLast24h: number) => isOperationsAi(email, role) && overAiLimit(sentLast24h);
 
 // How a login is named in chat: the Building Agent is "Operations AI" everywhere.
-export const chatName = (name: string, email: string | null | undefined) => (isOperationsAi(email) ? OPERATIONS_AI_NAME : name);
+export const chatName = (name: string, email: string | null | undefined, role: string | null | undefined) => (isOperationsAi(email, role) ? OPERATIONS_AI_NAME : name);
 
 export const MAX_BODY = 2000;
 

@@ -109,7 +109,11 @@ export function whyUnresolved(to: string, users: Askable[], ownerEmail: string):
 // The Building Agent login is the AI - known by its email (the constant in session.ts), never by role: an ordinary
 // Manager still can't send information requests.
 export const OPERATIONS_AI_NAME = "Operations AI";
-export const isOperationsAi = (email: string | null | undefined) => (email ?? "").trim().toLowerCase() === BUILDING_AGENT_EMAIL;
+// CH-021 (security review, Ilies approved 27 Oct): the email AND the role - an Admin, Viewer or any other role that
+// somehow carries the Building Agent's email is not the AI. (Who may create or change that account is the owner-only
+// rule in the users routes, the Estimating agent's half of CH-021.)
+export const isOperationsAi = (email: string | null | undefined, role: string | null | undefined) =>
+  role === "MANAGER" && (email ?? "").trim().toLowerCase() === BUILDING_AGENT_EMAIL;
 export const AI_DAILY_LIMIT = 20; // rolling 24 hours
 export const overAiLimit = (sentLast24h: number) => sentLast24h >= AI_DAILY_LIMIT;
 const AI_ASKS = ["ACCOUNTS", "DIRECTOR", "ADMIN", "MANAGER"];

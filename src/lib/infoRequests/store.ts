@@ -31,7 +31,7 @@ const dueAt = (d: string | null) => (d ? new Date(`${d}T07:00:00.000Z`) : new Da
 export async function raiseInfoRequest(item: InfoItem, assigneeUserId: string, actor: Actor, batch?: string): Promise<{ request: SiteRequest } | { error: string; status?: number }> {
   const user = await prisma.user.findUnique({ where: { id: assigneeUserId }, select: ASKABLE_SELECT });
   // Operations AI (the Building Agent login) asks a wider group, at most 20 a day.
-  const ai = isOperationsAi(actor.email);
+  const ai = isOperationsAi(actor.email, actor.role);
   const bad = ai ? aiTargetError(user, actor.id, OWNER_EMAIL) ?? aiQuestionError(item) : queryTargetError(user ? { type: "USER", user } : null, actor, item.question);
   if (bad || !user) return { error: bad ?? "Pick who to ask." };
   if (ai) {
