@@ -99,6 +99,9 @@ try {
       & scp @sshOpts -q "${server}:/tmp/$f" $part
       if ($LASTEXITCODE -ne 0) { throw "download of $f failed (scp exit $LASTEXITCODE)" }
       if ($f -eq $db -and -not (Test-DbGz $part)) { Remove-Item $part -Force; throw "$f is not a complete database - kept the previous backups" }
+      # An empty file is a failed backup on the server (27 Oct 2026: the estimating step failed and left 0 bytes,
+      # which used to be logged as OK). Never keep it; say so in the log.
+      if ((Get-Item $part).Length -eq 0) { Remove-Item $part -Force; Write-Log ("FAILED {0} is empty on the server - not kept" -f $f); continue }
       Move-Item $part $dest -Force
       Write-Log ("OK {0} size={1}" -f $dest, (Get-Item $dest).Length)
     }
