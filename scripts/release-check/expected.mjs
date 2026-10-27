@@ -7,15 +7,17 @@ export const MAY_ANSWER = {
   // Middleware lets these through without a session. /api/auth/setup GET only says whether the first Admin exists.
   NO_LOGIN: [/^\/api\/auth\/(login|setup|me)$/],
   // TIMESHEETS (Alex, review-only weekly timesheets): guardTimesheetViewer(); /api/queries is only ever this login's own.
-  TIMESHEETS: [/^\/api\/auth\//, /^\/api\/timesheets(\/|$)/, /^\/api\/queries$/],
+  // /api/messages/unread answers a plain { unread: 0 } to logins that don't chat (so the nav can ask for any login).
+  TIMESHEETS: [/^\/api\/auth\//, /^\/api\/timesheets(\/|$)/, /^\/api\/queries$/, /^\/api\/messages\/unread$/],
   // DIRECTOR logins: the Directors screen, plus what it reads (findings, own queries, Xero mirror, info requests,
   // controlled changes to approve, lessons). Everything in Operations refuses them.
   DIRECTOR: [/^\/api\/auth\//, /^\/api\/directors(\/|$)/, /^\/api\/findings(\/|$)/, /^\/api\/queries$/, /^\/api\/xero(\/|$)/,
-    /^\/api\/info-requests(\/|$)/, /^\/api\/changes(\/|$)/, /^\/api\/lessons(\/|$)/],
+    /^\/api\/info-requests(\/|$)/, /^\/api\/changes(\/|$)/, /^\/api\/lessons(\/|$)/, /^\/api\/messages(\/|$)/], // + office chat (27 Oct)
   // ACCOUNTS (Victoria): the Accounts screen and the invoices inbox; compliance records; the Xero mirror; own queries;
-  // purchases; her own phone alerts (/api/push, since 26 Oct).
+  // purchases; her own phone alerts (/api/push, since 26 Oct); office chat (/api/messages, 27 Oct).
   ACCOUNTS: [/^\/api\/auth\//, /^\/api\/accounts(\/|$)/, /^\/api\/invoice-inbox(\/|$)/, /^\/api\/compliance\/(workers|documents)(\/|$)/,
-    /^\/api\/xero(\/|$)/, /^\/api\/queries$/, /^\/api\/purchases$/, /^\/api\/info-requests(\/|$)/, /^\/api\/push$/],
+    /^\/api\/xero(\/|$)/, /^\/api\/queries$/, /^\/api\/purchases$/, /^\/api\/info-requests(\/|$)/, /^\/api\/push$/,
+    /^\/api\/messages(\/|$)/],
 };
 
 // Routes that answer ANY signed-in login with a redirect back into the app: the owner-only Xero connect / callback

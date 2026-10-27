@@ -38,7 +38,8 @@ Exit code: **0** everything passed (SKIPPED only where a check is not applicable
 6. `npm run build`.
 7. Throwaway logins for MANAGER, MANAGER + director access, ADMIN + director access, ADMIN, VIEWER, TIMESHEETS,
    ACCOUNTS and DIRECTOR (random passwords, in memory only - no credential files), and fresh SUPERVISOR / OFFICE
-   links for people who already have one.
+   links for people who already have one. Two logins are known by email, not role - the owner and the Operations AI
+   (Building Agent): on the COPY only their password is replaced with a random in-memory one (created if missing).
 8. Starts `next start` on 127.0.0.1:<port> with `lib/outbound-guard.cjs` preloaded: every TCP connection to a
    non-loopback host is **blocked and logged**; the `no-outbound` check fails if there was even one attempt.
 9. Runs every module in `checks/` (in file-name order; the ones marked `writes: true` add synthetic rows to the
@@ -67,6 +68,7 @@ Exit code: **0** everything passed (SKIPPED only where a check is not applicable
 | reimbursements | link tile rules, no $ on the link, tip dockets never claims |
 | signin-remove | Admin removal with a reason, locked weeks refuse, gone from Sign-ins and timesheets (writes) |
 | docsearch | only when `src/lib/docsearch` exists: roles, never on links, OFF with no Graph keys, no index file, folders unapproved, index refuses `prisma/`, kill switch |
+| questions-chat | only when `src/app/api/messages` exists: Accounts -> Questions access, Operations AI questions (targets, 20 a day, tag), answers change nothing, office chat roles, never on links, edit / delete own only, history, owner-only read-all without marking seen |
 | viewer-safety | the candidate's own `scripts/check-viewer-safety.ts` |
 | no-outbound | zero outbound connection attempts from the test server |
 | cleanup | server stopped, test files gone, snapshot unchanged |

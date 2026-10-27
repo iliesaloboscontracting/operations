@@ -19,7 +19,7 @@ import { parseArgs } from "node:util";
 import { EXPECTED_NOTES } from "./expected.mjs";
 import { makeContext, makeTally } from "./lib/context.mjs";
 import { startServer, stopServer } from "./lib/server.mjs";
-import { childEnv, compareCounts, copySnapshot, dbPush, ENV_MARKER, makeLinks, makeUsers, paths, prismaFor, refusals, rowCounts, writeEnv } from "./lib/setup.mjs";
+import { childEnv, compareCounts, copySnapshot, dbPush, ENV_MARKER, makeLinks, makeSpecialUsers, makeUsers, paths, prismaFor, refusals, rowCounts, writeEnv } from "./lib/setup.mjs";
 import { npmCommand, run, scrub, sha256File } from "./lib/util.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -152,8 +152,11 @@ try {
     try {
       db = prismaFor(p);
       users = await makeUsers(db);
+      const special = await makeSpecialUsers(db, appDir);
+      Object.assign(users, special.users);
       links = await makeLinks(db);
-      record("test-logins", "Throwaway logins (8 roles) and site links on the copy", "PASS", links.missing.length ? `links missing: ${links.missing.join("; ")}` : null, Date.now() - t0);
+      record("test-logins", "Throwaway logins (8 roles + owner + Operations AI) and site links on the copy", "PASS",
+        [...special.notes, links.missing.length && `links missing: ${links.missing.join("; ")}`].filter(Boolean).join("; "), Date.now() - t0);
     } catch (e) { setupOk = false; record("test-logins", "Throwaway logins and site links", "BLOCKED", e.message, Date.now() - t0); }
   }
   if (setupOk) {

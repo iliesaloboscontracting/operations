@@ -143,6 +143,31 @@ export async function makeUsers(db) {
   return users;
 }
 
+// Two logins are known by their EMAIL, not their role: the owner (src/lib/owner.ts OWNER_EMAIL) and the Operations AI
+// (src/lib/session.ts BUILDING_AGENT_EMAIL). On the TEST COPY only, their password hash is replaced with a random
+// in-memory one (or the login is created if the copy has none), so owner-only and AI-only rules can be exercised.
+export async function makeSpecialUsers(db, appDir) {
+  const read = (rel, re) => { try { return readFileSync(path.join(appDir, rel), "utf8").match(re)?.[1] ?? null; } catch { return null; } };
+  const specs = [
+    { key: "OWNER", email: read("src/lib/owner.ts", /OWNER_EMAIL\s*=\s*"([^"]+)"/), role: "ADMIN", name: "Release check owner" },
+    { key: "OPS_AI", email: read("src/lib/session.ts", /BUILDING_AGENT_EMAIL\s*=\s*"([^"]+)"/), role: "MANAGER", name: "Release check Operations AI" },
+  ];
+  const out = {}, notes = [];
+  for (const s of specs) {
+    if (!s.email) { notes.push(`${s.key}: email constant not found in the candidate`); continue; }
+    const password = randomBytes(18).toString("base64url");
+    const salt = randomBytes(16);
+    const passwordHash = `scrypt$${salt.toString("hex")}$${scryptSync(password, salt, 64).toString("hex")}`;
+    const existing = await db.user.findUnique({ where: { email: s.email } });
+    const u = existing
+      ? await db.user.update({ where: { id: existing.id }, data: { passwordHash, active: true } })
+      : await db.user.create({ data: { email: s.email, name: s.name, passwordHash, role: s.role } });
+    out[s.key] = { id: u.id, email: s.email, password, role: u.role };
+    notes.push(`${s.key}: ${existing ? `existing ${u.role} login, password replaced on the copy` : `created as ${s.role} on the copy`}`);
+  }
+  return { users: out, notes };
+}
+
 const newSecret = () => randomBytes(24).toString("base64url");
 export async function makeLink(db, kind, resourceId, extra = {}) {
   const secret = newSecret();
