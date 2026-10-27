@@ -56,6 +56,10 @@ export const PATCH = withErrorHandling(async (
     data.passwordHash = await hashPassword(String(body.password));
   }
 
+  // SEC-001: a reset password, a changed role or a switched-off account ends every session that user has.
+  const revoke = data.passwordHash !== undefined || (data.role !== undefined && data.role !== target.role) || (data.active === false && target.active);
+  if (revoke) data.sessionVersion = { increment: 1 };
+
   const losesAdmin =
     target.role === "ADMIN" &&
     target.active &&

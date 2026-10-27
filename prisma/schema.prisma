@@ -470,6 +470,9 @@ model User {
   // Separate from role so a future Admin doesn't see it by default. Only the
   // owner (lib/owner.ts) can tick or untick it; the owner always has it.
   directorAccess Boolean @default(false)
+  // SEC-001 (27 Oct 2026): in every signed session. Bumped on a password change, an admin reset, a role change,
+  // deactivation and sign-out, so every cookie issued before it stops working at once.
+  sessionVersion Int     @default(0)
   // The Labour-register person this login belongs to (Phase 2, 24 Oct
   // 2026), so a query to "Nick" reaches both his login and his link. Set by
   // Ilies (propose-then-apply), never by code or seed. A plain id, no relation.
