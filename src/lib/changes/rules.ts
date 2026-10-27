@@ -4,6 +4,7 @@
 // login), expiry, the "before still true" re-check and undo. No server
 // imports; `npm test` (changes.test.ts). Design: docs/lci/PHASE4-5-DESIGN.md §1.
 import { isOwner } from "../owner";
+import { sameUser } from "../samePerson";
 import { A3_RULES, CHANGE_KINDS, NEVER_APPROVE, type ChangeKind } from "./config";
 
 export type ChangeUser = { id: string; name: string; email: string; role: string; directorAccess: boolean };
@@ -39,13 +40,14 @@ export const SYSTEM_ACTOR: ChangeUser = { id: "", name: "System", email: "system
 export const canProposeKind = (u: ChangeUser, kind: ChangeKind) => (u.role === "SYSTEM" ? kind === "HIRE_OFF_HIRE_DATE" : canViewKind(u, kind));
 
 // Why this person can't approve this proposal, or null when they can.
-export function cannotApprove(u: ChangeUser, p: { kind: ChangeKind; requestedBy: string; sourcePerson: string | null }): string | null {
+export function cannotApprove(u: ChangeUser, p: { kind: ChangeKind; requestedBy: string; requestedByUserId?: string | null; sourcePerson: string | null }): string | null {
   const rule = A3_RULES[p.kind];
   if (NEVER_APPROVE.includes(u.email.toLowerCase())) return "This login proposes changes; it never approves them.";
   const byRole = rule.approvers.roles.includes(u.role);
   const byOwner = rule.approvers.ownerMayApprove && isOwner(u.email);
   if (!byRole && !byOwner) return `${rule.label} changes are approved by ${approverWords(p.kind)}.`;
-  if (samePerson(u.name, p.requestedBy)) return "You proposed this change, so someone else has to approve it.";
+  // SEC-002 (c): by login id too (another login of the same person counts), not only by name.
+  if (samePerson(u.name, p.requestedBy) || sameUser(u.id, p.requestedByUserId)) return "You proposed this change, so someone else has to approve it.";
   if (samePerson(u.name, p.sourcePerson)) return "The information came from you, so someone else has to approve putting it in.";
   return null;
 }

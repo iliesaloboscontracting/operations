@@ -1,0 +1,8 @@
+{
+  "batch": "01 - sample (synthetic test fixture, no real values)",
+  "items": [
+    { "to": "Accounts", "type": "QUESTION", "title": "Sample: where is the supplier list kept?", "question": "Where is the current supplier list kept, and who updates it?", "need": "A file name or a folder", "why": "So the inbox can match suppliers" },
+    { "to": "Nick", "type": "QUESTION", "title": "Sample: which register is the master?", "question": "Which tender register is the master copy?", "need": "The file", "why": "So imports read one source" },
+    { "to": "Yoel", "type": "FYI", "title": "Sample: heads up", "question": "The sample report moves to Mondays from next week.", "need": null, "why": null }
+  ]
+}

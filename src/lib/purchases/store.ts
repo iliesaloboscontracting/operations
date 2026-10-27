@@ -3,7 +3,9 @@
 // records an event per step and sends the existing push alerts. Amounts only ever leave here in accountsView().
 // Design: docs/accounts/STAGE6-DESIGN.md §3.
 import { Prisma } from "@prisma/client";
+import { BUILDING_AGENT_EMAIL } from "../session";
 import { prisma } from "../prisma";
+import { isOwner, OWNER_EMAIL } from "../owner";
 import { pushToSiteLinks, pushToUsers, type PushMessage } from "../push";
 import { todaySydney } from "../today";
 import { addDays, isIsoDate } from "../accounts/calendar";
@@ -52,6 +54,7 @@ async function nextNumber(db: Prisma.TransactionClient) {
 }
 
 const roleUsers = async (role: string) => (await prisma.user.findMany({ where: { role, active: true }, select: { id: true } })).map((u) => u.id);
+const ownerUsers = async () => (await prisma.user.findMany({ where: { email: OWNER_EMAIL, active: true }, select: { id: true } })).map((u) => u.id);
 const alert = (p: Promise<unknown>) => p.catch((e) => console.error("purchase alert failed", e));
 
 // Status words only, never an amount (D-money).
@@ -62,6 +65,11 @@ async function tellRequester(r: { siteLinkId: string | null; requestedByUserId: 
 }
 
 export async function createRequest(who: Requester, b: Record<string, unknown>): Promise<{ id: string; ref: string } | Problem> {
+  // PUR-001 (27 Oct 2026): the Building Agent login never raises a purchase request - on any route.
+  if (who.kind === "APP") {
+    const u = await prisma.user.findUnique({ where: { id: who.userId }, select: { email: true } });
+    if (u?.email.toLowerCase() === BUILDING_AGENT_EMAIL) return bad("The Building Agent login can't ask to buy things.", 403);
+  }
   const p = parseNew(b);
   if ("error" in p) return bad(p.error!);
   if (p.data.projectId && !(await prisma.project.findUnique({ where: { id: p.data.projectId }, select: { id: true } }))) return bad("Pick the job again.");
@@ -153,7 +161,7 @@ export async function actOnRequest(
   if (!done.count) return bad("Someone else has just changed this - reload and try again.", 409);
   await prisma.purchaseRequestEvent.create({ data: { requestId: id, action, status: ok.to, by: who.name, note } });
 
-  if (ok.to === "CHECKED") await alert(pushToUsers(await roleUsers("DIRECTOR"), { title: `Purchase ${purchaseNo(r.number)} to approve`, body: r.what.slice(0, 140), url: "/directors/purchases", tag: "purchase-approve" }));
+  if (ok.to === "CHECKED") await alert(pushToUsers([...await roleUsers("DIRECTOR"), ...await ownerUsers()], { title: `Purchase ${purchaseNo(r.number)} to approve`, body: r.what.slice(0, 140), url: "/directors/purchases", tag: "purchase-approve" }));
   if (ok.to === "REQUESTED") await alert(pushToUsers(await roleUsers("ACCOUNTS"), { title: `Purchase ${purchaseNo(r.number)} answered`, body: `${r.requestedBy} answered your question.`, url: "/accounts/purchases", tag: "purchase-new" }));
   if (ok.to === "APPROVED" || ok.to === "DECLINED") await alert(pushToUsers(await roleUsers("ACCOUNTS"), { title: `Purchase ${purchaseNo(r.number)} ${ok.to === "APPROVED" ? "approved" : "declined"}`, body: r.what.slice(0, 140), url: "/accounts/purchases", tag: "purchase-decided" }));
   if (["NEEDS_INFO", "APPROVED", "DECLINED", "ORDERED", "CLOSED"].includes(ok.to)) await tellRequester(r, ok.to);
@@ -173,12 +181,12 @@ export async function listForAccounts() {
 
 // Directors: the checked ones to decide, and the last 30 days decided. cannotDecide says why this login can't
 // (not a DIRECTOR login, or they asked for it) - the page shows it instead of the buttons, as budgets do.
-export async function listForDirectors(user: { role: string; name: string }) {
+export async function listForDirectors(user: { id: string; role: string; name: string; email?: string }) {
   const since = new Date(`${addDays(todaySydney(), -30)}T00:00:00Z`);
   const rows = await prisma.purchaseRequest.findMany({
     where: { OR: [{ status: "CHECKED" }, { decidedAt: { gte: since } }] }, include: withEvents, orderBy: { number: "desc" }, take: 200,
   });
-  const actor: Actor = { kind: "DIRECTOR", role: user.role, name: user.name };
+  const actor: Actor = { kind: "DIRECTOR", role: user.role, name: user.name, userId: user.id, owner: isOwner(user.email) };
   return rows.map((r) => {
     const c = r.status === "CHECKED" ? check("APPROVE", r, actor) : null;
     return { ...accountsView(r), cannotDecide: c && "error" in c ? c.error : null };

@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser, guard, hashPassword, MIN_PASSWORD, normaliseEmail, ROLES } from "@/lib/auth";
+import { normName } from "@/lib/samePerson";
+import { saveUserCreate } from "@/lib/userEdit";
+import { BUILDING_AGENT_EMAIL } from "@/lib/session";
 import { isOwner } from "@/lib/owner";
 import { withErrorHandling } from "@/lib/apiHandler";
 
@@ -40,13 +43,22 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   if (password.length < MIN_PASSWORD) {
     return NextResponse.json({ error: `Password must be at least ${MIN_PASSWORD} characters` }, { status: 400 });
   }
+  // CH-021: only the owner creates the Building Agent login.
+  if (email === BUILDING_AGENT_EMAIL && !isOwner((await getCurrentUser())?.email)) {
+    return NextResponse.json({ error: "Only Iliesa can create this account." }, { status: 403 });
+  }
   if (await prisma.user.findUnique({ where: { email } })) {
     return NextResponse.json({ error: "A user with that email already exists" }, { status: 409 });
   }
+  // SEC-002 (b): a new login can't share an active login's name (the second login of one person is set up by the
+  // owner in code - lib/samePerson.ts - after it's created under a distinct name).
+  if ((await prisma.user.findMany({ where: { active: true }, select: { name: true } })).some((u) => normName(u.name) === normName(name))) {
+    return NextResponse.json({ error: "Another login already has that name - use a different one." }, { status: 400 });
+  }
 
-  const user = await prisma.user.create({
-    data: { name, email, role, passwordHash: await hashPassword(password) },
-    select: PUBLIC_FIELDS,
-  });
+  // R2-POST: the login and its CREATE log entry are saved together, or not at all.
+  const me = await getCurrentUser();
+  if (!me) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+  const user = await saveUserCreate(prisma, { name, email, role, passwordHash: await hashPassword(password) }, me, PUBLIC_FIELDS);
   return NextResponse.json(user, { status: 201 });
 });

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { dummyHash, homeFor, normaliseEmail, startSession, verifyPassword, type Role } from "@/lib/auth";
-import { clearFailures, isLocked, recordFailure } from "@/lib/throttle";
+import { clearFailures, clientIp, isLocked, MAX_PER_EMAIL, recordFailure } from "@/lib/throttle";
 import { withErrorHandling } from "@/lib/apiHandler";
 
 // POST /api/auth/login { email, password }
@@ -13,9 +13,10 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
     return NextResponse.json({ error: "Enter your email and password" }, { status: 400 });
   }
 
-  const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "local";
-  const key = `${ip}|${email}`;
-  if (isLocked(key)) {
+  // SEC-011: an address the caller can't choose, and the email on its own (attempts spread over many addresses).
+  const key = `${clientIp(req.headers)}|${email}`;
+  const emailKey = `email:${email.toLowerCase()}`;
+  if (isLocked(key) || isLocked(emailKey, MAX_PER_EMAIL)) {
     return NextResponse.json(
       { error: "Too many failed attempts. Try again in 15 minutes." },
       { status: 429 }
@@ -27,10 +28,12 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   const ok = await verifyPassword(password, user?.passwordHash ?? (await dummyHash()));
   if (!user || !user.active || !ok) {
     recordFailure(key);
+    recordFailure(emailKey);
     return NextResponse.json({ error: "Incorrect email or password" }, { status: 401 });
   }
 
   clearFailures(key);
+  clearFailures(emailKey);
   await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
   await startSession(user.id, user.email);
   // Where to land: the limited roles go straight to their one page.

@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import { safeNext as safeNextPath } from "./safeNext";
 import { randomBytes, scrypt as scryptCb, timingSafeEqual } from "crypto";
 import { promisify } from "util";
 import { prisma } from "./prisma";
@@ -63,7 +64,9 @@ export function dummyHash() {
 // ---------- sessions ----------
 export async function startSession(userId: string, email?: string | null) {
   const maxAge = sessionMaxAgeFor(email);
-  const token = await signSession(userId, maxAge);
+  // SEC-001: the cookie carries the user's current sessionVersion; bumping it signs out every older cookie.
+  const u = await prisma.user.findUnique({ where: { id: userId }, select: { sessionVersion: true } });
+  const token = await signSession(userId, maxAge, u?.sessionVersion ?? 0);
   (await cookies()).set(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: "lax",
@@ -71,6 +74,11 @@ export async function startSession(userId: string, email?: string | null) {
     path: "/",
     maxAge,
   });
+}
+
+// SEC-001: bump a user's sessionVersion - every session they have, on every device, stops working.
+export async function revokeSessions(userId: string) {
+  await prisma.user.update({ where: { id: userId }, data: { sessionVersion: { increment: 1 } } });
 }
 
 export async function endSession() {
@@ -83,6 +91,8 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
   if (!session) return null;
   const u = await prisma.user.findUnique({ where: { id: session.uid } });
   if (!u || !u.active) return null;
+  // SEC-001: a cookie from before a password change, reset, role change, deactivation or sign-out is dead.
+  if (session.sv !== u.sessionVersion) return null;
   const base = { id: u.id, email: u.email, name: u.name, role: u.role as Role, directorAccess: u.directorAccess };
   return { ...base, directorAccess: hasDirectorAccess(base) };
 }
@@ -176,6 +186,7 @@ export function normaliseEmail(email: string) {
 }
 
 // Only allow same-site relative redirects after login.
+// SEC-006: same-site paths only (backslashes, control characters, encoded tricks and other origins refused).
 export function safeNext(next: string | null | undefined) {
-  return next && next.startsWith("/") && !next.startsWith("//") ? next : "/command";
+  return safeNextPath(next, "https://app.invalid", "/command");
 }

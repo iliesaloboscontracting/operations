@@ -76,7 +76,7 @@ export default function AccountsPurchasesPage() {
   useEffect(() => { load(); }, [load]);
   if (!loading && !accountsOnly && !isAdmin) return <PageShell title="Purchases"><p className="text-sm text-gray-400">This screen is for accounts.</p></PageShell>;
   return (
-    <PageShell title="Purchases" subtitle="Check and price each request; a director approves it; you order it."
+    <PageShell title="Purchases" subtitle="Check and price each request; Ilies or a director approves it; you order it."
       actions={<Link href="/purchases" className="rounded-lg border border-edge px-3 py-1.5 text-xs font-medium text-gray-200 hover:bg-panel2">Ask for something</Link>}>
       {!d ? <p className="text-sm text-gray-500">Loading…</p> : <>
         <Group title="To check" rows={d.toCheck} empty="Nothing to check." onChanged={load} />

@@ -2,19 +2,19 @@
 // middleware and Node route handlers.
 //
 // Token = base64url(JSON payload) + "." + base64url(HMAC-SHA256(payload))
-// Payload = { uid, exp }  (exp in ms). The role is NOT stored here: it is always
+// Payload = { uid, exp, sv }  (exp in ms; sv = the user's sessionVersion when signed - SEC-001). The role is NOT stored here: it is always
 // read from the database so role changes and deactivation apply immediately.
 
 export const SESSION_COOKIE = "operate_session";
 export const SESSION_MAX_AGE_S = 60 * 60 * 12; // 12 hours
 
 // The Building Agent (the account Claude applies approved data changes
-// through, in the browser pane on this PC) stays signed in for 30 days so it
+// through, in the browser pane on this PC) stays signed in for 7 days so it
 // isn't logged out between working sessions (Ilies, 18 Oct 2026). Everyone
 // else keeps 12 hours. Switching the user off on the Users page still ends
 // the session at once, because the account is checked on every request.
 export const BUILDING_AGENT_EMAIL = "iliesa+agent@loboscontracting.com.au";
-export const AGENT_SESSION_MAX_AGE_S = 60 * 60 * 24 * 30; // 30 days
+export const AGENT_SESSION_MAX_AGE_S = 60 * 60 * 24 * 7; // 7 days (SEC-001, 27 Oct 2026; was 30)
 export function sessionMaxAgeFor(email: string | null | undefined) {
   return email?.toLowerCase() === BUILDING_AGENT_EMAIL ? AGENT_SESSION_MAX_AGE_S : SESSION_MAX_AGE_S;
 }
@@ -22,6 +22,7 @@ export function sessionMaxAgeFor(email: string | null | undefined) {
 export interface SessionPayload {
   uid: string;
   exp: number;
+  sv: number; // sessionVersion - checked against the database on every request (getCurrentUser)
 }
 
 const enc = new TextEncoder();
@@ -56,8 +57,8 @@ async function hmacKey() {
   );
 }
 
-export async function signSession(uid: string, maxAgeS = SESSION_MAX_AGE_S): Promise<string> {
-  const payload: SessionPayload = { uid, exp: Date.now() + maxAgeS * 1000 };
+export async function signSession(uid: string, maxAgeS = SESSION_MAX_AGE_S, sv = 0): Promise<string> {
+  const payload: SessionPayload = { uid, exp: Date.now() + maxAgeS * 1000, sv };
   const body = b64u(enc.encode(JSON.stringify(payload)));
   const sig = await crypto.subtle.sign("HMAC", await hmacKey(), enc.encode(body));
   return `${body}.${b64u(sig)}`;
