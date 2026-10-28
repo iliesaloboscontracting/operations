@@ -233,3 +233,15 @@ test("SEC-004: a switched-off agent login isn't Operations AI, so the owner can'
   // and so, without the AI flag, the SAME_PERSON pairing stands
   assert.match(cannotApprove(ilies, { ...fromAgent("RESOURCE_RATE"), proposedByAi: aiProposerIds([row({ active: false })]).has(AGENT_ID) })!, /You proposed/);
 });
+
+test("SEC-005: the owner's phone alert never carries an amount", async () => {
+  const { alertBody } = await import("./rules");
+  assert.equal(alertBody("Operations AI", "Tip rate (new)", "BM Recycling Banksmeadow · Clean Heavies from 2026-07-14"), "Operations AI proposed: Tip rate (new) - BM Recycling Banksmeadow · Clean Heavies from 2026-07-14");
+  for (const name of ["Allcott $1,846.00", "Rate 280.00 per t", "Invoice 1,200.50"]) {
+    const b = alertBody("Operations AI", "Remove supplier invoice", name);
+    assert.equal(b, "Operations AI proposed: Remove supplier invoice", name);
+    assert.doesNotMatch(b, /\$|\d\.\d{2}/);
+  }
+  assert.equal(alertBody("Operations AI", "Remove supplier invoice", "Allcott Hire 1846169"), "Operations AI proposed: Remove supplier invoice - Allcott Hire 1846169", "an invoice number isn't an amount");
+  assert.ok(alertBody("x", "y", "z".repeat(300)).length <= 140);
+});

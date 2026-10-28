@@ -59,6 +59,12 @@ export const maskedNote = (action: string, note: string | null) =>
 export const aiProposerIds = (users: { id: string; email: string; role: string; active: boolean }[]) =>
   new Set(users.filter((u) => u.active && isOperationsAi(u.email, u.role)).map((u) => u.id));
 
+// The owner's phone alert (SEC-005): who, what kind, and the record's name only when it carries no amount -
+// a phone's lock screen never shows a dollar figure.
+const AMOUNT = /\$|\d[\d,]*\.\d{2}/;
+export const alertBody = (who: string, label: string, recordName: string) =>
+  `${who} proposed: ${label}${recordName && !AMOUNT.test(recordName) ? ` - ${recordName}` : ""}`.slice(0, 140);
+
 // Proposing: Managers and Admins, any kind but the admin ones; director logins, the commercial
 // kinds; the admin kinds, an Admin or Operations AI; the system only off-hire dates, from a supervisor's hire check (4e).
 export const SYSTEM_ACTOR: ChangeUser = { id: "", name: "System", email: "system@lci", role: "SYSTEM", directorAccess: false };
