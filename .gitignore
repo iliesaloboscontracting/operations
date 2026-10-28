@@ -1,6 +1,9 @@
 node_modules
 .next
 .env
+.env.*
+# SEC-007: any other .env.* (a held-aside or copied env) is never versioned; the example is
+!.env.example
 *.log
 .DS_Store
 *.tsbuildinfo
