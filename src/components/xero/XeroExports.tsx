@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Loader2, Upload } from "lucide-react";
 import { apiFetch, serverErrorMessage } from "@/lib/apiFetch";
-import { jobLabel, searchJobs } from "@/lib/jobSearch";
+import JobPicker from "@/components/JobPicker";
 import { fmtDay } from "@/lib/dates";
 import { NO_SITE, siteOf } from "@/lib/xero/siteGroup";
 import { localISODate as todayLocal, money } from "@/lib/resource";
@@ -128,29 +128,25 @@ async function saveMatch(key: string, projectId: string | null) {
 
 const signed = (i: Inv) => (i.type.endsWith("CREDIT") ? -i.totalExGst : i.totalExGst);
 
-// "Not tied to a job" (Ilies, 28 Oct 2026: "one search bar, brings up all thats relevant to that search for this
-// function"). ONE search bar finds both the invoices (grouped by assumed site) and the jobs (as buttons). Tick the
-// invoices - ticks stay through a new search, so search the invoices, tick, then search the job - and tap the job to
-// tie them all. Each invoice still saves through the same /api/xero/review call, one after another.
 function Review({ data, onDone }: { data: { asAt: string | null; invoices: Inv[]; projects: Project[] }; onDone: () => void }) {
   const live = data.projects.filter((p) => !p.archived);
   const name = new Map(data.projects.map((p) => [p.id, p.name]));
   const [q, setQ] = useState("");
   const [ticked, setTicked] = useState<Set<string>>(new Set());
+  const [bulkJob, setBulkJob] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
-  const searching = !!q.trim();
-  const shown = searching ? data.invoices.filter((i) => matchesAll(invText(i), q)) : data.invoices;
-  const jobs = searching ? searchJobs(live, q, 8) : [];
-  const chosen = data.invoices.filter((i) => ticked.has(i.key));
-  const toggle = (keys: string[], on: boolean) => setTicked((s) => { const n = new Set(s); for (const k of keys) { if (on) n.add(k); else n.delete(k); } return n; });
-  const allShownTicked = shown.length > 0 && shown.every((i) => ticked.has(i.key));
-  // Grouped by assumed site, groups A-Z (the no-site group last).
+  const shown = q.trim() ? data.invoices.filter((i) => matchesAll(invText(i), q)) : data.invoices;
+  // Only invoices still on screen count as ticked (a new search or a save hides the others).
+  const chosen = shown.filter((i) => ticked.has(i.key));
+  const toggle = (key: string) => setTicked((s) => { const n = new Set(s); if (n.has(key)) n.delete(key); else n.add(key); return n; });
+  const allShownTicked = shown.length > 0 && chosen.length === shown.length;
+  // Grouped by assumed site, groups A-Z (the no-site group last); a search keeps only the matching invoices.
   const groups = [...shown.reduce((m, i) => m.set(siteOf(i.reference), [...(m.get(siteOf(i.reference)) ?? []), i]), new Map<string, Inv[]>())]
     .sort(([a], [b]) => (a === NO_SITE ? 1 : b === NO_SITE ? -1 : a.localeCompare(b)));
+  // Tie several at once (ticked, or a whole group): each invoice still goes through the same save as a single one,
+  // one after another.
   async function saveMany(list: Inv[], projectId: string | null) {
-    const what = projectId ? `Tie ${list.length} invoice${list.length === 1 ? "" : "s"} to ${name.get(projectId) ?? "this job"}?` : `Mark ${list.length} invoice${list.length === 1 ? "" : "s"} as not a job?`;
-    if (!confirm(what)) return;
     setBusy(true);
     setMsg(null);
     const failed: string[] = [];
@@ -158,12 +154,14 @@ function Review({ data, onDone }: { data: { asAt: string | null; invoices: Inv[]
       try { await saveMatch(i.key, projectId); } catch (e) { failed.push(`${i.number}: ${(e as Error).message}`); }
     }
     const done = list.length - failed.length;
-    const result = projectId ? `tied to ${name.get(projectId) ?? "the job"}` : "marked not a job";
-    setMsg(failed.length ? { ok: false, text: `${done} ${result}. Not saved - ${failed.join("; ")}` } : { ok: true, text: `${done} invoice${done === 1 ? "" : "s"} ${result}.` });
+    const what = projectId ? `tied to ${name.get(projectId) ?? "the job"}` : "marked not a job";
+    setMsg(failed.length ? { ok: false, text: `${done} ${what}. Not saved - ${failed.join("; ")}` } : { ok: true, text: `${done} invoice${done === 1 ? "" : "s"} ${what}.` });
     setTicked(new Set());
+    setBulkJob("");
     setBusy(false);
     onDone();
   }
+  const saveTicked = (projectId: string | null) => saveMany(chosen, projectId);
   return (
     <div className="rounded-2xl border border-edge bg-panel p-4">
       <h2 className="text-sm font-semibold text-gray-100">Not tied to a job</h2>
@@ -172,44 +170,29 @@ function Review({ data, onDone }: { data: { asAt: string | null; invoices: Inv[]
       </p>
       {data.asAt && !data.invoices.length && <p className="text-sm text-emerald-400">Every sales invoice is tied to a job.</p>}
       {data.invoices.length > 0 && (
-        <div className="mb-3 space-y-3">
-          <input type="search" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search invoices and jobs"
-            placeholder="Search - site, customer, invoice number or job (e.g. Randwick)" className={select} />
-          {searching && (
-            <div>
-              <p className="mb-1.5 text-[12px] text-gray-400">
-                Jobs{jobs.length ? (chosen.length ? ` - tap one to tie the ${chosen.length} ticked invoice${chosen.length === 1 ? "" : "s"}` : " - tick invoices below, then tap a job") : ""}
-              </p>
-              {jobs.length ? (
-                <div className="flex flex-wrap gap-2">
-                  {jobs.map((j) => (
-                    <button key={j.id} type="button" disabled={busy || !chosen.length} onClick={() => saveMany(chosen, j.id)}
-                      className="rounded-full border border-brand-500/60 bg-panel2 px-3 py-1.5 text-sm text-gray-100 hover:bg-brand-600 hover:text-white disabled:cursor-default disabled:opacity-60 disabled:hover:bg-panel2 disabled:hover:text-gray-100">
-                      {jobLabel(j)}
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-[12px] text-gray-500">No job matches &quot;{q}&quot; - type part of the job&apos;s name, number, client or address.</p>
-              )}
-            </div>
-          )}
-          <div className="flex flex-wrap items-center gap-3 text-[12px] text-gray-400">
-            <span>{groups.length} site group{groups.length === 1 ? "" : "s"} · {searching ? `${shown.length} of ${data.invoices.length} invoices` : `${data.invoices.length} invoices`}</span>
+        <div className="mb-3 space-y-2">
+          <div className="flex flex-wrap items-center gap-3">
+            <input type="search" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search invoices"
+              placeholder="Search invoices - reference, customer, number or description (e.g. Randwick)" className={`${select} max-w-xl`} />
+            <span className="text-[12px] text-gray-500">
+              {groups.length} site group{groups.length === 1 ? "" : "s"} · {q.trim() ? `${shown.length} of ${data.invoices.length} invoices` : `${data.invoices.length} invoices`}
+            </span>
             {shown.length > 0 && (
-              <label className="flex items-center gap-2 text-gray-300">
-                <input type="checkbox" checked={allShownTicked} onChange={() => toggle(shown.map((i) => i.key), !allShownTicked)} />
+              <label className="flex items-center gap-2 text-[12px] text-gray-300">
+                <input type="checkbox" checked={allShownTicked} onChange={() => setTicked(allShownTicked ? new Set() : new Set(shown.map((i) => i.key)))} />
                 Tick all shown
               </label>
             )}
           </div>
           {chosen.length > 0 && (
-            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-brand-500/40 bg-panel2 px-3 py-2">
+            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-brand-500/40 bg-panel2 p-3">
               <span className="text-sm text-gray-200">{chosen.length} ticked</span>
-              <span className="text-[12px] text-gray-500">{searching && jobs.length ? "- tap a job above to tie them" : "- search the job's name, then tap it to tie them"}</span>
-              <button disabled={busy} onClick={() => saveMany(chosen, null)} className="ml-auto rounded-lg border border-edge px-3 py-1.5 text-sm text-gray-300 hover:bg-panel disabled:opacity-40">Not a job</button>
-              <button disabled={busy} onClick={() => setTicked(new Set())} className="px-2 py-1.5 text-[12px] text-gray-400 hover:text-gray-200">Clear</button>
-              {busy && <Loader2 size={14} className="animate-spin text-gray-400" />}
+              <JobPicker jobs={live} value={bulkJob} onChange={setBulkJob} label="Job for the ticked invoices" className="w-full max-w-sm" />
+              <button disabled={busy || !bulkJob} onClick={() => saveTicked(bulkJob)} className="rounded-lg bg-brand-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-40">
+                {busy ? <Loader2 size={14} className="mr-1 inline animate-spin" /> : null}Tie {chosen.length} invoice{chosen.length === 1 ? "" : "s"}{bulkJob ? ` to ${name.get(bulkJob) ?? "the job"}` : ""}
+              </button>
+              <button disabled={busy} onClick={() => saveTicked(null)} className="rounded-lg border border-edge px-3 py-2 text-sm text-gray-300 hover:bg-panel disabled:opacity-40">Not a job</button>
+              <button disabled={busy} onClick={() => setTicked(new Set())} className="px-2 py-2 text-[12px] text-gray-400 hover:text-gray-200">Clear</button>
             </div>
           )}
           {msg && <p className={`text-sm ${msg.ok ? "text-emerald-400" : "text-red-400"}`}>{msg.text}</p>}
@@ -218,8 +201,8 @@ function Review({ data, onDone }: { data: { asAt: string | null; invoices: Inv[]
       {data.invoices.length > 0 && !shown.length && <p className="text-sm text-gray-500">No invoice matches &quot;{q}&quot;.</p>}
       <div className="space-y-3">
         {groups.map(([site, list]) => (
-          <SiteGroup key={site} site={site} list={list} allTicked={list.every((i) => ticked.has(i.key))} onTickAll={(on) => toggle(list.map((i) => i.key), on)}>
-            {list.map((i) => <ReviewRow key={i.id} i={i} name={name} busy={busy} ticked={ticked.has(i.key)} onTick={() => toggle([i.key], !ticked.has(i.key))} onSave={(projectId) => saveMany([i], projectId)} />)}
+          <SiteGroup key={site} site={site} list={list} projects={live} busy={busy} onTieAll={(projectId) => saveMany(list, projectId)}>
+            {list.map((i) => <ReviewRow key={i.id} i={i} projects={live} name={name} onDone={onDone} ticked={ticked.has(i.key)} onTick={() => toggle(i.key)} />)}
           </SiteGroup>
         ))}
       </div>
@@ -227,27 +210,52 @@ function Review({ data, onDone }: { data: { asAt: string | null; invoices: Inv[]
   );
 }
 
-// One assumed site: its invoices and their total, with one tick box for the whole group.
-function SiteGroup({ site, list, allTicked, onTickAll, children }: { site: string; list: Inv[]; allTicked: boolean; onTickAll: (on: boolean) => void; children: ReactNode }) {
+// One assumed site: its invoices, their total, and one job choice to tie the whole group at once. The rows stay below
+// so a single invoice can still go elsewhere.
+function SiteGroup({ site, list, projects, busy, onTieAll, children }: {
+  site: string; list: Inv[]; projects: Project[]; busy: boolean; onTieAll: (projectId: string) => void; children: ReactNode;
+}) {
   const [open, setOpen] = useState(true);
+  const [job, setJob] = useState("");
   const total = list.reduce((s, i) => s + signed(i), 0);
   return (
     <section className="rounded-xl border border-edge">
       <div className="flex flex-wrap items-center gap-2 border-b border-edge bg-panel2 px-3 py-2">
-        <input type="checkbox" checked={allTicked} onChange={() => onTickAll(!allTicked)} aria-label={`Tick all ${site} invoices`} />
         <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} className="flex min-w-0 items-baseline gap-2 text-left">
           <span className="text-gray-400">{open ? "▾" : "▸"}</span>
           <span className="text-sm font-semibold text-gray-100">{site}</span>
           <span className="text-[12px] text-gray-400">· {list.length} invoice{list.length === 1 ? "" : "s"} · {money(total)} ex GST</span>
         </button>
+        {site !== NO_SITE && (
+          <div className="ml-auto flex flex-wrap items-center gap-2">
+            <JobPicker jobs={projects} value={job} onChange={setJob} label={`Job for all ${site} invoices`} className="w-full max-w-xs" />
+            <button disabled={busy || !job} onClick={() => onTieAll(job)} className="rounded-lg bg-brand-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-40">
+              Tie all {list.length}
+            </button>
+          </div>
+        )}
       </div>
       {open && <ul className="divide-y divide-edge px-3">{children}</ul>}
     </section>
   );
 }
 
-// One invoice: its tick box and "Not a job". A job suggested from the site name can be accepted with one tap.
-function ReviewRow({ i, name, busy, ticked, onTick, onSave }: { i: Inv; name: Map<string, string>; busy: boolean; ticked: boolean; onTick: () => void; onSave: (projectId: string | null) => void }) {
+function ReviewRow({ i, projects, name, onDone, ticked, onTick }: { i: Inv; projects: Project[]; name: Map<string, string>; onDone: () => void; ticked: boolean; onTick: () => void }) {
+  const [pick, setPick] = useState(i.suggest ?? "");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  async function save(projectId: string | null) {
+    setBusy(true);
+    setErr(null);
+    try {
+      await saveMatch(i.key, projectId);
+      onDone();
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
   const credit = i.type.endsWith("CREDIT");
   return (
     <li className="py-3">
@@ -259,10 +267,7 @@ function ReviewRow({ i, name, busy, ticked, onTick, onSave }: { i: Inv; name: Ma
             <span className="text-gray-500"> · {day(i.date)}{i.reference ? ` · ref "${i.reference}"` : ""}</span>
           </span>
         </label>
-        <div className="flex items-baseline gap-3">
-          <span className="text-sm font-medium text-gray-100">{credit ? "-" : ""}{money(i.totalExGst)} <span className="text-[11px] font-normal text-gray-500">ex GST</span></span>
-          <button disabled={busy} onClick={() => onSave(null)} className="rounded-lg border border-edge px-2.5 py-1 text-[12px] text-gray-300 hover:bg-panel2 disabled:opacity-40">Not a job</button>
-        </div>
+        <div className="text-sm font-medium text-gray-100">{credit ? "-" : ""}{money(i.totalExGst)} <span className="text-[11px] font-normal text-gray-500">ex GST</span></div>
       </div>
       <ul className="mt-1 space-y-0.5 text-[12px] text-gray-500">
         {i.lines.slice(0, 4).map((l) => (
@@ -271,12 +276,13 @@ function ReviewRow({ i, name, busy, ticked, onTick, onSave }: { i: Inv; name: Ma
         {i.lines.length > 4 && <li>and {i.lines.length - 4} more lines</li>}
       </ul>
       {i.matchMethod === "MIXED" && <p className="mt-1 text-[12px] text-amber-300">Lines point to different jobs (or some don&apos;t match) - choose the job for the whole invoice, or leave it.</p>}
-      {i.suggest && (
-        <p className="mt-1 text-[12px] text-sky-300">
-          Suggested from the site name: {name.get(i.suggest) ?? "a job"} -{" "}
-          <button disabled={busy} onClick={() => onSave(i.suggest)} className="underline hover:text-sky-200 disabled:opacity-40">tie it to this job</button>
-        </p>
-      )}
+      {i.suggest && <p className="mt-1 text-[12px] text-sky-300">Suggested from the site name: {name.get(i.suggest) ?? "a job"} - check before saving.</p>}
+      <div className="mt-2 flex flex-wrap gap-2">
+        <JobPicker jobs={projects} value={pick} onChange={setPick} label={`Job for ${i.number}`} className="w-full max-w-sm" />
+        <button disabled={busy || !pick} onClick={() => save(pick)} className="rounded-lg bg-brand-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-40">Save</button>
+        <button disabled={busy} onClick={() => save(null)} className="rounded-lg border border-edge px-3 py-2 text-sm text-gray-300 hover:bg-panel2 disabled:opacity-40">Not a job</button>
+      </div>
+      {err && <p className="mt-1 text-sm text-red-400">{err}</p>}
     </li>
   );
 }
