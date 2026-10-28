@@ -115,9 +115,45 @@ function UploadForm({ onDone }: { onDone: () => void }) {
   );
 }
 
+// Search text for an invoice (Victoria, 28 Oct 2026: type "Randwick" and see only the Randwick invoices): number,
+// customer, reference and line descriptions. Every typed word must appear, any order, any case.
+const invText = (i: Inv) => [i.number, i.contact, i.reference, ...i.lines.map((l) => l.description)].filter(Boolean).join(" ").toLowerCase();
+const matchesAll = (text: string, q: string) => q.toLowerCase().split(/\s+/).filter(Boolean).every((w) => text.includes(w));
+
+async function saveMatch(key: string, projectId: string | null) {
+  const res = await apiFetch("/api/xero/review", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key, projectId }) });
+  if (!res.ok) throw new Error(await serverErrorMessage(res, "Couldn't save."));
+}
+
 function Review({ data, onDone }: { data: { asAt: string | null; invoices: Inv[]; projects: Project[] }; onDone: () => void }) {
   const live = data.projects.filter((p) => !p.archived);
   const name = new Map(data.projects.map((p) => [p.id, p.name]));
+  const [q, setQ] = useState("");
+  const [ticked, setTicked] = useState<Set<string>>(new Set());
+  const [bulkJob, setBulkJob] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const shown = q.trim() ? data.invoices.filter((i) => matchesAll(invText(i), q)) : data.invoices;
+  // Only invoices still on screen count as ticked (a new search or a save hides the others).
+  const chosen = shown.filter((i) => ticked.has(i.key));
+  const toggle = (key: string) => setTicked((s) => { const n = new Set(s); if (n.has(key)) n.delete(key); else n.add(key); return n; });
+  const allShownTicked = shown.length > 0 && chosen.length === shown.length;
+  // Tie several at once: each invoice still goes through the same save as a single one, one after another.
+  async function saveTicked(projectId: string | null) {
+    setBusy(true);
+    setMsg(null);
+    const failed: string[] = [];
+    for (const i of chosen) {
+      try { await saveMatch(i.key, projectId); } catch (e) { failed.push(`${i.number}: ${(e as Error).message}`); }
+    }
+    const done = chosen.length - failed.length;
+    const what = projectId ? `tied to ${name.get(projectId) ?? "the job"}` : "marked not a job";
+    setMsg(failed.length ? { ok: false, text: `${done} ${what}. Not saved - ${failed.join("; ")}` } : { ok: true, text: `${done} invoice${done === 1 ? "" : "s"} ${what}.` });
+    setTicked(new Set());
+    setBulkJob("");
+    setBusy(false);
+    onDone();
+  }
   return (
     <div className="rounded-2xl border border-edge bg-panel p-4">
       <h2 className="text-sm font-semibold text-gray-100">Not tied to a job</h2>
@@ -125,14 +161,42 @@ function Review({ data, onDone }: { data: { asAt: string | null; invoices: Inv[]
         {data.asAt ? `Sales invoices in the upload as at ${day(data.asAt)} that couldn't be matched to a job. Your choice is remembered for later uploads.` : "Upload a sales-invoice export to see this list."}
       </p>
       {data.asAt && !data.invoices.length && <p className="text-sm text-emerald-400">Every sales invoice is tied to a job.</p>}
+      {data.invoices.length > 0 && (
+        <div className="mb-3 space-y-2">
+          <div className="flex flex-wrap items-center gap-3">
+            <input type="search" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search invoices"
+              placeholder="Search invoices - reference, customer, number or description (e.g. Randwick)" className={`${select} max-w-xl`} />
+            <span className="text-[12px] text-gray-500">{q.trim() ? `${shown.length} of ${data.invoices.length}` : `${data.invoices.length} invoices`}</span>
+            {shown.length > 0 && (
+              <label className="flex items-center gap-2 text-[12px] text-gray-300">
+                <input type="checkbox" checked={allShownTicked} onChange={() => setTicked(allShownTicked ? new Set() : new Set(shown.map((i) => i.key)))} />
+                Tick all shown
+              </label>
+            )}
+          </div>
+          {chosen.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-brand-500/40 bg-panel2 p-3">
+              <span className="text-sm text-gray-200">{chosen.length} ticked</span>
+              <JobPicker jobs={live} value={bulkJob} onChange={setBulkJob} label="Job for the ticked invoices" className="w-full max-w-sm" />
+              <button disabled={busy || !bulkJob} onClick={() => saveTicked(bulkJob)} className="rounded-lg bg-brand-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-40">
+                {busy ? <Loader2 size={14} className="mr-1 inline animate-spin" /> : null}Tie {chosen.length} invoice{chosen.length === 1 ? "" : "s"}{bulkJob ? ` to ${name.get(bulkJob) ?? "the job"}` : ""}
+              </button>
+              <button disabled={busy} onClick={() => saveTicked(null)} className="rounded-lg border border-edge px-3 py-2 text-sm text-gray-300 hover:bg-panel disabled:opacity-40">Not a job</button>
+              <button disabled={busy} onClick={() => setTicked(new Set())} className="px-2 py-2 text-[12px] text-gray-400 hover:text-gray-200">Clear</button>
+            </div>
+          )}
+          {msg && <p className={`text-sm ${msg.ok ? "text-emerald-400" : "text-red-400"}`}>{msg.text}</p>}
+        </div>
+      )}
+      {data.invoices.length > 0 && !shown.length && <p className="text-sm text-gray-500">No invoice matches &quot;{q}&quot;.</p>}
       <ul className="divide-y divide-edge">
-        {data.invoices.map((i) => <ReviewRow key={i.id} i={i} projects={live} name={name} onDone={onDone} />)}
+        {shown.map((i) => <ReviewRow key={i.id} i={i} projects={live} name={name} onDone={onDone} ticked={ticked.has(i.key)} onTick={() => toggle(i.key)} />)}
       </ul>
     </div>
   );
 }
 
-function ReviewRow({ i, projects, name, onDone }: { i: Inv; projects: Project[]; name: Map<string, string>; onDone: () => void }) {
+function ReviewRow({ i, projects, name, onDone, ticked, onTick }: { i: Inv; projects: Project[]; name: Map<string, string>; onDone: () => void; ticked: boolean; onTick: () => void }) {
   const [pick, setPick] = useState(i.suggest ?? "");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -140,8 +204,7 @@ function ReviewRow({ i, projects, name, onDone }: { i: Inv; projects: Project[];
     setBusy(true);
     setErr(null);
     try {
-      const res = await apiFetch("/api/xero/review", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key: i.key, projectId }) });
-      if (!res.ok) throw new Error(await serverErrorMessage(res, "Couldn't save."));
+      await saveMatch(i.key, projectId);
       onDone();
     } catch (e) {
       setErr((e as Error).message);
@@ -153,10 +216,13 @@ function ReviewRow({ i, projects, name, onDone }: { i: Inv; projects: Project[];
   return (
     <li className="py-3">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <div className="min-w-0 text-sm text-gray-200">
-          {credit ? "Credit note " : ""}{i.number} · {i.contact}
-          <span className="text-gray-500"> · {day(i.date)}{i.reference ? ` · ref "${i.reference}"` : ""}</span>
-        </div>
+        <label className="flex min-w-0 items-baseline gap-2 text-sm text-gray-200">
+          <input type="checkbox" checked={ticked} onChange={onTick} aria-label={`Tick ${i.number}`} className="translate-y-0.5" />
+          <span>
+            {credit ? "Credit note " : ""}{i.number} · {i.contact}
+            <span className="text-gray-500"> · {day(i.date)}{i.reference ? ` · ref "${i.reference}"` : ""}</span>
+          </span>
+        </label>
         <div className="text-sm font-medium text-gray-100">{credit ? "-" : ""}{money(i.totalExGst)} <span className="text-[11px] font-normal text-gray-500">ex GST</span></div>
       </div>
       <ul className="mt-1 space-y-0.5 text-[12px] text-gray-500">
