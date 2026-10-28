@@ -42,8 +42,9 @@ event named, or as soon as the reason stops being true - whichever comes first.
   must check the sources on each card before approving.
 - **Accepted by:** Ilies (owner), through the lead, 28 Oct 2026 (security review of 6e6f2c0: SEC-001..007 approved,
   SEC-008 = this register entry).
-- **Expires / review:** no date set - Ilies to set one. It ends at once if the agent can act without Ilies driving
-  it, or if any of the seven kinds gains a power the owner doesn't already have.
+- **Expires / review:** review by 29 January 2027 (Ilies, 29 Oct 2026: three months). It ends sooner, at once, if
+  the agent can act without Ilies driving it, or if any of the seven kinds gains a power the owner doesn't already
+  have.
 - **Rollback:** `CONTROLLED_CHANGES_OFF=TIP_RATE_ADD,TIP_RATE_RETIRE,INVOICED_COST_REMOVE,RESOURCE_RATE,RESOURCE_ENGAGEMENT,WORKER_TICKET,COMPLIANCE_DOC`
   in `.env` switches the seven kinds off (proposals can still be read; nothing is approved), or remove
   `aiOwnerMayApprove` from the seven rules to keep the kinds with another Admin approving.

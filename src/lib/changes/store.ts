@@ -111,7 +111,8 @@ export async function createProposal(
   if (!isKind(kind)) return { error: "Pick what to change.", status: 400 };
   if (!canProposeKind(by, kind)) return { error: "You can't propose that kind of change.", status: 403 };
   if (!kindEnabled(kind)) return { error: SWITCHED_OFF, status: 503 };
-  // SEC-002: Operations AI proposes at most AI_DAILY_LIMIT (20) changes in any 24 hours - the same cap as its questions.
+  // SEC-002: Operations AI proposes at most AI_DAILY_LIMIT (20) changes in any 24 hours - its own counter (the same
+  // limit number as its questions, counted separately).
   if (isOperationsAi(by.email, by.role) && by.id) {
     const lastDay = await prisma.changeProposal.count({ where: { requestedByUserId: by.id, createdAt: { gte: new Date(now.getTime() - 86_400_000) } } });
     if (overAiLimit(lastDay)) return { error: "Operations AI has proposed its limit for today.", status: 429 };
