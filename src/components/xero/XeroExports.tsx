@@ -6,11 +6,12 @@
 // (remembered for later uploads). Shown on Invoices -> Xero exports for the
 // accounts login and on Directors -> Accounts data. Manual exports: every
 // figure built from them is "as at" the export date.
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Loader2, Upload } from "lucide-react";
 import { apiFetch, serverErrorMessage } from "@/lib/apiFetch";
 import JobPicker from "@/components/JobPicker";
 import { fmtDay } from "@/lib/dates";
+import { NO_SITE, siteOf } from "@/lib/xero/siteGroup";
 import { localISODate as todayLocal, money } from "@/lib/resource";
 
 type Kind = "INVOICES" | "BILLS" | "PNL";
@@ -125,6 +126,8 @@ async function saveMatch(key: string, projectId: string | null) {
   if (!res.ok) throw new Error(await serverErrorMessage(res, "Couldn't save."));
 }
 
+const signed = (i: Inv) => (i.type.endsWith("CREDIT") ? -i.totalExGst : i.totalExGst);
+
 function Review({ data, onDone }: { data: { asAt: string | null; invoices: Inv[]; projects: Project[] }; onDone: () => void }) {
   const live = data.projects.filter((p) => !p.archived);
   const name = new Map(data.projects.map((p) => [p.id, p.name]));
@@ -138,15 +141,19 @@ function Review({ data, onDone }: { data: { asAt: string | null; invoices: Inv[]
   const chosen = shown.filter((i) => ticked.has(i.key));
   const toggle = (key: string) => setTicked((s) => { const n = new Set(s); if (n.has(key)) n.delete(key); else n.add(key); return n; });
   const allShownTicked = shown.length > 0 && chosen.length === shown.length;
-  // Tie several at once: each invoice still goes through the same save as a single one, one after another.
-  async function saveTicked(projectId: string | null) {
+  // Grouped by assumed site, groups A-Z (the no-site group last); a search keeps only the matching invoices.
+  const groups = [...shown.reduce((m, i) => m.set(siteOf(i.reference), [...(m.get(siteOf(i.reference)) ?? []), i]), new Map<string, Inv[]>())]
+    .sort(([a], [b]) => (a === NO_SITE ? 1 : b === NO_SITE ? -1 : a.localeCompare(b)));
+  // Tie several at once (ticked, or a whole group): each invoice still goes through the same save as a single one,
+  // one after another.
+  async function saveMany(list: Inv[], projectId: string | null) {
     setBusy(true);
     setMsg(null);
     const failed: string[] = [];
-    for (const i of chosen) {
+    for (const i of list) {
       try { await saveMatch(i.key, projectId); } catch (e) { failed.push(`${i.number}: ${(e as Error).message}`); }
     }
-    const done = chosen.length - failed.length;
+    const done = list.length - failed.length;
     const what = projectId ? `tied to ${name.get(projectId) ?? "the job"}` : "marked not a job";
     setMsg(failed.length ? { ok: false, text: `${done} ${what}. Not saved - ${failed.join("; ")}` } : { ok: true, text: `${done} invoice${done === 1 ? "" : "s"} ${what}.` });
     setTicked(new Set());
@@ -154,6 +161,7 @@ function Review({ data, onDone }: { data: { asAt: string | null; invoices: Inv[]
     setBusy(false);
     onDone();
   }
+  const saveTicked = (projectId: string | null) => saveMany(chosen, projectId);
   return (
     <div className="rounded-2xl border border-edge bg-panel p-4">
       <h2 className="text-sm font-semibold text-gray-100">Not tied to a job</h2>
@@ -166,7 +174,9 @@ function Review({ data, onDone }: { data: { asAt: string | null; invoices: Inv[]
           <div className="flex flex-wrap items-center gap-3">
             <input type="search" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search invoices"
               placeholder="Search invoices - reference, customer, number or description (e.g. Randwick)" className={`${select} max-w-xl`} />
-            <span className="text-[12px] text-gray-500">{q.trim() ? `${shown.length} of ${data.invoices.length}` : `${data.invoices.length} invoices`}</span>
+            <span className="text-[12px] text-gray-500">
+              {groups.length} site group{groups.length === 1 ? "" : "s"} · {q.trim() ? `${shown.length} of ${data.invoices.length} invoices` : `${data.invoices.length} invoices`}
+            </span>
             {shown.length > 0 && (
               <label className="flex items-center gap-2 text-[12px] text-gray-300">
                 <input type="checkbox" checked={allShownTicked} onChange={() => setTicked(allShownTicked ? new Set() : new Set(shown.map((i) => i.key)))} />
@@ -189,10 +199,44 @@ function Review({ data, onDone }: { data: { asAt: string | null; invoices: Inv[]
         </div>
       )}
       {data.invoices.length > 0 && !shown.length && <p className="text-sm text-gray-500">No invoice matches &quot;{q}&quot;.</p>}
-      <ul className="divide-y divide-edge">
-        {shown.map((i) => <ReviewRow key={i.id} i={i} projects={live} name={name} onDone={onDone} ticked={ticked.has(i.key)} onTick={() => toggle(i.key)} />)}
-      </ul>
+      <div className="space-y-3">
+        {groups.map(([site, list]) => (
+          <SiteGroup key={site} site={site} list={list} projects={live} busy={busy} onTieAll={(projectId) => saveMany(list, projectId)}>
+            {list.map((i) => <ReviewRow key={i.id} i={i} projects={live} name={name} onDone={onDone} ticked={ticked.has(i.key)} onTick={() => toggle(i.key)} />)}
+          </SiteGroup>
+        ))}
+      </div>
     </div>
+  );
+}
+
+// One assumed site: its invoices, their total, and one job choice to tie the whole group at once. The rows stay below
+// so a single invoice can still go elsewhere.
+function SiteGroup({ site, list, projects, busy, onTieAll, children }: {
+  site: string; list: Inv[]; projects: Project[]; busy: boolean; onTieAll: (projectId: string) => void; children: ReactNode;
+}) {
+  const [open, setOpen] = useState(true);
+  const [job, setJob] = useState("");
+  const total = list.reduce((s, i) => s + signed(i), 0);
+  return (
+    <section className="rounded-xl border border-edge">
+      <div className="flex flex-wrap items-center gap-2 border-b border-edge bg-panel2 px-3 py-2">
+        <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} className="flex min-w-0 items-baseline gap-2 text-left">
+          <span className="text-gray-400">{open ? "▾" : "▸"}</span>
+          <span className="text-sm font-semibold text-gray-100">{site}</span>
+          <span className="text-[12px] text-gray-400">· {list.length} invoice{list.length === 1 ? "" : "s"} · {money(total)} ex GST</span>
+        </button>
+        {site !== NO_SITE && (
+          <div className="ml-auto flex flex-wrap items-center gap-2">
+            <JobPicker jobs={projects} value={job} onChange={setJob} label={`Job for all ${site} invoices`} className="w-full max-w-xs" />
+            <button disabled={busy || !job} onClick={() => onTieAll(job)} className="rounded-lg bg-brand-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-40">
+              Tie all {list.length}
+            </button>
+          </div>
+        )}
+      </div>
+      {open && <ul className="divide-y divide-edge px-3">{children}</ul>}
+    </section>
   );
 }
 

@@ -28,7 +28,6 @@ const OPERATIONS = [
   { href: "/tracking", label: "Project Tracking" },
   { href: "/production", label: "Production" },
   { href: "/documents", label: "Documents" },
-  { href: "/invoices", label: "Invoices" },
   { href: "/assistant", label: "Assistant" },
   { href: "/notes", label: "Notes" },
   { href: "/bugs", label: "Bug Reports" },
@@ -109,7 +108,6 @@ const ACCOUNTS = [
   { href: "/accounts/purchases", label: "Purchases" },
   { href: "/messages", label: "Messages" },
   { href: "/accounts/tax", label: "Tax estimates" },
-  { href: "/invoices", label: "Invoices" },
 ];
 // The invoices inbox is an Operations page as well as an Accounts tab: an Admin who got there from the
 // Accounts screen stays on the Accounts screen.

@@ -74,11 +74,6 @@ export default function AccountsPage() {
             </div>
           </Section>
 
-          {p.inboxWaiting > 0 && (
-            <Section title="Invoices waiting for you" count={p.inboxWaiting}>
-              <Link href="/invoices" className="block px-3 py-3 text-sm text-brand-300 hover:underline">Open the invoices inbox →</Link>
-            </Section>
-          )}
 
           {!!p.salesNotTied && (
             <Section title="Sales invoices not tied to a job" count={p.salesNotTied}>
