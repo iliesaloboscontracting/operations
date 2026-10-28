@@ -42,10 +42,25 @@ function NewMessage({ subject, onDone, onCancel }: { subject: { type: string; ke
   return (
     <form onSubmit={send} className="space-y-3 rounded-xl border border-edge bg-panel p-4">
       <p className="text-sm font-semibold text-gray-100">New message{subject ? <span className="font-normal text-gray-400"> about {subject.label}</span> : null}</p>
-      <select className={input} value={to} onChange={(e) => setTo(e.target.value)} required>
-        <option value="">To…</option>
-        {dir?.users.map((u) => <option key={u.id} value={u.id}>{u.name} ({ROLE[u.role ?? ""] ?? u.role})</option>)}
-      </select>
+      {/* Who to - buttons, not a <select> (28 Oct 2026): the browser draws a dropdown's open list itself, and on Ilies's
+          Windows browser the names came out invisible even with the option colours set. */}
+      <div role="radiogroup" aria-label="To" className="space-y-1.5">
+        <p className="text-xs text-gray-400">To</p>
+        {!dir ? (
+          <p className="text-xs text-gray-500">Loading people…</p>
+        ) : dir.users.length === 0 ? (
+          <p className="text-xs text-gray-500">There's no one else to message yet.</p>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {dir.users.map((u) => (
+              <button key={u.id} type="button" role="radio" aria-checked={to === u.id} onClick={() => setTo(u.id)}
+                className={`rounded-full border px-3 py-1.5 text-sm ${to === u.id ? "border-brand-500 bg-brand-600 text-white" : "border-edge bg-panel2 text-gray-200 hover:border-brand-500/60"}`}>
+                {u.name} <span className={to === u.id ? "text-white/80" : "text-gray-400"}>({ROLE[u.role ?? ""] ?? u.role})</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
       <textarea className={input} rows={4} value={body} onChange={(e) => setBody(e.target.value)} placeholder="Message" />
       <p className="text-xs text-gray-500">Only the two of you will see this conversation. For everyone at once, use the Office room.</p>
       {error && <p className="text-xs text-red-400">{error}</p>}
