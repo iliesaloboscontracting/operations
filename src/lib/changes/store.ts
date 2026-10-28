@@ -15,7 +15,7 @@ import { alertSafely } from "../messages/alertGuard";
 import { isOperationsAi } from "../infoRequests/rules";
 import { A3_RULES, CHANGE_KINDS, isAdminKind, type ChangeKind } from "./config";
 import {
-  SWITCHED_OFF, SYSTEM_ACTOR, canProposeKind, canViewKind, canViewProposal, cannotApprove, expiryFor, fingerprintPayload, isExpired, isKind, kindEnabled,
+  MASKED_BEFORE, SWITCHED_OFF, SYSTEM_ACTOR, canProposeKind, canViewKind, canViewProposal, cannotApprove, expiryFor, fingerprintPayload, isExpired, isKind, kindEnabled, maskedNote, masksBefore,
   noChange, openKeyOf, parseAfter, parseSources, pickValue, proposalRef, samePerson, sameValue,
   type ChangeUser, type ChangeValue, type SourceRef,
 } from "./rules";
@@ -122,10 +122,11 @@ export async function createProposal(
   const recordId = from?.recordId ?? parsed.recordId ?? (typeof body.recordId === "string" ? body.recordId : "");
   const rec = await readRecord(kind, recordId, after);
   if ("error" in rec) return { error: rec.error, status: 404 };
-  // Nothing to propose when the value itself is already that (notes alone aren't a change).
+  // Nothing to propose when the value itself is already that (notes alone aren't a change). SEC-001: not said to a
+  // non-Admin for the masked kinds - it would tell them the current value; the Admin approving sees the no-op instead.
   const field = A3_RULES[kind].field;
   const unchanged = isAdminKind(kind) ? adminUnchanged(rec.value, after) : noChange({ [field]: rec.value[field] ?? null }, { [field]: after[field] ?? null });
-  if (unchanged) return { error: "That's already the value - nothing to change.", status: 400 };
+  if (unchanged && !masksBefore(by, kind)) return { error: "That's already the value - nothing to change.", status: 400 };
   const taken = isAdminKind(kind) ? adminConflict(kind, rec.value) : await numberTaken(kind, recordId, after);
   if (taken) return { error: taken, status: 409 };
   const given = parseSources(body.sources);
@@ -392,16 +393,17 @@ export async function listChanges(by: ChangeUser, opts: { open?: boolean; record
     const proposedByAi = ai.has(p.requestedByUserId ?? "");
     const whyNot = p.status === "PROPOSED" ? cannotApprove(by, { kind, requestedBy: p.requestedBy, requestedByUserId: p.requestedByUserId, sourcePerson: p.sourcePerson, proposedByAi }) : null;
     const words = describePair(kind, parse<ChangeValue | null>(p.before, null), parse<ChangeValue>(p.after, {}));
+    const masked = masksBefore(by, kind); // SEC-001
     return {
       id: p.id, ref: proposalRef(p.number), kind, label: A3_RULES[kind].label, recordType: p.recordType, recordId: p.recordId, recordName: p.recordName,
-      before: words.before, after: words.after, proposedByAi,
+      before: masked ? MASKED_BEFORE : words.before, after: words.after, proposedByAi,
       reason: p.reason, sources: parse<SourceRef[]>(p.sourceRefs, []), requestedBy: p.requestedBy, sourcePerson: p.sourcePerson,
       status: p.status, createdAt: p.createdAt.toISOString(), expiresAt: p.expiresAt.toISOString(), fingerprint: p.fingerprint,
       alsoMoves: A3_RULES[kind].alsoMoves, undoOf: p.undoOfId ? (numbers.has(p.undoOfId) ? proposalRef(numbers.get(p.undoOfId)!) : "an earlier change") : null,
       canApprove: p.status === "PROPOSED" && !whyNot && kindEnabled(kind), whyNot,
       canWithdraw: p.status === "PROPOSED" && samePerson(by.name, p.requestedBy),
       canUndo: p.status === "EXECUTED" && A3_RULES[kind].undoable && canProposeKind(by, kind),
-      events: p.events.map((e) => ({ action: e.action, by: e.by, note: e.note, at: e.at.toISOString() })),
+      events: p.events.map((e) => ({ action: e.action, by: e.by, note: masked ? maskedNote(e.action, e.note) : e.note, at: e.at.toISOString() })),
     };
   });
 }

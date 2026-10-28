@@ -42,6 +42,18 @@ export const canViewKind = (u: ChangeUser, kind: ChangeKind) =>
 export const canViewProposal = (u: ChangeUser, p: { kind: ChangeKind; requestedByUserId?: string | null }) =>
   canViewKind(u, p.kind) && (!isAdminKind(p.kind) || u.role === "ADMIN" || (!!u.id && u.id === p.requestedByUserId));
 
+// SEC-001 (security review of 6e6f2c0, Ilies approved 28 Oct 2026): a person's pay / engagement and HR records
+// (tickets, documents) are read on the card by Admins only. Anyone else who can see the proposal - Operations AI,
+// its own - sees what it proposed, never what the record says now: the "before", the applied / not-applied notes,
+// and no "that's already the value" answer (which would tell them the value). The first four kinds are unchanged
+// (Managers still see the job number or off-hire date before).
+export const MASKED_KINDS: ChangeKind[] = ["RESOURCE_RATE", "RESOURCE_ENGAGEMENT", "WORKER_TICKET", "COMPLIANCE_DOC"];
+export const MASKED_BEFORE = "Current value: Admins only";
+export const masksBefore = (u: { role: string }, kind: ChangeKind) => u.role !== "ADMIN" && MASKED_KINDS.includes(kind);
+// The applied / not-applied note as such a viewer reads it (the stored note names the old values).
+export const maskedNote = (action: string, note: string | null) =>
+  action === "EXECUTED" ? "Applied as approved. (Current values: Admins only.)" : action === "STALE" ? "Not applied - the record had changed or couldn't be updated. (Current values: Admins only.)" : note;
+
 // Proposing: Managers and Admins, any kind but the admin ones; director logins, the commercial
 // kinds; the admin kinds, an Admin or Operations AI; the system only off-hire dates, from a supervisor's hire check (4e).
 export const SYSTEM_ACTOR: ChangeUser = { id: "", name: "System", email: "system@lci", role: "SYSTEM", directorAccess: false };

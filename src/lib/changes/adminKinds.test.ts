@@ -196,3 +196,21 @@ test("the card's words: supplier, number, amount and job for a removal; only the
   // undo: rates and engagement only
   assert.deepEqual(ADMIN_KINDS.filter((k) => A3_RULES[k].undoable), ["RESOURCE_RATE", "RESOURCE_ENGAGEMENT"]);
 });
+
+test("SEC-001: current pay, engagement, ticket and document values are Admins only; the first four kinds are unchanged for Managers", async () => {
+  const { MASKED_KINDS, MASKED_BEFORE, masksBefore, maskedNote } = await import("./rules");
+  assert.deepEqual(MASKED_KINDS, ["RESOURCE_RATE", "RESOURCE_ENGAGEMENT", "WORKER_TICKET", "COMPLIANCE_DOC"]);
+  for (const k of MASKED_KINDS) {
+    assert.ok(masksBefore(agent, k), `Operations AI: ${k}`);
+    assert.ok(masksBefore({ role: "MANAGER" }, k) && masksBefore({ role: "DIRECTOR" }, k), k);
+    assert.ok(!masksBefore(ilies, k) && !masksBefore(nickAdmin, k), `an Admin sees ${k}`);
+  }
+  for (const k of ["HIRE_OFF_HIRE_DATE", "PROJECT_CONTRACT_VALUE", "PROJECT_JOB_NO", "PROJECT_QUOTE_NO", "TIP_RATE_ADD", "TIP_RATE_RETIRE", "INVOICED_COST_REMOVE"] as const) {
+    assert.ok(!masksBefore(alex, k) && !masksBefore(agent, k), `not masked: ${k}`);
+  }
+  assert.equal(MASKED_BEFORE, "Current value: Admins only");
+  const note = 'Applied as approved by Iliesa. To roll back: "Propose undo" sets it back to Ordinary rate $45.00.';
+  assert.doesNotMatch(maskedNote("EXECUTED", note)!, /\$|45/);
+  assert.doesNotMatch(maskedNote("STALE", "It has been changed since this was proposed")!, /\$/);
+  assert.equal(maskedNote("PROPOSED", "E2E"), "E2E", "other notes (the proposer's own why) are kept");
+});
