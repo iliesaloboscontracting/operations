@@ -262,6 +262,17 @@ export function describeAdmin(kind: ChangeKind, before: AdminValue | null, after
   }
 }
 
+// SEC-003: a removed invoice is kept whole on the change - every field of the row, as it was - so it can be entered
+// again exactly if the removal was wrong (the "before" when proposed, and the EXECUTED event when it goes).
+export function invoiceSnapshot(c: Record<string, unknown>): AdminValue {
+  const out: AdminValue = {};
+  for (const [k, v] of Object.entries(c)) {
+    if (v instanceof Date) out[k] = v.toISOString();
+    else if (v === null || ["string", "number", "boolean"].includes(typeof v)) out[k] = v as AdminValue[string];
+  }
+  return out;
+}
+
 // "Propose undo" for the undoable admin kinds: the old values of the fields the change set.
 export const undoBody = (before: AdminValue, after: AdminValue): AdminValue =>
   Object.fromEntries(Object.keys(after).filter((k) => k !== "op").map((k) => [k, before[k] ?? null]));

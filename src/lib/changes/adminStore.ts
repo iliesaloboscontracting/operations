@@ -12,7 +12,7 @@ import { applyResourcePatch } from "../recordPatch";
 import { actOnDocument, actOnTicket, createDocument, createTicket } from "../compliance/store";
 import { documentKindLabel, ticketLabel } from "../compliance/rules";
 import { assetKindLabel, isAssetKind } from "../assets/rules";
-import { PERSON_RATE_FIELDS, RATE_FIELDS, type AdminValue } from "./adminRules";
+import { PERSON_RATE_FIELDS, RATE_FIELDS, invoiceSnapshot, type AdminValue } from "./adminRules";
 import type { ChangeKind } from "./config";
 
 type Read = { name: string; value: AdminValue } | { error: string };
@@ -41,12 +41,10 @@ export async function readAdminRecord(kind: ChangeKind, recordId: string, after:
     case "INVOICED_COST_REMOVE": {
       const c = await prisma.invoicedCost.findUnique({ where: { id: recordId }, include: { project: { select: { name: true, jobNo: true } } } });
       if (!c) return { error: "That invoice isn't on Tracking any more." };
+      const { project, ...row } = c;
       return {
         name: `${c.vendor} ${c.invoiceNo ?? "(no number)"}`,
-        value: {
-          vendor: c.vendor, invoiceNo: c.invoiceNo, category: c.category, amountExGst: c.amountExGst, totalIncGst: c.totalIncGst, weekEnding: c.weekEnding,
-          projectId: c.projectId, job: [c.project.jobNo, c.project.name].filter(Boolean).join(" "), hireResourceId: c.hireResourceId, removed: false,
-        },
+        value: { ...invoiceSnapshot(row), job: [project.jobNo, project.name].filter(Boolean).join(" "), removed: false },
       };
     }
     case "RESOURCE_RATE":
@@ -122,8 +120,9 @@ export async function applyAdmin(kind: ChangeKind, recordId: string, after: Admi
       return "error" in out ? fail(out) : { value: { retired: true } };
     }
     case "INVOICED_COST_REMOVE": {
+      const row = await prisma.invoicedCost.findUnique({ where: { id: recordId } });
       const out = await removeInvoicedCost(recordId);
-      return "error" in out ? fail(out) : { value: { removed: true } };
+      return "error" in out ? fail(out) : { value: { ...(row ? invoiceSnapshot(row) : {}), removed: true } };
     }
     case "RESOURCE_RATE":
     case "RESOURCE_ENGAGEMENT": {

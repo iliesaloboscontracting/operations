@@ -245,3 +245,18 @@ test("SEC-005: the owner's phone alert never carries an amount", async () => {
   assert.equal(alertBody("Operations AI", "Remove supplier invoice", "Allcott Hire 1846169"), "Operations AI proposed: Remove supplier invoice - Allcott Hire 1846169", "an invoice number isn't an amount");
   assert.ok(alertBody("x", "y", "z".repeat(300)).length <= 140);
 });
+
+test("SEC-003: a removed invoice is kept whole - every field, dates as text", async () => {
+  const { invoiceSnapshot } = await import("./adminRules");
+  const row = {
+    id: "ic1", projectId: "p1", vendor: "Allcott Hire", category: "PLANT_HIRE", invoiceNo: "1846169", weekEnding: "2026-09-30", dueDate: "2026-10-30",
+    shift: null, amountExGst: 1000, gst: 100, totalIncGst: 1100, notes: "per register row 12", createdAt: new Date("2026-10-01T00:00:00Z"),
+    hireResourceId: "h1", periodFrom: "2026-09-01", periodTo: "2026-09-30", enteredBy: "Victoria", docketNos: '["D1","D2"]',
+    project: { name: "x" }, // a relation is not a field of the row
+  };
+  const s = invoiceSnapshot(row);
+  for (const k of ["notes", "docketNos", "periodFrom", "periodTo", "dueDate", "shift", "gst", "enteredBy", "hireResourceId", "amountExGst", "totalIncGst"]) assert.ok(k in s, k);
+  assert.equal(s.createdAt, "2026-10-01T00:00:00.000Z");
+  assert.equal(s.docketNos, '["D1","D2"]');
+  assert.ok(!("project" in s));
+});
