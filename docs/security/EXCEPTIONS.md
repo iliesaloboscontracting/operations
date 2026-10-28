@@ -48,3 +48,8 @@ event named, or as soon as the reason stops being true - whichever comes first.
 - **Rollback:** `CONTROLLED_CHANGES_OFF=TIP_RATE_ADD,TIP_RATE_RETIRE,INVOICED_COST_REMOVE,RESOURCE_RATE,RESOURCE_ENGAGEMENT,WORKER_TICKET,COMPLIANCE_DOC`
   in `.env` switches the seven kinds off (proposals can still be read; nothing is approved), or remove
   `aiOwnerMayApprove` from the seven rules to keep the kinds with another Admin approving.
+- **Daily cap (SEC-002) raised, 29 Oct 2026:** Ilies: "dont limit the cap to 20 just do it all today" (to clear the
+  ~120 Admin items from the 28 Oct drive check in one day). The cap is now `AI_CHANGE_DAILY_LIMIT` in `.env`
+  (blank = 20, max 1000), set to 300 on the server. Residual risk: more phone alerts (still at most one every 2
+  minutes) and a larger approval queue; masking (SEC-001, SEC-009..012) is unaffected. Put it back by removing the
+  line from `.env` and restarting.

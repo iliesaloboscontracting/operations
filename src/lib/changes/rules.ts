@@ -78,6 +78,13 @@ export const conflictAtProposal = (u: { role: string }, kind: ChangeKind, confli
   conflict && !masksBefore(u, kind) ? conflict : null;
 
 // The applied / not-applied note as such a viewer reads it (the stored note names the old values).
+// SEC-002: the most change proposals Operations AI can make in any 24 hours. 20 unless AI_CHANGE_DAILY_LIMIT in .env
+// says otherwise (29 Oct 2026, Ilies: "dont limit the cap to 20"); blank or not a whole number keeps 20, at most 1000.
+export function aiChangeLimit(v: string | undefined = process.env.AI_CHANGE_DAILY_LIMIT): number {
+  const n = Number(v);
+  return v && Number.isInteger(n) && n > 0 ? Math.min(n, 1000) : 20;
+}
+
 export const maskedNote = (action: string, note: string | null) =>
   action === "EXECUTED" ? "Applied as approved. (Current values: Admins only.)" : action === "STALE" ? "Not applied - the record had changed or couldn't be updated. (Current values: Admins only.)" : note;
 

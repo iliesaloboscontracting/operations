@@ -223,6 +223,18 @@ test("SEC-002: Operations AI's change proposals have their own 20-a-day cap, cou
   assert.ok(isOperationsAi(agent.email, agent.role) && !isOperationsAi(agent.email, "ADMIN") && !isOperationsAi(ilies.email, ilies.role), "the cap applies to Operations AI only");
 });
 
+test("SEC-002: the change cap is 20 unless AI_CHANGE_DAILY_LIMIT raises it (whole numbers only, at most 1000)", async () => {
+  const { aiChangeLimit } = await import("./rules");
+  assert.equal(aiChangeLimit(undefined), 20);
+  assert.equal(aiChangeLimit(""), 20);
+  assert.equal(aiChangeLimit("abc"), 20);
+  assert.equal(aiChangeLimit("0"), 20);
+  assert.equal(aiChangeLimit("-5"), 20);
+  assert.equal(aiChangeLimit("2.5"), 20);
+  assert.equal(aiChangeLimit("300"), 300);
+  assert.equal(aiChangeLimit("99999"), 1000);
+});
+
 test("SEC-004: a switched-off agent login isn't Operations AI, so the owner can't approve its waiting proposals", async () => {
   const { aiProposerIds } = await import("./rules");
   const row = (x: Partial<{ id: string; email: string; role: string; active: boolean }>) => ({ id: AGENT_ID, email: agent.email, role: "MANAGER", active: true, ...x });
