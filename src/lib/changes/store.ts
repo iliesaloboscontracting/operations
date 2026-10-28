@@ -15,7 +15,7 @@ import { alertSafely } from "../messages/alertGuard";
 import { isOperationsAi, overAiLimit } from "../infoRequests/rules";
 import { A3_RULES, CHANGE_KINDS, isAdminKind, type ChangeKind } from "./config";
 import {
-  SWITCHED_OFF, aiProposerIds, alertBody, applyFailedNote, SYSTEM_ACTOR, canProposeKind, canViewKind, canViewProposal, cannotApprove, expiryFor, fingerprintPayload, isExpired, isKind, kindEnabled, maskedNote, masksBefore, undoRefusal, viewCard, conflictAtProposal,
+  SWITCHED_OFF, aiProposerIds, alertBody, SYSTEM_ACTOR, canProposeKind, canViewKind, canViewProposal, cannotApprove, expiryFor, fingerprintPayload, isExpired, isKind, kindEnabled, maskedNote, masksBefore, undoRefusal, viewCard, conflictAtProposal, afterClaim, recordOutcome,
   noChange, openKeyOf, parseAfter, parseSources, pickValue, proposalRef, samePerson, sameValue,
   type ChangeUser, type ChangeValue, type SourceRef,
 } from "./rules";
@@ -278,57 +278,62 @@ export async function decide(by: ChangeUser, id: string, body: Record<string, un
   // Claim it (one approval only, even if two people tap at once) and record the approval first.
   const claimed = await prisma.changeProposal.updateMany({ where: { id, status: "PROPOSED" }, data: { status: "APPROVED", openKey: null } });
   if (claimed.count !== 1) return refuse(p, by, "Someone else has just decided this change.", seen, 409);
-  await prisma.changeProposalEvent.create({ data: { proposalId: id, action: "APPROVED", by: by.name, byUserId: by.id, fingerprint: seen } });
-
   const before = parse<ChangeValue | null>(p.before, null);
   const after = parse<ChangeValue>(p.after, {});
-  const stale = async (note: string, valueAtExec: ChangeValue | null) => {
-    await prisma.$transaction([
-      prisma.changeProposal.update({ where: { id }, data: { status: "STALE" } }),
-      prisma.changeProposalEvent.create({ data: { proposalId: id, action: "STALE", by: "LCI", note, valueAtExec: valueAtExec ? JSON.stringify(valueAtExec) : null } }),
-    ]);
+  // SEC-013: STALE is always recorded - if its own write fails, it's logged and the status is still moved off APPROVED.
+  const stale = async (note: string, valueAtExec: ChangeValue | null): Promise<Problem> => {
+    await recordOutcome(
+      () => prisma.$transaction([
+        prisma.changeProposal.update({ where: { id }, data: { status: "STALE" } }),
+        prisma.changeProposalEvent.create({ data: { proposalId: id, action: "STALE", by: "LCI", note, valueAtExec: valueAtExec ? JSON.stringify(valueAtExec) : null } }),
+      ]),
+      () => prisma.changeProposal.updateMany({ where: { id, status: "APPROVED" }, data: { status: "STALE" } }),
+    );
     return { error: note, status: 409 };
   };
 
-  // Re-check at execution: the record is still there and still says what it said when proposed.
-  let rec: Awaited<ReturnType<typeof readRecord>>;
-  try { rec = await readRecord(kind, p.recordId, after); } catch (e) { return stale(applyFailedNote(e), null); } // SEC-006
-  if ("error" in rec) return stale(`${rec.error} Nothing was changed.`, null);
-  const admin = isAdminKind(kind);
-  if (admin ? !sameValue(checkedPart(kind, rec.value), checkedPart(kind, before)) : !sameValue(rec.value, before)) {
-    return stale("It has been changed since this was proposed - nothing was changed. Propose again if it's still needed.", rec.value);
-  }
-  const taken = admin ? adminConflict(kind, rec.value) : await numberTaken(kind, p.recordId, after);
-  if (taken) return stale(`${taken} Nothing was changed.`, rec.value);
-
-  // The same code as the edit screens, as the system actor (admin kinds: recorded as the approver, via this proposal).
-  // SEC-006: the change is claimed (APPROVED) by now - anything that throws while applying it is recorded as STALE,
-  // so a proposal never stays "Approved - applying" with no outcome.
-  let nowValue: ChangeValue;
-  try {
+  // SEC-006 / SEC-013: the change is claimed (APPROVED) by now. Everything from here to the change going in - the
+  // approval event, the re-check, the number check and the apply - runs under one guard: anything that throws is
+  // recorded as STALE ("Couldn't apply: ... Nothing was changed."), so a proposal never stays "Approved - applying".
+  const applied = await afterClaim<{ nowValue: ChangeValue } | Problem>(async () => {
+    await prisma.changeProposalEvent.create({ data: { proposalId: id, action: "APPROVED", by: by.name, byUserId: by.id, fingerprint: seen } });
+    // Re-check at execution: the record is still there and still says what it said when proposed.
+    const rec = await readRecord(kind, p.recordId, after);
+    if ("error" in rec) return stale(`${rec.error} Nothing was changed.`, null);
+    const admin = isAdminKind(kind);
+    if (admin ? !sameValue(checkedPart(kind, rec.value), checkedPart(kind, before)) : !sameValue(rec.value, before)) {
+      return stale("It has been changed since this was proposed - nothing was changed. Propose again if it's still needed.", rec.value);
+    }
+    const taken = admin ? adminConflict(kind, rec.value) : await numberTaken(kind, p.recordId, after);
+    if (taken) return stale(`${taken} Nothing was changed.`, rec.value);
+    // The same code as the edit screens, as the system actor (admin kinds: recorded as the approver, via this proposal).
     if (admin) {
       const out = await applyAdmin(kind, p.recordId, after, { by: `${by.name} (approved ${proposalRef(p.number)})`, reason: p.reason });
       if ("error" in out) return stale(`${out.error} Nothing was changed.`, rec.value);
-      nowValue = out.value;
-    } else {
-      const out = A3_RULES[kind].recordType === "Resource" ? await applyResourcePatch(p.recordId, after, { role: null }) : await applyProjectPatch(p.recordId, after);
-      if ("error" in out) return stale(`${out.error} Nothing was changed.`, rec.value);
-      nowValue = pickValue(kind, ("resource" in out ? out.resource : out.project) as unknown as Record<string, unknown>);
+      return { nowValue: out.value };
     }
-  } catch (e) {
-    return stale(applyFailedNote(e), rec.value);
-  }
-  await prisma.$transaction([
-    prisma.changeProposal.update({ where: { id }, data: { status: "EXECUTED" } }),
-    prisma.changeProposalEvent.create({
-      data: {
-        proposalId: id, action: "EXECUTED", by: "LCI", valueAtExec: JSON.stringify(nowValue),
-        note: A3_RULES[kind].undoable
-          ? `Applied as approved by ${by.name}. To roll back: "Propose undo" sets it back to ${describePair(kind, before, after).before}.`
-          : `Applied as approved by ${by.name}. To reverse it, propose the opposite change.`,
-      },
-    }),
-  ]);
+    const out = A3_RULES[kind].recordType === "Resource" ? await applyResourcePatch(p.recordId, after, { role: null }) : await applyProjectPatch(p.recordId, after);
+    if ("error" in out) return stale(`${out.error} Nothing was changed.`, rec.value);
+    return { nowValue: pickValue(kind, ("resource" in out ? out.resource : out.project) as unknown as Record<string, unknown>) };
+  }, (note) => stale(note, null));
+  if ("error" in applied) return applied;
+
+  // The change has gone in. Its EXECUTED record is written outside the guard above, so a failed write is never
+  // reported as "Nothing was changed": it's logged, and the status still becomes EXECUTED.
+  await recordOutcome(
+    () => prisma.$transaction([
+      prisma.changeProposal.update({ where: { id }, data: { status: "EXECUTED" } }),
+      prisma.changeProposalEvent.create({
+        data: {
+          proposalId: id, action: "EXECUTED", by: "LCI", valueAtExec: JSON.stringify(applied.nowValue),
+          note: A3_RULES[kind].undoable
+            ? `Applied as approved by ${by.name}. To roll back: "Propose undo" sets it back to ${describePair(kind, before, after).before}.`
+            : `Applied as approved by ${by.name}. To reverse it, propose the opposite change.`,
+        },
+      }),
+    ]),
+    () => prisma.changeProposal.updateMany({ where: { id, status: "APPROVED" }, data: { status: "EXECUTED" } }),
+  );
   return { proposal: (await prisma.changeProposal.findUnique({ where: { id } }))! };
 }
 

@@ -92,9 +92,36 @@ const AMOUNT = /\$|\d[\d,]*\.\d{2}/;
 export const alertBody = (who: string, label: string, recordName: string) =>
   `${who} proposed: ${label}${recordName && !AMOUNT.test(recordName) ? ` - ${recordName}` : ""}`.slice(0, 140);
 
-// SEC-006: what went wrong while applying an approved change, short, as its STALE note.
-export const applyFailedNote = (e: unknown) =>
-  `Couldn't apply: ${(e instanceof Error ? e.message : String(e)).replace(/\s+/g, " ").slice(0, 200)}. Nothing was changed.`;
+// SEC-006: what went wrong while applying an approved change, short, as its STALE note. SEC-013: a Prisma error is
+// cut to its last line (no query arguments or file paths), and any path left is replaced.
+export const shortError = (e: unknown) => {
+  const msg = e instanceof Error ? e.message : String(e);
+  const lines = msg.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const text = /Invalid `prisma\./.test(msg) ? lines[lines.length - 1] ?? "database error" : lines.join(" ");
+  return text.replace(/[A-Za-z]:\\[^\s:]+|(?:\/[\w.-]+){2,}/g, "<path>").replace(/\s+/g, " ").slice(0, 160);
+};
+export const applyFailedNote = (e: unknown) => `Couldn't apply: ${shortError(e)}. Nothing was changed.`;
+
+// SEC-013: everything after an approval is claimed runs under this guard - a throw becomes the STALE note.
+export async function afterClaim<T>(work: () => Promise<T>, onFail: (note: string) => Promise<T>): Promise<T> {
+  try {
+    return await work();
+  } catch (e) {
+    return onFail(applyFailedNote(e));
+  }
+}
+// SEC-013: write a proposal's outcome; if that write throws, log it and run the last-ditch fallback (a bare status
+// update), so the proposal never stays APPROVED.
+export async function recordOutcome(write: () => Promise<unknown>, fallback: () => Promise<unknown>, log: (m: string) => void = (m) => console.error(m)): Promise<boolean> {
+  try {
+    await write();
+    return true;
+  } catch (e) {
+    log(`change outcome write failed: ${shortError(e)}`);
+    try { await fallback(); } catch (f) { log(`change outcome fallback failed: ${shortError(f)}`); }
+    return false;
+  }
+}
 
 // Proposing: Managers and Admins, any kind but the admin ones; director logins, the commercial
 // kinds; the admin kinds, an Admin or Operations AI; the system only off-hire dates, from a supervisor's hire check (4e).

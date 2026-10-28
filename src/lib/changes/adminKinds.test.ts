@@ -325,3 +325,39 @@ test("SEC-012: a clashing CREATE (already an active ticket / the same document) 
   assert.equal(conflictAtProposal(agent, "TIP_RATE_ADD", "There's already a rate"), "There's already a rate");
   assert.equal(conflictAtProposal(agent, "WORKER_TICKET", null), null);
 });
+
+test("SEC-013: a throw from the approval-event write or the number check ends STALE; a failed outcome write falls back", async () => {
+  const { afterClaim, recordOutcome, shortError, applyFailedNote } = await import("./rules");
+  // a stand-in for decide() after the claim: status starts APPROVED
+  const run = async (fail: "event" | "numberTaken" | "apply" | null) => {
+    let status = "APPROVED"; const notes: string[] = [];
+    const stale = async (note: string) => { status = "STALE"; notes.push(note); return { error: note, status: 409 }; };
+    const out = await afterClaim<{ ok: true } | { error: string; status: number }>(async () => {
+      if (fail === "event") throw new Error("SQLITE_BUSY: database is locked");      // the APPROVED event write
+      if (fail === "numberTaken") throw new Error("connection reset");                // numberTaken()
+      if (fail === "apply") throw new Error(["", "Invalid `prisma.tipRate.create()` invocation in", String.raw`C:\srv\app\src\lib\x.ts:12:3`, "", "→ 12 data: { secret }", "Unique constraint failed on the fields: (`id`)"].join("\n"));
+      status = "EXECUTED"; return { ok: true };
+    }, (note) => stale(note));
+    return { status, notes, out };
+  };
+  for (const f of ["event", "numberTaken", "apply"] as const) {
+    const r = await run(f);
+    assert.equal(r.status, "STALE", f);
+    assert.match(r.notes[0], /^Couldn't apply: .+\. Nothing was changed\.$/, f);
+    assert.equal((r.out as { status: number }).status, 409, f);
+  }
+  assert.equal((await run(null)).status, "EXECUTED");
+  const prismaNote = (await run("apply")).notes[0];
+  assert.equal(prismaNote, "Couldn't apply: Unique constraint failed on the fields: (`id`). Nothing was changed.", "no query args or paths");
+  assert.doesNotMatch(shortError(new Error(String.raw`open C:\srv\operations\app\prisma\dev.db failed`)), /srv|dev\.db/);
+  assert.match(applyFailedNote(new Error("x".repeat(500))), /^Couldn't apply: x{160}\. Nothing/);
+  // the outcome write itself throws -> logged, and the fallback (a bare status update) still runs
+  const logged: string[] = []; let fell = 0;
+  assert.equal(await recordOutcome(async () => { throw new Error("SQLITE_BUSY"); }, async () => { fell++; }, (m) => logged.push(m)), false);
+  assert.equal(fell, 1);
+  assert.match(logged[0], /change outcome write failed: SQLITE_BUSY/);
+  assert.equal(await recordOutcome(async () => {}, async () => { fell++; }, (m) => logged.push(m)), true);
+  assert.equal(fell, 1, "no fallback when the write works");
+  await recordOutcome(async () => { throw new Error("a"); }, async () => { throw new Error("b"); }, (m) => logged.push(m));
+  assert.match(logged[logged.length - 1], /fallback failed: b/, "a failed fallback is logged, never thrown");
+});
