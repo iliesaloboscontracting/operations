@@ -270,7 +270,7 @@ test("SEC-006: a change that throws while applying is recorded as not applied, w
 
 test("SEC-009: only an Admin may propose undoing a pay, engagement, ticket or document change; no undo button for anyone else", async () => {
   const { MASKED_KINDS, undoRefusal, viewCard } = await import("./rules");
-  const card = { before: "Ordinary rate $45.00", canUndo: true, after: "Ordinary rate $47.00" };
+  const card = { before: "Ordinary rate $45.00", canUndo: true, after: "Ordinary rate $47.00", fingerprint: "ab".repeat(32) };
   for (const k of MASKED_KINDS) {
     assert.equal(undoRefusal(agent, k), "Only an Admin can propose undoing this change.", k);
     assert.equal(undoRefusal({ role: "MANAGER" }, k), "Only an Admin can propose undoing this change.", k);
@@ -283,4 +283,15 @@ test("SEC-009: only an Admin may propose undoing a pay, engagement, ticket or do
   }
   assert.equal(undoRefusal(alex, "PROJECT_JOB_NO"), null, "the first four kinds are unchanged");
   assert.deepEqual(viewCard(alex, "PROJECT_JOB_NO", card), card);
+});
+
+test("SEC-010: a masked viewer gets no fingerprint (a hash over the before) on the four masked kinds; an Admin does", async () => {
+  const { MASKED_KINDS, viewCard } = await import("./rules");
+  const card = { before: "x", canUndo: false, fingerprint: "ab".repeat(32) };
+  for (const k of MASKED_KINDS) {
+    assert.equal(viewCard(agent, k, card).fingerprint, "", k);
+    assert.equal(viewCard({ role: "MANAGER" }, k, card).fingerprint, "", k);
+    assert.equal(viewCard(ilies, k, card).fingerprint, card.fingerprint, k);
+  }
+  for (const k of ["PROJECT_JOB_NO", "HIRE_OFF_HIRE_DATE", "TIP_RATE_ADD", "INVOICED_COST_REMOVE"] as const) assert.equal(viewCard(agent, k, card).fingerprint, card.fingerprint, k);
 });

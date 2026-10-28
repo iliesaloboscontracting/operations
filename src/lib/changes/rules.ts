@@ -55,11 +55,13 @@ export const masksBefore = (u: { role: string }, kind: ChangeKind) => u.role !==
 export const undoRefusal = (u: { role: string }, kind: ChangeKind): string | null =>
   masksBefore(u, kind) ? "Only an Admin can propose undoing this change." : null;
 
-// A change card as this viewer may see it (SEC-001 / SEC-009): for a masked viewer, no current value and no undo.
-export type CardFields = { before: string; canUndo: boolean };
+// A change card as this viewer may see it (SEC-001 / SEC-009 / SEC-010): for a masked viewer, no current value, no
+// undo, and no fingerprint - it's a hash over the before, and a single pay rate is few enough guesses to work back
+// from it. They never approve, so they never need it.
+export type CardFields = { before: string; canUndo: boolean; fingerprint: string };
 export function viewCard<T extends CardFields>(u: { role: string }, kind: ChangeKind, card: T): T {
   if (!masksBefore(u, kind)) return card;
-  return { ...card, before: MASKED_BEFORE, canUndo: false };
+  return { ...card, before: MASKED_BEFORE, canUndo: false, fingerprint: "" };
 }
 
 // The applied / not-applied note as such a viewer reads it (the stored note names the old values).
