@@ -301,7 +301,15 @@ business, without becoming unnecessarily complicated.
   same name, across logins (Nick's two); the Building Agent never approves.
   Directors see commercial kinds only. Undo = a new proposal. A supervisor's
   hire-check "still needed until about <date>" makes a System proposal.
-  Kill switch `CONTROLLED_CHANGES=off`. The ordinary edit screens and the
+  Kill switch `CONTROLLED_CHANGES=off`.
+  **Admin kinds** (live 29 Oct 2026, Ilies "option 2"; `adminRules.ts`, `adminStore.ts`,
+  design `docs/lci/ADMIN-CHANGE-KINDS-DESIGN.md`): TIP_RATE_ADD / RETIRE,
+  INVOICED_COST_REMOVE, RESOURCE_RATE, RESOURCE_ENGAGEMENT, WORKER_TICKET, COMPLIANCE_DOC -
+  proposed by Operations AI (the Building Agent), approved by the owner or another Admin
+  (exception EX-002, review by 29 Jan 2027; never the owner's own proposal; never other
+  kinds). Admins see them; Operations AI sees only its own, with current pay / engagement /
+  ticket / document values masked (SEC-001..013), max 20 proposals a day. Turn off with
+  `CONTROLLED_CHANGES_OFF=<kinds>`. Release check `56-admin-changes`. The ordinary edit screens and the
   Building Agent's approved PATCHes still work as before. Budgets
   (Estimating) are likewise decided by DIRECTOR logins only, never by the
   submitter.
