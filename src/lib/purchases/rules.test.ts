@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { check, linkSafeText, parseAmount, purchaseNo, requesterView, type Actor } from "./rules";
+import { approverIds, check, linkSafeText, parseAmount, purchaseNo, requesterView, type Actor } from "./rules";
+import { SAME_PERSON } from "../samePerson";
 
 const R = { status: "REQUESTED", requestedBy: "Test Requester" };
 const acc: Actor = { kind: "ACCOUNTS" }, req: Actor = { kind: "REQUESTER" };
@@ -10,34 +11,52 @@ const admin: Actor = { kind: "DIRECTOR", role: "ADMIN", name: "Other Admin" };
 const ok = (x: ReturnType<typeof check>, to: string) => "to" in x && x.to === to;
 const no = (x: ReturnType<typeof check>) => "error" in x;
 
-test("accounts check, ask for info, close, and mark ordered - only at the right status", () => {
-  assert.ok(ok(check("CHECK", R, acc), "CHECKED"));
-  assert.ok(ok(check("ASK_INFO", R, acc), "NEEDS_INFO"));
-  assert.ok(ok(check("CLOSE", { ...R, status: "NEEDS_INFO" }, acc), "CLOSED"));
-  assert.ok(no(check("CHECK", { ...R, status: "NEEDS_INFO" }, acc)), "waiting on the requester");
+// 28 Oct 2026 (Ilies): a request goes straight to the approvers; accounts only order what's approved.
+test("approvers decide straight from REQUESTED (and older CHECKED ones), and can ask a question", () => {
+  assert.ok(ok(check("APPROVE", R, nick), "APPROVED"));
+  assert.ok(ok(check("DECLINE", R, nick), "DECLINED"));
+  assert.ok(ok(check("APPROVE", R, owner), "APPROVED"), "the owner decides");
+  assert.ok(ok(check("APPROVE", { ...R, status: "CHECKED" }, nick), "APPROVED"), "older checked requests can still be decided");
+  assert.ok(ok(check("ASK_INFO", R, nick), "NEEDS_INFO"));
+  assert.ok(no(check("APPROVE", { ...R, status: "NEEDS_INFO" }, nick)), "waiting on the requester's answer");
+  assert.ok(no(check("APPROVE", { ...R, status: "APPROVED" }, nick)), "already decided");
+  assert.ok(no(check("APPROVE", R, admin)), "another Admin with director access doesn't decide");
+});
+
+test("accounts can't approve, decline or question - they order what's approved", () => {
+  for (const a of ["APPROVE", "DECLINE", "ASK_INFO"] as const) assert.ok(no(check(a, R, acc)), a);
   assert.ok(no(check("ORDERED", R, acc)), "not approved yet");
   assert.ok(ok(check("ORDERED", { ...R, status: "APPROVED" }, acc), "ORDERED"));
-  assert.ok(no(check("CLOSE", { ...R, status: "CHECKED" }, acc)), "with a director already");
+  assert.ok(no(check("ORDERED", { ...R, status: "APPROVED" }, nick)), "ordering is accounts'");
 });
 
 test("the requester answers a question or cancels; nothing else", () => {
   assert.ok(ok(check("ANSWER", { ...R, status: "NEEDS_INFO" }, req), "REQUESTED"));
   assert.ok(ok(check("CANCEL", R, req), "CANCELLED"));
-  assert.ok(no(check("CANCEL", { ...R, status: "CHECKED" }, req)));
-  assert.ok(no(check("CHECK", R, req)));
-  assert.ok(no(check("APPROVE", { ...R, status: "CHECKED" }, req)));
+  assert.ok(no(check("CANCEL", { ...R, status: "APPROVED" }, req)));
+  assert.ok(no(check("APPROVE", R, req)));
 });
 
-test("the owner or a DIRECTOR login decides, never the person who asked, and only once checked", () => {
-  assert.ok(ok(check("APPROVE", { ...R, status: "CHECKED" }, nick), "APPROVED"));
-  assert.ok(ok(check("DECLINE", { ...R, status: "CHECKED" }, nick), "DECLINED"));
-  assert.ok(no(check("APPROVE", R, nick)), "not checked by accounts yet");
-  assert.ok(ok(check("APPROVE", { ...R, status: "CHECKED" }, owner), "APPROVED"), "the owner decides (Ilies, 27 Oct 2026)");
-  assert.ok(no(check("APPROVE", { ...R, status: "CHECKED" }, admin)), "another Admin with director access doesn't decide");
-  assert.ok(no(check("APPROVE", { status: "CHECKED", requestedBy: "iliesa" }, owner)), "not even the owner approves his own request");
-  const own = check("APPROVE", { status: "CHECKED", requestedBy: "  test   DIRECTOR " }, nick);
+test("never the person who asked - by name, by login id, or another login of the same person", () => {
+  assert.ok(no(check("APPROVE", { status: "REQUESTED", requestedBy: "iliesa" }, owner)), "not even the owner approves his own request");
+  const own = check("APPROVE", { status: "REQUESTED", requestedBy: "  test   DIRECTOR " }, nick);
   assert.ok("error" in own && /someone else/.test(own.error), "same person, any spelling of the name");
-  assert.ok(no(check("APPROVE", { ...R, status: "CHECKED" }, acc)), "accounts can't approve");
+  const [ownerId, agentId] = SAME_PERSON[1];
+  assert.ok(no(check("APPROVE", { status: "REQUESTED", requestedBy: "Agent", requestedByUserId: agentId }, { ...owner, userId: ownerId })), "owner + Building Agent are one person");
+  assert.ok(no(check("ASK_INFO", { status: "REQUESTED", requestedBy: "X", requestedByUserId: "u-1" }, { ...nick, userId: "u-1" })), "nor question their own");
+});
+
+test("who is alerted: the DIRECTOR logins and the owner, never the requester's own logins", () => {
+  const [nickAdmin, nickDir] = SAME_PERSON[0], [ownerId, agentId] = SAME_PERSON[1];
+  const users = [
+    { id: nickDir, role: "DIRECTOR", email: "nick.d@test.localhost" }, { id: nickAdmin, role: "ADMIN", email: "nick@test.localhost" },
+    { id: "yoel", role: "DIRECTOR", email: "yoel@test.localhost" }, { id: ownerId, role: "ADMIN", email: "iliesa@loboscontracting.com.au" },
+    { id: agentId, role: "MANAGER", email: "iliesa+agent@loboscontracting.com.au" }, { id: "acc", role: "ACCOUNTS", email: "accounts@test.localhost" },
+  ];
+  assert.deepEqual(approverIds(users, "alex").sort(), [nickDir, ownerId, "yoel"].sort(), "Alex's request: both directors and the owner, not accounts");
+  assert.deepEqual(approverIds(users, ownerId).sort(), [nickDir, "yoel"].sort(), "Ilies's request reaches Nick and Yoel only");
+  assert.deepEqual(approverIds(users, nickAdmin).sort(), [ownerId, "yoel"].sort(), "Nick's (ADMIN login) request skips his DIRECTOR login");
+  assert.ok(!approverIds(users, null).includes("acc"));
 });
 
 test("amounts: accounts' typing is understood; nonsense refused", () => {

@@ -100,7 +100,7 @@ export default function AccountsPage() {
 
           {!!(p.purchasesToCheck || p.purchasesToOrder) && (
             <Section title="Purchase requests waiting for you" count={(p.purchasesToCheck ?? 0) + (p.purchasesToOrder ?? 0)}>
-              <Link href="/accounts/purchases" className="block px-3 py-3 text-sm text-brand-300 hover:underline">{[p.purchasesToCheck ? `${p.purchasesToCheck} to check` : null, p.purchasesToOrder ? `${p.purchasesToOrder} approved to order` : null].filter(Boolean).join(" · ")} - open purchases →</Link>
+              <Link href="/accounts/purchases" className="block px-3 py-3 text-sm text-brand-300 hover:underline">{p.purchasesToOrder ? `${p.purchasesToOrder} approved to order` : ""} - open purchases →</Link>
             </Section>
           )}
 

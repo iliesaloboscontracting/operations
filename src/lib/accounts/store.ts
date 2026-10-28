@@ -139,7 +139,7 @@ export async function pendingForAccounts() {
     listItems(),
     prisma.reimbursement.count({ where: { status: "TO_PAY" } }), // stage 3
     prisma.abnInvoice.count({ where: { status: "TO_CHECK" } }), // stage 4
-    prisma.purchaseRequest.count({ where: { status: "REQUESTED" } }), // stage 6: to check
+    Promise.resolve(0), // stage 6: accounts no longer check first (28 Oct 2026)
     prisma.purchaseRequest.count({ where: { status: "APPROVED" } }), // stage 6: to order
     reviewList().catch(() => ({ invoices: [] })), // Accounts data: sales invoices not tied to a job (Xero mirror)
   ]);

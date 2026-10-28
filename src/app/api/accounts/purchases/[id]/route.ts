@@ -3,9 +3,9 @@ import { guardAccounts } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { actOnRequest } from "@/lib/purchases/store";
 
-// POST /api/accounts/purchases/:id { action: CHECK (amountExGst, accountsNote?) | ASK_INFO (question) |
-// CLOSE (reason) | ORDERED (note?), version }
-const ACCOUNTS_ACTIONS = ["CHECK", "ASK_INFO", "CLOSE", "ORDERED"] as const;
+// POST /api/accounts/purchases/:id { action: ORDERED, amountExGst? (optional), note?, version }. Since 28 Oct 2026
+// accounts only order what an approver has approved - they no longer check, question or close requests.
+const ACCOUNTS_ACTIONS = ["ORDERED"] as const;
 export const POST = withErrorHandling(async (req: NextRequest, { params }: { params: Promise<{ id: string }> }) => {
   const g = await guardAccounts();
   if ("denied" in g) return g.denied;

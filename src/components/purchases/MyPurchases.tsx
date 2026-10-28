@@ -52,9 +52,9 @@ function AskForm({ base, projects, onDone, onCancel }: { base: string; projects:
         <option value="">Not for a particular job</option>
         {projects.map((p) => <option key={p.id} value={p.id}>{[p.jobNo, p.name].filter(Boolean).join(" ")}</option>)}
       </select>
-      <p className="text-xs text-gray-500">Leave the price out - accounts check it and add the amount.</p>
+      <p className="text-xs text-gray-500">Leave the price out - the directors approve it, then accounts order it.</p>
       {error && <p className="text-sm text-red-400">{error}</p>}
-      <button disabled={busy} className={primary}>{busy ? <Loader2 size={18} className="animate-spin" /> : null} Send to accounts</button>
+      <button disabled={busy} className={primary}>{busy ? <Loader2 size={18} className="animate-spin" /> : null} Send to the directors</button>
       <button type="button" onClick={onCancel} className="w-full text-sm text-gray-400">Cancel</button>
     </form>
   );
@@ -83,7 +83,7 @@ function Card({ r, base, onChanged }: { r: Row; base: string; onChanged: () => v
       </div>
       <p className="mt-1 text-xs text-gray-500">{[r.qty && `${r.qty} off`, r.supplier, r.projectName, r.neededBy && `needed by ${dmy(r.neededBy)}`].filter(Boolean).join(" · ")}</p>
       {r.why && <p className="mt-1 text-sm text-gray-400">{r.why}</p>}
-      {r.infoQuestion && <p className="mt-2 rounded-lg bg-amber-950/40 px-2 py-1.5 text-sm text-amber-100">Accounts asked: {r.infoQuestion}</p>}
+      {r.infoQuestion && <p className="mt-2 rounded-lg bg-amber-950/40 px-2 py-1.5 text-sm text-amber-100">The directors asked: {r.infoQuestion}</p>}
       {r.infoAnswer && <p className="mt-1 text-sm text-gray-300">You answered: {r.infoAnswer}</p>}
       {r.decisionNote && <p className="mt-1 text-sm text-gray-300">Director&apos;s note: {r.decisionNote}</p>}
       {r.status === "NEEDS_INFO" && (
@@ -118,7 +118,7 @@ export default function MyPurchases({ base }: { base: string }) {
     <div className="space-y-3">
       {flash && <p className="rounded-xl bg-emerald-950/50 px-3 py-2 text-sm text-emerald-200">{flash}</p>}
       {asking ? (
-        <AskForm base={base} projects={projects} onCancel={() => setAsking(false)} onDone={(ref) => { setAsking(false); setFlash(`Sent to accounts as ${ref}.`); load(); }} />
+        <AskForm base={base} projects={projects} onCancel={() => setAsking(false)} onDone={(ref) => { setAsking(false); setFlash(`Sent to the directors as ${ref}.`); load(); }} />
       ) : (
         <button onClick={() => { setFlash(null); setAsking(true); }} className={primary}><Plus size={18} /> Ask to buy something</button>
       )}

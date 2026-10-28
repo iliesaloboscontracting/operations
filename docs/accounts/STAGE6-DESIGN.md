@@ -37,6 +37,14 @@ reversible. Messaging is out of scope; the questions for it are in section 7.
 
 ## 3. Purchase requests
 
+> **Changed 28 Oct 2026 (Ilies: "This should have send to directors ... not accounts ... accounts removed as it has no
+> authority to approve"):** a request goes **straight to the approvers** - the owner or a DIRECTOR login, never the
+> person who asked (any of their logins, `lib/samePerson.ts`). Approvers approve, decline or ask a question; once
+> approved, accounts order it and may note the price then (optional). Accounts no longer check, price, question or
+> close requests. Older CHECKED requests can still be decided. Alerts: a new or answered request goes to the
+> approvers (minus the requester's own logins), approved goes to accounts. The rest of this section describes the
+> original flow.
+
 ### Why not a `SiteRequest` kind
 
 - **Different decision chain.** Site requests are decided by Admins, who approve the request onto someone's to-do list. A purchase goes requester → accounts check → director approve → accounts order. Bending `SiteRequest`'s status machine and its alert routing (`alertRouteFor`) for this would change behaviour that supervisors and Alex rely on.

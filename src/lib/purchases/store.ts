@@ -9,7 +9,7 @@ import { isOwner, OWNER_EMAIL } from "../owner";
 import { pushToSiteLinks, pushToUsers, type PushMessage } from "../push";
 import { todaySydney } from "../today";
 import { addDays, isIsoDate } from "../accounts/calendar";
-import { check, linkSafeText, OPEN, parseAmount, purchaseNo, requesterView, STATUS_FOR_REQUESTER, type Action, type Actor, type Status } from "./rules";
+import { approverIds, check, linkSafeText, OPEN, parseAmount, purchaseNo, requesterView, STATUS_FOR_REQUESTER, type Action, type Actor, type Status } from "./rules";
 
 type Problem = { error: string; status: number };
 const bad = (error: string, status = 400): Problem => ({ error, status });
@@ -54,7 +54,9 @@ async function nextNumber(db: Prisma.TransactionClient) {
 }
 
 const roleUsers = async (role: string) => (await prisma.user.findMany({ where: { role, active: true }, select: { id: true } })).map((u) => u.id);
-const ownerUsers = async () => (await prisma.user.findMany({ where: { email: OWNER_EMAIL, active: true }, select: { id: true } })).map((u) => u.id);
+// The approvers to alert about a request: DIRECTOR logins and the owner, minus the requester's own logins.
+const approversFor = async (requesterUserId: string | null) =>
+  approverIds(await prisma.user.findMany({ where: { active: true, OR: [{ role: "DIRECTOR" }, { email: OWNER_EMAIL }] }, select: { id: true, role: true, email: true } }), requesterUserId);
 const alert = (p: Promise<unknown>) => p.catch((e) => console.error("purchase alert failed", e));
 
 // Status words only, never an amount (D-money).
@@ -85,7 +87,8 @@ export async function createRequest(who: Requester, b: Record<string, unknown>):
           },
         });
       });
-      await alert(pushToUsers(await roleUsers("ACCOUNTS"), { title: `Purchase request ${purchaseNo(row.number)}`, body: `${who.name}: ${row.what}`.slice(0, 140), url: "/accounts/purchases", tag: "purchase-new" }));
+      // Straight to the approvers (28 Oct 2026) - not accounts.
+      await alert(pushToUsers(await approversFor(row.requestedByUserId), { title: `Purchase request ${purchaseNo(row.number)} to approve`, body: `${who.name}: ${row.what}`.slice(0, 140), url: "/directors/purchases", tag: "purchase-approve" }));
       return { id: row.id, ref: purchaseNo(row.number) };
     } catch (e) {
       // Two requests at the same moment took the same number - take the next one.
@@ -113,13 +116,6 @@ export async function actOnRequest(
   let note: string | null = null;
   const now = new Date();
   switch (action) {
-    case "CHECK": {
-      const amount = parseAmount(b.amountExGst);
-      if (amount == null) return bad("Enter the amount ex GST.");
-      note = text(b.accountsNote, 600);
-      Object.assign(data, { amountExGst: amount, accountsNote: note, checkedBy: who.name, checkedAt: now });
-      break;
-    }
     case "ASK_INFO": {
       note = text(b.question, 400);
       if (!note || note.length < 3) return bad("Write the question for them.");
@@ -134,12 +130,6 @@ export async function actOnRequest(
       data.infoAnswer = note;
       break;
     }
-    case "CLOSE": {
-      note = text(b.reason, 300);
-      if (!note || note.length < 3) return bad("Say why it's being closed (not needed, a duplicate ...).");
-      data.closedReason = note;
-      break;
-    }
     case "CANCEL":
       break;
     case "APPROVE":
@@ -152,6 +142,12 @@ export async function actOnRequest(
     }
     case "ORDERED": {
       note = text(b.note, 300);
+      // Accounts may note the price when they order it (optional; accounts / directors only - never on a link).
+      if (b.amountExGst !== undefined && b.amountExGst !== "" && b.amountExGst !== null) {
+        const amount = parseAmount(b.amountExGst);
+        if (amount == null) return bad("That amount doesn't look right - leave it blank or enter it ex GST.");
+        data.amountExGst = amount;
+      }
       Object.assign(data, { orderedBy: who.name, orderedAt: now });
       break;
     }
@@ -161,10 +157,11 @@ export async function actOnRequest(
   if (!done.count) return bad("Someone else has just changed this - reload and try again.", 409);
   await prisma.purchaseRequestEvent.create({ data: { requestId: id, action, status: ok.to, by: who.name, note } });
 
-  if (ok.to === "CHECKED") await alert(pushToUsers([...await roleUsers("DIRECTOR"), ...await ownerUsers()], { title: `Purchase ${purchaseNo(r.number)} to approve`, body: r.what.slice(0, 140), url: "/directors/purchases", tag: "purchase-approve" }));
-  if (ok.to === "REQUESTED") await alert(pushToUsers(await roleUsers("ACCOUNTS"), { title: `Purchase ${purchaseNo(r.number)} answered`, body: `${r.requestedBy} answered your question.`, url: "/accounts/purchases", tag: "purchase-new" }));
-  if (ok.to === "APPROVED" || ok.to === "DECLINED") await alert(pushToUsers(await roleUsers("ACCOUNTS"), { title: `Purchase ${purchaseNo(r.number)} ${ok.to === "APPROVED" ? "approved" : "declined"}`, body: r.what.slice(0, 140), url: "/accounts/purchases", tag: "purchase-decided" }));
-  if (["NEEDS_INFO", "APPROVED", "DECLINED", "ORDERED", "CLOSED"].includes(ok.to)) await tellRequester(r, ok.to);
+  // 28 Oct 2026: an answered question goes back to the approvers; approved goes to accounts to order; the requester
+  // hears about a question, approved, declined and ordered.
+  if (ok.to === "REQUESTED") await alert(pushToUsers(await approversFor(r.requestedByUserId), { title: `Purchase ${purchaseNo(r.number)} answered`, body: `${r.requestedBy} answered the question.`, url: "/directors/purchases", tag: "purchase-approve" }));
+  if (ok.to === "APPROVED") await alert(pushToUsers(await roleUsers("ACCOUNTS"), { title: `Purchase ${purchaseNo(r.number)} approved - to order`, body: r.what.slice(0, 140), url: "/accounts/purchases", tag: "purchase-decided" }));
+  if (["NEEDS_INFO", "APPROVED", "DECLINED", "ORDERED"].includes(ok.to)) await tellRequester(r, ok.to);
   return { ok: true, status: ok.to };
 }
 
@@ -175,20 +172,21 @@ export async function listForAccounts() {
     where: { OR: [{ status: { in: OPEN } }, { updatedAt: { gte: recent() } }] }, include: withEvents, orderBy: { number: "desc" }, take: 400,
   });
   const v = rows.map(accountsView);
-  const by = (s: Status) => v.filter((r) => r.status === s);
-  return { toCheck: by("REQUESTED"), waitingInfo: by("NEEDS_INFO"), withDirectors: by("CHECKED"), toOrder: by("APPROVED"), history: v.filter((r) => !OPEN.includes(r.status)) };
+  // 28 Oct 2026: accounts see what's approved (to order) and the history - approving is the directors'.
+  return { toOrder: v.filter((r) => r.status === "APPROVED"), history: v.filter((r) => !OPEN.includes(r.status)) };
 }
 
-// Directors: the checked ones to decide, and the last 30 days decided. cannotDecide says why this login can't
-// (not a DIRECTOR login, or they asked for it) - the page shows it instead of the buttons, as budgets do.
+// Directors and the owner: requests waiting for a decision (new, waiting on an answer, or older checked ones), and
+// the last 30 days decided. cannotDecide says why this login can't (not an approver, or they asked for it) - the page
+// shows it instead of the buttons, as budgets do.
 export async function listForDirectors(user: { id: string; role: string; name: string; email?: string }) {
   const since = new Date(`${addDays(todaySydney(), -30)}T00:00:00Z`);
   const rows = await prisma.purchaseRequest.findMany({
-    where: { OR: [{ status: "CHECKED" }, { decidedAt: { gte: since } }] }, include: withEvents, orderBy: { number: "desc" }, take: 200,
+    where: { OR: [{ status: { in: ["REQUESTED", "NEEDS_INFO", "CHECKED"] } }, { decidedAt: { gte: since } }] }, include: withEvents, orderBy: { number: "desc" }, take: 200,
   });
   const actor: Actor = { kind: "DIRECTOR", role: user.role, name: user.name, userId: user.id, owner: isOwner(user.email) };
   return rows.map((r) => {
-    const c = r.status === "CHECKED" ? check("APPROVE", r, actor) : null;
+    const c = r.status === "REQUESTED" || r.status === "CHECKED" || r.status === "NEEDS_INFO" ? check("APPROVE", { ...r, status: "REQUESTED" }, actor) : null;
     return { ...accountsView(r), cannotDecide: c && "error" in c ? c.error : null };
   });
 }
@@ -202,8 +200,8 @@ export async function listForRequester(who: Requester) {
   return rows.map(linkView);
 }
 
-// Accounts To do: requests waiting for accounts (to check, or approved to order).
-export const purchasesWaiting = () => prisma.purchaseRequest.count({ where: { status: { in: ["REQUESTED", "APPROVED"] } } });
+// Accounts To do: approved requests waiting to be ordered.
+export const purchasesWaiting = () => prisma.purchaseRequest.count({ where: { status: "APPROVED" } });
 
 // Jobs a request can be for (the active ones), for the form's picker. Names only.
 export const projectChoices = () =>
