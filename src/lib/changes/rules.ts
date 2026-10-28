@@ -71,6 +71,12 @@ export function viewCard<T extends CardFields>(u: { role: string }, kind: Change
   return { ...card, before: MASKED_BEFORE, canUndo: false, fingerprint: "", recordName: opts.update ? holderOnly(kind, card.recordName) : card.recordName };
 }
 
+// SEC-012: "that's already there" at proposal time would tell a masked proposer what the record holds (an active
+// ticket of that type, a document with that expiry), so it isn't said to them - the approval's re-check turns a
+// duplicate into STALE (whose note they see masked). An Admin is still told at once.
+export const conflictAtProposal = (u: { role: string }, kind: ChangeKind, conflict: string | null): string | null =>
+  conflict && !masksBefore(u, kind) ? conflict : null;
+
 // The applied / not-applied note as such a viewer reads it (the stored note names the old values).
 export const maskedNote = (action: string, note: string | null) =>
   action === "EXECUTED" ? "Applied as approved. (Current values: Admins only.)" : action === "STALE" ? "Not applied - the record had changed or couldn't be updated. (Current values: Admins only.)" : note;

@@ -15,7 +15,7 @@ import { alertSafely } from "../messages/alertGuard";
 import { isOperationsAi, overAiLimit } from "../infoRequests/rules";
 import { A3_RULES, CHANGE_KINDS, isAdminKind, type ChangeKind } from "./config";
 import {
-  SWITCHED_OFF, aiProposerIds, alertBody, applyFailedNote, SYSTEM_ACTOR, canProposeKind, canViewKind, canViewProposal, cannotApprove, expiryFor, fingerprintPayload, isExpired, isKind, kindEnabled, maskedNote, masksBefore, undoRefusal, viewCard,
+  SWITCHED_OFF, aiProposerIds, alertBody, applyFailedNote, SYSTEM_ACTOR, canProposeKind, canViewKind, canViewProposal, cannotApprove, expiryFor, fingerprintPayload, isExpired, isKind, kindEnabled, maskedNote, masksBefore, undoRefusal, viewCard, conflictAtProposal,
   noChange, openKeyOf, parseAfter, parseSources, pickValue, proposalRef, samePerson, sameValue,
   type ChangeUser, type ChangeValue, type SourceRef,
 } from "./rules";
@@ -132,7 +132,7 @@ export async function createProposal(
   const field = A3_RULES[kind].field;
   const unchanged = isAdminKind(kind) ? adminUnchanged(rec.value, after) : noChange({ [field]: rec.value[field] ?? null }, { [field]: after[field] ?? null });
   if (unchanged && !masksBefore(by, kind)) return { error: "That's already the value - nothing to change.", status: 400 };
-  const taken = isAdminKind(kind) ? adminConflict(kind, rec.value) : await numberTaken(kind, recordId, after);
+  const taken = isAdminKind(kind) ? conflictAtProposal(by, kind, adminConflict(kind, rec.value)) : await numberTaken(kind, recordId, after);
   if (taken) return { error: taken, status: 409 };
   const given = parseSources(body.sources);
   const derived = [...(from?.source ? [from.source] : []), ...(await linkedSources(kind, recordId, from?.source?.id))];

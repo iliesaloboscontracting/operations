@@ -312,3 +312,16 @@ test("SEC-011: on a ticket / document update a masked viewer sees the holder onl
   assert.match(PROPOSER_HINT, /can't see current values/);
   assert.equal(holderOnly("WORKER_TICKET", "NoSeparator"), "NoSeparator");
 });
+
+test("SEC-012: a clashing CREATE (already an active ticket / the same document) is accepted from a masked proposer, refused for an Admin", async () => {
+  const { conflictAtProposal } = await import("./rules");
+  const ticketClash = "This worker already has an active ticket of that type - propose an update to it instead.";
+  const docClash = "That document is already there (same holder, type and expiry).";
+  assert.equal(conflictAtProposal(agent, "WORKER_TICKET", ticketClash), null);
+  assert.equal(conflictAtProposal(agent, "COMPLIANCE_DOC", docClash), null);
+  assert.equal(conflictAtProposal(ilies, "WORKER_TICKET", ticketClash), ticketClash);
+  assert.equal(conflictAtProposal(nickAdmin, "COMPLIANCE_DOC", docClash), docClash);
+  // tip rates aren't masked: the AI is still told at once
+  assert.equal(conflictAtProposal(agent, "TIP_RATE_ADD", "There's already a rate"), "There's already a rate");
+  assert.equal(conflictAtProposal(agent, "WORKER_TICKET", null), null);
+});
