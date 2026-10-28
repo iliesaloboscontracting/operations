@@ -26,3 +26,24 @@ event named, or as soon as the reason stops being true - whichever comes first.
   - plan the Next.js 16 upgrade through the permission gate;
   - the release check's audit step treats exactly these advisories as accepted until the expiry date, and fails on
     anything new.
+
+## EX-002 - the owner may approve Operations AI's admin-kind change proposals (SEC-008, accepted 28 Oct 2026)
+
+- **What:** `SAME_PERSON` (`lib/samePerson.ts`) pairs the owner's login with the Building Agent's, so neither
+  approves the other's proposals. One narrow exception (`aiOwnerMayApprove` in `lib/changes/config.ts`): the owner
+  may approve a proposal from Operations AI (the Building Agent's email on an active MANAGER login, checked at the
+  time of the decision) for the seven admin kinds only - TIP_RATE_ADD, TIP_RATE_RETIRE, INVOICED_COST_REMOVE,
+  RESOURCE_RATE, RESOURCE_ENGAGEMENT, WORKER_TICKET, COMPLIANCE_DOC. Never his own proposal, never another kind;
+  contract values stay with the director logins; purchases are unchanged. Design:
+  `docs/lci/ADMIN-CHANGE-KINDS-DESIGN.md`.
+- **Why accepted / residual risk:** Ilies drives the agent session, so his approval of its proposal is not a
+  second, independent person. This gives him no new power - as owner he can already make all seven changes directly
+  on the Admin screens. Each proposal still carries before -> after, why and its source, and is logged; approvers
+  must check the sources on each card before approving.
+- **Accepted by:** Ilies (owner), through the lead, 28 Oct 2026 (security review of 6e6f2c0: SEC-001..007 approved,
+  SEC-008 = this register entry).
+- **Expires / review:** no date set - Ilies to set one. It ends at once if the agent can act without Ilies driving
+  it, or if any of the seven kinds gains a power the owner doesn't already have.
+- **Rollback:** `CONTROLLED_CHANGES_OFF=TIP_RATE_ADD,TIP_RATE_RETIRE,INVOICED_COST_REMOVE,RESOURCE_RATE,RESOURCE_ENGAGEMENT,WORKER_TICKET,COMPLIANCE_DOC`
+  in `.env` switches the seven kinds off (proposals can still be read; nothing is approved), or remove
+  `aiOwnerMayApprove` from the seven rules to keep the kinds with another Admin approving.
