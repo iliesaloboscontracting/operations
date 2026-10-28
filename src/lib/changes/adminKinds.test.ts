@@ -260,3 +260,10 @@ test("SEC-003: a removed invoice is kept whole - every field, dates as text", as
   assert.equal(s.docketNos, '["D1","D2"]');
   assert.ok(!("project" in s));
 });
+
+test("SEC-006: a change that throws while applying is recorded as not applied, with a short reason", async () => {
+  const { applyFailedNote } = await import("./rules");
+  assert.equal(applyFailedNote(new Error("SQLITE_BUSY: database\n  is locked")), "Couldn't apply: SQLITE_BUSY: database is locked. Nothing was changed.");
+  assert.ok(applyFailedNote(new Error("x".repeat(500))).length < 260, "kept short");
+  assert.match(applyFailedNote("odd"), /^Couldn't apply: odd\./);
+});

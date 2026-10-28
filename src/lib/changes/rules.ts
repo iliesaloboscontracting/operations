@@ -65,6 +65,10 @@ const AMOUNT = /\$|\d[\d,]*\.\d{2}/;
 export const alertBody = (who: string, label: string, recordName: string) =>
   `${who} proposed: ${label}${recordName && !AMOUNT.test(recordName) ? ` - ${recordName}` : ""}`.slice(0, 140);
 
+// SEC-006: what went wrong while applying an approved change, short, as its STALE note.
+export const applyFailedNote = (e: unknown) =>
+  `Couldn't apply: ${(e instanceof Error ? e.message : String(e)).replace(/\s+/g, " ").slice(0, 200)}. Nothing was changed.`;
+
 // Proposing: Managers and Admins, any kind but the admin ones; director logins, the commercial
 // kinds; the admin kinds, an Admin or Operations AI; the system only off-hire dates, from a supervisor's hire check (4e).
 export const SYSTEM_ACTOR: ChangeUser = { id: "", name: "System", email: "system@lci", role: "SYSTEM", directorAccess: false };

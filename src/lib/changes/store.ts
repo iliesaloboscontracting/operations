@@ -15,7 +15,7 @@ import { alertSafely } from "../messages/alertGuard";
 import { isOperationsAi, overAiLimit } from "../infoRequests/rules";
 import { A3_RULES, CHANGE_KINDS, isAdminKind, type ChangeKind } from "./config";
 import {
-  MASKED_BEFORE, SWITCHED_OFF, aiProposerIds, alertBody, SYSTEM_ACTOR, canProposeKind, canViewKind, canViewProposal, cannotApprove, expiryFor, fingerprintPayload, isExpired, isKind, kindEnabled, maskedNote, masksBefore,
+  MASKED_BEFORE, SWITCHED_OFF, aiProposerIds, alertBody, applyFailedNote, SYSTEM_ACTOR, canProposeKind, canViewKind, canViewProposal, cannotApprove, expiryFor, fingerprintPayload, isExpired, isKind, kindEnabled, maskedNote, masksBefore,
   noChange, openKeyOf, parseAfter, parseSources, pickValue, proposalRef, samePerson, sameValue,
   type ChangeUser, type ChangeValue, type SourceRef,
 } from "./rules";
@@ -291,7 +291,8 @@ export async function decide(by: ChangeUser, id: string, body: Record<string, un
   };
 
   // Re-check at execution: the record is still there and still says what it said when proposed.
-  const rec = await readRecord(kind, p.recordId, after);
+  let rec: Awaited<ReturnType<typeof readRecord>>;
+  try { rec = await readRecord(kind, p.recordId, after); } catch (e) { return stale(applyFailedNote(e), null); } // SEC-006
   if ("error" in rec) return stale(`${rec.error} Nothing was changed.`, null);
   const admin = isAdminKind(kind);
   if (admin ? !sameValue(checkedPart(kind, rec.value), checkedPart(kind, before)) : !sameValue(rec.value, before)) {
@@ -301,15 +302,21 @@ export async function decide(by: ChangeUser, id: string, body: Record<string, un
   if (taken) return stale(`${taken} Nothing was changed.`, rec.value);
 
   // The same code as the edit screens, as the system actor (admin kinds: recorded as the approver, via this proposal).
+  // SEC-006: the change is claimed (APPROVED) by now - anything that throws while applying it is recorded as STALE,
+  // so a proposal never stays "Approved - applying" with no outcome.
   let nowValue: ChangeValue;
-  if (admin) {
-    const out = await applyAdmin(kind, p.recordId, after, { by: `${by.name} (approved ${proposalRef(p.number)})`, reason: p.reason });
-    if ("error" in out) return stale(`${out.error} Nothing was changed.`, rec.value);
-    nowValue = out.value;
-  } else {
-    const out = A3_RULES[kind].recordType === "Resource" ? await applyResourcePatch(p.recordId, after, { role: null }) : await applyProjectPatch(p.recordId, after);
-    if ("error" in out) return stale(`${out.error} Nothing was changed.`, rec.value);
-    nowValue = pickValue(kind, ("resource" in out ? out.resource : out.project) as unknown as Record<string, unknown>);
+  try {
+    if (admin) {
+      const out = await applyAdmin(kind, p.recordId, after, { by: `${by.name} (approved ${proposalRef(p.number)})`, reason: p.reason });
+      if ("error" in out) return stale(`${out.error} Nothing was changed.`, rec.value);
+      nowValue = out.value;
+    } else {
+      const out = A3_RULES[kind].recordType === "Resource" ? await applyResourcePatch(p.recordId, after, { role: null }) : await applyProjectPatch(p.recordId, after);
+      if ("error" in out) return stale(`${out.error} Nothing was changed.`, rec.value);
+      nowValue = pickValue(kind, ("resource" in out ? out.resource : out.project) as unknown as Record<string, unknown>);
+    }
+  } catch (e) {
+    return stale(applyFailedNote(e), rec.value);
   }
   await prisma.$transaction([
     prisma.changeProposal.update({ where: { id }, data: { status: "EXECUTED" } }),
