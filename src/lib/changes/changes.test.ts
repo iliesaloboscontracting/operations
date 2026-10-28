@@ -6,7 +6,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "crypto";
-import { A3_RULES, CHANGE_KINDS, LESSON_PUBLISHERS } from "./config";
+import { A3_RULES, CHANGE_KINDS, LESSON_PUBLISHERS, isAdminKind } from "./config";
 import {
   canProposeKind, canViewKind, cannotApprove, canonical, expiryFor, fingerprintPayload, isExpired, kindEnabled, noChange,
   openKeyOf, parseAfter, parseSources, pickValue, proposalRef, samePerson, SYSTEM_ACTOR, type ChangeUser,
@@ -23,9 +23,10 @@ const alex = u({ id: "al", name: "Alex", role: "MANAGER" });
 const viewer = u({ id: "vi", name: "Crew", role: "VIEWER" });
 const accounts = u({ id: "ac", name: "Accounts", role: "ACCOUNTS" });
 
-test("the approved list: four kinds, expiry 3 / 14 days; contract values by Nick and Yoel only, lessons by the owner only (Ilies, 25 Oct)", () => {
-  assert.deepEqual(CHANGE_KINDS, ["HIRE_OFF_HIRE_DATE", "PROJECT_CONTRACT_VALUE", "PROJECT_JOB_NO", "PROJECT_QUOTE_NO"]);
-  assert.deepEqual(CHANGE_KINDS.map((k) => A3_RULES[k].expiryDays), [3, 14, 14, 14]);
+test("the approved list: four kinds (plus the seven admin kinds, adminKinds.test.ts), expiry 3 / 14 days; contract values by Nick and Yoel only, lessons by the owner only (Ilies, 25 Oct)", () => {
+  const first = CHANGE_KINDS.filter((k) => !isAdminKind(k));
+  assert.deepEqual(first, ["HIRE_OFF_HIRE_DATE", "PROJECT_CONTRACT_VALUE", "PROJECT_JOB_NO", "PROJECT_QUOTE_NO"]);
+  assert.deepEqual(first.map((k) => A3_RULES[k].expiryDays), [3, 14, 14, 14]);
   assert.equal(A3_RULES.PROJECT_CONTRACT_VALUE.audience, "COMMERCIAL");
   assert.deepEqual(A3_RULES.PROJECT_CONTRACT_VALUE.approvers, { roles: ["DIRECTOR"], ownerMayApprove: false });
   assert.deepEqual(LESSON_PUBLISHERS, { owner: true, roles: [] }, "Ilies (25 Oct 2026): only he publishes lessons");
@@ -74,7 +75,7 @@ test("contract values: director logins approve; the owner only when ownerMayAppr
 });
 
 test("who sees and proposes: Managers and Admins all kinds; DIRECTOR logins the contract value only (never an operational change); nobody else", () => {
-  for (const k of CHANGE_KINDS) { assert.ok(canViewKind(alex, k)); assert.ok(canProposeKind(ilies, k)); assert.ok(!canViewKind(viewer, k)); assert.ok(!canViewKind(accounts, k)); }
+  for (const k of CHANGE_KINDS.filter((k) => !isAdminKind(k))) { assert.ok(canViewKind(alex, k)); assert.ok(canProposeKind(ilies, k)); assert.ok(!canViewKind(viewer, k)); assert.ok(!canViewKind(accounts, k)); }
   assert.ok(canViewKind(yoel, "PROJECT_CONTRACT_VALUE") && canProposeKind(yoel, "PROJECT_CONTRACT_VALUE"));
   for (const k of ["HIRE_OFF_HIRE_DATE", "PROJECT_JOB_NO", "PROJECT_QUOTE_NO"] as const) {
     assert.equal(A3_RULES[k].audience, "OPERATIONAL");

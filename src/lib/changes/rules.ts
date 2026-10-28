@@ -5,10 +5,12 @@
 // imports; `npm test` (changes.test.ts). Design: docs/lci/PHASE4-5-DESIGN.md §1.
 import { isOwner } from "../owner";
 import { sameUser } from "../samePerson";
-import { A3_RULES, CHANGE_KINDS, NEVER_APPROVE, type ChangeKind } from "./config";
+import { isOperationsAi } from "../infoRequests/rules";
+import { A3_RULES, CHANGE_KINDS, NEVER_APPROVE, isAdminKind, type ChangeKind } from "./config";
+import { parseAdminAfter } from "./adminRules";
 
 export type ChangeUser = { id: string; name: string; email: string; role: string; directorAccess: boolean };
-export type ChangeValue = Record<string, string | number | null>;
+export type ChangeValue = Record<string, string | number | boolean | null>;
 export type SourceRef = { type: "SiteRequest" | "Finding" | "Query" | "Phone" | "Email" | "Document" | "Other"; id?: string; label: string };
 
 export const isKind = (k: unknown): k is ChangeKind => typeof k === "string" && (CHANGE_KINDS as string[]).includes(k);
@@ -32,22 +34,35 @@ const staff = (u: ChangeUser) => u.role === "ADMIN" || u.role === "MANAGER";
 // contract values on Tracking); other director-access logins (Nick's and
 // Yoel's DIRECTOR logins) see the COMMERCIAL kinds only - the contract values
 // they approve - never an operational change (the lead, 25 Oct 2026). Nobody else.
-export const canViewKind = (u: ChangeUser, kind: ChangeKind) => staff(u) || (u.directorAccess && A3_RULES[kind].audience === "COMMERCIAL");
+// The admin kinds (28 Oct 2026: rates, amounts, HR records) are Admins only, plus Operations AI (the
+// Building Agent's email on a MANAGER login) for its own proposals - never another Manager or a director login.
+export const canViewKind = (u: ChangeUser, kind: ChangeKind) =>
+  isAdminKind(kind) ? u.role === "ADMIN" || isOperationsAi(u.email, u.role) : staff(u) || (u.directorAccess && A3_RULES[kind].audience === "COMMERCIAL");
+// One proposal: Operations AI sees the admin-kind proposals it raised (their values too), and no others.
+export const canViewProposal = (u: ChangeUser, p: { kind: ChangeKind; requestedByUserId?: string | null }) =>
+  canViewKind(u, p.kind) && (!isAdminKind(p.kind) || u.role === "ADMIN" || (!!u.id && u.id === p.requestedByUserId));
 
-// Proposing: Managers and Admins, any kind; director logins, the commercial
-// kinds; the system only off-hire dates, from a supervisor's hire check (4e).
+// Proposing: Managers and Admins, any kind but the admin ones; director logins, the commercial
+// kinds; the admin kinds, an Admin or Operations AI; the system only off-hire dates, from a supervisor's hire check (4e).
 export const SYSTEM_ACTOR: ChangeUser = { id: "", name: "System", email: "system@lci", role: "SYSTEM", directorAccess: false };
 export const canProposeKind = (u: ChangeUser, kind: ChangeKind) => (u.role === "SYSTEM" ? kind === "HIRE_OFF_HIRE_DATE" : canViewKind(u, kind));
 
 // Why this person can't approve this proposal, or null when they can.
-export function cannotApprove(u: ChangeUser, p: { kind: ChangeKind; requestedBy: string; requestedByUserId?: string | null; sourcePerson: string | null }): string | null {
+// proposedByAi: the proposer is Operations AI now (the server reads the proposer's login at the time of the decision).
+export function cannotApprove(u: ChangeUser, p: { kind: ChangeKind; requestedBy: string; requestedByUserId?: string | null; sourcePerson: string | null; proposedByAi?: boolean }): string | null {
   const rule = A3_RULES[p.kind];
   if (NEVER_APPROVE.includes(u.email.toLowerCase())) return "This login proposes changes; it never approves them.";
   const byRole = rule.approvers.roles.includes(u.role);
   const byOwner = rule.approvers.ownerMayApprove && isOwner(u.email);
   if (!byRole && !byOwner) return `${rule.label} changes are approved by ${approverWords(p.kind)}.`;
   // SEC-002 (c): by login id too (another login of the same person counts), not only by name.
-  if (samePerson(u.name, p.requestedBy) || sameUser(u.id, p.requestedByUserId)) return "You proposed this change, so someone else has to approve it.";
+  if (samePerson(u.name, p.requestedBy) || sameUser(u.id, p.requestedByUserId)) {
+    // The one exception (admin kinds only, the lead 28 Oct 2026): SAME_PERSON pairs the owner with the Building
+    // Agent, but the owner may approve what Operations AI proposed. Never his own proposal (same login or name).
+    const aiException = !!rule.approvers.aiOwnerMayApprove && !!p.proposedByAi && isOwner(u.email)
+      && !!p.requestedByUserId && u.id !== p.requestedByUserId && !samePerson(u.name, p.requestedBy);
+    if (!aiException) return "You proposed this change, so someone else has to approve it.";
+  }
   if (samePerson(u.name, p.sourcePerson)) return "The information came from you, so someone else has to approve putting it in.";
   return null;
 }
@@ -64,7 +79,9 @@ const NUMBER_TEXT = /^[A-Za-z0-9][A-Za-z0-9 _./-]{0,23}$/;
 
 // The proposed value for a kind, checked and in the exact shape the record
 // edit (applyResourcePatch / applyProjectPatch) takes - or what's wrong.
-export function parseAfter(kind: ChangeKind, b: Record<string, unknown>): { value: ChangeValue } | { error: string } {
+// Admin kinds: ./adminRules.ts (a new record's key comes back as recordId).
+export function parseAfter(kind: ChangeKind, b: Record<string, unknown>): { value: ChangeValue; recordId?: string } | { error: string } {
+  if (isAdminKind(kind)) return parseAdminAfter(kind, b);
   if (kind === "HIRE_OFF_HIRE_DATE") {
     const d = typeof b.offHireDate === "string" ? b.offHireDate.trim() : "";
     if (!ISO.test(d) || Number.isNaN(Date.parse(d))) return { error: "Give the new off-hire date." };

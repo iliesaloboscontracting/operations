@@ -5,14 +5,17 @@
 // or quote number - waiting for a different person to approve, and the log of
 // every change that went in (or didn't). Approving runs the change through the
 // same checks as the edit screens. Managers and Admins. Design:
-// docs/lci/PHASE4-5-DESIGN.md §1.
+// docs/lci/PHASE4-5-DESIGN.md §1. The admin kinds (tip rates, removing an invoice,
+// rates / engagement, tickets, documents - docs/lci/ADMIN-CHANGE-KINDS-DESIGN.md) show
+// here for Admins (Operations AI: its own); they're proposed through the API, so the
+// form below offers the first four kinds only.
 import { useCallback, useEffect, useState } from "react";
 import PageShell from "@/components/PageShell";
 import { useAuth } from "@/components/AuthProvider";
 import ChangeCard from "@/components/changes/ChangeCard";
 import ProposeChange from "@/components/changes/ProposeChange";
 import { apiFetch, serverErrorMessage } from "@/lib/apiFetch";
-import { CHANGE_KINDS } from "@/lib/changes/config";
+import { CHANGE_KINDS, isAdminKind } from "@/lib/changes/config";
 import type { ChangeDTO } from "@/lib/changes/store";
 
 export default function ChangesPage() {
@@ -48,7 +51,7 @@ export default function ChangesPage() {
       {!rows ? <p className="py-8 text-center text-sm text-gray-500">Loading...</p>
         : rows.length === 0 ? <p className="rounded-lg border border-dashed border-edge py-8 text-center text-sm text-gray-500">{tab === "open" ? "Nothing waiting." : "No changes yet."}</p>
         : <div className="space-y-2">{rows.map((c) => <ChangeCard key={c.id} c={c} me={user?.name ?? ""} onDone={done} />)}</div>}
-      {proposing && <ProposeChange kinds={CHANGE_KINDS} onClose={() => setProposing(false)} onDone={done} />}
+      {proposing && <ProposeChange kinds={CHANGE_KINDS.filter((k) => !isAdminKind(k))} onClose={() => setProposing(false)} onDone={done} />}
     </PageShell>
   );
 }

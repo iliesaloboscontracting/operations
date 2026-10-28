@@ -46,7 +46,7 @@ export default function ChangeCard({ c, me, onDone }: { c: ChangeDTO; me: string
       <p className="mt-1 text-xs text-gray-300">Why: {c.reason}</p>
       <ul className="mt-1 text-xs text-gray-400">{c.sources.map((x, i) => <li key={i}>From {x.type === "SiteRequest" ? "request" : x.type === "Query" ? "answered query" : x.type.toLowerCase()}: {x.label}</li>)}</ul>
       <p className="mt-1 text-[11px] text-gray-500">
-        Proposed by {c.requestedBy} {whenText(c.createdAt)}{c.sourcePerson ? ` · information from ${c.sourcePerson}` : ""}{c.undoOf ? ` · undoes ${c.undoOf}` : ""}
+        Proposed by {c.proposedByAi ? "Operations AI" : c.requestedBy} {whenText(c.createdAt)}{c.sourcePerson ? ` · information from ${c.sourcePerson}` : ""}{c.undoOf ? ` · undoes ${c.undoOf}` : ""}
         {c.status === "PROPOSED" ? ` · expires ${whenText(c.expiresAt)}` : ""} · fingerprint {c.fingerprint.slice(0, 8)}
       </p>
       {c.status === "PROPOSED" && <p className="mt-1 text-[11px] text-gray-500">Also: {c.alsoMoves}</p>}

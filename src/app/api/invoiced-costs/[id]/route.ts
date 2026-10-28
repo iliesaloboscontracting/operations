@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { guard, getCurrentUser } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
-import { readInvoice } from "@/lib/invoicedCosts";
+import { readInvoice, removeInvoicedCost } from "@/lib/invoicedCosts";
 import { syncTipMatchesSoon } from "@/lib/receipts/tipStore";
 
 // PATCH /api/invoiced-costs/:id - correct an entered invoice (Manager+). The
@@ -28,9 +28,8 @@ export const DELETE = withErrorHandling(async (_req: NextRequest, { params: para
   const params = await paramsP;
   const denied = await guard("ADMIN");
   if (denied) return denied;
-  const existing = await prisma.invoicedCost.findUnique({ where: { id: params.id }, select: { id: true, category: true } });
-  if (!existing) return NextResponse.json({ error: "not found" }, { status: 404 });
-  await prisma.invoicedCost.delete({ where: { id: existing.id } });
-  if (existing.category === "TIP_FEES") syncTipMatchesSoon(); // its dockets count as estimates again
+  // The same code as an approved "Remove supplier invoice" change (lib/invoicedCosts.ts).
+  const out = await removeInvoicedCost(params.id);
+  if ("error" in out) return NextResponse.json({ error: out.error }, { status: out.status });
   return NextResponse.json({ ok: true });
 });

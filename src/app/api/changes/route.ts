@@ -11,6 +11,13 @@ import { countToApprove, createProposal, listChanges, projectsForPicker } from "
 // GET  ?count=1         -> { count } of waiting proposals this login could approve (nav badge)
 // GET  ?projects=1      -> projects to pick from (names and numbers only)
 // POST { kind, recordId, offHireDate | contractValue(+Notes) | jobNo | quoteNo, reason, sources[], sourcePerson? }
+//      Admin kinds (an Admin or Operations AI; docs/lci/ADMIN-CHANGE-KINDS-DESIGN.md):
+//        TIP_RATE_ADD { tipSite, wasteType, ratePerTonneExGst, validFrom, note?, rateSource? }
+//        TIP_RATE_RETIRE { recordId }            INVOICED_COST_REMOVE { recordId }
+//        RESOURCE_RATE { recordId, <pay fields> | dailyRateExGst }   RESOURCE_ENGAGEMENT { recordId, engagement }
+//        WORKER_TICKET { op: CREATE, resourceId, ticketKind, label?, expiryDate? } | { op: UPDATE, recordId, ticketKind?, label?, expiryDate? }
+//        COMPLIANCE_DOC { op: CREATE, holderType, holderName | resourceId | toolId, docKind, title?, issuer?, expiryDate? }
+//                     | { op: UPDATE, recordId, docKind?, issuer?, expiryDate? }
 //      -> a new proposal. Nothing changes until a different person approves it.
 export const GET = withErrorHandling(async (req: NextRequest) => {
   const g = await guardChanges();

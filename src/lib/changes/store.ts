@@ -9,12 +9,18 @@ import { createHash } from "crypto";
 import { prisma } from "../prisma";
 import { applyProjectPatch, applyResourcePatch } from "../recordPatch";
 import { OPEN_STATUSES, requestNo } from "../requestTypes";
-import { A3_RULES, type ChangeKind } from "./config";
+import { OWNER_EMAIL } from "../owner";
+import { pushToUsers } from "../push";
+import { alertSafely } from "../messages/alertGuard";
+import { isOperationsAi } from "../infoRequests/rules";
+import { A3_RULES, CHANGE_KINDS, isAdminKind, type ChangeKind } from "./config";
 import {
-  SWITCHED_OFF, SYSTEM_ACTOR, canProposeKind, canViewKind, cannotApprove, expiryFor, fingerprintPayload, isExpired, isKind, kindEnabled,
+  SWITCHED_OFF, SYSTEM_ACTOR, canProposeKind, canViewKind, canViewProposal, cannotApprove, expiryFor, fingerprintPayload, isExpired, isKind, kindEnabled,
   noChange, openKeyOf, parseAfter, parseSources, pickValue, proposalRef, samePerson, sameValue,
   type ChangeUser, type ChangeValue, type SourceRef,
 } from "./rules";
+import { adminUnchanged, checkedPart, describeAdmin, undoBody } from "./adminRules";
+import { adminConflict, applyAdmin, readAdminRecord } from "./adminStore";
 
 const sha = (s: string) => createHash("sha256").update(s).digest("hex");
 const parse = <T>(s: string | null, d: T): T => { try { return s == null ? d : (JSON.parse(s) as T); } catch { return d; } };
@@ -23,7 +29,8 @@ type Proposal = NonNullable<Awaited<ReturnType<typeof prisma.changeProposal.find
 
 // ---------- the record ----------
 
-async function readRecord(kind: ChangeKind, recordId: string): Promise<{ name: string; value: ChangeValue } | { error: string }> {
+async function readRecord(kind: ChangeKind, recordId: string, after: ChangeValue): Promise<{ name: string; value: ChangeValue } | { error: string }> {
+  if (isAdminKind(kind)) return readAdminRecord(kind, recordId, after);
   if (A3_RULES[kind].recordType === "Resource") {
     const r = await prisma.resource.findUnique({ where: { id: recordId } });
     if (!r || r.type !== "HIRE" || !r.active) return { error: "That hire item isn't in the hire register any more." };
@@ -108,16 +115,18 @@ export async function createProposal(
   // what the source is from the request itself, never from the browser.
   const from = await fromRequest(kind, body.fromRequestId, by);
   if (from && "error" in from) return { error: from.error, status: 400 };
-  const recordId = from?.recordId ?? (typeof body.recordId === "string" ? body.recordId : "");
-  const rec = await readRecord(kind, recordId);
-  if ("error" in rec) return { error: rec.error, status: 404 };
   const parsed = parseAfter(kind, body);
   if ("error" in parsed) return { error: parsed.error, status: 400 };
   const after = parsed.value;
+  // A new record (a tip rate, a ticket, a document) is keyed from its own value, never the browser's id.
+  const recordId = from?.recordId ?? parsed.recordId ?? (typeof body.recordId === "string" ? body.recordId : "");
+  const rec = await readRecord(kind, recordId, after);
+  if ("error" in rec) return { error: rec.error, status: 404 };
   // Nothing to propose when the value itself is already that (notes alone aren't a change).
   const field = A3_RULES[kind].field;
-  if (noChange({ [field]: rec.value[field] ?? null }, { [field]: after[field] ?? null })) return { error: "That's already the value - nothing to change.", status: 400 };
-  const taken = await numberTaken(kind, recordId, after);
+  const unchanged = isAdminKind(kind) ? adminUnchanged(rec.value, after) : noChange({ [field]: rec.value[field] ?? null }, { [field]: after[field] ?? null });
+  if (unchanged) return { error: "That's already the value - nothing to change.", status: 400 };
+  const taken = isAdminKind(kind) ? adminConflict(kind, rec.value) : await numberTaken(kind, recordId, after);
   if (taken) return { error: taken, status: 409 };
   const given = parseSources(body.sources);
   const derived = [...(from?.source ? [from.source] : []), ...(await linkedSources(kind, recordId, from?.source?.id))];
@@ -128,6 +137,8 @@ export async function createProposal(
   // A new contract value with no notes typed gets "Per <where it came from>" - the project's old
   // notes describe the old figure, so they aren't carried over.
   if (kind === "PROJECT_CONTRACT_VALUE" && !("contractValueNotes" in body)) after.contractValueNotes = `Per ${sources[0].label}`.slice(0, 200);
+  // A new tip rate records where the rate comes from (the rate list's own "source"): the cited source unless one was given.
+  if (kind === "TIP_RATE_ADD" && !after.rateSource) after.rateSource = sources[0].label.slice(0, 200);
   const reason = typeof body.reason === "string" ? body.reason.trim().slice(0, 500) : "";
   if (reason.length < 3) return { error: "Say why, in a few words.", status: 400 };
   const sourcePerson = from?.sourcePerson ?? (typeof body.sourcePerson === "string" && body.sourcePerson.trim() ? body.sourcePerson.trim().slice(0, 120) : null);
@@ -150,13 +161,54 @@ export async function createProposal(
       },
     });
   };
+  let proposal: Proposal;
   try {
-    return { proposal: await make() };
+    proposal = await make();
   } catch {
     // Two at once: a taken number retries once; a taken openKey means one is already waiting.
     if (await prisma.changeProposal.findUnique({ where: { openKey }, select: { id: true } })) return { error: "A change to this is already waiting.", status: 409 };
-    return { proposal: await make() };
+    proposal = await make();
   }
+  if (isAdminKind(kind)) await alertOwner(proposal, now);
+  return { proposal };
+}
+
+// ---------- the owner's phone alert (admin kinds) ----------
+
+// One alert at most every 2 minutes (an ALERTED event on the proposal it was sent for); it says how many
+// are waiting and what - never an amount. Not for the owner's own proposals. A failed alert never fails the proposal.
+const ALERT_GAP_MS = 2 * 60_000;
+async function alertOwner(p: Proposal, now: Date) {
+  let ownerId = "", waiting = 0;
+  await alertSafely(
+    async () => {
+      const owner = await prisma.user.findFirst({ where: { email: OWNER_EMAIL, active: true }, select: { id: true } });
+      if (!owner || owner.id === p.requestedByUserId) return 0;
+      if (await prisma.changeProposalEvent.count({ where: { action: "ALERTED", at: { gte: new Date(now.getTime() - ALERT_GAP_MS) } } })) return 0;
+      await prisma.changeProposalEvent.create({ data: { proposalId: p.id, action: "ALERTED", by: "System", note: "Phone alert to the owner" } });
+      ownerId = owner.id;
+      waiting = await prisma.changeProposal.count({ where: { status: "PROPOSED", kind: { in: CHANGE_KINDS.filter(isAdminKind) } } });
+      return 1;
+    },
+    async () => {
+      const who = (await proposersByAi([p.requestedByUserId])).has(p.requestedByUserId ?? "") ? "Operations AI" : p.requestedBy;
+      await pushToUsers([ownerId], {
+        title: `${waiting} change${waiting === 1 ? "" : "s"} to approve`,
+        body: `${who} proposed: ${isKind(p.kind) ? A3_RULES[p.kind].label : p.kind} - ${p.recordName}`.slice(0, 140),
+        url: "/changes", tag: "change-approve",
+      }, "high");
+    },
+    (m, e) => console.error("change alert failed", e instanceof Error ? e.message : m),
+  );
+}
+
+// Which proposers are Operations AI now (the Building Agent's email on a MANAGER login) - read at the time of
+// the decision, so an agent login that has since been made an Admin loses the owner exception.
+async function proposersByAi(ids: (string | null | undefined)[]): Promise<Set<string>> {
+  const want = [...new Set(ids.filter((x): x is string => !!x))];
+  if (!want.length) return new Set();
+  const users = await prisma.user.findMany({ where: { id: { in: want } }, select: { id: true, email: true, role: true } });
+  return new Set(users.filter((u) => isOperationsAi(u.email, u.role)).map((u) => u.id));
 }
 
 // ---------- decide ----------
@@ -182,7 +234,7 @@ async function close(p: Proposal, status: string, event: { action: string; by: s
 
 export async function decide(by: ChangeUser, id: string, body: Record<string, unknown>, now = new Date()): Promise<{ proposal: Proposal } | Problem> {
   const p = await prisma.changeProposal.findUnique({ where: { id } });
-  if (!p || !isKind(p.kind) || !canViewKind(by, p.kind)) return { error: "Not found", status: 404 };
+  if (!p || !isKind(p.kind) || !canViewProposal(by, { kind: p.kind, requestedByUserId: p.requestedByUserId })) return { error: "Not found", status: 404 };
   const kind = p.kind;
   const action = String(body.action ?? "").toUpperCase();
   const seen = typeof body.fingerprint === "string" ? body.fingerprint : null;
@@ -200,7 +252,8 @@ export async function decide(by: ChangeUser, id: string, body: Record<string, un
     return { proposal: (await prisma.changeProposal.findUnique({ where: { id } }))! };
   }
 
-  const why = cannotApprove(by, { kind, requestedBy: p.requestedBy, requestedByUserId: p.requestedByUserId, sourcePerson: p.sourcePerson });
+  const proposedByAi = (await proposersByAi([p.requestedByUserId])).has(p.requestedByUserId ?? "");
+  const why = cannotApprove(by, { kind, requestedBy: p.requestedBy, requestedByUserId: p.requestedByUserId, sourcePerson: p.sourcePerson, proposedByAi });
   if (action === "REJECT") {
     if (why) return refuse(p, by, why, seen, 403);
     const reason = typeof body.reason === "string" ? body.reason.trim().slice(0, 500) : "";
@@ -232,22 +285,34 @@ export async function decide(by: ChangeUser, id: string, body: Record<string, un
   };
 
   // Re-check at execution: the record is still there and still says what it said when proposed.
-  const rec = await readRecord(kind, p.recordId);
+  const rec = await readRecord(kind, p.recordId, after);
   if ("error" in rec) return stale(`${rec.error} Nothing was changed.`, null);
-  if (!sameValue(rec.value, before)) return stale("It has been changed since this was proposed - nothing was changed. Propose again if it's still needed.", rec.value);
-  const taken = await numberTaken(kind, p.recordId, after);
+  const admin = isAdminKind(kind);
+  if (admin ? !sameValue(checkedPart(kind, rec.value), checkedPart(kind, before)) : !sameValue(rec.value, before)) {
+    return stale("It has been changed since this was proposed - nothing was changed. Propose again if it's still needed.", rec.value);
+  }
+  const taken = admin ? adminConflict(kind, rec.value) : await numberTaken(kind, p.recordId, after);
   if (taken) return stale(`${taken} Nothing was changed.`, rec.value);
 
-  // The same code as the edit screens, as the system actor.
-  const out = A3_RULES[kind].recordType === "Resource" ? await applyResourcePatch(p.recordId, after, { role: null }) : await applyProjectPatch(p.recordId, after);
-  if ("error" in out) return stale(`${out.error} Nothing was changed.`, rec.value);
-  const nowValue = pickValue(kind, ("resource" in out ? out.resource : out.project) as unknown as Record<string, unknown>);
+  // The same code as the edit screens, as the system actor (admin kinds: recorded as the approver, via this proposal).
+  let nowValue: ChangeValue;
+  if (admin) {
+    const out = await applyAdmin(kind, p.recordId, after, { by: `${by.name} (approved ${proposalRef(p.number)})`, reason: p.reason });
+    if ("error" in out) return stale(`${out.error} Nothing was changed.`, rec.value);
+    nowValue = out.value;
+  } else {
+    const out = A3_RULES[kind].recordType === "Resource" ? await applyResourcePatch(p.recordId, after, { role: null }) : await applyProjectPatch(p.recordId, after);
+    if ("error" in out) return stale(`${out.error} Nothing was changed.`, rec.value);
+    nowValue = pickValue(kind, ("resource" in out ? out.resource : out.project) as unknown as Record<string, unknown>);
+  }
   await prisma.$transaction([
     prisma.changeProposal.update({ where: { id }, data: { status: "EXECUTED" } }),
     prisma.changeProposalEvent.create({
       data: {
         proposalId: id, action: "EXECUTED", by: "LCI", valueAtExec: JSON.stringify(nowValue),
-        note: `Applied as approved by ${by.name}. To roll back: "Propose undo" sets it back to ${describe(kind, before)}.`,
+        note: A3_RULES[kind].undoable
+          ? `Applied as approved by ${by.name}. To roll back: "Propose undo" sets it back to ${describePair(kind, before, after).before}.`
+          : `Applied as approved by ${by.name}. To reverse it, propose the opposite change.`,
       },
     }),
   ]);
@@ -257,13 +322,22 @@ export async function decide(by: ChangeUser, id: string, body: Record<string, un
 // Undo an executed change: a NEW proposal with the old value, through the same approval.
 async function undo(by: ChangeUser, p: Proposal, now: Date): Promise<{ proposal: Proposal } | Problem> {
   if (p.status !== "EXECUTED" || !isKind(p.kind)) return { error: "Only a change that went in can be undone.", status: 409 };
+  if (!A3_RULES[p.kind].undoable) return { error: "This kind of change isn't undone here - propose the opposite change instead.", status: 409 };
   const before = parse<ChangeValue | null>(p.before, null);
-  const main = before?.[A3_RULES[p.kind].field];
+  // A rate change puts back the old values of the fields it set (an empty one is fine - it was blank before).
+  const old = before && isAdminKind(p.kind) ? undoBody(before, parse<ChangeValue>(p.after, {})) : before;
+  const main = p.kind === "RESOURCE_RATE" ? "-" : before?.[A3_RULES[p.kind].field];
   if (main == null || main === "") return { error: "It was empty before - clear it by hand on the record if it must go.", status: 409 };
   return createProposal(by, {
-    kind: p.kind, recordId: p.recordId, ...before, reason: `Undo ${proposalRef(p.number)}`,
+    kind: p.kind, recordId: p.recordId, ...old, reason: `Undo ${proposalRef(p.number)}`,
     sources: [{ type: "Other", id: p.id, label: `Undo of ${proposalRef(p.number)}` }],
   }, now, { undoOfId: p.id });
+}
+
+// Before and after in words, for the card and the log.
+export function describePair(kind: ChangeKind, before: ChangeValue | null, after: ChangeValue): { before: string; after: string } {
+  if (isAdminKind(kind)) return describeAdmin(kind, before, after);
+  return { before: describe(kind, before), after: describe(kind, after) };
 }
 
 export function describe(kind: ChangeKind, v: ChangeValue | null): string {
@@ -300,6 +374,7 @@ export type ChangeDTO = {
   id: string; ref: string; kind: ChangeKind; label: string; recordType: string; recordId: string; recordName: string;
   before: string; after: string; reason: string; sources: SourceRef[]; requestedBy: string; sourcePerson: string | null;
   status: string; createdAt: string; expiresAt: string; fingerprint: string; alsoMoves: string; undoOf: string | null;
+  proposedByAi: boolean; // shown "Proposed by Operations AI"
   canApprove: boolean; whyNot: string | null; canWithdraw: boolean; canUndo: boolean;
   events: { action: string; by: string; note: string | null; at: string }[];
 };
@@ -310,18 +385,22 @@ export async function listChanges(by: ChangeUser, opts: { open?: boolean; record
     orderBy: { number: "desc" }, take: opts.open ? 200 : 300, include: { events: { orderBy: { at: "asc" } } },
   });
   const numbers = new Map(rows.map((r) => [r.id, r.number]));
-  return rows.filter((p) => isKind(p.kind) && canViewKind(by, p.kind)).map((p) => {
+  const seen = rows.filter((p) => isKind(p.kind) && canViewProposal(by, { kind: p.kind, requestedByUserId: p.requestedByUserId }));
+  const ai = await proposersByAi(seen.map((p) => p.requestedByUserId));
+  return seen.map((p) => {
     const kind = p.kind as ChangeKind;
-    const whyNot = p.status === "PROPOSED" ? cannotApprove(by, { kind, requestedBy: p.requestedBy, requestedByUserId: p.requestedByUserId, sourcePerson: p.sourcePerson }) : null;
+    const proposedByAi = ai.has(p.requestedByUserId ?? "");
+    const whyNot = p.status === "PROPOSED" ? cannotApprove(by, { kind, requestedBy: p.requestedBy, requestedByUserId: p.requestedByUserId, sourcePerson: p.sourcePerson, proposedByAi }) : null;
+    const words = describePair(kind, parse<ChangeValue | null>(p.before, null), parse<ChangeValue>(p.after, {}));
     return {
       id: p.id, ref: proposalRef(p.number), kind, label: A3_RULES[kind].label, recordType: p.recordType, recordId: p.recordId, recordName: p.recordName,
-      before: describe(kind, parse<ChangeValue | null>(p.before, null)), after: describe(kind, parse<ChangeValue>(p.after, {})),
+      before: words.before, after: words.after, proposedByAi,
       reason: p.reason, sources: parse<SourceRef[]>(p.sourceRefs, []), requestedBy: p.requestedBy, sourcePerson: p.sourcePerson,
       status: p.status, createdAt: p.createdAt.toISOString(), expiresAt: p.expiresAt.toISOString(), fingerprint: p.fingerprint,
       alsoMoves: A3_RULES[kind].alsoMoves, undoOf: p.undoOfId ? (numbers.has(p.undoOfId) ? proposalRef(numbers.get(p.undoOfId)!) : "an earlier change") : null,
       canApprove: p.status === "PROPOSED" && !whyNot && kindEnabled(kind), whyNot,
       canWithdraw: p.status === "PROPOSED" && samePerson(by.name, p.requestedBy),
-      canUndo: p.status === "EXECUTED" && canProposeKind(by, kind),
+      canUndo: p.status === "EXECUTED" && A3_RULES[kind].undoable && canProposeKind(by, kind),
       events: p.events.map((e) => ({ action: e.action, by: e.by, note: e.note, at: e.at.toISOString() })),
     };
   });
@@ -330,7 +409,9 @@ export async function listChanges(by: ChangeUser, opts: { open?: boolean; record
 // Waiting proposals this person could approve (the nav badge).
 export async function countToApprove(by: ChangeUser, now = new Date()): Promise<number> {
   const open = await prisma.changeProposal.findMany({ where: { status: "PROPOSED", expiresAt: { gt: now } }, select: { kind: true, requestedBy: true, requestedByUserId: true, sourcePerson: true } });
-  return open.filter((p) => isKind(p.kind) && canViewKind(by, p.kind) && kindEnabled(p.kind) && !cannotApprove(by, { kind: p.kind, requestedBy: p.requestedBy, requestedByUserId: p.requestedByUserId, sourcePerson: p.sourcePerson })).length;
+  const ai = await proposersByAi(open.map((p) => p.requestedByUserId));
+  return open.filter((p) => isKind(p.kind) && canViewProposal(by, { kind: p.kind, requestedByUserId: p.requestedByUserId }) && kindEnabled(p.kind)
+    && !cannotApprove(by, { kind: p.kind, requestedBy: p.requestedBy, requestedByUserId: p.requestedByUserId, sourcePerson: p.sourcePerson, proposedByAi: ai.has(p.requestedByUserId ?? "") })).length;
 }
 
 // Projects to pick from when proposing a project change (names and numbers only).

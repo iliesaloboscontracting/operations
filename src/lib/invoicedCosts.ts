@@ -5,6 +5,7 @@
 import { prisma } from "./prisma";
 import { isISODate } from "./dateRules";
 import { docketNosOf, parseDocketNos } from "./receipts/tipCosts";
+import { syncTipMatchesSoon } from "./receipts/tipStore";
 
 export const INVOICE_CATEGORIES = ["PLANT_HIRE", "LABOUR_HIRE", "TIP_FEES", "MATERIALS"] as const;
 
@@ -83,4 +84,16 @@ export async function readInvoice(body: Record<string, unknown>, existingId?: st
       notes: text(body.notes, 1000), hireResourceId, periodFrom, periodTo, docketNos: nos.length ? JSON.stringify(nos) : null,
     },
   };
+}
+
+// Remove an invoice entered by mistake (Admin only - it takes real cost off a project): DELETE
+// /api/invoiced-costs/:id and an approved "Remove supplier invoice" change (lib/changes) both come here.
+// A hire invoice's days go back to the hire estimate by themselves (hireEstimate reads the invoices that
+// are there); a tip invoice's dockets are re-matched, so they count as estimates again.
+export async function removeInvoicedCost(id: string): Promise<{ ok: true } | { error: string; status: number }> {
+  const existing = await prisma.invoicedCost.findUnique({ where: { id }, select: { id: true, category: true } });
+  if (!existing) return { error: "not found", status: 404 };
+  await prisma.invoicedCost.delete({ where: { id: existing.id } });
+  if (existing.category === "TIP_FEES") syncTipMatchesSoon();
+  return { ok: true };
 }
