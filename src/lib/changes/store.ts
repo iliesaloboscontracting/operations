@@ -15,7 +15,7 @@ import { alertSafely } from "../messages/alertGuard";
 import { isOperationsAi, overAiLimit } from "../infoRequests/rules";
 import { A3_RULES, CHANGE_KINDS, isAdminKind, type ChangeKind } from "./config";
 import {
-  MASKED_BEFORE, SWITCHED_OFF, aiProposerIds, alertBody, applyFailedNote, SYSTEM_ACTOR, canProposeKind, canViewKind, canViewProposal, cannotApprove, expiryFor, fingerprintPayload, isExpired, isKind, kindEnabled, maskedNote, masksBefore,
+  SWITCHED_OFF, aiProposerIds, alertBody, applyFailedNote, SYSTEM_ACTOR, canProposeKind, canViewKind, canViewProposal, cannotApprove, expiryFor, fingerprintPayload, isExpired, isKind, kindEnabled, maskedNote, masksBefore, undoRefusal, viewCard,
   noChange, openKeyOf, parseAfter, parseSources, pickValue, proposalRef, samePerson, sameValue,
   type ChangeUser, type ChangeValue, type SourceRef,
 } from "./rules";
@@ -334,6 +334,8 @@ export async function decide(by: ChangeUser, id: string, body: Record<string, un
 
 // Undo an executed change: a NEW proposal with the old value, through the same approval.
 async function undo(by: ChangeUser, p: Proposal, now: Date): Promise<{ proposal: Proposal } | Problem> {
+  const refused = isKind(p.kind) ? undoRefusal(by, p.kind) : null; // SEC-009: before anything that reads the old value
+  if (refused) return { error: refused, status: 403 };
   if (p.status !== "EXECUTED" || !isKind(p.kind)) return { error: "Only a change that went in can be undone.", status: 409 };
   if (!A3_RULES[p.kind].undoable) return { error: "This kind of change isn't undone here - propose the opposite change instead.", status: 409 };
   const before = parse<ChangeValue | null>(p.before, null);
@@ -406,9 +408,9 @@ export async function listChanges(by: ChangeUser, opts: { open?: boolean; record
     const whyNot = p.status === "PROPOSED" ? cannotApprove(by, { kind, requestedBy: p.requestedBy, requestedByUserId: p.requestedByUserId, sourcePerson: p.sourcePerson, proposedByAi }) : null;
     const words = describePair(kind, parse<ChangeValue | null>(p.before, null), parse<ChangeValue>(p.after, {}));
     const masked = masksBefore(by, kind); // SEC-001
-    return {
+    return viewCard(by, kind, {
       id: p.id, ref: proposalRef(p.number), kind, label: A3_RULES[kind].label, recordType: p.recordType, recordId: p.recordId, recordName: p.recordName,
-      before: masked ? MASKED_BEFORE : words.before, after: words.after, proposedByAi,
+      before: words.before, after: words.after, proposedByAi,
       reason: p.reason, sources: parse<SourceRef[]>(p.sourceRefs, []), requestedBy: p.requestedBy, sourcePerson: p.sourcePerson,
       status: p.status, createdAt: p.createdAt.toISOString(), expiresAt: p.expiresAt.toISOString(), fingerprint: p.fingerprint,
       alsoMoves: A3_RULES[kind].alsoMoves, undoOf: p.undoOfId ? (numbers.has(p.undoOfId) ? proposalRef(numbers.get(p.undoOfId)!) : "an earlier change") : null,
@@ -416,7 +418,7 @@ export async function listChanges(by: ChangeUser, opts: { open?: boolean; record
       canWithdraw: p.status === "PROPOSED" && samePerson(by.name, p.requestedBy),
       canUndo: p.status === "EXECUTED" && A3_RULES[kind].undoable && canProposeKind(by, kind),
       events: p.events.map((e) => ({ action: e.action, by: e.by, note: masked ? maskedNote(e.action, e.note) : e.note, at: e.at.toISOString() })),
-    };
+    });
   });
 }
 

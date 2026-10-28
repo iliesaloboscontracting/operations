@@ -50,6 +50,18 @@ export const canViewProposal = (u: ChangeUser, p: { kind: ChangeKind; requestedB
 export const MASKED_KINDS: ChangeKind[] = ["RESOURCE_RATE", "RESOURCE_ENGAGEMENT", "WORKER_TICKET", "COMPLIANCE_DOC"];
 export const MASKED_BEFORE = "Current value: Admins only";
 export const masksBefore = (u: { role: string }, kind: ChangeKind) => u.role !== "ADMIN" && MASKED_KINDS.includes(kind);
+// SEC-009: undoing one of these puts the old values in the new proposal's "after" - which its proposer sees - so only
+// an Admin may propose it.
+export const undoRefusal = (u: { role: string }, kind: ChangeKind): string | null =>
+  masksBefore(u, kind) ? "Only an Admin can propose undoing this change." : null;
+
+// A change card as this viewer may see it (SEC-001 / SEC-009): for a masked viewer, no current value and no undo.
+export type CardFields = { before: string; canUndo: boolean };
+export function viewCard<T extends CardFields>(u: { role: string }, kind: ChangeKind, card: T): T {
+  if (!masksBefore(u, kind)) return card;
+  return { ...card, before: MASKED_BEFORE, canUndo: false };
+}
+
 // The applied / not-applied note as such a viewer reads it (the stored note names the old values).
 export const maskedNote = (action: string, note: string | null) =>
   action === "EXECUTED" ? "Applied as approved. (Current values: Admins only.)" : action === "STALE" ? "Not applied - the record had changed or couldn't be updated. (Current values: Admins only.)" : note;

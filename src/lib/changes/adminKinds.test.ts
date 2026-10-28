@@ -267,3 +267,20 @@ test("SEC-006: a change that throws while applying is recorded as not applied, w
   assert.ok(applyFailedNote(new Error("x".repeat(500))).length < 260, "kept short");
   assert.match(applyFailedNote("odd"), /^Couldn't apply: odd\./);
 });
+
+test("SEC-009: only an Admin may propose undoing a pay, engagement, ticket or document change; no undo button for anyone else", async () => {
+  const { MASKED_KINDS, undoRefusal, viewCard } = await import("./rules");
+  const card = { before: "Ordinary rate $45.00", canUndo: true, after: "Ordinary rate $47.00" };
+  for (const k of MASKED_KINDS) {
+    assert.equal(undoRefusal(agent, k), "Only an Admin can propose undoing this change.", k);
+    assert.equal(undoRefusal({ role: "MANAGER" }, k), "Only an Admin can propose undoing this change.", k);
+    assert.equal(undoRefusal(ilies, k), null, k);
+    const v = viewCard(agent, k, card);
+    assert.equal(v.canUndo, false, k);
+    assert.equal(v.before, "Current value: Admins only", k);
+    assert.equal(v.after, card.after, "the proposer keeps its own after");
+    assert.deepEqual(viewCard(nickAdmin, k, card), card, `an Admin's card is unchanged (${k})`);
+  }
+  assert.equal(undoRefusal(alex, "PROJECT_JOB_NO"), null, "the first four kinds are unchanged");
+  assert.deepEqual(viewCard(alex, "PROJECT_JOB_NO", card), card);
+});
