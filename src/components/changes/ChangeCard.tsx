@@ -4,6 +4,7 @@ import { useState } from "react";
 import { apiFetch, serverErrorMessage } from "@/lib/apiFetch";
 import { whenText } from "@/lib/requestTypes";
 import type { ChangeDTO } from "@/lib/changes/store";
+import { PROPOSER_HINT } from "@/lib/changes/config";
 
 // One proposed change (LCI phase 4): record -> field -> before -> after, why,
 // where it came from, who proposed it, when it expires, its fingerprint and
@@ -50,6 +51,7 @@ export default function ChangeCard({ c, me, onDone }: { c: ChangeDTO; me: string
         {c.status === "PROPOSED" ? ` · expires ${whenText(c.expiresAt)}` : ""} · fingerprint {c.fingerprint.slice(0, 8)}
       </p>
       {c.status === "PROPOSED" && <p className="mt-1 text-[11px] text-gray-500">Also: {c.alsoMoves}</p>}
+      {c.status === "PROPOSED" && c.hiddenFromProposer && <p className="mt-1 text-[11px] text-amber-300">{PROPOSER_HINT}</p>}
       {error && <p className="mt-2 text-sm text-red-400">{error}</p>}
       <div className="mt-2 flex flex-wrap items-center gap-2">
         {c.canApprove && <button disabled={busy} onClick={approve} className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-40">Approve as {me.split(" ")[0]}</button>}

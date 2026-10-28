@@ -58,10 +58,17 @@ export const undoRefusal = (u: { role: string }, kind: ChangeKind): string | nul
 // A change card as this viewer may see it (SEC-001 / SEC-009 / SEC-010): for a masked viewer, no current value, no
 // undo, and no fingerprint - it's a hash over the before, and a single pay rate is few enough guesses to work back
 // from it. They never approve, so they never need it.
-export type CardFields = { before: string; canUndo: boolean; fingerprint: string };
-export function viewCard<T extends CardFields>(u: { role: string }, kind: ChangeKind, card: T): T {
-  if (!masksBefore(u, kind)) return card;
-  return { ...card, before: MASKED_BEFORE, canUndo: false, fingerprint: "" };
+// SEC-011: on a ticket or document update the record's name carries its current type / title ("Sam - White card",
+// "Lobos: Public liability"), so a masked viewer gets the person or holder only. An Admin sees it all, plus a reminder
+// that the proposer can't (hiddenFromProposer).
+export type CardFields = { before: string; canUndo: boolean; fingerprint: string; recordName: string; hiddenFromProposer?: boolean };
+export const holderOnly = (kind: ChangeKind, name: string) => {
+  const cut = kind === "WORKER_TICKET" ? name.indexOf(" - ") : kind === "COMPLIANCE_DOC" ? name.indexOf(": ") : -1;
+  return cut > 0 ? name.slice(0, cut) : name;
+};
+export function viewCard<T extends CardFields>(u: { role: string }, kind: ChangeKind, card: T, opts: { update?: boolean } = {}): T {
+  if (!masksBefore(u, kind)) return MASKED_KINDS.includes(kind) ? { ...card, hiddenFromProposer: true } : card;
+  return { ...card, before: MASKED_BEFORE, canUndo: false, fingerprint: "", recordName: opts.update ? holderOnly(kind, card.recordName) : card.recordName };
 }
 
 // The applied / not-applied note as such a viewer reads it (the stored note names the old values).

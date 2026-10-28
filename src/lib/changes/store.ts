@@ -390,6 +390,7 @@ export type ChangeDTO = {
   before: string; after: string; reason: string; sources: SourceRef[]; requestedBy: string; sourcePerson: string | null;
   status: string; createdAt: string; expiresAt: string; fingerprint: string; alsoMoves: string; undoOf: string | null;
   proposedByAi: boolean; // shown "Proposed by Operations AI"
+  hiddenFromProposer?: boolean; // SEC-011: an Admin's card on a masked kind - the proposer can't see current values
   canApprove: boolean; whyNot: string | null; canWithdraw: boolean; canUndo: boolean;
   events: { action: string; by: string; note: string | null; at: string }[];
 };
@@ -408,6 +409,7 @@ export async function listChanges(by: ChangeUser, opts: { open?: boolean; record
     const whyNot = p.status === "PROPOSED" ? cannotApprove(by, { kind, requestedBy: p.requestedBy, requestedByUserId: p.requestedByUserId, sourcePerson: p.sourcePerson, proposedByAi }) : null;
     const words = describePair(kind, parse<ChangeValue | null>(p.before, null), parse<ChangeValue>(p.after, {}));
     const masked = masksBefore(by, kind); // SEC-001
+    const afterValue = parse<ChangeValue>(p.after, {});
     return viewCard(by, kind, {
       id: p.id, ref: proposalRef(p.number), kind, label: A3_RULES[kind].label, recordType: p.recordType, recordId: p.recordId, recordName: p.recordName,
       before: words.before, after: words.after, proposedByAi,
@@ -418,7 +420,7 @@ export async function listChanges(by: ChangeUser, opts: { open?: boolean; record
       canWithdraw: p.status === "PROPOSED" && samePerson(by.name, p.requestedBy),
       canUndo: p.status === "EXECUTED" && A3_RULES[kind].undoable && canProposeKind(by, kind),
       events: p.events.map((e) => ({ action: e.action, by: e.by, note: masked ? maskedNote(e.action, e.note) : e.note, at: e.at.toISOString() })),
-    });
+    }, { update: afterValue.op === "UPDATE" }); // SEC-011: a ticket / document update names the holder only
   });
 }
 

@@ -270,7 +270,7 @@ test("SEC-006: a change that throws while applying is recorded as not applied, w
 
 test("SEC-009: only an Admin may propose undoing a pay, engagement, ticket or document change; no undo button for anyone else", async () => {
   const { MASKED_KINDS, undoRefusal, viewCard } = await import("./rules");
-  const card = { before: "Ordinary rate $45.00", canUndo: true, after: "Ordinary rate $47.00", fingerprint: "ab".repeat(32) };
+  const card = { before: "Ordinary rate $45.00", canUndo: true, after: "Ordinary rate $47.00", fingerprint: "ab".repeat(32), recordName: "Sam Smith" };
   for (const k of MASKED_KINDS) {
     assert.equal(undoRefusal(agent, k), "Only an Admin can propose undoing this change.", k);
     assert.equal(undoRefusal({ role: "MANAGER" }, k), "Only an Admin can propose undoing this change.", k);
@@ -279,7 +279,7 @@ test("SEC-009: only an Admin may propose undoing a pay, engagement, ticket or do
     assert.equal(v.canUndo, false, k);
     assert.equal(v.before, "Current value: Admins only", k);
     assert.equal(v.after, card.after, "the proposer keeps its own after");
-    assert.deepEqual(viewCard(nickAdmin, k, card), card, `an Admin's card is unchanged (${k})`);
+    assert.deepEqual(viewCard(nickAdmin, k, card), { ...card, hiddenFromProposer: true }, `an Admin's card is unchanged, plus the hint (${k})`);
   }
   assert.equal(undoRefusal(alex, "PROJECT_JOB_NO"), null, "the first four kinds are unchanged");
   assert.deepEqual(viewCard(alex, "PROJECT_JOB_NO", card), card);
@@ -287,11 +287,28 @@ test("SEC-009: only an Admin may propose undoing a pay, engagement, ticket or do
 
 test("SEC-010: a masked viewer gets no fingerprint (a hash over the before) on the four masked kinds; an Admin does", async () => {
   const { MASKED_KINDS, viewCard } = await import("./rules");
-  const card = { before: "x", canUndo: false, fingerprint: "ab".repeat(32) };
+  const card = { before: "x", canUndo: false, fingerprint: "ab".repeat(32), recordName: "Sam Smith" };
   for (const k of MASKED_KINDS) {
     assert.equal(viewCard(agent, k, card).fingerprint, "", k);
     assert.equal(viewCard({ role: "MANAGER" }, k, card).fingerprint, "", k);
     assert.equal(viewCard(ilies, k, card).fingerprint, card.fingerprint, k);
   }
   for (const k of ["PROJECT_JOB_NO", "HIRE_OFF_HIRE_DATE", "TIP_RATE_ADD", "INVOICED_COST_REMOVE"] as const) assert.equal(viewCard(agent, k, card).fingerprint, card.fingerprint, k);
+});
+
+test("SEC-011: on a ticket / document update a masked viewer sees the holder only; Admins see it all, with the hint", async () => {
+  const { viewCard, holderOnly } = await import("./rules");
+  const { PROPOSER_HINT } = await import("./config");
+  const t: { before: string; canUndo: boolean; fingerprint: string; recordName: string; hiddenFromProposer?: boolean } = { before: "Type: White card", canUndo: false, fingerprint: "f", recordName: "Sam Smith - HRWL - forklift (LF / LO)" };
+  assert.equal(viewCard(agent, "WORKER_TICKET", t, { update: true }).recordName, "Sam Smith");
+  assert.equal(viewCard(agent, "WORKER_TICKET", t, { update: false }).recordName, t.recordName, "a CREATE names only what the proposer typed");
+  const d = { ...t, recordName: "Lobos Contracting: Public liability insurance: 2026" };
+  assert.equal(viewCard(agent, "COMPLIANCE_DOC", d, { update: true }).recordName, "Lobos Contracting");
+  const admin = viewCard(ilies, "WORKER_TICKET", t, { update: true });
+  assert.equal(admin.recordName, t.recordName);
+  assert.equal(admin.hiddenFromProposer, true);
+  assert.equal(viewCard(ilies, "PROJECT_JOB_NO", t).hiddenFromProposer, undefined, "no hint on the first four kinds");
+  assert.equal(viewCard(ilies, "TIP_RATE_ADD", t).hiddenFromProposer, undefined, "nor on tip rates / invoices (not masked)");
+  assert.match(PROPOSER_HINT, /can't see current values/);
+  assert.equal(holderOnly("WORKER_TICKET", "NoSeparator"), "NoSeparator");
 });

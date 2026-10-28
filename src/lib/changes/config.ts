@@ -95,6 +95,9 @@ export const A3_RULES: Record<ChangeKind, KindRule> = {
   },
 };
 
+// SEC-011: shown to an Admin on a pay / engagement / ticket / document change card.
+export const PROPOSER_HINT = "The proposer can't see current values - don't quote them in a reject reason.";
+
 export const isAdminKind = (k: ChangeKind) => A3_RULES[k].audience === "ADMIN";
 
 export const CHANGE_KINDS = Object.keys(A3_RULES) as ChangeKind[];
