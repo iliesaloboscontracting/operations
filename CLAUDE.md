@@ -390,8 +390,10 @@ business, without becoming unnecessarily complicated.
   `ComplianceDocument` holderType ASSET, mechanic invoices linked from the
   inbox as `ServiceRecord`); purchase requests (`PurchaseRequest`): the
   requester asks (Alex's OFFICE link or `/purchases`, Managers / Admins),
-  accounts price it, a DIRECTOR login approves (never the requester; every
-  purchase, no threshold - Ilies), accounts mark it ordered. The amount is
+  it goes STRAIGHT to the owner or a DIRECTOR login to approve (never the
+  requester; every purchase, no threshold - Ilies), then accounts order it
+  and may add the price (since 28 Oct 2026, Ilies: "accounts removed as it
+  has no authority to approve"; accounts no longer check / price first). The amount is
   Accounts / Directors only; anything that can reach a link refuses $.
   **Stage 7, Tax estimates** (live 27 Oct, `/accounts/tax`,
   `docs/accounts/STAGE7-DESIGN.md`): payroll tax by month (wages from the
@@ -460,8 +462,9 @@ business, without becoming unnecessarily complicated.
   upload). Faults are read, never copied: DOWN status, `ToolIssue`s, and
   PLANT_BREAKDOWN delays on the item's booked days (an inference, labelled).
   Purchase requests (`PurchaseRequest`, its own table, not a `SiteRequest`):
-  asked from a personal OFFICE link or in-app -> accounts check and add the
-  amount -> a DIRECTOR login, not the requester, approves -> accounts order.
+  asked from a personal OFFICE link or in-app -> the owner or a DIRECTOR
+  login, not the requester, approves -> accounts order (and may add the
+  amount). Since 28 Oct 2026 accounts no longer check before approval.
   The amount exists only in the Accounts / Directors DTOs; a link and a
   Manager get `requesterView()` and link-facing text refuses a dollar figure.
 - **Production benchmarks** (LCI 5b + Estimating 5c, live 27 Oct;
