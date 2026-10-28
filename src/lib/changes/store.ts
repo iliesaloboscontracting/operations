@@ -15,7 +15,7 @@ import { alertSafely } from "../messages/alertGuard";
 import { isOperationsAi, overAiLimit } from "../infoRequests/rules";
 import { A3_RULES, CHANGE_KINDS, isAdminKind, type ChangeKind } from "./config";
 import {
-  MASKED_BEFORE, SWITCHED_OFF, SYSTEM_ACTOR, canProposeKind, canViewKind, canViewProposal, cannotApprove, expiryFor, fingerprintPayload, isExpired, isKind, kindEnabled, maskedNote, masksBefore,
+  MASKED_BEFORE, SWITCHED_OFF, aiProposerIds, SYSTEM_ACTOR, canProposeKind, canViewKind, canViewProposal, cannotApprove, expiryFor, fingerprintPayload, isExpired, isKind, kindEnabled, maskedNote, masksBefore,
   noChange, openKeyOf, parseAfter, parseSources, pickValue, proposalRef, samePerson, sameValue,
   type ChangeUser, type ChangeValue, type SourceRef,
 } from "./rules";
@@ -213,8 +213,8 @@ async function alertOwner(p: Proposal, now: Date) {
 async function proposersByAi(ids: (string | null | undefined)[]): Promise<Set<string>> {
   const want = [...new Set(ids.filter((x): x is string => !!x))];
   if (!want.length) return new Set();
-  const users = await prisma.user.findMany({ where: { id: { in: want } }, select: { id: true, email: true, role: true } });
-  return new Set(users.filter((u) => isOperationsAi(u.email, u.role)).map((u) => u.id));
+  const users = await prisma.user.findMany({ where: { id: { in: want }, active: true }, select: { id: true, email: true, role: true, active: true } });
+  return aiProposerIds(users);
 }
 
 // ---------- decide ----------

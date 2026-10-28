@@ -222,3 +222,14 @@ test("SEC-002: Operations AI's change proposals share the 20-a-day cap (the 21st
   assert.ok(overAiLimit(20), "the 21st is refused");
   assert.ok(isOperationsAi(agent.email, agent.role) && !isOperationsAi(agent.email, "ADMIN") && !isOperationsAi(ilies.email, ilies.role), "the cap applies to Operations AI only");
 });
+
+test("SEC-004: a switched-off agent login isn't Operations AI, so the owner can't approve its waiting proposals", async () => {
+  const { aiProposerIds } = await import("./rules");
+  const row = (x: Partial<{ id: string; email: string; role: string; active: boolean }>) => ({ id: AGENT_ID, email: agent.email, role: "MANAGER", active: true, ...x });
+  assert.deepEqual([...aiProposerIds([row({})])], [AGENT_ID]);
+  assert.equal(aiProposerIds([row({ active: false })]).size, 0, "inactive");
+  assert.equal(aiProposerIds([row({ role: "ADMIN" })]).size, 0, "not a MANAGER login");
+  assert.equal(aiProposerIds([row({ id: OWNER_ID, email: OWNER, role: "ADMIN" })]).size, 0, "the owner");
+  // and so, without the AI flag, the SAME_PERSON pairing stands
+  assert.match(cannotApprove(ilies, { ...fromAgent("RESOURCE_RATE"), proposedByAi: aiProposerIds([row({ active: false })]).has(AGENT_ID) })!, /You proposed/);
+});

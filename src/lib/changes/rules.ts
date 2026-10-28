@@ -54,6 +54,11 @@ export const masksBefore = (u: { role: string }, kind: ChangeKind) => u.role !==
 export const maskedNote = (action: string, note: string | null) =>
   action === "EXECUTED" ? "Applied as approved. (Current values: Admins only.)" : action === "STALE" ? "Not applied - the record had changed or couldn't be updated. (Current values: Admins only.)" : note;
 
+// Which of these logins are Operations AI now (SEC-004: an active login only - a switched-off agent login isn't
+// the AI, so the owner exception stops for its waiting proposals).
+export const aiProposerIds = (users: { id: string; email: string; role: string; active: boolean }[]) =>
+  new Set(users.filter((u) => u.active && isOperationsAi(u.email, u.role)).map((u) => u.id));
+
 // Proposing: Managers and Admins, any kind but the admin ones; director logins, the commercial
 // kinds; the admin kinds, an Admin or Operations AI; the system only off-hire dates, from a supervisor's hire check (4e).
 export const SYSTEM_ACTOR: ChangeUser = { id: "", name: "System", email: "system@lci", role: "SYSTEM", directorAccess: false };
