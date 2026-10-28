@@ -214,3 +214,11 @@ test("SEC-001: current pay, engagement, ticket and document values are Admins on
   assert.doesNotMatch(maskedNote("STALE", "It has been changed since this was proposed")!, /\$/);
   assert.equal(maskedNote("PROPOSED", "E2E"), "E2E", "other notes (the proposer's own why) are kept");
 });
+
+test("SEC-002: Operations AI's change proposals share the 20-a-day cap (the 21st in 24 hours is refused)", async () => {
+  const { AI_DAILY_LIMIT, overAiLimit, isOperationsAi } = await import("../infoRequests/rules");
+  assert.equal(AI_DAILY_LIMIT, 20);
+  assert.ok(!overAiLimit(19), "the 20th is allowed");
+  assert.ok(overAiLimit(20), "the 21st is refused");
+  assert.ok(isOperationsAi(agent.email, agent.role) && !isOperationsAi(agent.email, "ADMIN") && !isOperationsAi(ilies.email, ilies.role), "the cap applies to Operations AI only");
+});

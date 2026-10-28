@@ -12,7 +12,7 @@ import { OPEN_STATUSES, requestNo } from "../requestTypes";
 import { OWNER_EMAIL } from "../owner";
 import { pushToUsers } from "../push";
 import { alertSafely } from "../messages/alertGuard";
-import { isOperationsAi } from "../infoRequests/rules";
+import { isOperationsAi, overAiLimit } from "../infoRequests/rules";
 import { A3_RULES, CHANGE_KINDS, isAdminKind, type ChangeKind } from "./config";
 import {
   MASKED_BEFORE, SWITCHED_OFF, SYSTEM_ACTOR, canProposeKind, canViewKind, canViewProposal, cannotApprove, expiryFor, fingerprintPayload, isExpired, isKind, kindEnabled, maskedNote, masksBefore,
@@ -111,6 +111,11 @@ export async function createProposal(
   if (!isKind(kind)) return { error: "Pick what to change.", status: 400 };
   if (!canProposeKind(by, kind)) return { error: "You can't propose that kind of change.", status: 403 };
   if (!kindEnabled(kind)) return { error: SWITCHED_OFF, status: 503 };
+  // SEC-002: Operations AI proposes at most AI_DAILY_LIMIT (20) changes in any 24 hours - the same cap as its questions.
+  if (isOperationsAi(by.email, by.role) && by.id) {
+    const lastDay = await prisma.changeProposal.count({ where: { requestedByUserId: by.id, createdAt: { gte: new Date(now.getTime() - 86_400_000) } } });
+    if (overAiLimit(lastDay)) return { error: "Operations AI has proposed its limit for today.", status: 429 };
+  }
   // Raised from a request or an answered query: the server reads which record and
   // what the source is from the request itself, never from the browser.
   const from = await fromRequest(kind, body.fromRequestId, by);
