@@ -14,6 +14,7 @@ import { fmtDay } from "@/lib/dates";
 import { CheckCircle2, ChevronDown, ChevronRight, FileText, Loader2, RotateCcw, Upload, XCircle } from "lucide-react";
 import MyQueries, { useMyQueries } from "@/components/queries/MyQueries";
 import XeroExports from "@/components/xero/XeroExports";
+import JobPicker from "@/components/JobPicker";
 import QuestionsBanner from "@/components/queries/QuestionsBanner";
 
 type Draft = {
@@ -30,7 +31,7 @@ type UploadRow = {
 };
 type Inbox = {
   uploads: UploadRow[]; drafts: Draft[];
-  projects: { id: string; name: string; status: string }[];
+  projects: { id: string; name: string; status: string; jobNo: string | null; client: string | null; address: string | null }[];
   hireItems: { id: string; name: string; agency: string | null; hireRef: string | null; hireProjectId: string }[];
 };
 
@@ -303,12 +304,9 @@ function ReviewCard({ d, inbox, onDone }: { d: Draft; inbox: Inbox; onDone: () =
       {d.problem && <div className="mb-2 text-xs text-amber-400">{d.problem}</div>}
       {d.description && <div className="mb-2 line-clamp-2 text-xs text-gray-400">{d.description}</div>}
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <label className="col-span-2 text-[11px] text-gray-500">Job
-          <select value={f.projectId} onChange={set("projectId")} className={input}>
-            <option value="">Choose the job...</option>
-            {inbox.projects.map((p) => <option key={p.id} value={p.id}>{p.name}{p.status !== "ACTIVE" ? ` (${p.status.toLowerCase()})` : ""}</option>)}
-          </select>
-        </label>
+        <div className="col-span-2 text-[11px] text-gray-500">Job
+          <JobPicker jobs={inbox.projects} value={f.projectId} onChange={(projectId) => setF({ ...f, projectId })} label="Job" />
+        </div>
         <label className="text-[11px] text-gray-500">Cost type
           <select value={f.category} onChange={set("category")} className={input}>
             <option value="">Choose...</option>

@@ -34,7 +34,7 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
       orderBy: [{ invoiceDate: "desc" }, { createdAt: "desc" }],
       take: 600,
     }),
-    prisma.project.findMany({ where: { archived: false }, select: { id: true, name: true, status: true }, orderBy: { name: "asc" } }),
+    prisma.project.findMany({ where: { archived: false }, select: { id: true, name: true, status: true, jobNo: true, client: true, address: true }, orderBy: { name: "asc" } }),
     prisma.resource.findMany({
       where: { type: "HIRE", hireProjectId: { not: null }, NOT: { category: "LABOUR" } },
       select: { id: true, name: true, agency: true, hireRef: true, hireProjectId: true },

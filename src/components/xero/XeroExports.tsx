@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2, Upload } from "lucide-react";
 import { apiFetch, serverErrorMessage } from "@/lib/apiFetch";
+import JobPicker from "@/components/JobPicker";
 import { fmtDay } from "@/lib/dates";
 import { localISODate as todayLocal, money } from "@/lib/resource";
 
@@ -23,7 +24,7 @@ const KIND_LABEL: Record<string, string> = { INVOICES: "Sales invoices", BILLS: 
 type Imp = { id: string; kind: string; status: string; error: string | null; originalName: string | null; asAt: string | null; periodFrom: string | null; periodTo: string | null; rows: number; uploadedBy: string | null; createdAt: string };
 type Line = { id: string; description: string | null; amountExGst: number; tracking1: string | null; tracking2: string | null; projectId: string | null; matchMethod: string | null };
 type Inv = { id: string; key: string; type: string; number: string; reference: string | null; contact: string; date: string; totalExGst: number; matchMethod: string; suggest: string | null; lines: Line[] };
-type Project = { id: string; name: string; jobNo: string | null; status: string; archived: boolean };
+type Project = { id: string; name: string; jobNo: string | null; client: string | null; address: string | null; status: string; archived: boolean };
 
 const day = (d: string | null) => (d ? fmtDay(d, { day: "numeric", month: "short", year: "numeric" }) : "—");
 const select = "w-full rounded-lg border border-edge bg-panel2 px-2.5 py-2 text-sm text-gray-200 focus:border-brand-500 focus:outline-none";
@@ -167,10 +168,7 @@ function ReviewRow({ i, projects, name, onDone }: { i: Inv; projects: Project[];
       {i.matchMethod === "MIXED" && <p className="mt-1 text-[12px] text-amber-300">Lines point to different jobs (or some don&apos;t match) - choose the job for the whole invoice, or leave it.</p>}
       {i.suggest && <p className="mt-1 text-[12px] text-sky-300">Suggested from the site name: {name.get(i.suggest) ?? "a job"} - check before saving.</p>}
       <div className="mt-2 flex flex-wrap gap-2">
-        <select value={pick} onChange={(e) => setPick(e.target.value)} className={`${select} max-w-xs`} aria-label={`Job for ${i.number}`}>
-          <option value="">Choose the job…</option>
-          {projects.map((p) => <option key={p.id} value={p.id}>{p.jobNo ? `${p.jobNo} · ` : ""}{p.name}</option>)}
-        </select>
+        <JobPicker jobs={projects} value={pick} onChange={setPick} label={`Job for ${i.number}`} className="w-full max-w-sm" />
         <button disabled={busy || !pick} onClick={() => save(pick)} className="rounded-lg bg-brand-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-40">Save</button>
         <button disabled={busy} onClick={() => save(null)} className="rounded-lg border border-edge px-3 py-2 text-sm text-gray-300 hover:bg-panel2 disabled:opacity-40">Not a job</button>
       </div>

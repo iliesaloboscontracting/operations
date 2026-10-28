@@ -13,7 +13,7 @@ export const GET = withErrorHandling(async () => {
   if ("denied" in g) return g.denied;
   const [list, projects] = await Promise.all([
     reviewList(),
-    prisma.project.findMany({ select: { id: true, name: true, jobNo: true, status: true, archived: true }, orderBy: { name: "asc" } }),
+    prisma.project.findMany({ select: { id: true, name: true, jobNo: true, client: true, address: true, status: true, archived: true }, orderBy: { name: "asc" } }),
   ]);
   return NextResponse.json({ ...list, projects });
 });
