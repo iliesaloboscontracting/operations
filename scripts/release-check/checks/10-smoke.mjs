@@ -1,7 +1,7 @@
 // Pages, core APIs, site links, the scope-of-works PDF and the sign-in gate (was n15smoke.mjs).
 import { noMoney } from "../lib/context.mjs";
 
-const PAGES = ["/assistant", "/attendance", "/bugs", "/calendar", "/command", "/completed", "/day-review", "/hire", "/invoices", "/labour",
+const PAGES = ["/assistant", "/attendance", "/bugs", "/calendar", "/command", "/completed", "/day-review", "/hire", "/labour",
   "/notes", "/plant", "/projects", "/requests", "/timesheets", "/tools", "/tools/faults", "/tools/site", "/tools/toolboxes", "/tracking",
   "/users", "/vehicles", "/receipts", "/production", "/changes", "/office-requests", "/purchases"];
 
@@ -18,6 +18,9 @@ export default {
       const r = await c.get(pg, "ADMIN"); const html = await r.text();
       t.ok(r.status === 200 && !/Application error|Unhandled Runtime Error/.test(html), `page ${pg.replace(project.id, ":id")}`, r.status);
     }
+    // The Invoices tab was removed on 28 Oct 2026 (Ilies); its old address forwards to Accounts data.
+    const inv = await c.get("/invoices", "ADMIN");
+    t.ok([307, 308].includes(inv.status) && (inv.headers.get("location") ?? "").includes("/accounts/xero"), "old /invoices forwards to /accounts/xero", inv.status);
     const apis = [`/api/jobs?date=${today}`, `/api/calendar?from=${today}&to=${today}`, `/api/attendance?date=${today}`, "/api/timesheets", "/api/requests",
       "/api/hire-alerts", `/api/alerts?date=${today}`, "/api/resources", "/api/tracking", `/api/day-review?date=${today}`, "/api/tools",
       "/api/invoice-inbox", `/api/projects/${project.id}`, "/api/site-links", "/api/auth/me", "/api/receipts", "/api/production"];
