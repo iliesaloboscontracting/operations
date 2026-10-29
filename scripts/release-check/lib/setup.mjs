@@ -57,6 +57,8 @@ export function writeEnv(p, port) {
     `TOOL_PHOTO_DIR=${f("tool-photos")}`, `INVOICE_FILE_DIR=${f("invoice-files")}`,
     `RECEIPT_FILE_DIR=${f("receipt-files")}`, `COMPLIANCE_FILE_DIR=${f("compliance-files")}`,
     "RECEIPT_READING=off", "DAILY_LOG_REMINDER=off",
+    // The daily log on for every supervisor, as in production since 29 Oct 2026. Voice stays unavailable here (no keys).
+    "DAILY_LOG_PILOT_LINKS=all",
     // Never the real Estimating app: port 9 refuses every connection.
     `ESTIMATING_URL="http://127.0.0.1:9"`,
     `SEARCH_INDEX_PATH=${JSON.stringify(p.searchIndex.split(path.sep).join("/"))}`,
