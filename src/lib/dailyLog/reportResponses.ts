@@ -5,6 +5,7 @@ import { NextResponse } from "next/server";
 import { assertNoMoney } from "../moneyGuard";
 import { mediaTypeOf, readPhoto } from "../toolPhotos";
 import { logPhotoFile, siteReport, siteReportDays } from "./store";
+import { beforeAfterFile } from "./beforeAfterStore";
 
 export async function reportResponse(jobId: string) {
   const report = await siteReport(jobId, new Date());
@@ -20,6 +21,15 @@ export async function daysResponse(projectId: string | null) {
 
 export async function photoResponse(log: string | null, file: string | null) {
   const name = await logPhotoFile(log ?? "", file ?? "");
+  if (!name) return NextResponse.json({ error: "not found" }, { status: 404 });
+  const bytes = await readPhoto(name).catch(() => null);
+  if (!bytes) return NextResponse.json({ error: "The photo file is missing." }, { status: 404 });
+  return new NextResponse(new Uint8Array(bytes), { headers: { "Content-Type": mediaTypeOf(name), "Cache-Control": "private, max-age=86400" } });
+}
+
+// A before / after photo (30 Oct 2026): served only when it is a shown photo of that job.
+export async function beforeAfterPhotoResponse(jobId: string | null, id: string | null) {
+  const name = await beforeAfterFile(jobId ?? "", id ?? "");
   if (!name) return NextResponse.json({ error: "not found" }, { status: 404 });
   const bytes = await readPhoto(name).catch(() => null);
   if (!bytes) return NextResponse.json({ error: "The photo file is missing." }, { status: 404 });

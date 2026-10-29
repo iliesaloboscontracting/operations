@@ -20,6 +20,7 @@ import { docketsSentFor } from "../receipts/store";
 import { voiceAvailable } from "./voiceRules";
 import { nameWithoutAmounts, stripMoney } from "./money";
 import { summaryState, supervisorsFor, voiceTranscript } from "./dayReview";
+import { beforeAfterDTO, beforeAfterFor } from "./beforeAfterStore";
 import type { DayReviewLogSummaryDTO, DayReviewSiteLogDTO, DayReviewSiteLogsDTO, HoursVsBudgetDTO, LinkLogDTO, LogCardDTO, LogDetailDTO, LogJobDTO, ProgressFormDTO, SiteReportDayDTO, SiteReportDTO } from "./types";
 
 const dateOnly = (day: string) => new Date(`${day}T00:00:00.000Z`);
@@ -245,12 +246,14 @@ export async function linkLogView(link: ResolvedLink, now: Date): Promise<LinkLo
   const out: LogJobDTO[] = [];
   // Tip dockets now come in as receipts from whoever has them (Receipts R1) - the log just counts them.
   const dockets = await docketsSentFor(jobs.map((j) => j.id));
+  const photos = await beforeAfterFor(jobs.map((j) => j.id));
   for (const j of jobs) {
     const [crew, plant, latest] = await Promise.all([crewFor(j.id, now), plantFor(j), latestLogRow(j.id)]);
     out.push({
       jobId: j.id, date: isoDay(j.date), shift: j.shift, label: jobLabel(j), closed: closed.has(isoDay(j.date)),
       crew, plant, suggested: await suggestedCodes(j.projectId, j.project ? budgets.get(j.project.id)! : { state: "NONE" }),
       latest: latest ? await toDetail(latest) : null, docketsSent: dockets.get(j.id) ?? 0,
+      beforeAfter: beforeAfterDTO(photos.get(j.id), { ran: true, hasLog: !!latest, pastDue: false }),
     });
   }
   const progress = await progressForms(link, now, budgets);
@@ -421,6 +424,7 @@ export async function siteLogsForDate(date: string, now: Date, office: boolean):
   const out: DayReviewSiteLogDTO[] = [];
   const summary: DayReviewLogSummaryDTO[] = [];
   const supervisorIds = new Set(people.keys());
+  const photos = office ? await beforeAfterFor(ids) : new Map();
   for (const j of jobs) {
     const mine = logs.filter((l) => l.jobId === j.id);
     const pilot = j.assignments.some((a) => people.has(a.resourceId));
@@ -431,7 +435,12 @@ export async function siteLogsForDate(date: string, now: Date, office: boolean):
     const missing = isMissingLog({ pilot, ran, hasLog: !!latest, dueAt }, now);
     const supervisors = supervisorsFor(j.assignments.map((a) => ({ resourceId: a.resourceId, name: nameWithoutAmounts(a.resource.name) })), supervisorIds, latest ? nameWithoutAmounts(latest.submittedBy) : null);
     const voiceCount = latest ? parseIds(latest.voiceIds).length : 0;
-    summary.push({ jobId: j.id, supervisors, state: summaryState({ pilot, ran, hasLog: !!latest, missing }), at: latest?.createdAt.toISOString() ?? null, revision: latest?.revision ?? null, byVoice: voiceCount > 0, dueAt: dueAt.toISOString() });
+    // Before / after photos: Managers and up only. Flags only where the daily log applies (a supervisor on the log).
+    const beforeAfter = office ? beforeAfterDTO(photos.get(j.id), { ran: ran && (pilot || !!latest), hasLog: !!latest, pastDue: now >= dueAt }) : null;
+    summary.push({
+      jobId: j.id, supervisors, state: summaryState({ pilot, ran, hasLog: !!latest, missing }), at: latest?.createdAt.toISOString() ?? null, revision: latest?.revision ?? null, byVoice: voiceCount > 0, dueAt: dueAt.toISOString(),
+      ...(beforeAfter ? { noBefore: beforeAfter.noBefore, noAfter: beforeAfter.noAfter } : {}),
+    });
     if (!pilot && !mine.length) continue;
     const crew = await crewFor(j.id, now);
     let progress: DayReviewSiteLogDTO["progress"] = null;
@@ -445,6 +454,7 @@ export async function siteLogsForDate(date: string, now: Date, office: boolean):
     out.push({
       jobId: j.id, projectId: j.projectId, pilot, ran, dueAt: dueAt.toISOString(), missing, supervisors, voiceCount,
       ...(office ? { transcripts: latest ? await transcriptsFor(latest.jobId, parseIds(latest.voiceIds)) : [] } : {}),
+      ...(beforeAfter ? { beforeAfter } : {}),
       latest: latest ? { ...(await toDetail(latest)), logId: latest.id } : null,
       earlier: mine.slice(1).map((l) => ({ revision: l.revision, submittedBy: l.submittedBy, at: l.createdAt.toISOString(), labourHours: l.labourHours, splitHours: l.splitHours })),
       signedNow: crew.hours, mismatch: latest ? splitMismatch(latest, crew.hours) : false, byHand: latest ? !latest.crewOk : false, progress,
@@ -482,8 +492,8 @@ export async function logPhotoFile(logId: string, file: string): Promise<string 
 export async function siteReport(jobId: string, now: Date): Promise<SiteReportDTO | null> {
   const job = await prisma.job.findUnique({ where: { id: jobId }, select: { id: true, date: true, shift: true, title: true, projectId: true, project: { select: { name: true, jobNo: true } } } });
   if (!job) return null;
-  const [crew, latest, revisions, dockets] = await Promise.all([
-    crewFor(job.id, now), latestLogRow(job.id), prisma.dailyLog.count({ where: { jobId: job.id } }), docketsSentFor([job.id]),
+  const [crew, latest, revisions, dockets, photos] = await Promise.all([
+    crewFor(job.id, now), latestLogRow(job.id), prisma.dailyLog.count({ where: { jobId: job.id } }), docketsSentFor([job.id]), beforeAfterFor([job.id]),
   ]);
   return {
     jobId: job.id, projectId: job.projectId, site: nameWithoutAmounts(job.project?.name ?? job.title), jobNo: job.project?.jobNo ?? null,
@@ -491,6 +501,8 @@ export async function siteReport(jobId: string, now: Date): Promise<SiteReportDT
     crew: { count: crew.count, hours: crew.hours, staff: crew.staff, hire: crew.hire, people: crew.people },
     log: latest ? { ...(await toDetail(latest)), logId: latest.id, revisions } : null,
     docketsSent: dockets.get(job.id) ?? 0,
+    // The report is read after the day: a set with no photos shows as missing.
+    beforeAfter: beforeAfterDTO(photos.get(job.id), { ran: true, hasLog: true, pastDue: true }),
   };
 }
 

@@ -3,6 +3,9 @@
 // log, one push to the job's supervisor link(s): "No daily log for Swiss
 // Hotel yet - 60 seconds: tap to log." At most once per job per day
 // (ShiftReminder kind DAILY_LOG, claimed before sending), none after 21:00.
+// Since 30 Oct 2026 (before / after photos) the same one reminder also goes
+// when the log is in but a photo set is missing, and says which
+// (beforeAfter.reminderText) - still one per job, no new kind.
 // Kill switch: A2_RULES / DAILY_LOG_REMINDER=off (lib/dailyLog/rules.ts).
 // Run once a minute from instrumentation.ts.
 import { prisma } from "../prisma";
@@ -11,6 +14,8 @@ import { effectiveTimes, jobFinish } from "../shiftTimes";
 import { reminderEnabled } from "./rules";
 import { reminderDue, sydneyDay } from "./checks";
 import { pilotPeople } from "./store";
+import { beforeAfterFor } from "./beforeAfterStore";
+import { reminderText } from "./beforeAfter";
 
 const dayBefore = (day: string) => { const d = new Date(`${day}T00:00:00Z`); d.setUTCDate(d.getUTCDate() - 1); return d.toISOString().slice(0, 10); };
 
@@ -33,13 +38,16 @@ export async function remindDailyLogs(now = new Date()): Promise<{ sent: string[
       _count: { select: { attendances: { where: { status: { not: "REJECTED" } } }, dailyLogs: true } },
     },
   });
+  const photos = await beforeAfterFor(jobs.map((j) => j.id));
   for (const j of jobs) {
     const day = j.date.toISOString().slice(0, 10);
     const t = effectiveTimes(j, j.project);
     if (!reminderDue({ date: day, shift: j.shift, finish: jobFinish(day, j.shift, t.start, t.end) }, now)) continue;
-    if (j._count.dailyLogs > 0) continue;
     const ran = j._count.attendances > 0 || j.assignments.some((a) => a.resource.type === "PERSONNEL");
     if (!ran) continue;
+    const set = photos.get(j.id);
+    const body = reminderText(j.project?.name ?? "this job", { noLog: j._count.dailyLogs === 0, noBefore: !set?.before.length, noAfter: !set?.after.length });
+    if (!body) continue;
     if (await prisma.shiftReminder.findUnique({ where: { jobId_kind: { jobId: j.id, kind: "DAILY_LOG" } } })) continue;
     // Claim it first - the unique row stops a second send if two checks overlap.
     const claimed = await prisma.shiftReminder.create({ data: { jobId: j.id, kind: "DAILY_LOG", people: j._count.attendances } }).catch(() => null);
@@ -50,7 +58,7 @@ export async function remindDailyLogs(now = new Date()): Promise<{ sent: string[
     sent.push(j.id);
     await pushToSiteLinks(
       linkIds,
-      { title: "Daily log", body: `No daily log for ${j.project?.name ?? "this job"} yet - 60 seconds: tap to log.`, url: "?go=log", tag: `dailylog-${j.id}` },
+      { title: "Daily log", body, url: "?go=log", tag: `dailylog-${j.id}` },
       "normal",
     ).catch((e) => console.error("daily log reminder", e));
   }

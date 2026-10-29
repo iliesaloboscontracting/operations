@@ -19,6 +19,10 @@ export type LogDetailDTO = {
   dockets: { code: string; wasteClass: string; quantity: number; unit: string; docketNo: string | null; facility: string | null; photo: string | null }[];
 };
 
+// Before and after site photos (30 Oct 2026): names and times only - the image comes from a photo route by id.
+export type BeforeAfterPhotoDTO = { id: string; at: string; atLabel: string; takenBy: string };
+export type BeforeAfterDTO = { before: BeforeAfterPhotoDTO[]; after: BeforeAfterPhotoDTO[]; noBefore: boolean; noAfter: boolean };
+
 export type LogJobDTO = {
   jobId: string; date: string; shift: string; label: string; closed: boolean;
   crew: { staff: number; staffHours: number; hire: number; hireHours: number; count: number; hours: number; people: CrewPersonDTO[] };
@@ -26,6 +30,7 @@ export type LogJobDTO = {
   suggested: SuggestedCodeDTO[];
   latest: LogDetailDTO | null;
   docketsSent: number; // tip dockets sent as receipts for this job (Receipts R1)
+  beforeAfter: BeforeAfterDTO; // this job's before / after photos so far today
 };
 
 export type ProgressFormDTO = {
@@ -53,6 +58,7 @@ export type DayReviewSiteLogDTO = {
   jobId: string; projectId: string | null; pilot: boolean; ran: boolean; dueAt: string; missing: boolean;
   supervisors: string[]; voiceCount: number; // recordings the latest version used (0 = typed)
   transcripts?: VoiceTranscriptDTO[]; // Manager+ only - absent for a Viewer
+  beforeAfter?: BeforeAfterDTO; // Manager+ only - absent for a Viewer
   latest: (LogDetailDTO & { logId: string }) | null;
   earlier: { revision: number; submittedBy: string; at: string; labourHours: number; splitHours: number }[];
   signedNow: number; mismatch: boolean; byHand: boolean;
@@ -66,6 +72,7 @@ export type SiteReportDTO = {
   crew: { count: number; hours: number; staff: number; hire: number; people: CrewPersonDTO[] };
   log: (LogDetailDTO & { logId: string; revisions: number }) | null;
   docketsSent: number;
+  beforeAfter: BeforeAfterDTO;
 };
 export type SiteReportDayDTO = { jobId: string; date: string; shift: string; revision: number; submittedBy: string };
 
@@ -74,6 +81,7 @@ export type SiteReportDayDTO = { jobId: string; date: string; shift: string; rev
 export type DayReviewLogSummaryDTO = {
   jobId: string; supervisors: string[]; state: "LOGGED" | "NO_LOG" | "DUE" | "NOT_RUN" | "NO_SUPERVISOR";
   at: string | null; revision: number | null; byVoice: boolean; dueAt: string;
+  noBefore?: boolean; noAfter?: boolean; // Manager+ only - the before / after photo flags
 };
 
 export type DayReviewSiteLogsDTO = {

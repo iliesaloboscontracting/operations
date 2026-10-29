@@ -1317,6 +1317,27 @@ model DailyLogVoice {
   @@index([jobId])
 }
 
+// Before and after site photos on the daily log (30 Oct 2026, Ilies: "upload site photos before and after"). Sent from
+// a supervisor (or hand-over) link for a job it can log today, each saved straight away - not part of a log version, so
+// a Before photo is kept even if the log is never sent. Up to 6 shown per job per phase. The file is a savePhoto name
+// in TOOL_PHOTO_DIR (nightly + off-site backup). Append-only: "remove" hides it (hiddenAt / hiddenBy), nothing deleted.
+model SiteLogPhoto {
+  id           String    @id @default(cuid())
+  jobId        String
+  day          String // YYYY-MM-DD - the job's date
+  phase        String // BEFORE | AFTER
+  fileName     String // savePhoto name (lib/toolPhotos.ts)
+  siteLinkId   String
+  takenBy      String // the link person's name
+  createdAt    DateTime  @default(now())
+  hiddenAt     DateTime?
+  hiddenBy     String? // who removed it (the link person's name)
+  hiddenLinkId String?
+
+  @@index([jobId, phase])
+  @@index([day])
+}
+
 model DailyLogHours {
   id         String   @id @default(cuid())
   logId      String
