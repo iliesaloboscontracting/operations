@@ -24,9 +24,13 @@ export function photoFlags(x: { ran: boolean; before: number; after: number; has
   return { noBefore: x.ran && x.before === 0, noAfter: x.ran && x.after === 0 && (x.hasLog || x.pastDue) };
 }
 
+// THE SWITCH (Ilies to choose, 30 Oct 2026): true = the reminder also goes when the log is in but a photo set is
+// missing; false = photos are only mentioned in the "no daily log" reminder (no push once the log is in).
+export const REMIND_PHOTOS_WITH_LOG_IN = true;
+
 // The one 19:00 reminder per job (ShiftReminder DAILY_LOG): what it says, or null when nothing is missing.
-export function reminderText(site: string, m: { noLog: boolean; noBefore: boolean; noAfter: boolean }): string | null {
+export function reminderText(site: string, m: { noLog: boolean; noBefore: boolean; noAfter: boolean }, withLogIn = REMIND_PHOTOS_WITH_LOG_IN): string | null {
   const photos = m.noBefore && m.noAfter ? "before and after photos" : m.noBefore ? "before photos" : m.noAfter ? "after photos" : null;
   if (m.noLog) return `No daily log for ${site} yet${photos ? ` (and no ${photos})` : ""} - 60 seconds: tap to log.`;
-  return photos ? `No ${photos} for ${site} yet - tap to add them.` : null;
+  return photos && withLogIn ? `No ${photos} for ${site} yet - tap to add them.` : null;
 }

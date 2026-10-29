@@ -33,6 +33,9 @@ test("the one 19:00 reminder: the log first, photos mentioned; nothing when noth
   assert.equal(reminderText("Lido", { noLog: false, noBefore: false, noAfter: true }), "No after photos for Lido yet - tap to add them.");
   assert.equal(reminderText("Lido", { noLog: false, noBefore: true, noAfter: false }), "No before photos for Lido yet - tap to add them.");
   assert.equal(reminderText("Lido", { noLog: false, noBefore: false, noAfter: false }), null);
+  // The other choice (REMIND_PHOTOS_WITH_LOG_IN = false): photos only ever in the "no daily log" reminder.
+  assert.equal(reminderText("Lido", { noLog: false, noBefore: true, noAfter: true }, false), null);
+  assert.equal(reminderText("Lido", { noLog: true, noBefore: true, noAfter: false }, false), "No daily log for Lido yet (and no before photos) - 60 seconds: tap to log.");
 });
 
 test("the job check comes first: a photo is only saved for a job the link can log today, and never once the day is closed", () => {
