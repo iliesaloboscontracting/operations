@@ -132,7 +132,7 @@ export default function SitePhotosPage({ params: paramsP }: { params: Promise<{ 
               <div className="text-sm font-semibold text-gray-100">{info.dailyLog ? "Reminders" : "Sign-out reminders"}</div>
               <p className="mb-2 text-xs text-gray-500">
                 An alert 20 minutes before your shift finishes if anyone is still signed in
-                {info.dailyLog ? ", and at 7pm if a job has no daily log." : "."}
+                {info.dailyLog ? ", and at 7pm if a job has no daily log or before/after photos." : "."}
               </p>
               <PushToggle api={`${api}/push`} sw="/site/sw.js" home={`/site/${params.token}`} align="start" />
             </div>
