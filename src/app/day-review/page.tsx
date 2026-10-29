@@ -10,7 +10,7 @@ import { localISODate } from "@/lib/resource";
 import { DayReviewDTO, DayReviewJobDTO, DayReviewRowDTO, ResourceDTO, SignInSummary } from "@/lib/types";
 import { Lock, NotebookPen, Plus, TriangleAlert, Unlock, X } from "lucide-react";
 import SiteLogPanel from "@/components/dayReview/SiteLogPanel";
-import type { DayReviewSiteLogsDTO } from "@/lib/dailyLog/types";
+import type { DayReviewLogSummaryDTO, DayReviewSiteLogsDTO } from "@/lib/dailyLog/types";
 import type { DayDocketsDTO } from "@/lib/receipts/indicatorStore";
 
 const TYPE_LABEL: Record<string, string> = {
@@ -87,7 +87,7 @@ function JobCard({
   }
 
   return (
-    <div className="overflow-hidden rounded-xl border border-edge shadow-soft">
+    <div id={`job-${job.id}`} className="scroll-mt-4 overflow-hidden rounded-xl border border-edge shadow-soft">
       <div className="flex items-center gap-2 border-b border-edge bg-panel px-3.5 py-2.5">
         <ShiftBadge shift={job.shift} />
         <div className="min-w-0">
@@ -241,6 +241,43 @@ function siteLogFor(logs: DayReviewSiteLogsDTO | null, jobId: string) {
   return <SiteLogPanel log={log} budget={log.projectId ? logs!.budgets[log.projectId] : undefined} />;
 }
 
+const clock = (iso: string) => new Date(iso).toLocaleTimeString("en-AU", { timeZone: "Australia/Sydney", hour: "numeric", minute: "2-digit" });
+
+function SummaryStatus({ s }: { s: DayReviewLogSummaryDTO }) {
+  if (s.state === "LOGGED") return <span className="text-emerald-400">Logged {clock(s.at!)}{s.revision && s.revision > 1 ? ` (v${s.revision})` : ""} · {s.byVoice ? "voice" : "typed"}</span>;
+  if (s.state === "NO_LOG") return <span className="rounded-full bg-red-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-red-400">No site log</span>;
+  if (s.state === "DUE") return <span className="text-gray-400">Due {clock(s.dueAt)}</span>;
+  if (s.state === "NOT_RUN") return <span className="text-gray-500">Didn&apos;t run</span>;
+  return <span className="text-gray-500">Not on the daily log</span>;
+}
+
+// Every job that day and its site log (30 Oct 2026) - who's on it, whether and when it was logged, voice or typed.
+// "No site log" is information only (after 19:00); it never blocks closing. A row jumps to the job's card.
+function LogSummary({ logs, jobs }: { logs: DayReviewSiteLogsDTO; jobs: DayReviewJobDTO[] }) {
+  const by = new Map((logs.summary ?? []).map((s) => [s.jobId, s]));
+  const rows = jobs.flatMap((j) => { const s = by.get(j.id); return s ? [{ j, s }] : []; });
+  if (!rows.length || (!logs.pilotOn && !rows.some((r) => r.s.state === "LOGGED"))) return null;
+  const logged = rows.filter((r) => r.s.state === "LOGGED").length;
+  return (
+    <div className="mb-4 overflow-hidden rounded-xl border border-edge bg-panel shadow-soft">
+      <div className="flex items-center gap-2 border-b border-edge px-3.5 py-2 text-xs">
+        <NotebookPen size={13} className="text-gray-500" />
+        <span className="font-semibold text-gray-200">Site logs</span>
+        <span className="text-gray-500">{logged} of {rows.length} logged</span>
+      </div>
+      <div className="divide-y divide-edge/50">
+        {rows.map(({ j, s }) => (
+          <a key={j.id} href={`#job-${j.id}`} className="flex flex-wrap items-center gap-x-3 gap-y-0.5 px-3.5 py-1.5 text-xs hover:bg-panel2/60">
+            <span className="min-w-0 flex-1 truncate text-gray-200">{j.title}</span>
+            <span className="text-gray-500">{s.supervisors.join(", ") || "No supervisor"}</span>
+            <SummaryStatus s={s} />
+          </a>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function SignInLine({ s, inline }: { s: SignInSummary | null; inline?: boolean }) {
   const cls = inline ? "" : "truncate text-[11px]";
   if (!s) return <div className={`${cls} text-amber-500`}>No sign-in</div>;
@@ -378,6 +415,8 @@ export default function DayReviewPage() {
           )}
         </div>
       )}
+
+      {data && logs && <LogSummary logs={logs} jobs={data.jobs} />}
 
       {message && (
         <div className="mb-4 rounded-lg border border-red-800/50 bg-red-950/20 px-3 py-2 text-xs text-red-400">{message}</div>

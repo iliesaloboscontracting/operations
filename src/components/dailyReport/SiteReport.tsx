@@ -13,6 +13,8 @@ import type { SiteReportDTO } from "@/lib/dailyLog/types";
 // dockets sent, the notes (cleaned from the supervisor's voice, or typed) and photos. "Print / Save as PDF" gives a
 // tidy A4 (the print styles below hide everything else on the page). No dollar figures anywhere - the server's DTO
 // has none and the route checks. The office's copy (Manager+) and the directors' copy (guardDirector) share this.
+// inline: shown inside a Day Review job card (30 Oct 2026) - no back / print bar and no print styles (printing is
+// from the report's own page).
 
 const hrs = (n: number) => `${Math.round(n * 100) / 100} h`;
 const time = (iso: string) => new Date(iso).toLocaleTimeString("en-AU", { timeZone: "Australia/Sydney", hour: "numeric", minute: "2-digit" });
@@ -28,7 +30,7 @@ const PRINT = `
   #site-report img { max-height: 70mm; }
 }`;
 
-export default function SiteReport({ jobId, mode }: { jobId: string; mode: "ops" | "director" }) {
+export default function SiteReport({ jobId, mode, inline = false }: { jobId: string; mode: "ops" | "director"; inline?: boolean }) {
   const [r, setR] = useState<SiteReportDTO | null>(null);
   const [error, setError] = useState<string | null>(null);
   const base = mode === "director" ? `/api/directors/daily-report` : `/api/daily-report`;
@@ -48,12 +50,14 @@ export default function SiteReport({ jobId, mode }: { jobId: string; mode: "ops"
   const h3 = "mb-2 text-sm font-semibold uppercase tracking-wide text-gray-400 sr-muted";
 
   return (
-    <div id="site-report" className="mx-auto max-w-3xl space-y-4 p-4 text-gray-100">
-      <style>{PRINT}</style>
-      <div className="sr-noprint flex items-center justify-between gap-2">
-        <Link href={back} className="text-xs text-brand-400 hover:underline">← Back</Link>
-        <button onClick={() => window.print()} className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white"><Printer size={14} /> Print / Save as PDF</button>
-      </div>
+    <div id={inline ? undefined : "site-report"} className={inline ? "space-y-3 text-gray-100" : "mx-auto max-w-3xl space-y-4 p-4 text-gray-100"}>
+      {!inline && <style>{PRINT}</style>}
+      {!inline && (
+        <div className="sr-noprint flex items-center justify-between gap-2">
+          <Link href={back} className="text-xs text-brand-400 hover:underline">← Back</Link>
+          <button onClick={() => window.print()} className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white"><Printer size={14} /> Print / Save as PDF</button>
+        </div>
+      )}
 
       <header className={card}>
         <p className="sr-muted text-xs uppercase tracking-wide text-gray-500">Daily site report</p>

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { NotebookPen } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import HoursVsBudget from "@/components/tracking/HoursVsBudget";
+import SiteReport from "@/components/dailyReport/SiteReport";
 import { UNIT_LABEL, ACM } from "@/lib/dailyLog/rules";
 import type { DayReviewSiteLogDTO, HoursVsBudgetDTO } from "@/lib/dailyLog/types";
 
@@ -13,13 +14,18 @@ import type { DayReviewSiteLogDTO, HoursVsBudgetDTO } from "@/lib/dailyLog/types
 // and each machine), delays, tip dockets (asbestos highlighted), this week's
 // % complete, earlier versions - and the read-time checks: "No site log"
 // once it's past 19:00, the split no longer matching sign-ins, crew entered
-// by hand. Read-only; no dollars.
+// by hand. Read-only; no dollars. Managers+ also get (30 Oct 2026) "What was
+// said" - each recording word for word next to its tidied text, sent only to
+// them by the server - and the full daily site report inline.
 
 const time = (iso: string) => new Date(iso).toLocaleTimeString("en-AU", { timeZone: "Australia/Sydney", hour: "numeric", minute: "2-digit" });
 const hrs = (n: number) => `${Math.round(n * 100) / 100} h`;
+const length = (s: number) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`;
 
 export default function SiteLogPanel({ log, budget }: { log: DayReviewSiteLogDTO; budget?: HoursVsBudgetDTO }) {
   const [showEarlier, setShowEarlier] = useState(false);
+  const [showSaid, setShowSaid] = useState(false);
+  const [showReport, setShowReport] = useState(false);
   const { canEdit } = useAuth(); // the written report is Manager+
   const l = log.latest;
   const photo = (file: string) => `/api/day-review/site-logs/photo?log=${l?.logId}&file=${encodeURIComponent(file)}`;
@@ -33,14 +39,19 @@ export default function SiteLogPanel({ log, budget }: { log: DayReviewSiteLogDTO
         <NotebookPen size={13} className="text-gray-500" />
         <span className="text-xs font-semibold text-gray-200">Site log</span>
         {l ? (
-          <span className="text-[11px] text-gray-500">Logged by {l.submittedBy} {time(l.at)}{l.revision > 1 ? ` (v${l.revision})` : ""}{l.durationSec != null ? ` · took ${Math.round(l.durationSec)}s` : ""}</span>
+          <span className="text-[11px] text-gray-500">Logged by {l.submittedBy} {time(l.at)}{l.revision > 1 ? ` (v${l.revision})` : ""}{l.durationSec != null ? ` · took ${Math.round(l.durationSec)}s` : ""}{log.voiceCount > 0 ? " · by voice" : ""}</span>
         ) : log.missing ? (
           <span className="rounded-full bg-red-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-red-400">No site log</span>
         ) : (
           <span className="text-[11px] text-gray-500">{log.ran ? `Due ${time(log.dueAt)}` : "Not logged"}</span>
         )}
         {l && !l.crewOk && <span className="rounded-full bg-gray-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-gray-300">Crew entered by hand</span>}
-        {l && canEdit && <Link href={`/daily-report/${log.jobId}`} className="ml-auto text-[11px] text-brand-400 hover:underline">Daily site report</Link>}
+        {l && canEdit && (
+          <span className="ml-auto flex items-center gap-3 text-[11px]">
+            <button className="text-brand-400 hover:underline" onClick={() => setShowReport((s) => !s)}>{showReport ? "Hide full report" : "Full report"}</button>
+            <Link href={`/daily-report/${log.jobId}`} className="text-brand-400 hover:underline" title="Opens the report on its own page, to print or save as PDF">Daily site report</Link>
+          </span>
+        )}
         {log.mismatch && l && <span className="rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-400">Split {hrs(l.labourHours)}, signed now {hrs(log.signedNow)}</span>}
       </div>
 
@@ -76,6 +87,40 @@ export default function SiteLogPanel({ log, budget }: { log: DayReviewSiteLogDTO
           {l.photos.length > 0 && (
             <div className="flex flex-wrap gap-1.5">{l.photos.map((p) => <a key={p} href={photo(p)} target="_blank" rel="noreferrer"><img src={photo(p)} alt="" className="h-14 w-14 rounded object-cover" /></a>)}</div>
           )}
+        </div>
+      )}
+
+      {log.transcripts && log.transcripts.length > 0 && (
+        <div className="mt-2 text-xs">
+          <button className="text-[11px] text-gray-500 underline" onClick={() => setShowSaid((s) => !s)}>
+            {showSaid ? "Hide what was said" : `What was said (${log.transcripts.length} recording${log.transcripts.length === 1 ? "" : "s"})`}
+          </button>
+          {showSaid && (
+            <div className="mt-1.5 space-y-2">
+              {log.transcripts.map((v) => (
+                <div key={v.id} className="rounded-lg border border-edge/70 bg-panel2/40 p-2">
+                  <div className="mb-1 text-[11px] text-gray-500">Recorded {time(v.at)}{v.seconds != null ? ` · ${length(v.seconds)} long` : ""}</div>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <div>
+                      <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">Said</div>
+                      <p className="whitespace-pre-wrap text-gray-300">{v.transcript}</p>
+                    </div>
+                    <div>
+                      <div className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">Tidied</div>
+                      {v.tidied ? <p className="whitespace-pre-wrap text-gray-300">{v.tidied}</p> : <p className="text-gray-500">Not tidied - the supervisor&apos;s own words were used.</p>}
+                    </div>
+                  </div>
+                </div>
+              ))}
+              <p className="text-[10px] text-gray-500">Word for word from the recording, with any amounts taken out. The log above is what the supervisor sent.</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {showReport && (
+        <div className="mt-2 rounded-xl border border-edge/70 bg-panel2/30 p-2">
+          <SiteReport jobId={log.jobId} mode="ops" inline />
         </div>
       )}
 
