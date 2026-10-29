@@ -268,9 +268,10 @@ function LogSummary({ logs, jobs }: { logs: DayReviewSiteLogsDTO; jobs: DayRevie
       <div className="divide-y divide-edge/50">
         {rows.map(({ j, s }) => (
           <a key={j.id} href={`#job-${j.id}`} className="flex flex-wrap items-center gap-x-3 gap-y-0.5 px-3.5 py-1.5 text-xs hover:bg-panel2/60">
-            <span className="min-w-0 flex-1 truncate text-gray-200">{j.title}</span>
-            <span className="text-gray-500">{s.supervisors.join(", ") || "No supervisor"}</span>
-            <SummaryStatus s={s} />
+            {/* On a phone the job takes its own line; the supervisor and status sit under it. */}
+            <span className="min-w-0 basis-full truncate text-gray-200 sm:basis-0 sm:flex-1">{j.title}</span>
+            <span className="min-w-0 truncate text-gray-500">{s.supervisors.join(", ") || "No supervisor"}</span>
+            <span className="ml-auto shrink-0"><SummaryStatus s={s} /></span>
           </a>
         ))}
       </div>
