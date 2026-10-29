@@ -97,3 +97,19 @@ Print CSS for a tidy A4 from "Print / Save as PDF". Linked from Day Review's sit
   filled or typed stays; a different suggestion for it is offered as "Use N h" - typed entries win. Recordings add up.
   The supervisor checks each step and sends as usual. Weekly % complete isn't filled. The suggestion is stored with the
   DailyLogVoice row's cleaned JSON (append-only).
+
+## Day Review additions (30 Oct 2026, Ilies chose all three)
+
+- **Site logs summary** at the top of Day Review for the chosen date: every job, its supervisors (the assigned people
+  with a supervisor link; else whoever sent the log), and Logged <time> (vN) · voice / typed, No site log (the 19:00
+  rule - information only, never blocks closing), Due <time>, Didn't run, or Not on the daily log. A row jumps to the
+  job's card. Viewer+ like Day Review (`DayReviewSiteLogsDTO.summary`, rules in `src/lib/dailyLog/dayReview.ts`).
+- **What was said**: under a card's site log, each recording the latest version used - time, length, the raw
+  transcript next to its tidied text. The transcript was saved with amounts taken out; they're taken out again on read
+  and each one passes `assertNoMoney`. Only that job's DONE recordings are read. **Managers and Admins only**: the
+  route sets `office` for MANAGER / ADMIN and the store adds `transcripts` only then - a Viewer's reply has no such
+  field (TIMESHEETS / ACCOUNTS / DIRECTOR never reach the route).
+- **Full report inline**: "Full report" in the card (Manager+) shows `SiteReport` in its `inline` mode (no back /
+  print bar, no print styles) from `/api/daily-report/:jobId` (Manager+). "Daily site report" still opens the
+  printable page.
+- Release check `58-day-review-logs`; unit tests `src/lib/dailyLog/dayReview.test.ts`.
