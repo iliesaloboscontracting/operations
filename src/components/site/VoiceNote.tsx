@@ -20,7 +20,8 @@ export type VoiceReplyData = {
   fill?: { activity: { code: string; label: string; hours: number }[]; plant: { resourceId: string; name: string; code: string | null; hours: number }[]; tipRuns: number | null };
 };
 type Reply = VoiceReplyData;
-export type FillResult = { added: string[]; kept: Kept[]; error?: string };
+// delaysOffered: "no hold-ups" was ticked, so the hold-ups weren't added - they stay as taps below (SEC-012).
+export type FillResult = { added: string[]; kept: Kept[]; error?: string; delaysOffered?: boolean };
 // 5 minutes (29 Oct 2026, Ilies: "the guys will have a lot to say"): a warning at 4:30, then it stops and sends
 // itself at 5:00 so nothing is lost.
 const MAX_SECONDS = 300;
@@ -140,7 +141,7 @@ export default function VoiceNote({ api, jobId, onUseNote, onAddDelay, onFill, o
         </div>
       )}
       {reply && hasFill(reply) && !filled && (
-        <button onClick={() => { const r = onFill(reply, text.trim()); if (r.error) setError(r.error); else { setError(null); setFilled(r); setUsed(true); setAdded(reply.delays.map((_, i) => i)); } }}
+        <button onClick={() => { const r = onFill(reply, text.trim()); if (r.error) setError(r.error); else { setError(null); setFilled(r); setUsed(true); if (!r.delaysOffered) setAdded(reply.delays.map((_, i) => i)); } }}
           className="flex min-h-14 w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-3 text-base font-semibold text-white">
           Fill my log from this
         </button>
@@ -149,6 +150,7 @@ export default function VoiceNote({ api, jobId, onUseNote, onAddDelay, onFill, o
         <div className="rounded-lg bg-emerald-500/10 px-3 py-2 text-sm text-emerald-100">
           <p className="font-semibold">Filled in - go through the steps to check it, then Send.</p>
           {filled.added.length > 0 && <p className="mt-0.5 text-emerald-200/90">{filled.added.join(" · ")}</p>}
+          {filled.delaysOffered && <p className="mt-1 text-amber-200">You ticked &quot;no hold-ups&quot; - tap a hold-up below if you want to add it.</p>}
           {filled.kept.length > 0 && (
             <div className="mt-2 space-y-1.5">
               <p className="text-amber-200">Already filled in - kept as you had it:</p>

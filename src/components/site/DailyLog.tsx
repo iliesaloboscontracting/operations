@@ -10,7 +10,7 @@ import { DELAY_CODES, DELAY_LABEL, NOTE_MAX, SPLIT_TOLERANCE, type DelayCode } f
 import type { LinkLogDTO, LogJobDTO, ProgressFormDTO } from "@/lib/dailyLog/types";
 import VoiceNote from "./VoiceNote";
 import { addToNote } from "@/lib/dailyLog/voiceRules";
-import { mergeFill } from "@/lib/dailyLog/fill";
+import { mergeDelays, mergeFill } from "@/lib/dailyLog/fill";
 
 // The daily site log on a pilot supervisor's link (Task K, 25 Oct 2026):
 // about 60 seconds at the end of the day. 1) the crew and signed hours (from
@@ -110,10 +110,13 @@ function LogSteps({ api, job, voice, onBack, onSaved }: { api: string; job: LogJ
   const [handCrew, setHandCrew] = useState(prev && !prev.crewOk ? String(prev.crewCount) : "");
   const [handHours, setHandHours] = useState(prev && !prev.crewOk ? String(prev.labourHours) : "");
   const [rows, setRows] = useState<Row[]>(prev ? prev.hours.filter((x) => x.kind === "LABOUR").map((x) => ({ code: x.code, hours: x.hours })) : []);
+  // Each machine's starting hours, so "Fill my log" can tell typed hours from the default (SEC-012).
+  const plantDefaults = useRef<Map<string, number> | null>(null);
   const [plant, setPlant] = useState<PlantRow[]>(job.plant.map((p) => {
     const before = prev?.hours.find((x) => x.resourceId === p.resourceId);
     return { resourceId: p.resourceId, code: before?.code ?? "", hours: before?.hours ?? p.defaultHours ?? 0 };
   }));
+  if (plantDefaults.current === null) plantDefaults.current = new Map(plant.map((p) => [p.resourceId, p.hours]));
   const [delays, setDelays] = useState<Delay[]>(prev ? prev.delays.map((d) => ({ delayCode: d.delayCode as DelayCode, hoursLost: d.hoursLost == null ? "" : String(d.hoursLost), affects: d.affects, note: d.note ?? "", photos: d.photos })) : []);
   const [noDelays, setNoDelays] = useState(prev ? prev.noDelays : false);
   // Dockets from an older log (before receipts) are kept as they were when it's corrected.
@@ -177,12 +180,13 @@ function LogSteps({ api, job, voice, onBack, onSaved }: { api: string; job: LogJ
             // or typed stays - those suggestions come back as "kept" for a tap each. Nothing is sent.
             const noteNext = voiceIds.includes(r.voiceId) ? note : addToNote(note, text, new Date());
             if (noteNext.length > NOTE_MAX) return { added: [], kept: [], error: "The note is full - send this log, then add the rest by opening it again (that saves a new version)." };
-            const m = mergeFill({ rows, plant }, { activity: r.fill?.activity ?? [], plant: r.fill?.plant ?? [] }, (c) => BY_CODE[c]?.name ?? c);
+            const m = mergeFill({ rows, plant }, { activity: r.fill?.activity ?? [], plant: r.fill?.plant ?? [] }, (c) => BY_CODE[c]?.name ?? c, plantDefaults.current ?? new Map());
             setRows(m.rows); setPlant(m.plant);
-            const newDelays = r.delays.filter((d) => !delays.some((x) => x.delayCode === d.delayCode));
-            if (newDelays.length) { setNoDelays(false); setDelays((xs) => [...xs, ...newDelays.map((d) => ({ delayCode: d.delayCode, hoursLost: d.hoursLost == null ? "" : String(d.hoursLost), affects: "CREW", note: d.note, photos: [] }))]); }
+            const suggested: Delay[] = r.delays.map((d) => ({ delayCode: d.delayCode, hoursLost: d.hoursLost == null ? "" : String(d.hoursLost), affects: "CREW", note: d.note, photos: [] }));
+            const dm = mergeDelays(noDelays, delays, suggested); // a ticked "no hold-ups" is never cleared without a tap
+            if (dm.added.length) setDelays(dm.delays);
             setNote(noteNext); setVoiceIds((v) => (v.includes(r.voiceId) ? v : [...v, r.voiceId]));
-            return { added: [...m.added, ...newDelays.map((d) => d.label)], kept: m.kept };
+            return { added: [...m.added, ...dm.added.map((d) => DELAY_LABEL[d.delayCode])], kept: m.kept, delaysOffered: dm.offered };
           }}
           onAcceptKept={(k) => {
             if (k.what === "code") setRows((xs) => xs.map((x) => (x.code === k.key ? { ...x, hours: k.suggested } : x)));

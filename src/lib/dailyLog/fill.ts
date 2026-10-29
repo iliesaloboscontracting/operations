@@ -94,11 +94,13 @@ export type PlantRows = { resourceId: string; code: string; hours: number }[];
 export type Kept = { what: "code" | "plant"; key: string; label: string; yours: number; suggested: number; code?: string | null };
 // Fill the log from a recording's suggestions. Anything already filled or typed stays as it is - typed entries always
 // win; a suggestion for something already there comes back in `kept` for the supervisor to accept with a tap if they
-// want it. A machine counts as already filled once it has a code (the default rows carry none).
+// want it. A machine counts as already filled once it has a code, or its hours aren't the starting default any more
+// (SEC-012: typed hours are never overwritten). `defaults`: each machine's starting hours on the screen.
 export function mergeFill(
   current: { rows: LogRows; plant: PlantRows },
   fill: { activity: FillActivity[]; plant: { resourceId: string; name: string; code: string | null; hours: number }[] },
   labelOf: (code: string) => string,
+  defaults: Map<string, number> = new Map(),
 ): { rows: LogRows; plant: PlantRows; added: string[]; kept: Kept[] } {
   const rows = current.rows.map((r) => ({ ...r }));
   const plant = current.plant.map((p) => ({ ...p }));
@@ -111,8 +113,17 @@ export function mergeFill(
   for (const s of fill.plant) {
     const there = plant.find((p) => p.resourceId === s.resourceId);
     if (!there) continue; // only machines on the board
-    if (!there.code) { there.hours = s.hours; there.code = s.code ?? ""; added.push(`${s.name} ${hrs(s.hours)}`); }
+    const untouched = !there.code && defaults.has(there.resourceId) && defaults.get(there.resourceId) === there.hours;
+    if (untouched) { there.hours = s.hours; there.code = s.code ?? ""; added.push(`${s.name} ${hrs(s.hours)}`); }
     else if (there.hours !== s.hours || (s.code && s.code !== there.code)) kept.push({ what: "plant", key: s.resourceId, label: s.name, yours: there.hours, suggested: s.hours, code: s.code });
   }
   return { rows, plant, added, kept };
+}
+
+// Hold-ups from a recording (SEC-012): added straight in only when the supervisor hasn't ticked "no hold-ups" - if they
+// have, nothing changes and the hold-ups are offered as taps instead. One of each kind (by code) at most.
+export function mergeDelays<T extends { delayCode: string }>(noDelays: boolean, current: T[], suggested: T[]): { delays: T[]; added: T[]; offered: boolean } {
+  const fresh = suggested.filter((d) => !current.some((x) => x.delayCode === d.delayCode));
+  if (noDelays) return { delays: current, added: [], offered: fresh.length > 0 };
+  return { delays: [...current, ...fresh], added: fresh, offered: false };
 }

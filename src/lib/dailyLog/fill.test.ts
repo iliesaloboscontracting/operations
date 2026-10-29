@@ -76,7 +76,7 @@ test("filling the phone's log: new codes and empty machines are filled; anything
   const m = mergeFill(current, {
     activity: [{ code: "STR-02", hours: 10 }, { code: "DEM-10", hours: 12.5 }],
     plant: [{ resourceId: "r1", name: "Kobelco", code: "DEM-10", hours: 6 }, { resourceId: "r2", name: "Tipper", code: "DEM-10", hours: 7 }, { resourceId: "r9", name: "Not on the board", code: null, hours: 3 }],
-  }, label);
+  }, label, new Map([["r1", 7.5], ["r2", 7.5]]));
   assert.deepEqual(m.rows, [{ code: "STR-02", hours: 8 }, { code: "DEM-10", hours: 12.5 }], "typed STR-02 stays 8 h; DEM-10 added");
   assert.deepEqual(m.plant, [{ resourceId: "r1", code: "DEM-10", hours: 6 }, { resourceId: "r2", code: "DEM-10", hours: 4 }], "the empty machine filled; the one with a code kept; an unknown machine ignored");
   assert.deepEqual(m.added, ["Waste load-out 12.5 h", "Kobelco 6 h"]);
@@ -86,4 +86,27 @@ test("filling the phone's log: new codes and empty machines are filled; anything
   const again = mergeFill({ rows: m.rows, plant: m.plant }, { activity: [{ code: "DEM-10", hours: 12.5 }, { code: "GEN-03", hours: 2 }], plant: [] }, label);
   assert.deepEqual(again.rows.map((r) => r.code), ["STR-02", "DEM-10", "GEN-03"]);
   assert.deepEqual(again.kept, [], "the same number again isn't offered");
+});
+
+test("SEC-012: a machine with no code but typed hours (not the starting default) counts as filled - kept and offered, never overwritten", async () => {
+  const { mergeFill } = await import("./fill");
+  const defaults = new Map([["r1", 8.5], ["r2", 8.5]]);
+  const current = { rows: [], plant: [{ resourceId: "r1", code: "", hours: 4 }, { resourceId: "r2", code: "", hours: 8.5 }] };
+  const m = mergeFill(current, { activity: [], plant: [{ resourceId: "r1", name: "Kobelco", code: "DEM-10", hours: 6 }, { resourceId: "r2", name: "Tipper", code: null, hours: 5 }] }, (c) => c, defaults);
+  assert.deepEqual(m.plant, [{ resourceId: "r1", code: "", hours: 4 }, { resourceId: "r2", code: "", hours: 5 }], "typed 4 h stays; the untouched default is filled");
+  assert.deepEqual(m.kept.map((k) => [k.key, k.yours, k.suggested]), [["r1", 4, 6]], "offered as 'Use 6 h'");
+  assert.deepEqual(m.added, ["Tipper 5 h"]);
+  const noDefaults = mergeFill(current, { activity: [], plant: [{ resourceId: "r2", name: "Tipper", code: null, hours: 5 }] }, (c) => c);
+  assert.deepEqual(noDefaults.added, [], "without known defaults nothing is assumed untouched");
+});
+
+test("SEC-012: with 'no hold-ups' ticked, a recording's hold-ups are offered as taps - the tick isn't cleared", async () => {
+  const { mergeDelays } = await import("./fill");
+  const said = [{ delayCode: "WEATHER", note: "Rain" }, { delayCode: "ACCESS", note: "Gate" }];
+  const ticked = mergeDelays(true, [], said);
+  assert.deepEqual(ticked, { delays: [], added: [], offered: true });
+  const open = mergeDelays(false, [{ delayCode: "WEATHER", note: "typed" }], said);
+  assert.deepEqual(open.delays.map((d) => [d.delayCode, d.note]), [["WEATHER", "typed"], ["ACCESS", "Gate"]], "the typed one wins; a new kind is added");
+  assert.deepEqual(open.added.map((d) => d.delayCode), ["ACCESS"]);
+  assert.equal(open.offered, false);
 });
