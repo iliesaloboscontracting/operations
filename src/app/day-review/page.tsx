@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import PageShell from "@/components/PageShell";
 import DateTabs from "@/components/DateTabs";
 import { ShiftBadge } from "@/components/ShiftBadge";
@@ -8,7 +8,7 @@ import { useAuth } from "@/components/AuthProvider";
 import { apiFetch } from "@/lib/apiFetch";
 import { localISODate } from "@/lib/resource";
 import { DayReviewDTO, DayReviewJobDTO, DayReviewRowDTO, ResourceDTO, SignInSummary } from "@/lib/types";
-import { Lock, NotebookPen, Plus, TriangleAlert, Unlock, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Lock, NotebookPen, Plus, TriangleAlert, Unlock, X } from "lucide-react";
 import SiteLogPanel from "@/components/dayReview/SiteLogPanel";
 import type { DayReviewLogSummaryDTO, DayReviewSiteLogsDTO } from "@/lib/dailyLog/types";
 import type { DayDocketsDTO } from "@/lib/receipts/indicatorStore";
@@ -253,19 +253,36 @@ function SummaryStatus({ s }: { s: DayReviewLogSummaryDTO }) {
 
 // Every job that day and its site log (30 Oct 2026) - who's on it, whether and when it was logged, voice or typed.
 // "No site log" is information only (after 19:00); it never blocks closing. A row jumps to the job's card.
+// The header folds the list away (30 Oct 2026, Ilies): open on a desktop, folded on a phone, and the last choice is
+// remembered in that browser.
+const SUMMARY_OPEN_KEY = "dayReview.siteLogsOpen";
+
 function LogSummary({ logs, jobs }: { logs: DayReviewSiteLogsDTO; jobs: DayReviewJobDTO[] }) {
+  const [open, setOpen] = useState(true);
+  // Mounts only once the logs have loaded (never server-rendered), so this runs before the first paint - no flash.
+  useLayoutEffect(() => {
+    let saved: string | null = null;
+    try { saved = localStorage.getItem(SUMMARY_OPEN_KEY); } catch { /* storage blocked - use the default */ }
+    setOpen(saved != null ? saved === "1" : !window.matchMedia("(max-width: 639px)").matches);
+  }, []);
+  const toggle = () => setOpen((was) => {
+    try { localStorage.setItem(SUMMARY_OPEN_KEY, was ? "0" : "1"); } catch { /* not remembered - fine */ }
+    return !was;
+  });
   const by = new Map((logs.summary ?? []).map((s) => [s.jobId, s]));
   const rows = jobs.flatMap((j) => { const s = by.get(j.id); return s ? [{ j, s }] : []; });
   if (!rows.length || (!logs.pilotOn && !rows.some((r) => r.s.state === "LOGGED"))) return null;
   const logged = rows.filter((r) => r.s.state === "LOGGED").length;
   return (
     <div className="mb-4 overflow-hidden rounded-xl border border-edge bg-panel shadow-soft">
-      <div className="flex items-center gap-2 border-b border-edge px-3.5 py-2 text-xs">
+      <button type="button" onClick={toggle} aria-expanded={open}
+        className={`flex w-full items-center gap-2 px-3.5 py-2 text-left text-xs hover:bg-panel2/60 ${open ? "border-b border-edge" : ""}`}>
         <NotebookPen size={13} className="text-gray-500" />
         <span className="font-semibold text-gray-200">Site logs</span>
         <span className="text-gray-500">{logged} of {rows.length} logged</span>
-      </div>
-      <div className="divide-y divide-edge/50">
+        <span className="ml-auto text-gray-500">{open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</span>
+      </button>
+      {open && <div className="divide-y divide-edge/50">
         {rows.map(({ j, s }) => (
           <a key={j.id} href={`#job-${j.id}`} className="flex flex-wrap items-center gap-x-3 gap-y-0.5 px-3.5 py-1.5 text-xs hover:bg-panel2/60">
             {/* On a phone the job takes its own line; the supervisor and status sit under it. */}
@@ -274,7 +291,7 @@ function LogSummary({ logs, jobs }: { logs: DayReviewSiteLogsDTO; jobs: DayRevie
             <span className="ml-auto shrink-0"><SummaryStatus s={s} /></span>
           </a>
         ))}
-      </div>
+      </div>}
     </div>
   );
 }
