@@ -47,7 +47,7 @@ Order of checks:
 
 ## 4. Daily site report
 
-`/reports/site/[jobId]` (Manager+; `/directors/jobs/[id]/site-report` for directors via `guardDirector`): site, date,
+`/daily-report/[jobId]` (Manager+; `/directors/daily-report/[jobId]` for directors via `guardDirector`): site, date,
 shift, supervisor, crew and signed hours, hours by activity code, plant, delays with photos, "N dockets sent", the
 note (cleaned notes), photos. Latest revision, with "revision N of M". No dollar figure (narrow DTO + `assertNoMoney`).
 Print CSS for a tidy A4 from "Print / Save as PDF". Linked from Day Review's site-log panel and the Tracking job page

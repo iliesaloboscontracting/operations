@@ -18,7 +18,7 @@ import {
 } from "./checks";
 import { docketsSentFor } from "../receipts/store";
 import { voiceAvailable } from "./voiceRules";
-import type { DayReviewSiteLogDTO, DayReviewSiteLogsDTO, HoursVsBudgetDTO, LinkLogDTO, LogCardDTO, LogDetailDTO, LogJobDTO, ProgressFormDTO } from "./types";
+import type { DayReviewSiteLogDTO, DayReviewSiteLogsDTO, HoursVsBudgetDTO, LinkLogDTO, LogCardDTO, LogDetailDTO, LogJobDTO, ProgressFormDTO, SiteReportDayDTO, SiteReportDTO } from "./types";
 
 const dateOnly = (day: string) => new Date(`${day}T00:00:00.000Z`);
 const isoDay = (d: Date) => d.toISOString().slice(0, 10);
@@ -450,4 +450,34 @@ export async function logPhotoFile(logId: string, file: string): Promise<string 
   if (!l) return null;
   const all = [...parseIds(l.photoIds), ...l.delays.flatMap((d) => parseIds(d.photoIds)), ...l.dockets.map((d) => d.photoId)];
   return all.includes(file) ? file : null;
+}
+
+// ---------- the written daily site report (29 Oct 2026) ----------
+
+// One job on one day for the office: the site, the crew and their signed hours (from sign-ins), the latest log -
+// hours by code, plant, delays with photos, the note and photos - and the tip dockets sent. No money anywhere.
+export async function siteReport(jobId: string, now: Date): Promise<SiteReportDTO | null> {
+  const job = await prisma.job.findUnique({ where: { id: jobId }, select: { id: true, date: true, shift: true, title: true, projectId: true, project: { select: { name: true, jobNo: true } } } });
+  if (!job) return null;
+  const [crew, latest, revisions, dockets] = await Promise.all([
+    crewFor(job.id, now), latestLogRow(job.id), prisma.dailyLog.count({ where: { jobId: job.id } }), docketsSentFor([job.id]),
+  ]);
+  return {
+    jobId: job.id, projectId: job.projectId, site: job.project?.name ?? job.title, jobNo: job.project?.jobNo ?? null,
+    date: isoDay(job.date), shift: job.shift,
+    crew: { count: crew.count, hours: crew.hours, staff: crew.staff, hire: crew.hire, people: crew.people },
+    log: latest ? { ...(await toDetail(latest)), logId: latest.id, revisions } : null,
+    docketsSent: dockets.get(job.id) ?? 0,
+  };
+}
+
+// The days a project has a site log (latest version each), newest first - the job page's list of reports.
+export async function siteReportDays(projectId: string, limit = 60): Promise<SiteReportDayDTO[]> {
+  const logs = await prisma.dailyLog.findMany({
+    where: { projectId }, orderBy: [{ date: "desc" }, { revision: "desc" }], take: limit * 4,
+    select: { jobId: true, date: true, revision: true, submittedBy: true, job: { select: { shift: true } } },
+  });
+  const seen = new Set<string>();
+  return logs.filter((l) => !seen.has(l.jobId) && seen.add(l.jobId)).slice(0, limit)
+    .map((l) => ({ jobId: l.jobId, date: l.date, shift: l.job.shift, revision: l.revision, submittedBy: l.submittedBy }));
 }

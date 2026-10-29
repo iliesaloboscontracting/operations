@@ -1,7 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { NotebookPen } from "lucide-react";
+import { useAuth } from "@/components/AuthProvider";
 import HoursVsBudget from "@/components/tracking/HoursVsBudget";
 import { UNIT_LABEL, ACM } from "@/lib/dailyLog/rules";
 import type { DayReviewSiteLogDTO, HoursVsBudgetDTO } from "@/lib/dailyLog/types";
@@ -18,6 +20,7 @@ const hrs = (n: number) => `${Math.round(n * 100) / 100} h`;
 
 export default function SiteLogPanel({ log, budget }: { log: DayReviewSiteLogDTO; budget?: HoursVsBudgetDTO }) {
   const [showEarlier, setShowEarlier] = useState(false);
+  const { canEdit } = useAuth(); // the written report is Manager+
   const l = log.latest;
   const photo = (file: string) => `/api/day-review/site-logs/photo?log=${l?.logId}&file=${encodeURIComponent(file)}`;
   const labour = l ? l.hours.filter((x) => x.kind === "LABOUR") : [];
@@ -37,6 +40,7 @@ export default function SiteLogPanel({ log, budget }: { log: DayReviewSiteLogDTO
           <span className="text-[11px] text-gray-500">{log.ran ? `Due ${time(log.dueAt)}` : "Not logged"}</span>
         )}
         {l && !l.crewOk && <span className="rounded-full bg-gray-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-gray-300">Crew entered by hand</span>}
+        {l && canEdit && <Link href={`/daily-report/${log.jobId}`} className="ml-auto text-[11px] text-brand-400 hover:underline">Daily site report</Link>}
         {log.mismatch && l && <span className="rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-400">Split {hrs(l.labourHours)}, signed now {hrs(log.signedNow)}</span>}
       </div>
 

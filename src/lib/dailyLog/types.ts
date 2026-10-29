@@ -53,6 +53,16 @@ export type DayReviewSiteLogDTO = {
   progress: { weekStart: string; submittedBy: string; at: string; lines: { label: string; code: string; pct: number; last: number | null; reason: string | null }[] } | null;
 };
 
+// The written "Daily site report" for the office (29 Oct 2026): one job on one day, print-friendly. Hours, names,
+// codes, notes and photos only - no rate, cost or price field exists on it (and the route runs assertNoMoney).
+export type SiteReportDTO = {
+  jobId: string; projectId: string | null; site: string; jobNo: string | null; date: string; shift: string;
+  crew: { count: number; hours: number; staff: number; hire: number; people: CrewPersonDTO[] };
+  log: (LogDetailDTO & { logId: string; revisions: number }) | null;
+  docketsSent: number;
+};
+export type SiteReportDayDTO = { jobId: string; date: string; shift: string; revision: number; submittedBy: string };
+
 export type DayReviewSiteLogsDTO = {
   date: string; pilotOn: boolean; missingCount: number; codesVersion: string;
   jobs: DayReviewSiteLogDTO[];

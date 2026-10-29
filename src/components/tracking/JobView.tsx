@@ -23,7 +23,7 @@ import { CAT_LABELS, categoryRows, short, sumDays, weeklyBars } from "@/lib/trac
 import { BLUE, BLUE_LIGHT, Card, CategoryBars, Legend, SpendBar, StatusPill, Tile, moneyTip, tooltipStyle } from "@/components/tracking/parts";
 import { ArrowLeft, Plus } from "lucide-react";
 import HoursVsBudget from "@/components/tracking/HoursVsBudget";
-import type { HoursVsBudgetDTO } from "@/lib/dailyLog/types";
+import type { HoursVsBudgetDTO, SiteReportDayDTO } from "@/lib/dailyLog/types";
 import { jobTips, newTipSites } from "@/lib/receipts/indicators";
 
 const INVOICE_CAT: Record<string, CostCatKey> = { LABOUR_HIRE: "labourHire", PLANT_HIRE: "hire", TIP_FEES: "tipFees", MATERIALS: "materials" };
@@ -52,6 +52,12 @@ export default function JobView({ id, mode }: { id: string; mode: "ops" | "direc
   useEffect(() => {
     apiFetch(director ? `/api/directors/jobs/${id}/hours-vs-budget` : `/api/tracking/${id}/hours-vs-budget`)
       .then((r) => (r.ok ? r.json() : null)).then(setHvb).catch(() => setHvb(null));
+  }, [id, director]);
+  // The written daily site reports (29 Oct 2026): one per day the job has a site log.
+  const [reports, setReports] = useState<SiteReportDayDTO[]>([]);
+  useEffect(() => {
+    apiFetch(`${director ? "/api/directors/daily-report" : "/api/daily-report"}?projectId=${id}`)
+      .then((r) => (r.ok ? r.json() : { days: [] })).then((d) => setReports(d.days ?? [])).catch(() => setReports([]));
   }, [id, director]);
 
   if (missing) return <PageShell title="Project Tracking"><p className="text-sm text-gray-500">That job isn't in Tracking. <Link href={back.href} className="text-brand-400 hover:underline">Back to {back.label.toLowerCase()}</Link></p></PageShell>;
@@ -177,6 +183,21 @@ export default function JobView({ id, mode }: { id: string; mode: "ops" | "direc
           <div className="mb-1 text-sm font-semibold text-gray-100">Labour hours vs budget</div>
           <div className="mb-2 text-[11px] text-gray-500">From the supervisors&apos; daily logs, per activity code, against the approved budget and the weekly % complete · hours only</div>
           <HoursVsBudget data={hvb} />
+        </Card>
+      )}
+
+      {reports.length > 0 && (
+        <Card className="mb-4">
+          <div className="mb-1 text-sm font-semibold text-gray-100">Daily site reports</div>
+          <div className="mb-2 text-[11px] text-gray-500">The supervisor&apos;s day written up - crew, hours, plant, delays, notes and photos · print or save as PDF</div>
+          <div className="flex flex-wrap gap-2">
+            {reports.slice(0, 30).map((r) => (
+              <Link key={r.jobId} href={director ? `/directors/daily-report/${r.jobId}` : `/daily-report/${r.jobId}`}
+                className="rounded-lg border border-edge bg-panel2 px-2.5 py-1 text-xs text-gray-200 hover:border-brand-500/60">
+                {fmtDay(r.date, { weekday: "short", day: "numeric", month: "short" })}{r.shift === "NIGHT" ? " (night)" : ""}{r.revision > 1 ? ` · v${r.revision}` : ""}
+              </Link>
+            ))}
+          </div>
         </Card>
       )}
 
