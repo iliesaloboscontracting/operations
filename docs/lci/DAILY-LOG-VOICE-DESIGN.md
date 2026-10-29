@@ -21,7 +21,12 @@ Order of checks:
    Checked before "is voice available" so the release check can prove it with no outbound call.
 4. Voice available: `DAILY_LOG_VOICE` not `off`, and both `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` set - else 503
    "Voice isn't available - type it instead." The GET says `voice: false` and the screen hides the mic.
-5. Audio: mime allowlist (webm / ogg / mp4 / mpeg / wav, as `/api/transcribe`), ≤ 5 MB, the phone's duration ≤ 120 s.
+5. Audio: mime allowlist (webm / ogg / mp4 / mpeg / wav, as `/api/transcribe`), ≤ 10 MB, the phone's duration ≤ 5 minutes
+   (29 Oct 2026, Ilies: capacity for a lot to say - the phone warns at 4:30 and stops and sends itself at 5:00).
+   Timeouts: 60 s to transcribe, then the tidy-up gets what's left of ~95 s (up to 90 s), so the reply always comes
+   inside the Cloudflare tunnel's 100 s; if the tidy-up runs out, the supervisor gets their own words. Note limit
+   12000 (a later recording goes under the note after a dashed line and the time); each heading up to 2500; anything
+   shortened ends on a sentence and "Check this" says so.
 6. A `DailyLogVoice` row is written (this is what the cap counts), then the audio goes to OpenAI
    `gpt-4o-mini-transcribe` through the shared `src/lib/voice/transcribe.ts` (host allowlist api.openai.com, 30 s
    timeout, errors scrubbed - never the key or OpenAI's error body). `/api/transcribe` (Command Centre) uses the same

@@ -13,7 +13,8 @@ import { DELAY_LABEL } from "./rules";
 import { sydneyDay } from "./checks";
 import { cleanTranscript, type Cleaner } from "./voiceClean";
 import {
-  AMOUNTS_NOTICE, FAILED_TO_TEXT, VOICE_CAP_REACHED, VOICE_LIMITS, VOICE_OFF, buildVocabulary, cleanedNote, overVoiceCap, stripMoney, voiceAvailable,
+  AMOUNTS_NOTICE, FAILED_TO_TEXT, TOO_LONG, UP_TO, VOICE_CAP_REACHED, VOICE_LIMITS, VOICE_OFF, VOICE_TIMEOUTS, buildVocabulary, cleanBudgetMs, cleanedNote,
+  overVoiceCap, stripMoney, voiceAvailable,
 } from "./voiceRules";
 
 export type VoiceReply = {
@@ -41,12 +42,13 @@ export async function handleVoice(
   // 4. The recording itself.
   const audio = form.get("audio");
   if (!(audio instanceof Blob) || audio.size === 0) return fail(400, "No recording came through - try again.");
-  if (audio.size > VOICE_LIMITS.maxBytes) return fail(413, "That recording is too long - keep it under 2 minutes.");
+  if (audio.size > VOICE_LIMITS.maxBytes) return fail(413, TOO_LONG);
   if (!isAllowedAudio(audio.type)) return fail(415, "That recording format isn't supported - type it instead.");
   const seconds = Number(form.get("seconds"));
-  if (!Number.isFinite(seconds) || seconds <= 0 || seconds > VOICE_LIMITS.maxSeconds + 2) return fail(400, "Recordings are up to 2 minutes.");
+  if (!Number.isFinite(seconds) || seconds <= 0 || seconds > VOICE_LIMITS.maxSeconds + 2) return fail(400, UP_TO);
 
-  // 5. Counted from here (the row is the limit's counter), then heard.
+  // 5. Counted from here (the row is the limit's counter), then heard - the reply's time budget starts now.
+  const startedAt = Date.now();
   const row = await prisma.dailyLogVoice.create({ data: { siteLinkId: link.id, jobId: job.id, day: sydneyDay(now), seconds: Math.round(seconds) } });
   const finish = (status: "DONE" | "FAILED", data: { transcript?: string; cleaned?: string } = {}) =>
     prisma.dailyLogVoice.update({ where: { id: row.id }, data: { status, ...data } }).catch(() => null);
@@ -63,7 +65,7 @@ export async function handleVoice(
 
   let heard: TranscribeResult;
   try {
-    heard = await (deps.transcribe ?? ((a, p) => transcribe(a, { prompt: p })))(audio, prompt);
+    heard = await (deps.transcribe ?? ((a, p) => transcribe(a, { prompt: p, timeoutMs: VOICE_TIMEOUTS.transcribeMs })))(audio, prompt);
   } catch {
     heard = { error: VOICE_OFF, status: 503 };
   }
@@ -71,8 +73,8 @@ export async function handleVoice(
   const stripped = stripMoney(heard.text);
   if (!stripped.text.trim()) { await finish("FAILED"); return fail(422, FAILED_TO_TEXT); }
 
-  const cleaned = await cleanTranscript(stripped.text, { site, crew: crewNames, plant: plantNames }, stripped.removed, deps.cleaner);
-  await finish("DONE", { transcript: stripped.text.slice(0, 8000), cleaned: JSON.stringify(cleaned) });
+  const cleaned = await cleanTranscript(stripped.text, { site, crew: crewNames, plant: plantNames }, stripped.removed, deps.cleaner, cleanBudgetMs(Date.now() - startedAt));
+  await finish("DONE", { transcript: stripped.text.slice(0, 20000), cleaned: JSON.stringify(cleaned) });
   return {
     status: 200,
     body: {

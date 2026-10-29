@@ -6,9 +6,10 @@ import { resizePhoto } from "@/lib/imageResize";
 import { serverErrorMessage } from "@/lib/apiFetch";
 import { fmtDay } from "@/lib/dates";
 import { CODES, BY_CODE } from "@/lib/activityCodes";
-import { DELAY_CODES, DELAY_LABEL, SPLIT_TOLERANCE, type DelayCode } from "@/lib/dailyLog/rules";
+import { DELAY_CODES, DELAY_LABEL, NOTE_MAX, SPLIT_TOLERANCE, type DelayCode } from "@/lib/dailyLog/rules";
 import type { LinkLogDTO, LogJobDTO, ProgressFormDTO } from "@/lib/dailyLog/types";
 import VoiceNote from "./VoiceNote";
+import { addToNote } from "@/lib/dailyLog/voiceRules";
 
 // The daily site log on a pilot supervisor's link (Task K, 25 Oct 2026):
 // about 60 seconds at the end of the day. 1) the crew and signed hours (from
@@ -162,7 +163,13 @@ function LogSteps({ api, job, voice, onBack, onSaved }: { api: string; job: LogJ
       {voice && (
         <VoiceNote
           api={api} jobId={job.jobId}
-          onUseNote={(text, id) => { setNote(text); setVoiceIds((v) => (v.includes(id) ? v : [...v, id])); }}
+          onUseNote={(text, id) => {
+            // Recordings add up (29 Oct 2026): a later one goes under what's there, after a dashed line and the time.
+            const next = addToNote(note, text, new Date());
+            if (next.length > NOTE_MAX) return "The note is full - send this log, then add the rest by opening it again (that saves a new version).";
+            setNote(next); setVoiceIds((v) => (v.includes(id) ? v : [...v, id]));
+            return null;
+          }}
           onAddDelay={(d) => { setNoDelays(false); setDelays((xs) => [...xs, { delayCode: d.delayCode, hoursLost: d.hoursLost == null ? "" : String(d.hoursLost), affects: "CREW", note: d.note, photos: [] }]); }}
         />
       )}
@@ -284,7 +291,7 @@ function LogSteps({ api, job, voice, onBack, onSaved }: { api: string; job: LogJ
             <div className="text-gray-400">{noDelays || !delays.length ? "No delays" : delays.map((d) => DELAY_LABEL[d.delayCode]).join(", ")} · {docketsText}{dockets.length ? ` (${dockets.length} on the earlier log)` : ""}</div>
           </div>
           <label className="block"><span className="mb-1 block text-sm text-gray-300">Note for the office (optional)</span>
-            <textarea className={input} rows={3} value={note} onChange={(e) => setNote(e.target.value)} /></label>
+            <textarea className={input} rows={3} maxLength={NOTE_MAX} value={note} onChange={(e) => setNote(e.target.value)} /></label>
           <Photos photos={photos} max={4} label="Add photos of the day" onChange={setPhotos} />
           {error && <p className="rounded-lg bg-red-500/15 px-3 py-2 text-sm text-red-300">{error}</p>}
           <button className={primary} disabled={busy} onClick={submit}>{busy ? <Loader2 size={18} className="animate-spin" /> : <Check size={18} />} Submit</button>

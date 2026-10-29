@@ -16,12 +16,15 @@ test("the switch: needs both keys; DAILY_LOG_VOICE=off turns it off", () => {
   assert.equal(voiceAvailable({ openai: "sk-x", anthropic: " " }), false, "no Anthropic key");
 });
 
-test("the day's limit: 20 recordings per link, then refused; 2 minutes / 5 MB", () => {
+test("the day's limit: 20 recordings per link, then refused; 5 minutes / 10 MB, warning at 4:30", () => {
   assert.equal(VOICE_LIMITS.perLinkPerDay, 20);
   assert.ok(!overVoiceCap(19), "the 20th is allowed");
   assert.ok(overVoiceCap(20), "the 21st is refused");
-  assert.equal(VOICE_LIMITS.maxSeconds, 120);
-  assert.equal(VOICE_LIMITS.maxBytes, 5 * 1024 * 1024);
+  assert.equal(VOICE_LIMITS.maxSeconds, 300);
+  assert.equal(VOICE_LIMITS.warnAtSeconds, 270);
+  assert.equal(VOICE_LIMITS.maxBytes, 10 * 1024 * 1024);
+  assert.ok(VOICE_LIMITS.maxBytes < 25 * 1024 * 1024, "under OpenAI's 25 MB file limit");
+  assert.ok(VOICE_LIMITS.maxSeconds * 14 * 1024 < VOICE_LIMITS.maxBytes, "5 minutes at ~14 KB/s fits");
 });
 
 test("audio types: the iPhone's audio/mp4 and the others the transcriber takes; nothing else", () => {
@@ -108,16 +111,53 @@ test("if tidying fails the supervisor keeps their own words, flagged to check", 
   assert.equal(ok.amountsRemoved, true, "amounts taken out of the transcript are still flagged");
 });
 
-test("a full cleaned log - all six headings at their longest - fits the log's note, so nothing is cut off", async () => {
-  const { SECTION_MAX, FAILED_TO_TEXT } = await import("./voiceRules");
+test("a cleaned recording always fits the log's note: a 5-minute day whole, and an over-long one shortened with a 'Check this' line - never quietly", async () => {
+  const { SECTION_MAX, SHORTENED, FAILED_TO_TEXT } = await import("./voiceRules");
   const { NOTE_MAX, parseLog } = await import("./rules");
-  const long = "x".repeat(SECTION_MAX + 500);
-  const c = validateCleaned({ sections: HEADINGS.map((h) => ({ heading: h, text: long })), delays: [], checkThis: [] });
-  assert.equal(c.sections.length, 6);
-  assert.ok(c.sections.every((s) => s.text.length === SECTION_MAX), "each heading capped at SECTION_MAX");
-  const note = cleanedNote(c);
-  assert.ok(note.length <= NOTE_MAX, `${note.length} <= ${NOTE_MAX}`);
-  const parsed = parseLog({ note, hours: [{ code: "STR-02", hours: 8 }], noDelays: true, noDockets: true }, { signedHours: 8, signedCrew: 1, plant: new Map() });
-  assert.ok(!("error" in parsed) && parsed.note === note, "the whole note is kept when the log is sent");
+  assert.equal(NOTE_MAX, 12000);
+  assert.equal(SECTION_MAX, 2500);
+  const send = (note: string) => parseLog({ note, hours: [{ code: "STR-02", hours: 8 }], noDelays: true, noDockets: true }, { signedHours: 8, signedCrew: 1, plant: new Map() });
+  // A long real day: 5 minutes of talk is ~750 words / ~4500 characters - every heading kept whole.
+  const sentence = "We finished stripping the ceilings on level two and bagged the waste. ";
+  const day = validateCleaned({ sections: HEADINGS.map((h) => ({ heading: h, text: sentence.repeat(12) })), delays: [], checkThis: [] });
+  assert.equal(day.sections.length, 6);
+  assert.ok(day.sections.every((s) => s.text === sentence.repeat(12).trim()), "nothing shortened");
+  assert.ok(!day.checkThis.includes(SHORTENED));
+  const dayNote = cleanedNote(day);
+  const sent = send(dayNote);
+  assert.ok(!("error" in sent) && sent.note === dayNote, "the whole note is kept when the log is sent");
+  // Every heading at its longest (6 x 2500 > 12000): kept within NOTE_MAX, cut at a sentence, and flagged.
+  const huge = validateCleaned({ sections: HEADINGS.map((h) => ({ heading: h, text: sentence.repeat(60) })), delays: [], checkThis: [] });
+  const hugeNote = cleanedNote(huge);
+  assert.ok(hugeNote.length <= NOTE_MAX, `${hugeNote.length} <= ${NOTE_MAX}`);
+  assert.ok(huge.sections.every((s) => s.text.length <= SECTION_MAX && /\.$/.test(s.text)), "each heading capped, ending on a full sentence");
+  assert.equal(huge.checkThis[0], SHORTENED, "the supervisor is told it was shortened");
+  const sentHuge = send(hugeNote);
+  assert.ok(!("error" in sentHuge) && sentHuge.note === hugeNote, "and it isn't cut again when sent");
   assert.equal(FAILED_TO_TEXT, "Couldn't turn that into text - try again or type it.");
+});
+
+test("a long clip's reply comes inside the tunnel's 100 seconds: 60 s to transcribe, the tidy-up gets the rest (up to 90 s)", async () => {
+  const { VOICE_TIMEOUTS, cleanBudgetMs } = await import("./voiceRules");
+  assert.equal(VOICE_TIMEOUTS.transcribeMs, 60_000);
+  assert.equal(cleanBudgetMs(0), 90_000, "a quick transcription leaves the full 90 s");
+  assert.equal(cleanBudgetMs(30_000), 65_000);
+  assert.ok(VOICE_TIMEOUTS.transcribeMs + cleanBudgetMs(VOICE_TIMEOUTS.transcribeMs) < 100_000, "worst case still under 100 s");
+  assert.equal(cleanBudgetMs(94_000), 10_000, "never less than 10 s - if it runs out, the supervisor's own words come back");
+});
+
+test("recordings add up: a later one goes under the note after a dashed line and the time", async () => {
+  const { addToNote } = await import("./voiceRules");
+  assert.equal(addToNote("", "Work done: ceilings.", new Date("2026-10-29T05:00:00Z")), "Work done: ceilings.");
+  const two = addToNote("Work done: ceilings.\n", "Tomorrow: slab cut.", new Date("2026-10-29T05:42:00Z"));
+  assert.equal(two, "Work done: ceilings.\n\n----- 4:42 pm -----\nTomorrow: slab cut.");
+  assert.match(addToNote("typed by hand", "voice", new Date()), /^typed by hand\n\n----- .+ -----\nvoice$/, "what was typed is kept");
+});
+
+test("a heading with no full stops is cut at a word, marked with …, and flagged - never mid-word, never quietly", async () => {
+  const { SECTION_MAX, SHORTENED } = await import("./voiceRules");
+  const c = validateCleaned({ sections: [{ heading: "Work done", text: "stripped ceilings and walls ".repeat(150) }], delays: [], checkThis: [] });
+  assert.ok(c.sections[0].text.length <= SECTION_MAX + 1);
+  assert.match(c.sections[0].text, /walls…$|ceilings…$|and…$|stripped…$/);
+  assert.equal(c.checkThis[0], SHORTENED);
 });

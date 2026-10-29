@@ -7,13 +7,13 @@ import Anthropic from "@anthropic-ai/sdk";
 import { betaJSONSchemaOutputFormat } from "@anthropic-ai/sdk/helpers/beta/json-schema";
 import { ReadingNotConfigured } from "../invoiceReading";
 import { DELAY_LABEL } from "./rules";
-import { CLEAN_SCHEMA, HEADINGS, validateCleaned, type Cleaned } from "./voiceRules";
+import { CLEAN_SCHEMA, HEADINGS, VOICE_TIMEOUTS, validateCleaned, type Cleaned } from "./voiceRules";
 
 const MODEL = "claude-opus-5-5";
 
 export type CleanContext = { site: string; crew: string[]; plant: string[] };
-// The cleaner the voice route uses; a test passes its own.
-export type Cleaner = (transcript: string, ctx: CleanContext) => Promise<unknown>;
+// The cleaner the voice route uses; a test passes its own. timeoutMs: what's left of the reply's time budget.
+export type Cleaner = (transcript: string, ctx: CleanContext, opts?: { timeoutMs?: number }) => Promise<unknown>;
 
 const SYSTEM = `You turn a demolition / construction site supervisor's spoken end-of-day update into clean written notes for the office.
 
@@ -27,16 +27,19 @@ Rules:
 - Never write any dollar amount, price, rate or cost. Amounts have already been removed and show as "(amount not recorded)"; leave that wording as it is.
 - Use the spellings of names below when it's clearly the same person, machine or site.`;
 
-function client() {
+// No retry: a long recording's tidy-up has one go inside the time budget, then the supervisor's own words are used.
+function client(timeoutMs: number) {
   if (!process.env.ANTHROPIC_API_KEY) throw new ReadingNotConfigured("Voice tidying isn't set up - ANTHROPIC_API_KEY is missing from the server's environment.");
-  return new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, timeout: 60_000, maxRetries: 1 });
+  return new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, timeout: timeoutMs, maxRetries: 0 });
 }
 
-export const claudeCleaner: Cleaner = async (transcript, ctx) => {
+export const claudeCleaner: Cleaner = async (transcript, ctx, opts = {}) => {
   const names = `Site: ${ctx.site || "(not given)"}\nCrew on this job: ${ctx.crew.join(", ") || "(none listed)"}\nPlant on this job: ${ctx.plant.join(", ") || "(none listed)"}`;
-  const response = await client().beta.messages.parse({
+  const response = await client(opts.timeoutMs ?? VOICE_TIMEOUTS.cleanMaxMs).beta.messages.parse({
     model: MODEL,
-    max_tokens: 3000,
+    // A full 5-minute recording tidied: up to NOTE_MAX (12000) characters of notes (~3000 tokens) plus the JSON,
+    // delays and "Check this" - 8000 leaves plenty of room so a long day isn't cut off.
+    max_tokens: 8000,
     betas: ["server-side-fallback-2026-07-01"],
     fallbacks: "default",
     system: SYSTEM,
@@ -49,9 +52,9 @@ export const claudeCleaner: Cleaner = async (transcript, ctx) => {
 
 // Tidy a transcript (amounts already out): Claude's answer, checked. A failure gives the plain transcript back as
 // "Work done" with a check-this line, so the supervisor still has their words to edit.
-export async function cleanTranscript(transcript: string, ctx: CleanContext, amountsRemoved: boolean, cleaner: Cleaner = claudeCleaner): Promise<Cleaned> {
+export async function cleanTranscript(transcript: string, ctx: CleanContext, amountsRemoved: boolean, cleaner: Cleaner = claudeCleaner, timeoutMs?: number): Promise<Cleaned> {
   try {
-    return validateCleaned(await cleaner(transcript, ctx), amountsRemoved);
+    return validateCleaned(await cleaner(transcript, ctx, { timeoutMs }), amountsRemoved);
   } catch (e) {
     console.error("voice tidy failed", e instanceof Error ? e.message.slice(0, 120) : "error");
     return validateCleaned({ sections: [{ heading: "Work done", text: transcript }], delays: [], checkThis: ["This wasn't tidied - check the wording before you send."] }, amountsRemoved);

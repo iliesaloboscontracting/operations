@@ -15,7 +15,16 @@ export function voiceAvailable(env: { voice?: string; openai?: string; anthropic
   return !!(env.openai ?? "").trim() && !!(env.anthropic ?? "").trim();
 }
 export const VOICE_OFF = "Voice isn't available - type it instead.";
-export const VOICE_LIMITS = { perLinkPerDay: 20, maxBytes: 5 * 1024 * 1024, maxSeconds: 120 };
+// 5 minutes / 10 MB a recording (29 Oct 2026, Ilies: capacity for a lot to say; ~14 KB/s, so 5 min is ~4-5 MB and
+// OpenAI takes up to 25 MB). Still 20 a link a day. The phone warns at 4:30 and stops and sends at 5:00.
+export const VOICE_LIMITS = { perLinkPerDay: 20, maxBytes: 10 * 1024 * 1024, maxSeconds: 300, warnAtSeconds: 270 };
+// The server answers inside the Cloudflare tunnel's 100-second limit: transcription up to 60 s, then the tidy-up gets
+// what's left of ~95 s (up to 90 s). If the tidy-up runs out of time the supervisor gets their own words to edit.
+export const VOICE_TIMEOUTS = { transcribeMs: 60_000, cleanMaxMs: 90_000, totalMs: 95_000, cleanMinMs: 10_000 };
+export const cleanBudgetMs = (elapsedMs: number) =>
+  Math.max(VOICE_TIMEOUTS.cleanMinMs, Math.min(VOICE_TIMEOUTS.cleanMaxMs, VOICE_TIMEOUTS.totalMs - elapsedMs));
+export const TOO_LONG = "That recording is too long - keep it under 5 minutes.";
+export const UP_TO = "Recordings are up to 5 minutes.";
 export const VOICE_CAP_REACHED = "That's the most recordings this link can make today - type the rest instead.";
 export const overVoiceCap = (usedToday: number) => usedToday >= VOICE_LIMITS.perLinkPerDay;
 
@@ -68,8 +77,10 @@ export function buildVocabulary(v: VocabularyInput): string {
 // ---------- what Claude sends back ----------
 
 export const HEADINGS = ["Work done", "Delays", "Plant", "Tip runs", "Safety & issues", "Tomorrow"] as const;
-// One heading's text at most. Six of them with their headings fit the log's note (NOTE_MAX) - checked in the tests.
-export const SECTION_MAX = 600;
+// One heading's text at most (29 Oct 2026: 2500). One recording's cleaned note is also kept within NOTE_MAX: if six
+// long headings would pass it, the last ones are shortened at a sentence and "Check this" says so - never quietly.
+export const SECTION_MAX = 2500;
+export const SHORTENED = "This was very long, so the end of it was shortened - check it and type anything that's missing.";
 export type Heading = (typeof HEADINGS)[number];
 export type CleanedSection = { heading: Heading; text: string };
 export type SuggestedDelay = { delayCode: DelayCode; hoursLost: number | null; note: string };
@@ -111,15 +122,39 @@ export function validateCleaned(raw: unknown, transcriptHadAmounts = false): Cle
   const r = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
   let removed = transcriptHadAmounts;
   const noMoney = (s: string) => { const x = stripMoney(s); if (x.removed) removed = true; return x.text; };
+  // Anything cut - a heading past SECTION_MAX, or the note past NOTE_MAX - ends on a full sentence and is flagged.
+  let shortened = false;
+  const fit = (text: string, max: number) => {
+    if (text.length <= max) return text;
+    shortened = true;
+    const cut = text.slice(0, Math.max(0, max));
+    const stop = cut.lastIndexOf(". ");
+    if (stop > 0) return cut.slice(0, stop + 1).trim(); // at the last full sentence
+    const space = cut.lastIndexOf(" ", max - 1);
+    return space > 0 ? `${cut.slice(0, space).trim()}…` : ""; // else at a word, marked
+  };
   const byHeading = new Map<Heading, string>();
   for (const s of Array.isArray(r.sections) ? r.sections.slice(0, 12) : []) {
     const o = (s ?? {}) as Record<string, unknown>;
     const heading = HEADINGS.find((h) => h === o.heading);
-    const text = noMoney(textOf(o.text, SECTION_MAX));
+    const text = noMoney(textOf(o.text, SECTION_MAX * 4)); // read generously, then cut at a sentence below
     if (!heading || !text) continue;
-    byHeading.set(heading, byHeading.has(heading) ? `${byHeading.get(heading)} ${text}`.slice(0, SECTION_MAX) : text);
+    byHeading.set(heading, fit(byHeading.has(heading) ? `${byHeading.get(heading)} ${text}` : text, SECTION_MAX));
   }
-  const sections = HEADINGS.filter((h) => byHeading.has(h)).map((h) => ({ heading: h, text: byHeading.get(h)! }));
+  // The whole cleaned note within NOTE_MAX (heading labels and line breaks included).
+  let room = NOTE_MAX;
+  const sections: CleanedSection[] = [];
+  for (const h of HEADINGS.filter((x) => byHeading.has(x))) {
+    const label = `${h}: `.length + (sections.length ? 1 : 0);
+    let text = byHeading.get(h)!;
+    if (label + text.length > room) {
+      if (room - label < 40) { shortened = true; break; } // no real room left: the rest is left out (and flagged)
+      text = fit(text, room - label);
+    }
+    if (!text) break;
+    sections.push({ heading: h, text });
+    room -= label + text.length;
+  }
   const delays: SuggestedDelay[] = [];
   for (const d of Array.isArray(r.delays) ? r.delays.slice(0, 6) : []) {
     const o = (d ?? {}) as Record<string, unknown>;
@@ -131,10 +166,19 @@ export function validateCleaned(raw: unknown, transcriptHadAmounts = false): Cle
     delays.push({ delayCode: code, hoursLost: h, note });
   }
   const checkThis = (Array.isArray(r.checkThis) ? r.checkThis : []).slice(0, 8).map((c) => noMoney(textOf(c, 200))).filter(Boolean);
+  if (shortened) checkThis.unshift(SHORTENED);
   return { sections, delays, checkThis, amountsRemoved: removed };
 }
 
-// The cleaned text as one note (what goes in the log's note box for the supervisor to edit).
-// Always within NOTE_MAX (SECTION_MAX x 6 plus headings), so it's never cut when the log is sent.
+// The cleaned text as one note (what goes in the log's note box for the supervisor to edit). validateCleaned keeps it
+// within NOTE_MAX, so it's never cut when the log is sent.
 export const cleanedNote = (c: Cleaned) => c.sections.map((s) => `${s.heading}: ${s.text}`).join("\n");
 export const FAILED_TO_TEXT = "Couldn't turn that into text - try again or type it.";
+
+// Recordings add up (29 Oct 2026): a recording's text goes under the note so far - nothing there, just the text;
+// otherwise a dashed line with the time first. The screen refuses (and says so) if that would pass NOTE_MAX.
+export const addToNote = (note: string, text: string, at: Date) => {
+  if (!note.trim()) return text;
+  const time = at.toLocaleTimeString("en-AU", { timeZone: "Australia/Sydney", hour: "numeric", minute: "2-digit" });
+  return `${note.trimEnd()}\n\n----- ${time} -----\n${text}`;
+};

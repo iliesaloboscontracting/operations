@@ -17,7 +17,10 @@ type Reply = {
   voiceId: string; note: string; checkThis: string[]; amountsNotice: string | null;
   delays: { delayCode: DelayCode; label: string; hoursLost: number | null; note: string }[];
 };
-const MAX_SECONDS = 120;
+// 5 minutes (29 Oct 2026, Ilies: "the guys will have a lot to say"): a warning at 4:30, then it stops and sends
+// itself at 5:00 so nothing is lost.
+const MAX_SECONDS = 300;
+const WARN_AT = 270;
 // Chrome / Android record webm; an iPhone records mp4 - whichever this phone can do.
 const pickMime = () => {
   if (typeof MediaRecorder === "undefined") return null;
@@ -28,7 +31,7 @@ const clock = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2,
 
 export default function VoiceNote({ api, jobId, onUseNote, onAddDelay }: {
   api: string; jobId: string;
-  onUseNote: (text: string, voiceId: string) => void;
+  onUseNote: (text: string, voiceId: string) => string | null; // a reason it couldn't be added, or null
   onAddDelay: (d: { delayCode: DelayCode; hoursLost: number | null; note: string }) => void;
 }) {
   const [state, setState] = useState<"idle" | "recording" | "working" | "review">("idle");
@@ -94,7 +97,7 @@ export default function VoiceNote({ api, jobId, onUseNote, onAddDelay }: {
         <button onClick={start} className="flex min-h-16 w-full items-center justify-center gap-3 rounded-2xl border-2 border-brand-500 bg-brand-600/20 px-4 py-4 text-lg font-semibold text-brand-100 active:bg-brand-600/40">
           <Mic size={28} /> Talk through your day
         </button>
-        <p className="mt-1 text-center text-xs text-gray-500">Up to 2 minutes. You&apos;ll see it written out to check before anything goes in.</p>
+        <p className="mt-1 text-center text-xs text-gray-500">Up to 5 minutes - record again to add more. You&apos;ll see it written out to check before anything goes in.</p>
         {error && <p className="mt-2 rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-300">{error}</p>}
       </div>
     );
@@ -103,6 +106,7 @@ export default function VoiceNote({ api, jobId, onUseNote, onAddDelay }: {
     return (
       <div className="mb-4 rounded-2xl border-2 border-red-500/60 bg-red-500/10 p-4 text-center">
         <p className="text-sm text-red-200"><span className="mr-2 inline-block h-2.5 w-2.5 animate-pulse rounded-full bg-red-500" />Recording · {clock(seconds)} of {clock(MAX_SECONDS)}</p>
+        {seconds >= WARN_AT && <p className="mt-1 text-sm font-semibold text-amber-300">30 seconds left - it stops and sends itself at 5:00.</p>}
         <button onClick={stop} className="mx-auto mt-3 flex min-h-16 w-full items-center justify-center gap-3 rounded-2xl bg-red-600 px-4 py-4 text-lg font-semibold text-white">
           <Square size={24} /> Stop
         </button>
@@ -110,20 +114,21 @@ export default function VoiceNote({ api, jobId, onUseNote, onAddDelay }: {
     );
   }
   if (state === "working") {
-    return <div className="mb-4 flex items-center justify-center gap-2 rounded-2xl border border-edge bg-panel p-5 text-gray-300"><Loader2 className="animate-spin" /> Writing it out…</div>;
+    return <div className="mb-4 flex items-center justify-center gap-2 rounded-2xl border border-edge bg-panel p-5 text-gray-300"><Loader2 className="animate-spin" /> Working on it… (a long one can take a minute)</div>;
   }
   return (
     <div className="mb-4 space-y-3 rounded-2xl border border-brand-500/50 bg-panel p-4">
       <p className="text-sm font-semibold text-gray-100">Here&apos;s what you said, written out - check it</p>
       {reply?.amountsNotice && <p className="rounded-lg bg-amber-500/10 px-3 py-2 text-sm text-amber-200">{reply.amountsNotice}</p>}
       <textarea className="w-full rounded-lg border border-edge bg-panel2 px-3 py-2.5 text-base text-gray-200" rows={8} value={text} onChange={(e) => { setText(e.target.value); setUsed(false); }} />
+      {error && <p className="rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-300">{error}</p>}
       {reply && reply.checkThis.length > 0 && (
         <div className="rounded-lg bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
           <p className="font-semibold">Check this</p>
           <ul className="ml-4 list-disc">{reply.checkThis.map((c, i) => <li key={i}>{c}</li>)}</ul>
         </div>
       )}
-      <button disabled={!text.trim() || used} onClick={() => { onUseNote(text.trim(), reply!.voiceId); setUsed(true); }}
+      <button disabled={!text.trim() || used} onClick={() => { const why = onUseNote(text.trim(), reply!.voiceId); if (why) setError(why); else { setError(null); setUsed(true); } }}
         className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand-600 px-4 py-3 text-base font-semibold text-white disabled:opacity-50">
         {used ? "In your note ✓" : "Use this as my note"}
       </button>

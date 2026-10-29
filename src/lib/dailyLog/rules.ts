@@ -26,9 +26,10 @@ export const UNIT_LABEL: Record<string, string> = { t: "t", m3: "m³", loads: "l
 export const DOCKET_CODES = CODES.filter((c) => c.wasteClasses).map((c) => c.code);
 export const ACM = "Asbestos (ACM)";
 export const LIMITS = { codes: 15, plant: 20, delays: 6, dockets: 20, logPhotos: 4, delayPhotos: 4, logsPerLinkPerDay: 20 };
-// The log's note (typed, or the supervisor's voice cleaned up). 4000 since voice entry (29 Oct 2026): a full cleaned
-// log - all six headings at their longest (voiceRules.SECTION_MAX) - always fits, so nothing is cut off quietly.
-export const NOTE_MAX = 4000;
+// The log's note (typed, or the supervisor's voice cleaned up - several recordings add up). 12000 since 29 Oct 2026
+// (Ilies: "the guys will have a lot to say so ensure we have capacity for it"). A cleaned recording is kept within it
+// (voiceRules.validateCleaned), and the screen won't add past it - nothing is cut off quietly.
+export const NOTE_MAX = 12000;
 
 // ---------- the pilot and the reminder switch ----------
 
