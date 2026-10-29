@@ -6,7 +6,8 @@
 // call. The route did resolveLink and the Daily log rule (404), one-at-a-time and the size checks before this.
 import { prisma } from "../prisma";
 import type { ResolvedLink } from "../siteLinks";
-import { CODES } from "../activityCodes";
+import { CODES, codeLabel } from "../activityCodes";
+import { docketsSentFor } from "../receipts/store";
 import { isAllowedAudio, transcribe, type TranscribeResult } from "../voice/transcribe";
 import { crewFor, loggableJobs, plantFor } from "./store";
 import { DELAY_LABEL } from "./rules";
@@ -21,6 +22,8 @@ export type VoiceReply = {
   voiceId: string; note: string; sections: { heading: string; text: string }[];
   delays: { delayCode: string; label: string; hoursLost: number | null; note: string }[];
   checkThis: string[]; amountsNotice: string | null;
+  // fill-everything: suggestions only - the board's own machines (mapped from Claude's numbers), codes from the list
+  fill: { activity: { code: string; label: string; hours: number }[]; plant: { resourceId: string; name: string; code: string | null; hours: number }[]; tipRuns: number | null };
 };
 type Out = { status: number; body: VoiceReply | { error: string } };
 const fail = (status: number, error: string): Out => ({ status, body: { error } });
@@ -72,15 +75,19 @@ export async function handleVoice(
 
   // The names that help it hear and spell right - this job only, names only, each cleaned of any amount and capped
   // (SEC-004): the transcriber's hint and Claude get the same cleaned names.
-  const [crew, plant, planned] = await Promise.all([
+  const [crew, plant, planned, dockets] = await Promise.all([
     crewFor(job.id, now), plantFor(job),
     prisma.assignment.findMany({ where: { jobId: job.id, resource: { type: "PERSONNEL" } }, select: { resource: { select: { name: true } } } }),
+    docketsSentFor([job.id]),
   ]);
   const ctx = cleanContext({
     site: job.project?.name ?? job.title,
     crew: [...new Set([...crew.people.map((p) => p.name), ...planned.map((a) => a.resource.name)])],
     plant: plant.map((p) => p.name),
+    // fill-everything: the machines numbered in board order (Claude never sees an id), the crew's signed hours
+    plantList: plant.map((p) => p.name), crewHours: crew.people.map((p) => ({ name: p.name, hours: p.hours })), signedHours: crew.hours,
   });
+  const fillCtx = { codes: CODES.map((c) => c.code), plantCount: plant.length, signedHours: crew.hours, docketsSent: dockets.get(job.id) ?? 0 };
   const prompt = buildVocabulary({ ...ctx, codes: CODES.map((c) => c.name) });
 
   let heard: TranscribeResult;
@@ -95,7 +102,7 @@ export async function handleVoice(
   // At most 9000 characters go to Claude (5 minutes of fast talk); beyond that, "Check this" says the end may be missing.
   const capped = capTranscript(stripped.text);
 
-  const cleaned = await cleanTranscript(capped.text, ctx, stripped.removed, deps.cleaner, cleanBudgetMs(Date.now() - startedAt));
+  const cleaned = await cleanTranscript(capped.text, ctx, stripped.removed, deps.cleaner, cleanBudgetMs(Date.now() - startedAt), fillCtx);
   if (capped.cut) cleaned.checkThis.unshift(capped.notice);
   await finish("DONE", { transcript: capped.text, cleaned: JSON.stringify(cleaned) });
   return {
@@ -104,6 +111,11 @@ export async function handleVoice(
       voiceId: row.id, note: cleanedNote(cleaned), sections: cleaned.sections,
       delays: cleaned.delays.map((d) => ({ ...d, label: DELAY_LABEL[d.delayCode] })),
       checkThis: cleaned.checkThis, amountsNotice: cleaned.amountsRemoved ? AMOUNTS_NOTICE : null,
+      fill: {
+        activity: cleaned.fill.activity.map((a) => ({ ...a, label: codeLabel(a.code) })),
+        plant: cleaned.fill.plant.map((p) => ({ resourceId: plant[p.index - 1].resourceId, name: ctx.plantList?.[p.index - 1] ?? "Machine", code: p.code, hours: p.hours })),
+        tipRuns: cleaned.fill.tipRuns,
+      },
     },
   };
 }

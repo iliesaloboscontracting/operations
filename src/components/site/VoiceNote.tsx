@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Loader2, Mic, Plus, Square } from "lucide-react";
 import { serverErrorMessage } from "@/lib/apiFetch";
 import type { DelayCode } from "@/lib/dailyLog/rules";
+import type { Kept } from "@/lib/dailyLog/fill";
 // The words shown when it couldn't be turned into text (the lead, 29 Oct 2026). Whatever was typed stays as it was.
 const FAILED_TO_TEXT = "Couldn't turn that into text - try again or type it.";
 
@@ -13,10 +14,13 @@ const FAILED_TO_TEXT = "Couldn't turn that into text - try again or type it.";
 // without a tap, and Send is the normal one. The recording is only ever in this page's memory and the server's,
 // and is gone once it's text. Typing always works.
 
-type Reply = {
+export type VoiceReplyData = {
   voiceId: string; note: string; checkThis: string[]; amountsNotice: string | null;
   delays: { delayCode: DelayCode; label: string; hoursLost: number | null; note: string }[];
+  fill?: { activity: { code: string; label: string; hours: number }[]; plant: { resourceId: string; name: string; code: string | null; hours: number }[]; tipRuns: number | null };
 };
+type Reply = VoiceReplyData;
+export type FillResult = { added: string[]; kept: Kept[]; error?: string };
 // 5 minutes (29 Oct 2026, Ilies: "the guys will have a lot to say"): a warning at 4:30, then it stops and sends
 // itself at 5:00 so nothing is lost.
 const MAX_SECONDS = 300;
@@ -28,11 +32,15 @@ const pickMime = () => {
   return "";
 };
 const clock = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+const hasFill = (r: VoiceReplyData) => !!r.fill && (r.fill.activity.length > 0 || r.fill.plant.length > 0);
 
-export default function VoiceNote({ api, jobId, onUseNote, onAddDelay }: {
+export default function VoiceNote({ api, jobId, onUseNote, onAddDelay, onFill, onAcceptKept }: {
   api: string; jobId: string;
   onUseNote: (text: string, voiceId: string) => string | null; // a reason it couldn't be added, or null
   onAddDelay: (d: { delayCode: DelayCode; hoursLost: number | null; note: string }) => void;
+  // fill-everything (29 Oct 2026): one tap fills the log's steps from this recording; anything already there is kept
+  onFill: (reply: VoiceReplyData, text: string) => FillResult;
+  onAcceptKept: (k: Kept) => void;
 }) {
   const [state, setState] = useState<"idle" | "recording" | "working" | "review">("idle");
   const [seconds, setSeconds] = useState(0);
@@ -41,6 +49,8 @@ export default function VoiceNote({ api, jobId, onUseNote, onAddDelay }: {
   const [text, setText] = useState("");
   const [used, setUsed] = useState(false);
   const [added, setAdded] = useState<number[]>([]);
+  const [filled, setFilled] = useState<FillResult | null>(null);
+  const [taken, setTaken] = useState<string[]>([]); // kept suggestions the supervisor then chose to use
   const rec = useRef<MediaRecorder | null>(null);
   const chunks = useRef<Blob[]>([]);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -88,7 +98,7 @@ export default function VoiceNote({ api, jobId, onUseNote, onAddDelay }: {
       return setError(res ? FAILED_TO_TEXT : "Couldn't send it - check your signal, or type it.");
     }
     const r: Reply = await res.json();
-    setReply(r); setText(r.note); setUsed(false); setAdded([]); setState("review");
+    setReply(r); setText(r.note); setUsed(false); setAdded([]); setFilled(null); setTaken([]); setState("review");
   }
 
   if (state === "idle") {
@@ -127,6 +137,30 @@ export default function VoiceNote({ api, jobId, onUseNote, onAddDelay }: {
         <div className="rounded-lg bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
           <p className="font-semibold">Check this</p>
           <ul className="ml-4 list-disc">{reply.checkThis.map((c, i) => <li key={i}>{c}</li>)}</ul>
+        </div>
+      )}
+      {reply && hasFill(reply) && !filled && (
+        <button onClick={() => { const r = onFill(reply, text.trim()); if (r.error) setError(r.error); else { setError(null); setFilled(r); setUsed(true); setAdded(reply.delays.map((_, i) => i)); } }}
+          className="flex min-h-14 w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-3 text-base font-semibold text-white">
+          Fill my log from this
+        </button>
+      )}
+      {filled && (
+        <div className="rounded-lg bg-emerald-500/10 px-3 py-2 text-sm text-emerald-100">
+          <p className="font-semibold">Filled in - go through the steps to check it, then Send.</p>
+          {filled.added.length > 0 && <p className="mt-0.5 text-emerald-200/90">{filled.added.join(" · ")}</p>}
+          {filled.kept.length > 0 && (
+            <div className="mt-2 space-y-1.5">
+              <p className="text-amber-200">Already filled in - kept as you had it:</p>
+              {filled.kept.map((k) => (
+                <div key={k.what + k.key} className="flex items-center gap-2">
+                  <span className="flex-1 text-gray-200">{k.label}: yours {k.yours} h, said {k.suggested} h</span>
+                  <button disabled={taken.includes(k.what + k.key)} onClick={() => { onAcceptKept(k); setTaken([...taken, k.what + k.key]); }}
+                    className="rounded-lg border border-edge bg-panel2 px-2.5 py-1.5 text-xs text-gray-100 disabled:opacity-60">{taken.includes(k.what + k.key) ? "Used ✓" : `Use ${k.suggested} h`}</button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
       <button disabled={!text.trim() || used} onClick={() => { const why = onUseNote(text.trim(), reply!.voiceId); if (why) setError(why); else { setError(null); setUsed(true); } }}

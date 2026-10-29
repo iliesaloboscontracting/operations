@@ -4,6 +4,7 @@
 // `npm test` (voice.test.ts). Design: docs/lci/DAILY-LOG-VOICE-DESIGN.md.
 import { DELAY_CODES, NOTE_MAX, type DelayCode } from "./rules";
 import { stripMoney } from "./money";
+import { FILL_SCHEMA_PROPS, NO_FILL, validateFill, type Fill, type FillContext } from "./fill";
 
 // ---------- switch and limits ----------
 
@@ -52,10 +53,19 @@ export const VOCAB_MAX = 1500;
 export const NAME_MAX = 60;
 export const cleanName = (s: string) =>
   stripMoney(s).text.replace(/\(amount not recorded\)/g, "").replace(/\(\s*\)|\[\s*\]/g, "").replace(/\s+[-–]\s*$/, "").replace(/\s+/g, " ").trim().slice(0, NAME_MAX);
-export type CleanContextInput = { site: string; crew: string[]; plant: string[] };
+export type CleanContextInput = {
+  site: string; crew: string[]; plant: string[];
+  // fill-everything: the job's machines in board order (numbered for Claude - never an id), the crew's signed hours
+  plantList?: string[]; crewHours?: { name: string; hours: number }[]; signedHours?: number;
+};
 export const cleanContext = (c: CleanContextInput): CleanContextInput => {
   const uniq = (xs: string[]) => [...new Set(xs.map(cleanName).filter((x) => x.length > 1))];
-  return { site: cleanName(c.site), crew: uniq(c.crew), plant: uniq(c.plant) };
+  return {
+    site: cleanName(c.site), crew: uniq(c.crew), plant: uniq(c.plant),
+    ...(c.plantList ? { plantList: c.plantList.map((n, i) => cleanName(n) || `Machine ${i + 1}`) } : {}),
+    ...(c.crewHours ? { crewHours: c.crewHours.map((p) => ({ name: cleanName(p.name) || "Crew member", hours: p.hours })) } : {}),
+    ...(c.signedHours != null ? { signedHours: c.signedHours } : {}),
+  };
 };
 export function buildVocabulary(v: VocabularyInput): string {
   const clean = cleanName;
@@ -80,7 +90,7 @@ export const SHORTENED = "This was very long, so the end of it was shortened - c
 export type Heading = (typeof HEADINGS)[number];
 export type CleanedSection = { heading: Heading; text: string };
 export type SuggestedDelay = { delayCode: DelayCode; hoursLost: number | null; note: string };
-export type Cleaned = { sections: CleanedSection[]; delays: SuggestedDelay[]; checkThis: string[]; amountsRemoved: boolean };
+export type Cleaned = { sections: CleanedSection[]; delays: SuggestedDelay[]; checkThis: string[]; amountsRemoved: boolean; fill: Fill };
 
 // The strict JSON schema Claude answers in.
 export const CLEAN_SCHEMA = {
@@ -107,14 +117,17 @@ export const CLEAN_SCHEMA = {
       },
     },
     checkThis: { type: "array", items: { type: "string" }, description: "Anything unclear, a word you weren't sure of, or something that needs the supervisor to confirm. Never a guess." },
+    ...FILL_SCHEMA_PROPS, // fill-everything (29 Oct 2026): activity hours, plant hours, tip runs
   },
-  required: ["sections", "delays", "checkThis"], additionalProperties: false,
+  required: ["sections", "delays", "checkThis", "activity", "plant", "tipRuns"], additionalProperties: false,
 } as const;
 
 const textOf = (v: unknown, max: number) => (typeof v === "string" ? v.replace(/\r\n/g, "\n").replace(/[ \t]+/g, " ").trim().slice(0, max) : "");
 // Plain code decides what is kept: known headings only (in the standard order, one each), known delay codes only,
 // hours between 0 and 24 or null, text capped, every dollar amount taken out again. Anything else is dropped.
-export function validateCleaned(raw: unknown, transcriptHadAmounts = false): Cleaned {
+// With a fill context (fill-everything) it also keeps the suggested activity hours, plant hours and tip runs that are
+// valid for this job, and says in "Check this" what doesn't add up (./fill.ts).
+export function validateCleaned(raw: unknown, transcriptHadAmounts = false, fillCtx?: FillContext): Cleaned {
   const r = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
   let removed = transcriptHadAmounts;
   const noMoney = (s: string) => { const x = stripMoney(s); if (x.removed) removed = true; return x.text; };
@@ -164,7 +177,8 @@ export function validateCleaned(raw: unknown, transcriptHadAmounts = false): Cle
   }
   const checkThis = (Array.isArray(r.checkThis) ? r.checkThis : []).slice(0, 8).map((c) => noMoney(textOf(c, 200))).filter(Boolean);
   if (shortened) checkThis.unshift(SHORTENED);
-  return { sections, delays, checkThis, amountsRemoved: removed };
+  const { fill, checks } = fillCtx ? validateFill(r, fillCtx, noMoney) : { fill: NO_FILL, checks: [] };
+  return { sections, delays, checkThis: [...checks, ...checkThis].slice(0, 12), amountsRemoved: removed, fill };
 }
 
 // The cleaned text as one note (what goes in the log's note box for the supervisor to edit). validateCleaned keeps it

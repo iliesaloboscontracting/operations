@@ -10,6 +10,7 @@ import { DELAY_CODES, DELAY_LABEL, NOTE_MAX, SPLIT_TOLERANCE, type DelayCode } f
 import type { LinkLogDTO, LogJobDTO, ProgressFormDTO } from "@/lib/dailyLog/types";
 import VoiceNote from "./VoiceNote";
 import { addToNote } from "@/lib/dailyLog/voiceRules";
+import { mergeFill } from "@/lib/dailyLog/fill";
 
 // The daily site log on a pilot supervisor's link (Task K, 25 Oct 2026):
 // about 60 seconds at the end of the day. 1) the crew and signed hours (from
@@ -171,6 +172,22 @@ function LogSteps({ api, job, voice, onBack, onSaved }: { api: string; job: LogJ
             return null;
           }}
           onAddDelay={(d) => { setNoDelays(false); setDelays((xs) => [...xs, { delayCode: d.delayCode, hoursLost: d.hoursLost == null ? "" : String(d.hoursLost), affects: "CREW", note: d.note, photos: [] }]); }}
+          onFill={(r, text) => {
+            // One tap fills the steps (29 Oct 2026): hours by code, plant, hold-ups and the note. Anything already filled
+            // or typed stays - those suggestions come back as "kept" for a tap each. Nothing is sent.
+            const noteNext = voiceIds.includes(r.voiceId) ? note : addToNote(note, text, new Date());
+            if (noteNext.length > NOTE_MAX) return { added: [], kept: [], error: "The note is full - send this log, then add the rest by opening it again (that saves a new version)." };
+            const m = mergeFill({ rows, plant }, { activity: r.fill?.activity ?? [], plant: r.fill?.plant ?? [] }, (c) => BY_CODE[c]?.name ?? c);
+            setRows(m.rows); setPlant(m.plant);
+            const newDelays = r.delays.filter((d) => !delays.some((x) => x.delayCode === d.delayCode));
+            if (newDelays.length) { setNoDelays(false); setDelays((xs) => [...xs, ...newDelays.map((d) => ({ delayCode: d.delayCode, hoursLost: d.hoursLost == null ? "" : String(d.hoursLost), affects: "CREW", note: d.note, photos: [] }))]); }
+            setNote(noteNext); setVoiceIds((v) => (v.includes(r.voiceId) ? v : [...v, r.voiceId]));
+            return { added: [...m.added, ...newDelays.map((d) => d.label)], kept: m.kept };
+          }}
+          onAcceptKept={(k) => {
+            if (k.what === "code") setRows((xs) => xs.map((x) => (x.code === k.key ? { ...x, hours: k.suggested } : x)));
+            else setPlant((xs) => xs.map((x) => (x.resourceId === k.key ? { ...x, hours: k.suggested, code: k.code ?? x.code } : x)));
+          }}
         />
       )}
 

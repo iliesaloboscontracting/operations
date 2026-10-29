@@ -99,7 +99,7 @@ test("Claude's tidy-up is checked: unknown delay codes and headings dropped, hou
   assert.deepEqual(c.checkThis, ["Was it level 2 or 3?"]);
   assert.ok(!("injected" in c));
   assert.equal(cleanedNote(c), "Work done: Stripped the level 2 ceilings. Bagged the ACM.\nTip runs: Three loads to Banksmeadow, tip charged (amount not recorded).");
-  assert.deepEqual(validateCleaned(null), { sections: [], delays: [], checkThis: [], amountsRemoved: false }, "rubbish in, nothing kept");
+  assert.deepEqual(validateCleaned(null), { sections: [], delays: [], checkThis: [], amountsRemoved: false, fill: { activity: [], plant: [], tipRuns: null } }, "rubbish in, nothing kept");
   assert.deepEqual([...HEADINGS], ["Work done", "Delays", "Plant", "Tip runs", "Safety & issues", "Tomorrow"]);
   assert.match(AMOUNTS_NOTICE, /tell the office/);
 });

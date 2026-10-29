@@ -7,11 +7,13 @@ import Anthropic from "@anthropic-ai/sdk";
 import { betaJSONSchemaOutputFormat } from "@anthropic-ai/sdk/helpers/beta/json-schema";
 import { ReadingNotConfigured } from "../invoiceReading";
 import { DELAY_LABEL } from "./rules";
-import { CLEAN_SCHEMA, HEADINGS, VOICE_TIMEOUTS, validateCleaned, type Cleaned } from "./voiceRules";
+import { CLEAN_SCHEMA, HEADINGS, VOICE_TIMEOUTS, validateCleaned, type Cleaned, type CleanContextInput } from "./voiceRules";
+import type { FillContext } from "./fill";
+import { CODES } from "../activityCodes";
 
 const MODEL = "claude-opus-5-5";
 
-export type CleanContext = { site: string; crew: string[]; plant: string[] };
+export type CleanContext = CleanContextInput;
 // The cleaner the voice route uses; a test passes its own. timeoutMs: what's left of the reply's time budget.
 export type Cleaner = (transcript: string, ctx: CleanContext, opts?: { timeoutMs?: number }) => Promise<unknown>;
 
@@ -25,7 +27,11 @@ Rules:
 - Put each point under one heading: ${HEADINGS.join(", ")}. Leave a heading out when nothing was said for it.
 - Delays: one entry per thing that held the crew or plant up, using only these codes: ${Object.entries(DELAY_LABEL).map(([c, l]) => `${c} (${l})`).join(", ")}. hoursLost only when a number of hours was said, otherwise null.
 - Never write any dollar amount, price, rate or cost. Amounts have already been removed and show as "(amount not recorded)"; leave that wording as it is.
-- Use the spellings of names below when it's clearly the same person, machine or site.`;
+- Use the spellings of names below when it's clearly the same person, machine or site.
+- Fill-in fields (only from what was said - leave them empty or null when it wasn't):
+  - activity: crew hours per activity code from the list given. Hours are the crew's TOTAL on that code. If they say people and a time ("3 guys on strip-out all day"), you may work the hours out from the signed hours given - then write the working in checkThis (e.g. "3 guys all day = 22.5 h from sign-ins").
+  - plant: machine hours, by the machine's NUMBER in the plant list (never anything else), with the code it worked on if said. Work out "from 10" from the shift times only if they were said; otherwise put it in checkThis.
+  - tipRuns: how many tip runs / loads to the tip were said. Dockets are counted separately - just the number said.`;
 
 // No retry: a long recording's tidy-up has one go inside the time budget, then the supervisor's own words are used.
 function client(timeoutMs: number) {
@@ -34,7 +40,13 @@ function client(timeoutMs: number) {
 }
 
 export const claudeCleaner: Cleaner = async (transcript, ctx, opts = {}) => {
-  const names = `Site: ${ctx.site || "(not given)"}\nCrew on this job: ${ctx.crew.join(", ") || "(none listed)"}\nPlant on this job: ${ctx.plant.join(", ") || "(none listed)"}`;
+  const names = [
+    `Site: ${ctx.site || "(not given)"}`,
+    `Crew on this job: ${ctx.crew.join(", ") || "(none listed)"}`,
+    ctx.crewHours ? `Crew signed in today (from sign-ins): ${ctx.crewHours.map((p) => `${p.name} ${p.hours} h`).join(", ") || "(nobody yet)"} - total ${ctx.signedHours ?? 0} h` : `Plant on this job: ${ctx.plant.join(", ") || "(none listed)"}`,
+    ctx.plantList ? `Plant on this job (use the number): ${ctx.plantList.map((n, i) => `${i + 1}. ${n}`).join("; ") || "(none)"}` : "",
+    ctx.plantList ? `Activity codes: ${CODES.map((c) => `${c.code} ${c.name}`).join("; ")}` : "",
+  ].filter(Boolean).join("\n");
   const response = await client(opts.timeoutMs ?? VOICE_TIMEOUTS.cleanMaxMs).beta.messages.parse({
     model: MODEL,
     // A full 5-minute recording tidied: up to NOTE_MAX (12000) characters of notes (~3000 tokens) plus the JSON,
@@ -52,9 +64,9 @@ export const claudeCleaner: Cleaner = async (transcript, ctx, opts = {}) => {
 
 // Tidy a transcript (amounts already out): Claude's answer, checked. A failure gives the plain transcript back as
 // "Work done" with a check-this line, so the supervisor still has their words to edit.
-export async function cleanTranscript(transcript: string, ctx: CleanContext, amountsRemoved: boolean, cleaner: Cleaner = claudeCleaner, timeoutMs?: number): Promise<Cleaned> {
+export async function cleanTranscript(transcript: string, ctx: CleanContext, amountsRemoved: boolean, cleaner: Cleaner = claudeCleaner, timeoutMs?: number, fillCtx?: FillContext): Promise<Cleaned> {
   try {
-    return validateCleaned(await cleaner(transcript, ctx, { timeoutMs }), amountsRemoved);
+    return validateCleaned(await cleaner(transcript, ctx, { timeoutMs }), amountsRemoved, fillCtx);
   } catch (e) {
     console.error("voice tidy failed", e instanceof Error ? e.message.slice(0, 120) : "error");
     return validateCleaned({ sections: [{ heading: "Work done", text: transcript }], delays: [], checkThis: ["This wasn't tidied - check the wording before you send."] }, amountsRemoved);

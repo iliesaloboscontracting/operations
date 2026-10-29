@@ -83,3 +83,17 @@ Print CSS for a tidy A4 from "Print / Save as PDF". Linked from Day Review's sit
 
 `DAILY_LOG_PILOT_LINKS=all`, `DAILY_LOG_VOICE=off|on` (default on when both keys are set), `OPENAI_API_KEY`,
 `ANTHROPIC_API_KEY`, `DAILY_LOG_REMINDER=off` (unchanged).
+
+## Fill everything (29 Oct 2026, Ilies: "yes build the fill-everything version too")
+
+- Claude also suggests activity hours ({code, hours} - codes from the v0.2 list only), plant hours ({machine number,
+  code?, hours} - by the machine's number in the job's plant list, mapped back to the board's machine on the server;
+  Claude never sees an id) and the number of tip runs. It's given the codes, the numbered plant list and the crew's
+  signed hours - names cleaned, no rates (`src/lib/dailyLog/fill.ts`).
+- Plain code keeps what's valid: activity lines as the log keeps them (crew total per code, more than 0, up to 500),
+  machines 0-24 h, tip runs 0-200. A total that doesn't match the signed hours (outside 0.5 h) and more tip runs than
+  dockets sent go to "Check this" - nothing is adjusted, and no docket rows are made.
+- "Fill my log from this" (one tap) fills the steps: hours by code, plant, hold-ups and the note. Anything already
+  filled or typed stays; a different suggestion for it is offered as "Use N h" - typed entries win. Recordings add up.
+  The supervisor checks each step and sends as usual. Weekly % complete isn't filled. The suggestion is stored with the
+  DailyLogVoice row's cleaned JSON (append-only).
