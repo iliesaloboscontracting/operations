@@ -45,8 +45,14 @@ export type HoursVsBudgetDTO =
   | { state: "OK"; budgetRef: string; budgetName: string; logs: number; rows: HoursVsBudgetRow[] }
   | { state: "NO_BUDGET" | "NO_LOGS" | "ESTIMATING_DOWN" };
 
+// "What was said" (30 Oct 2026): one recording the latest log version used - the transcript with every amount
+// already taken out, the tidied text it gave, when and how long. Managers and up only.
+export type VoiceTranscriptDTO = { id: string; at: string; seconds: number | null; transcript: string; tidied: string | null };
+
 export type DayReviewSiteLogDTO = {
   jobId: string; projectId: string | null; pilot: boolean; ran: boolean; dueAt: string; missing: boolean;
+  supervisors: string[]; voiceCount: number; // recordings the latest version used (0 = typed)
+  transcripts?: VoiceTranscriptDTO[]; // Manager+ only - absent for a Viewer
   latest: (LogDetailDTO & { logId: string }) | null;
   earlier: { revision: number; submittedBy: string; at: string; labourHours: number; splitHours: number }[];
   signedNow: number; mismatch: boolean; byHand: boolean;
@@ -63,8 +69,16 @@ export type SiteReportDTO = {
 };
 export type SiteReportDayDTO = { jobId: string; date: string; shift: string; revision: number; submittedBy: string };
 
+// The all-logs summary at the top of Day Review (30 Oct 2026): every job that day - who's on it, whether and when
+// it was logged (the latest version), by voice or typed. NO_SUPERVISOR: no supervisor with the log is on the job.
+export type DayReviewLogSummaryDTO = {
+  jobId: string; supervisors: string[]; state: "LOGGED" | "NO_LOG" | "DUE" | "NOT_RUN" | "NO_SUPERVISOR";
+  at: string | null; revision: number | null; byVoice: boolean; dueAt: string;
+};
+
 export type DayReviewSiteLogsDTO = {
   date: string; pilotOn: boolean; missingCount: number; codesVersion: string;
   jobs: DayReviewSiteLogDTO[];
+  summary: DayReviewLogSummaryDTO[]; // every job on the date
   budgets: Record<string, HoursVsBudgetDTO>; // by projectId - Manager+ only (empty for a Viewer)
 };

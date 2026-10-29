@@ -19,7 +19,8 @@ import {
 import { docketsSentFor } from "../receipts/store";
 import { voiceAvailable } from "./voiceRules";
 import { nameWithoutAmounts, stripMoney } from "./money";
-import type { DayReviewSiteLogDTO, DayReviewSiteLogsDTO, HoursVsBudgetDTO, LinkLogDTO, LogCardDTO, LogDetailDTO, LogJobDTO, ProgressFormDTO, SiteReportDayDTO, SiteReportDTO } from "./types";
+import { summaryState, supervisorsFor, voiceTranscript } from "./dayReview";
+import type { DayReviewLogSummaryDTO, DayReviewSiteLogDTO, DayReviewSiteLogsDTO, HoursVsBudgetDTO, LinkLogDTO, LogCardDTO, LogDetailDTO, LogJobDTO, ProgressFormDTO, SiteReportDayDTO, SiteReportDTO } from "./types";
 
 const dateOnly = (day: string) => new Date(`${day}T00:00:00.000Z`);
 const isoDay = (d: Date) => d.toISOString().slice(0, 10);
@@ -403,13 +404,14 @@ export async function submitProgress(link: ResolvedLink, body: Record<string, un
 
 // ---------- Day Review ----------
 
-export async function siteLogsForDate(date: string, now: Date, withBudgets: boolean): Promise<DayReviewSiteLogsDTO> {
+// office: a Manager or Admin - the hours-vs-budget tables and the raw transcripts ("What was said") are theirs only.
+export async function siteLogsForDate(date: string, now: Date, office: boolean): Promise<DayReviewSiteLogsDTO> {
   const people = await pilotPeople();
   const jobs = await prisma.job.findMany({
     where: { date: dateOnly(date) },
     select: {
       ...logJobSelect, status: true,
-      assignments: { select: { resourceId: true, resource: { select: { type: true } } } },
+      assignments: { select: { resourceId: true, resource: { select: { type: true, name: true } } } },
       _count: { select: { attendances: { where: { status: { not: "REJECTED" } } } } },
     },
   });
@@ -417,15 +419,21 @@ export async function siteLogsForDate(date: string, now: Date, withBudgets: bool
   const logs = ids.length ? await prisma.dailyLog.findMany({ where: { jobId: { in: ids } }, orderBy: { revision: "desc" }, include: logInclude }) : [];
   const monday = weekStartOf(date);
   const out: DayReviewSiteLogDTO[] = [];
+  const summary: DayReviewLogSummaryDTO[] = [];
+  const supervisorIds = new Set(people.keys());
   for (const j of jobs) {
     const mine = logs.filter((l) => l.jobId === j.id);
     const pilot = j.assignments.some((a) => people.has(a.resourceId));
-    if (!pilot && !mine.length) continue;
     const ran = !NOT_RUN.includes(j.status) && (j._count.attendances > 0 || j.assignments.some((a) => a.resource.type === "PERSONNEL"));
     const t = effectiveTimes(j, j.project);
     const dueAt = logDueAt({ date, shift: j.shift, finish: jobFinish(date, j.shift, t.start, t.end) });
-    const crew = await crewFor(j.id, now);
     const latest = mine[0] ?? null;
+    const missing = isMissingLog({ pilot, ran, hasLog: !!latest, dueAt }, now);
+    const supervisors = supervisorsFor(j.assignments.map((a) => ({ resourceId: a.resourceId, name: nameWithoutAmounts(a.resource.name) })), supervisorIds, latest ? nameWithoutAmounts(latest.submittedBy) : null);
+    const voiceCount = latest ? parseIds(latest.voiceIds).length : 0;
+    summary.push({ jobId: j.id, supervisors, state: summaryState({ pilot, ran, hasLog: !!latest, missing }), at: latest?.createdAt.toISOString() ?? null, revision: latest?.revision ?? null, byVoice: voiceCount > 0, dueAt: dueAt.toISOString() });
+    if (!pilot && !mine.length) continue;
+    const crew = await crewFor(j.id, now);
     let progress: DayReviewSiteLogDTO["progress"] = null;
     if (j.projectId) {
       const w = await prisma.weeklyProgress.findFirst({ where: { projectId: j.projectId, weekStart: monday }, orderBy: { revision: "desc" }, include: { lines: true } });
@@ -435,18 +443,28 @@ export async function siteLogsForDate(date: string, now: Date, withBudgets: bool
       }
     }
     out.push({
-      jobId: j.id, projectId: j.projectId, pilot, ran, dueAt: dueAt.toISOString(),
-      missing: isMissingLog({ pilot, ran, hasLog: !!latest, dueAt }, now),
+      jobId: j.id, projectId: j.projectId, pilot, ran, dueAt: dueAt.toISOString(), missing, supervisors, voiceCount,
+      ...(office ? { transcripts: latest ? await transcriptsFor(latest.jobId, parseIds(latest.voiceIds)) : [] } : {}),
       latest: latest ? { ...(await toDetail(latest)), logId: latest.id } : null,
       earlier: mine.slice(1).map((l) => ({ revision: l.revision, submittedBy: l.submittedBy, at: l.createdAt.toISOString(), labourHours: l.labourHours, splitHours: l.splitHours })),
       signedNow: crew.hours, mismatch: latest ? splitMismatch(latest, crew.hours) : false, byHand: latest ? !latest.crewOk : false, progress,
     });
   }
   const budgets: Record<string, HoursVsBudgetDTO> = {};
-  if (withBudgets) {
+  if (office) {
     for (const j of jobs) if (j.project && !budgets[j.project.id] && out.some((o) => o.jobId === j.id)) budgets[j.project.id] = await hoursVsBudgetFor(j.project, date);
   }
-  return { date, pilotOn: people.size > 0, missingCount: out.filter((o) => o.missing).length, codesVersion: VERSION, jobs: out, budgets };
+  return { date, pilotOn: people.size > 0, missingCount: out.filter((o) => o.missing).length, codesVersion: VERSION, jobs: out, summary, budgets };
+}
+
+// The recordings a log version used, oldest first - that job's finished ones only (Manager+, via siteLogsForDate).
+async function transcriptsFor(jobId: string, ids: string[]) {
+  if (!ids.length) return [];
+  const rows = await prisma.dailyLogVoice.findMany({
+    where: { id: { in: ids.slice(0, 10) }, jobId, status: "DONE" }, orderBy: { createdAt: "asc" },
+    select: { id: true, createdAt: true, seconds: true, transcript: true, cleaned: true },
+  });
+  return rows.map(voiceTranscript).filter((x) => x !== null);
 }
 
 // A log's photo, for Day Review: only a file that log (or one of its delays or dockets) holds.
