@@ -19,7 +19,7 @@ export default function BeforeAfterView({ data, photoUrl, size = "sm" }: { data:
             {photos.length === 0 ? (
               <p className={`text-xs ${c.missing ? "text-amber-400" : "text-gray-500"}`}>{c.missing ? `No ${c.title.toLowerCase()} photos` : "None yet"}</p>
             ) : (
-              <div className={size === "lg" ? "space-y-2" : "grid grid-cols-2 gap-1.5 sm:grid-cols-3"}>
+              <div className={size === "lg" ? "space-y-2" : "grid grid-cols-3 gap-1.5 sm:grid-cols-4 lg:grid-cols-6"}>
                 {photos.map((p) => (
                   <a key={p.id} href={photoUrl(p.id)} target="_blank" rel="noreferrer" className="block">
                     <img src={photoUrl(p.id)} alt={`${c.title} photo ${p.atLabel}`} className={img} />
