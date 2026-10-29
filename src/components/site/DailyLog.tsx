@@ -8,6 +8,7 @@ import { fmtDay } from "@/lib/dates";
 import { CODES, BY_CODE } from "@/lib/activityCodes";
 import { DELAY_CODES, DELAY_LABEL, SPLIT_TOLERANCE, type DelayCode } from "@/lib/dailyLog/rules";
 import type { LinkLogDTO, LogJobDTO, ProgressFormDTO } from "@/lib/dailyLog/types";
+import VoiceNote from "./VoiceNote";
 
 // The daily site log on a pilot supervisor's link (Task K, 25 Oct 2026):
 // about 60 seconds at the end of the day. 1) the crew and signed hours (from
@@ -17,6 +18,8 @@ import type { LinkLogDTO, LogJobDTO, ProgressFormDTO } from "@/lib/dailyLog/type
 // many were sent for the job. Once
 // a week, the same screen asks for % complete. Re-opening a logged day saves a
 // new version - the office keeps the earlier ones. No money anywhere here.
+// Voice (29 Oct 2026): a "Talk through your day" button at the top (./VoiceNote.tsx) when voice is on - the text and
+// any hold-ups it heard are suggestions the supervisor taps to use; Send is unchanged.
 
 const input = "w-full rounded-lg border border-edge bg-panel2 px-3 py-2.5 text-base text-gray-200 placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500";
 const primary = "flex w-full items-center justify-center gap-2 rounded-xl bg-brand-600 px-4 py-3 text-base font-semibold text-white disabled:opacity-50";
@@ -45,7 +48,7 @@ export default function DailyLog({ api, onDone }: { api: string; onDone: (messag
   if (!data) return <div className="py-16 text-center text-gray-500"><Loader2 className="mx-auto animate-spin" /></div>;
 
   const job = data.jobs.find((j) => j.jobId === picked);
-  if (job) return <LogSteps api={api} job={job} onBack={() => setPicked(null)} onSaved={(m) => onDone(m)} />;
+  if (job) return <LogSteps api={api} job={job} voice={!!data.voice} onBack={() => setPicked(null)} onSaved={(m) => onDone(m)} />;
   const form = data.progress.find((p) => p.projectId === progressFor);
   if (form) return <ProgressStep api={api} form={form} onBack={() => setProgressFor(null)} onSaved={(m) => onDone(m)} />;
 
@@ -96,7 +99,7 @@ type PlantRow = { resourceId: string; code: string; hours: number };
 type Delay = { delayCode: DelayCode; hoursLost: string; affects: string; note: string; photos: string[] };
 type Docket = { code: string; wasteClass: string; quantity: string; unit: string; docketNo: string; photo: string | null };
 
-function LogSteps({ api, job, onBack, onSaved }: { api: string; job: LogJobDTO; onBack: () => void; onSaved: (m: string) => void }) {
+function LogSteps({ api, job, voice, onBack, onSaved }: { api: string; job: LogJobDTO; voice: boolean; onBack: () => void; onSaved: (m: string) => void }) {
   const started = useRef(Date.now());
   const prev = job.latest;
   const [step, setStep] = useState(0);
@@ -116,6 +119,7 @@ function LogSteps({ api, job, onBack, onSaved }: { api: string; job: LogJobDTO; 
   const noDockets = dockets.length === 0;
   const [note, setNote] = useState(prev?.note ?? "");
   const [photos, setPhotos] = useState<string[]>(prev?.photos ?? []);
+  const [voiceIds, setVoiceIds] = useState<string[]>([]); // the recordings whose text was used (the server keeps the transcripts)
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -137,7 +141,7 @@ function LogSteps({ api, job, onBack, onSaved }: { api: string; job: LogJobDTO; 
       jobId: job.jobId, crewOk, crewNote, handCrew: crewOk ? undefined : Number(handCrew), handHours: crewOk ? undefined : handHours,
       hours: rows.filter((r) => r.hours > 0), plant: plant.map((p) => ({ ...p, code: p.code || biggest })),
       noDelays, delays: noDelays ? [] : delays, noDockets, dockets: noDockets ? [] : dockets,
-      note, photos, durationSec: Math.round((Date.now() - started.current) / 1000),
+      note, photos, voiceIds, durationSec: Math.round((Date.now() - started.current) / 1000),
     };
     const res = await fetch(`${api}/log`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).catch(() => null);
     setBusy(false);
@@ -155,6 +159,13 @@ function LogSteps({ api, job, onBack, onSaved }: { api: string; job: LogJobDTO; 
         <span className="text-xs text-gray-500">{step < 3 ? `Step ${step + 1} of 3` : "Review"}</span>
       </div>
       <p className="mb-4 text-sm text-gray-500">{job.label} · {dayLabel(job.date)}{prev ? ` · correcting the ${prev.atLabel} log (saves version ${prev.revision + 1})` : ""}</p>
+      {voice && (
+        <VoiceNote
+          api={api} jobId={job.jobId}
+          onUseNote={(text, id) => { setNote(text); setVoiceIds((v) => (v.includes(id) ? v : [...v, id])); }}
+          onAddDelay={(d) => { setNoDelays(false); setDelays((xs) => [...xs, { delayCode: d.delayCode, hoursLost: d.hoursLost == null ? "" : String(d.hoursLost), affects: "CREW", note: d.note, photos: [] }]); }}
+        />
+      )}
 
       {step === 0 && (
         <div className="space-y-3">
