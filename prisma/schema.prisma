@@ -1288,6 +1288,7 @@ model DailyLog {
   noDelays      Boolean  @default(false)
   noDockets     Boolean  @default(false)
   durationSec   Int?     // open -> submit, to measure the 60-second target
+  voiceIds      String   @default("[]") // JSON: the DailyLogVoice recordings this revision used (29 Oct 2026)
   createdAt     DateTime @default(now())
   hours         DailyLogHours[]
   delays        DailyLogDelay[]
@@ -1295,6 +1296,25 @@ model DailyLog {
   @@unique([jobId, revision])
   @@index([date])
   @@index([projectId, date])
+}
+
+// Voice entry on the daily log (29 Oct 2026, Ilies "go"; docs/lci/DAILY-LOG-VOICE-DESIGN.md). One row per recording
+// a supervisor's link sent - this is what the 20-a-day limit counts. The audio itself is never kept: it's held in
+// memory, turned into text, and dropped. The transcript is stored with every dollar amount already taken out; the
+// cleaned text is Claude's tidy-up as checked by plain code (voiceRules.validateCleaned). Append-only: a row is
+// written before the transcription and finished once (status), never edited after.
+model DailyLogVoice {
+  id         String   @id @default(cuid())
+  siteLinkId String
+  jobId      String
+  day        String   // YYYY-MM-DD, Sydney - the day the limit counts
+  status     String   @default("PENDING") // PENDING | DONE | FAILED
+  seconds    Int?     // the phone's recorded length
+  transcript String?  // amounts removed
+  cleaned    String?  // JSON { sections, delays, checkThis, amountsRemoved }
+  createdAt  DateTime @default(now())
+  @@index([siteLinkId, day])
+  @@index([jobId])
 }
 
 model DailyLogHours {

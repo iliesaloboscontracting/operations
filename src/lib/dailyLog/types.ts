@@ -34,7 +34,7 @@ export type ProgressFormDTO = {
   lines: { packageId: string | null; code: string; label: string; last: number | null; thisWeek: number | null }[];
 };
 
-export type LinkLogDTO = { jobs: LogJobDTO[]; progress: ProgressFormDTO[] };
+export type LinkLogDTO = { jobs: LogJobDTO[]; progress: ProgressFormDTO[]; voice?: boolean }; // voice: the mic is available (29 Oct 2026)
 
 // The home card on the link ("Daily log - not done today" / "Logged 4:52pm").
 export type LogCardDTO = { jobs: number; logged: number; lastAt: string | null; progressDue: boolean };

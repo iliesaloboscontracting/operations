@@ -166,7 +166,8 @@ export function parseLog(b: Record<string, unknown>, ctx: LogContext): ParsedLog
   const dur = num(b.durationSec);
   return {
     crewOk, crewNote, crewCount, labourHours, splitHours, hours, delays, dockets,
-    note: text(b.note, 1000) || null, photos, noDelays: noDelays || delays.length === 0, noDockets: noDockets || dockets.length === 0,
+    // note: 2000 characters since voice entry (29 Oct 2026) - a talked-through day runs longer.
+    note: text(b.note, 2000) || null, photos, noDelays: noDelays || delays.length === 0, noDockets: noDockets || dockets.length === 0,
     durationSec: Number.isFinite(dur) && dur >= 0 && dur <= 86_400 ? Math.round(dur) : null,
   };
 }

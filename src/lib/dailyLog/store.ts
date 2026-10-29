@@ -17,6 +17,7 @@ import {
   hoursVsBudget, isMissingLog, logDueAt, pickApprovedBudget, progressDue, splitMismatch, sydneyDay, weekStartOf, type BudgetPackageHours,
 } from "./checks";
 import { docketsSentFor } from "../receipts/store";
+import { voiceAvailable } from "./voiceRules";
 import type { DayReviewSiteLogDTO, DayReviewSiteLogsDTO, HoursVsBudgetDTO, LinkLogDTO, LogCardDTO, LogDetailDTO, LogJobDTO, ProgressFormDTO } from "./types";
 
 const dateOnly = (day: string) => new Date(`${day}T00:00:00.000Z`);
@@ -247,7 +248,8 @@ export async function linkLogView(link: ResolvedLink, now: Date): Promise<LinkLo
     });
   }
   const progress = await progressForms(link, now, budgets);
-  return { jobs: out, progress };
+  // voice: the mic shows only when it's on and both keys are set (DAILY_LOG_VOICE, OPENAI_API_KEY, ANTHROPIC_API_KEY).
+  return { jobs: out, progress, voice: voiceAvailable() };
 }
 
 // Weekly % forms for the projects the person worked on this week.
@@ -328,6 +330,7 @@ export async function submitLog(link: ResolvedLink, body: Record<string, unknown
   ]);
   const parsed = parseLog(body, { signedHours: crew.hours, signedCrew: crew.count, plant: new Map(plant.map((p) => [p.resourceId, p.kind])) });
   if ("error" in parsed) return { error: parsed.error, status: 400 };
+  const voiceIds = await usableVoiceIds(link.id, job.id, body.voiceIds);
 
   // Photos: new ones (data URLs) are saved; one kept from an earlier version must really be that job's.
   const earlier = new Set(prior.flatMap((l) => [...parseIds(l.photoIds), ...l.delays.flatMap((d) => parseIds(d.photoIds)), ...l.dockets.map((d) => d.photoId ?? "")]).filter(Boolean));
@@ -348,6 +351,7 @@ export async function submitLog(link: ResolvedLink, body: Record<string, unknown
     jobId: job.id, projectId: job.projectId, date: day, revision, siteLinkId: link.id, submittedBy: link.person.name, codesVersion: VERSION,
     crewCount: parsed.crewCount, labourHours: parsed.labourHours, splitHours: parsed.splitHours, crewOk: parsed.crewOk, crewNote: parsed.crewNote,
     note: parsed.note, photoIds: JSON.stringify(photos), noDelays: parsed.noDelays, noDockets: parsed.noDockets, durationSec: parsed.durationSec,
+    voiceIds: JSON.stringify(voiceIds),
     hours: { create: parsed.hours }, delays: { create: delays }, dockets: { create: dockets },
   });
   // Two phones submitting at once: the unique (job, revision) catches it - try the next number once.
@@ -357,6 +361,15 @@ export async function submitLog(link: ResolvedLink, body: Record<string, unknown
     return prisma.dailyLog.create({ data: data(revision), include: logInclude });
   });
   return { log: await toDetail(saved) };
+}
+
+// The voice recordings a log may cite (voice entry, 29 Oct 2026): this link's, this job's, finished ones only - the
+// transcript and cleaned text stay on the server, the phone only sends their ids. Anything else is dropped.
+async function usableVoiceIds(linkId: string, jobId: string, ids: unknown): Promise<string[]> {
+  const want = (Array.isArray(ids) ? ids : []).filter((x): x is string => typeof x === "string" && /^[a-z0-9]{10,40}$/.test(x)).slice(0, 10);
+  if (!want.length) return [];
+  const rows = await prisma.dailyLogVoice.findMany({ where: { id: { in: want }, siteLinkId: linkId, jobId, status: "DONE" }, select: { id: true } });
+  return rows.map((r) => r.id);
 }
 
 // ---------- the link: POST weekly % ----------
