@@ -6,6 +6,7 @@ import { NotebookPen } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import HoursVsBudget from "@/components/tracking/HoursVsBudget";
 import SiteReport from "@/components/dailyReport/SiteReport";
+import BeforeAfterView from "@/components/dailyReport/BeforeAfterView";
 import { UNIT_LABEL, ACM } from "@/lib/dailyLog/rules";
 import type { DayReviewSiteLogDTO, HoursVsBudgetDTO } from "@/lib/dailyLog/types";
 
@@ -16,7 +17,8 @@ import type { DayReviewSiteLogDTO, HoursVsBudgetDTO } from "@/lib/dailyLog/types
 // once it's past 19:00, the split no longer matching sign-ins, crew entered
 // by hand. Read-only; no dollars. Managers+ also get (30 Oct 2026) "What was
 // said" - each recording word for word next to its tidied text, sent only to
-// them by the server - and the full daily site report inline.
+// them by the server - and the full daily site report inline - and the
+// before / after site photos side by side (Managers+ only, also server-gated).
 
 const time = (iso: string) => new Date(iso).toLocaleTimeString("en-AU", { timeZone: "Australia/Sydney", hour: "numeric", minute: "2-digit" });
 const hrs = (n: number) => `${Math.round(n * 100) / 100} h`;
@@ -52,6 +54,8 @@ export default function SiteLogPanel({ log, budget }: { log: DayReviewSiteLogDTO
             <Link href={`/daily-report/${log.jobId}`} className="text-brand-400 hover:underline" title="Opens the report on its own page, to print or save as PDF">Daily site report</Link>
           </span>
         )}
+        {log.beforeAfter?.noBefore && <span className="rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-400">No before photos</span>}
+        {log.beforeAfter?.noAfter && <span className="rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-400">No after photos</span>}
         {log.mismatch && l && <span className="rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-400">Split {hrs(l.labourHours)}, signed now {hrs(log.signedNow)}</span>}
       </div>
 
@@ -87,6 +91,12 @@ export default function SiteLogPanel({ log, budget }: { log: DayReviewSiteLogDTO
           {l.photos.length > 0 && (
             <div className="flex flex-wrap gap-1.5">{l.photos.map((p) => <a key={p} href={photo(p)} target="_blank" rel="noreferrer"><img src={photo(p)} alt="" className="h-14 w-14 rounded object-cover" /></a>)}</div>
           )}
+        </div>
+      )}
+
+      {log.beforeAfter && (log.beforeAfter.before.length > 0 || log.beforeAfter.after.length > 0) && (
+        <div className="mt-2 text-xs">
+          <BeforeAfterView data={log.beforeAfter} photoUrl={(id) => `/api/day-review/site-logs/before-after?job=${encodeURIComponent(log.jobId)}&id=${encodeURIComponent(id)}`} />
         </div>
       )}
 

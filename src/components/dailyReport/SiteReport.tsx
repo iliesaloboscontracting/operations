@@ -7,6 +7,7 @@ import { apiFetch, serverErrorMessage } from "@/lib/apiFetch";
 import { fmtDay } from "@/lib/dates";
 import { ACM, UNIT_LABEL } from "@/lib/dailyLog/rules";
 import type { SiteReportDTO } from "@/lib/dailyLog/types";
+import BeforeAfterView from "./BeforeAfterView";
 
 // The written "Daily site report" (29 Oct 2026, Ilies "go"): one job on one day, laid out for the office to read or
 // print - site, date, supervisor, crew and signed hours, hours by activity code, plant, delays with photos, tip
@@ -67,6 +68,12 @@ export default function SiteReport({ jobId, mode, inline = false }: { jobId: str
           {l ? ` · Supervisor ${l.submittedBy} · logged ${time(l.at)}${l.revisions > 1 ? ` · version ${l.revision} of ${l.revisions}` : ""}` : " · no site log yet"}
         </p>
       </header>
+
+      <section className={card}>
+        <h3 className={h3}>Before and after</h3>
+        <BeforeAfterView data={r.beforeAfter} size="lg"
+          photoUrl={(id) => `${mode === "director" ? "/api/directors/daily-report/before-after" : "/api/day-review/site-logs/before-after"}?job=${encodeURIComponent(r.jobId)}&id=${encodeURIComponent(id)}`} />
+      </section>
 
       <section className={card}>
         <h3 className={h3}>Crew</h3>

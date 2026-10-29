@@ -9,6 +9,8 @@ import { CODES, BY_CODE } from "@/lib/activityCodes";
 import { DELAY_CODES, DELAY_LABEL, NOTE_MAX, SPLIT_TOLERANCE, type DelayCode } from "@/lib/dailyLog/rules";
 import type { LinkLogDTO, LogJobDTO, ProgressFormDTO } from "@/lib/dailyLog/types";
 import VoiceNote from "./VoiceNote";
+import BeforeAfterPhotos from "./BeforeAfterPhotos";
+import type { Phase } from "@/lib/dailyLog/beforeAfter";
 import { addToNote } from "@/lib/dailyLog/voiceRules";
 import { mergeDelays, mergeFill } from "@/lib/dailyLog/fill";
 
@@ -22,6 +24,8 @@ import { mergeDelays, mergeFill } from "@/lib/dailyLog/fill";
 // new version - the office keeps the earlier ones. No money anywhere here.
 // Voice (29 Oct 2026): a "Talk through your day" button at the top (./VoiceNote.tsx) when voice is on - the text and
 // any hold-ups it heard are suggestions the supervisor taps to use; Send is unchanged.
+// Before / after photos (30 Oct 2026, Ilies): "Before photos" first thing and "After photos" when the job's done or
+// with the log - each photo saved the moment it's sent (./BeforeAfterPhotos.tsx). Expected, never needed to send.
 
 const input = "w-full rounded-lg border border-edge bg-panel2 px-3 py-2.5 text-base text-gray-200 placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500";
 const primary = "flex w-full items-center justify-center gap-2 rounded-xl bg-brand-600 px-4 py-3 text-base font-semibold text-white disabled:opacity-50";
@@ -36,6 +40,7 @@ export default function DailyLog({ api, onDone }: { api: string; onDone: (messag
   const [error, setError] = useState<string | null>(null);
   const [picked, setPicked] = useState<string | null>(null);
   const [progressFor, setProgressFor] = useState<string | null>(null);
+  const [photoFor, setPhotoFor] = useState<{ jobId: string; phase: Phase } | null>(null);
 
   const load = useCallback(async () => {
     const res = await fetch(`${api}/log`);
@@ -49,6 +54,15 @@ export default function DailyLog({ api, onDone }: { api: string; onDone: (messag
   if (error) return <p className="rounded-xl border border-edge bg-panel p-4 text-sm text-red-300">{error}</p>;
   if (!data) return <div className="py-16 text-center text-gray-500"><Loader2 className="mx-auto animate-spin" /></div>;
 
+  const photoJob = photoFor && data.jobs.find((j) => j.jobId === photoFor.jobId);
+  if (photoFor && photoJob) return (
+    <div className="space-y-3">
+      <h2 className="text-lg font-semibold text-gray-100">{photoJob.label}</h2>
+      <p className="text-sm text-gray-500">{photoFor.phase === "BEFORE" ? "Photos of the site before you start." : "Photos of the site when the job's done."}</p>
+      <BeforeAfterPhotos api={api} jobId={photoJob.jobId} phase={photoFor.phase} initial={photoFor.phase === "BEFORE" ? photoJob.beforeAfter.before : photoJob.beforeAfter.after} />
+      <button className={primary} onClick={() => { setPhotoFor(null); load(); }}>Done</button>
+    </div>
+  );
   const job = data.jobs.find((j) => j.jobId === picked);
   if (job) return <LogSteps api={api} job={job} voice={!!data.voice} onBack={() => setPicked(null)} onSaved={(m) => onDone(m)} />;
   const form = data.progress.find((p) => p.projectId === progressFor);
@@ -61,8 +75,9 @@ export default function DailyLog({ api, onDone }: { api: string; onDone: (messag
       {data.jobs.length === 0 && <p className="mb-4 rounded-xl border border-edge bg-panel p-4 text-sm text-gray-400">You&apos;re not on a job to log today.</p>}
       <div className="space-y-3">
         {data.jobs.map((j) => (
-          <button key={j.jobId} onClick={() => setPicked(j.jobId)} disabled={j.closed}
-            className="flex w-full items-center gap-3 rounded-2xl border border-edge bg-panel p-4 text-left disabled:opacity-60">
+          <div key={j.jobId} className="rounded-2xl border border-edge bg-panel">
+          <button onClick={() => setPicked(j.jobId)} disabled={j.closed}
+            className="flex w-full items-center gap-3 rounded-2xl p-4 text-left disabled:opacity-60">
             <span className="min-w-0 flex-1">
               <span className="block text-base font-semibold text-gray-100">{j.label}</span>
               <span className="block text-sm text-gray-500">{dayLabel(j.date)} · {j.crew.count} signed in · {h(j.crew.hours)}</span>
@@ -71,6 +86,22 @@ export default function DailyLog({ api, onDone }: { api: string; onDone: (messag
               : j.latest ? <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-sm text-emerald-300">Logged {j.latest.atLabel} ✓</span>
               : <span className="rounded-full bg-amber-500 px-2 py-0.5 text-sm font-semibold text-black">Not done</span>}
           </button>
+          {!j.closed && (
+            <div className="grid grid-cols-2 gap-2 px-4 pb-4">
+              {(["BEFORE", "AFTER"] as const).map((ph) => {
+                const n = ph === "BEFORE" ? j.beforeAfter.before.length : j.beforeAfter.after.length;
+                const missing = ph === "BEFORE" ? j.beforeAfter.noBefore : j.beforeAfter.noAfter;
+                return (
+                  <button key={ph} onClick={() => setPhotoFor({ jobId: j.jobId, phase: ph })}
+                    className={`flex flex-col items-center rounded-xl border px-2 py-2.5 text-sm font-semibold ${missing ? "border-amber-500/60 text-amber-200" : "border-edge text-gray-200"} bg-panel2`}>
+                    <span className="flex items-center gap-1.5"><Camera size={16} /> {ph === "BEFORE" ? "Before" : "After"} photos</span>
+                    <span className="text-xs font-normal text-gray-400">{n ? `${n} sent` : missing ? `No ${ph === "BEFORE" ? "before" : "after"} photos` : "None yet"}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          </div>
         ))}
       </div>
       {data.progress.length > 0 && (
@@ -197,6 +228,7 @@ function LogSteps({ api, job, voice, onBack, onSaved }: { api: string; job: LogJ
 
       {step === 0 && (
         <div className="space-y-3">
+          {!job.closed && <BeforeAfterPhotos api={api} jobId={job.jobId} phase="BEFORE" initial={job.beforeAfter.before} hint={job.beforeAfter.noBefore ? "No before photos yet." : undefined} />}
           <div className="rounded-xl border border-edge bg-panel p-4">
             <div className="flex items-baseline justify-between"><span className="text-sm text-gray-400">Crew today (signed in)</span><span className="text-lg font-semibold text-gray-100">{job.crew.count} · {h(signed)}</span></div>
             <div className="mt-1 text-sm text-gray-500">Staff {job.crew.staff} ({h(job.crew.staffHours)}), labour hire {job.crew.hire} ({h(job.crew.hireHours)})</div>
@@ -314,6 +346,7 @@ function LogSteps({ api, job, voice, onBack, onSaved }: { api: string; job: LogJ
           <label className="block"><span className="mb-1 block text-sm text-gray-300">Note for the office (optional)</span>
             <textarea className={input} rows={3} maxLength={NOTE_MAX} value={note} onChange={(e) => setNote(e.target.value)} /></label>
           <Photos photos={photos} max={4} label="Add photos of the day" onChange={setPhotos} />
+          {!job.closed && <BeforeAfterPhotos api={api} jobId={job.jobId} phase="AFTER" initial={job.beforeAfter.after} hint="No after photos yet - add them when the job's done (you can still send without them)." />}
           {error && <p className="rounded-lg bg-red-500/15 px-3 py-2 text-sm text-red-300">{error}</p>}
           <button className={primary} disabled={busy} onClick={submit}>{busy ? <Loader2 size={18} className="animate-spin" /> : <Check size={18} />} Submit</button>
           <button className="w-full text-sm text-gray-400" onClick={() => setStep(2)}>← Back</button>

@@ -288,7 +288,11 @@ function LogSummary({ logs, jobs }: { logs: DayReviewSiteLogsDTO; jobs: DayRevie
             {/* On a phone the job takes its own line; the supervisor and status sit under it. */}
             <span className="min-w-0 basis-full truncate text-gray-200 sm:basis-0 sm:flex-1">{j.title}</span>
             <span className="min-w-0 truncate text-gray-500">{s.supervisors.join(", ") || "No supervisor"}</span>
-            <span className="ml-auto shrink-0"><SummaryStatus s={s} /></span>
+            <span className="ml-auto flex shrink-0 items-center gap-2">
+              {s.noBefore && <span className="text-amber-400">No before photos</span>}
+              {s.noAfter && <span className="text-amber-400">No after photos</span>}
+              <SummaryStatus s={s} />
+            </span>
           </a>
         ))}
       </div>}
