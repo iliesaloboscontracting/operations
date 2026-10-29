@@ -113,8 +113,13 @@ business, without becoming unnecessarily complicated.
 - **AI assistant** (`/assistant`, Manager+ only, added 2026-09-29): a
   read-only Q&A chat over live operational data, via the Anthropic API
   (`ANTHROPIC_API_KEY` in `.env`, unset by default — the route 503s with a
-  clear message rather than failing if it's missing). This is the only part
-  of the app that makes an outbound network call; nothing else does. Its
+  clear message rather than failing if it's missing). (It was the first
+  outbound connection; the others are listed where they're described, plus
+  **OpenAI speech-to-text** - `gpt-4o-mini-transcribe` at api.openai.com
+  only, shared helper `src/lib/voice/transcribe.ts` with a host allowlist,
+  timeout and scrubbed errors, `OPENAI_API_KEY` - used by the Command Centre
+  voice commands and the site daily log's voice entry; Ilies approved keeping
+  it on, 29 Oct 2026, closing review item D13-1.) Its
   "tools" (`src/lib/assistantTools.ts`) are thin wrappers that call this
   app's own existing API routes (`/api/jobs`, `/api/tracking`, `/api/projects`,
   `/api/resources`) with the caller's session cookie forwarded, rather than
@@ -271,8 +276,10 @@ business, without becoming unnecessarily complicated.
   Connect / Disconnect stay owner-only.
   Never add a write scope or a non-Xero host without Ilies's approval.
 - **Daily site log** (LCI phase 1, 25 Oct 2026; Ilies: "yes to all, build";
-  `src/lib/dailyLog/`): pilot supervisors (`DAILY_LOG_PILOT_LINKS` = their
-  SiteLink ids, comma-separated; empty = off) log each job on their link -
+  `src/lib/dailyLog/`): since 29 Oct 2026 (Ilies "go") **every supervisor**
+  (`DAILY_LOG_PILOT_LINKS=all` - every active SUPERVISOR link, plus HANDOVER
+  links on their jobs; never OFFICE / POSTER / DRIVER; an id list still works;
+  empty = off) logs each job on their link -
   crew and hours from sign-ins split across activity codes v0.2 (pinned in
   `src/lib/activityCodes.ts`, checked against Estimating's
   `api/activity-codes`), delays, tip dockets (asbestos needs a photo), weekly
@@ -284,6 +291,22 @@ business, without becoming unnecessarily complicated.
   Hours vs the approved budget.v1 per code on Day Review and the job pages;
   "Act" is the Directors finding LABOUR_HOURS_VS_BUDGET (hours only).
   Pilot report: `scripts/daily-log-pilot-report.ts` (read-only).
+  **Voice entry** (29 Oct 2026, design `docs/lci/DAILY-LOG-VOICE-DESIGN.md`):
+  "Talk through your day" on the link (`/api/site/[token]/log/voice`, rides
+  the photos tunnel route). OpenAI turns the recording into text (the audio is
+  held in memory only, never stored), every dollar amount is stripped, Claude
+  (existing key) tidies it into Work done / Delays / Plant / Tip runs / Safety
+  & issues / Tomorrow plus suggested delays and a "Check this" list (strict
+  schema, validated in plain code; the transcript is data, never
+  instructions). The supervisor edits it and taps to use it - nothing is
+  auto-filled or sent. 20 recordings per link per Sydney day
+  (`DailyLogVoice`, append-only, transcript with amounts removed);
+  `DailyLog.voiceIds`. Kill switch `DAILY_LOG_VOICE=off` (also off when
+  OPENAI_API_KEY or ANTHROPIC_API_KEY is missing; typing always works).
+  **Daily site report** (29 Oct 2026): `/daily-report/[jobId]` (Manager+) and
+  `/directors/daily-report/[jobId]` (guardDirector) - crew and signed hours,
+  hours by code, plant, delays with photos, dockets sent, notes, photos; no
+  dollar figures; print CSS for A4. Linked from Day Review and the job page.
 - **Information gaps / queries** (25 Oct 2026): questions to Nick, Yoel or
   accounts are QUERY requests answered in-app (Directors → My queries;
   accounts' Invoices → Queries), never on a link when they carry money.
