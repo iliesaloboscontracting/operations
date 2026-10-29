@@ -30,9 +30,10 @@ const MONEY_PATTERNS = [
   new RegExp(String.raw`\b\d(?:[\d,]*\d)?(?:\.\d+)?\s?k\s+(?:for\s+(?:the\s+)?)?` + MONEY_WORD + String.raw`\b`, "gi"),
 ];
 // A name (a hire worker's name or company, a machine, a site) with any amount taken out and no tag left behind - so a
-// "$5 Labour" company can't break the log screen or the report (SEC-010).
+// "$5 Labour" company can't break the log screen or the report (SEC-010). Every "$" left over goes too, so the money
+// guard always passes on the result - "$$5 5 5" can't come back as "$ 5" (DLV-SEC-013).
 export const nameWithoutAmounts = (s: string) =>
-  stripMoney(s).text.replace(/\(amount not recorded\)/g, "").replace(/\(\s*\)|\[\s*\]/g, "").replace(/\s+[-–]\s*$/, "").replace(/\s+/g, " ").trim();
+  stripMoney(s).text.replace(/\(amount not recorded\)/g, "").replace(/\(\s*\)|\[\s*\]/g, "").replace(/\s+[-–]\s*$/, "").replace(/\$/g, "").replace(/\s+/g, " ").trim();
 
 // Every dollar amount out of a piece of text. `removed` says whether there was one (the screen then shows AMOUNTS_NOTICE).
 export function stripMoney(text: string): { text: string; removed: boolean } {

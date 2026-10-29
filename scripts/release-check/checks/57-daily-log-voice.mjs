@@ -107,6 +107,19 @@ export default {
     t.status({ status: hireRep.status }, 200, "...and the daily site report opens");
     t.ok(noMoney(hireRep.body) && JSON.stringify(hireRep.body).includes("Labour"), "...with no dollar figure (the company shows as Labour)");
 
+    // DLV-SEC-013: a company typed "$$$5 5 5" (saved as it was typed) - the log screen, the report and the supervisor's
+    // "Approve hours" screen all still open, with no dollar figure.
+    await c.db.siteAttendance.create({ data: { jobId: job.id, date: day, workerName: "Hire Two", company: "$$$5 5 5", signInAt: new Date(Date.now() - 2 * 3600_000), signInMethod: "MANUAL", status: "CONFIRMED", allocated: false } });
+    const oddView = await c.json(c.site(L.sup, "/log"), null);
+    t.status({ status: oddView.status }, 200, "with a \"$$$5 5 5\" company sign-in the log screen opens");
+    t.ok(noMoney(oddView.body) && !JSON.stringify(oddView.body).includes("$"), "...with no $ anywhere");
+    const oddRep = await c.json(`/api/daily-report/${job.id}`, "MANAGER");
+    t.status({ status: oddRep.status }, 200, "...the daily site report opens");
+    t.ok(noMoney(oddRep.body) && !JSON.stringify(oddRep.body).includes("$"), "...with no $ anywhere");
+    const oddHours = await c.json(c.site(L.sup, `/hours?date=${day}`), null);
+    t.status({ status: oddHours.status }, 200, "...and the supervisor's Approve hours screen opens (\"$5 Labour\" and \"$$$5 5 5\" saved before the fix)");
+    t.ok(noMoney(oddHours.body) && !JSON.stringify(oddHours.body).includes("$"), "...with no $ anywhere");
+
     // SEC-002: a typed "$650" in the note is taken out - the screen and the report still open, with no dollar figure.
     const sent = await fetch(`${c.base}${c.site(L.sup, "/log")}`, {
       method: "POST", headers: { "Content-Type": "application/json" },

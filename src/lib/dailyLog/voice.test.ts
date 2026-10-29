@@ -243,6 +243,12 @@ test("SEC-010: a hire worker's company '$5 Labour' is kept without the amount, a
   assert.equal(nameWithoutAmounts("Hire Worker $40"), "Hire Worker");
   assert.equal(nameWithoutAmounts("Kobelco SK135 - $850 per day"), "Kobelco SK135");
   assert.equal(nameWithoutAmounts("Sam Smith"), "Sam Smith", "ordinary names untouched");
+  // DLV-SEC-013: no "$" is ever left behind, however it's typed.
+  for (const x of ["$5 5", "$$5 5 5", "$ $5 5", "$5 5 Labour"]) {
+    const n = nameWithoutAmounts(x);
+    assert.ok(assertNoMoney(JSON.stringify(n)) && !n.includes("$"), `${x} -> ${n}`);
+  }
+  assert.equal(nameWithoutAmounts("$5 5 Labour").endsWith("Labour"), true);
   const crew = { count: 1, hours: 7.5, people: [{ name: nameWithoutAmounts("Hire Worker $40"), company: nameWithoutAmounts("$5 Labour"), in: "6:30 am", out: null, hours: 7.5, stillOn: true }] };
   assert.ok(linkSafe(crew), JSON.stringify(crew));
 });

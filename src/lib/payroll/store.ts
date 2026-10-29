@@ -7,6 +7,7 @@ import { jobLabel, POINT_BREAK_MINUTES, signedHours, sydneyTime } from "../signi
 import { matchHireSignIns } from "../labourHireMatch";
 import { activeApproval, weekDates, weekEnd, weekHasEnded } from "../timesheets";
 import { assertNoMoney } from "../moneyGuard";
+import { nameWithoutAmounts } from "../dailyLog/money";
 import { todaySydney } from "../today";
 import type { ResolvedLink } from "../siteLinks";
 import {
@@ -186,7 +187,8 @@ export async function dayHoursForLink(link: ResolvedLink, date: string): Promise
     date,
     jobs: jobs.filter((j) => atts.some((a) => a.jobId === j.id)).map((j) => {
       const crew = atts.filter((a) => a.jobId === j.id).map((a) => ({
-        attendanceId: a.id, name: a.resource?.name ?? a.workerName, company: a.company, in: sydneyTime(a.signInAt)!, out: sydneyTime(a.signOutAt),
+        // Names as typed at sign-in can hold a "$" (a hire company "$5 Labour") - taken out so "Approve hours" never fails (DLV-SEC-013).
+        attendanceId: a.id, name: nameWithoutAmounts(a.resource?.name ?? a.workerName), company: a.company ? nameWithoutAmounts(a.company) : a.company, in: sydneyTime(a.signInAt)!, out: sydneyTime(a.signOutAt),
         hours: signedHours(a.signInAt, a.signOutAt, j.project?.unpaidBreakMinutes ?? 0), toConfirm: a.status === "TO_CONFIRM",
       }));
       const a = approvals.get(`${j.id}|${date}`);
