@@ -32,7 +32,9 @@ export default {
 
     // A job today with the supervisor on it.
     const day = sydneyDay();
-    const project = await c.db.project.findFirst({ where: { archived: false }, select: { id: true, name: true } });
+    // A project with no job today (one job per project, day and shift).
+    const project = await c.db.project.findFirst({ where: { archived: false, jobs: { none: { date: new Date(`${day}T00:00:00Z`) } } }, select: { id: true, name: true } });
+    if (!project) return t.block("no active project without a job today on the copy");
     const job = await c.db.job.create({ data: { title: project?.name ?? "Release check job", projectId: project?.id ?? null, date: new Date(`${day}T00:00:00Z`), shift: "DAY", startTime: "6:30am", endTime: "3pm" } });
     await c.db.assignment.create({ data: { jobId: job.id, resourceId: L.sup.resourceId } });
 

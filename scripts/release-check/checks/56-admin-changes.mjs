@@ -19,6 +19,9 @@ export default {
     if (!person) return t.block("no active person with a pay rate on the copy");
     const cur = person.ordinaryRate, want = Math.round((cur + 1.37) * 100) / 100;
     const list = async (who) => { const r = await c.json("/api/changes", who); return r.status === 200 ? r.body?.changes ?? [] : []; };
+    // On a busy day's snapshot Operations AI may already be at its daily proposal cap (SEC-002 - working as meant).
+    // On the copy only, its last day's proposals are moved two days back so this check's one proposal is measured alone.
+    await c.db.changeProposal.updateMany({ where: { requestedByUserId: U.OPS_AI.id, createdAt: { gte: new Date(Date.now() - 86_400_000) } }, data: { createdAt: new Date(Date.now() - 2 * 86_400_000) } });
 
     const pr = await c.post("/api/changes", "OPS_AI", { kind: "RESOURCE_RATE", recordId: person.id, ordinaryRate: want, reason: "Release check", sources: [{ type: "Other", label: "Release check" }] });
     t.status(pr, 201, "Operations AI proposes a pay-rate change");
