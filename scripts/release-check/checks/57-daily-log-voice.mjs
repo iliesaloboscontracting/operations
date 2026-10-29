@@ -59,12 +59,19 @@ export default {
     const rep = await c.json(`/api/daily-report/${job.id}`, "MANAGER");
     t.status({ status: rep.status }, 200, "a Manager opens the daily site report");
     t.ok(rep.body?.report?.jobId === job.id && noMoney(rep.body), "...for that job, with no dollar figure");
-    t.status(await c.get(`/api/daily-report/${job.id}`, "VIEWER"), 403, "a Viewer can't");
-    t.status(await c.get(`/api/daily-report/${job.id}`, "DIRECTOR"), 403, "a DIRECTOR login can't open the office's copy");
-    t.status(await c.get(`/api/daily-report/${job.id}`, "ACCOUNTS"), 403, "accounts can't");
+    // The office's copy: Manager+ only (it isn't on the photos tunnel - behind Access plus the login).
+    for (const who of ["VIEWER", "TIMESHEETS", "ACCOUNTS", "DIRECTOR"]) {
+      t.status(await c.get(`/api/daily-report/${job.id}`, who), [401, 403], `${who} can't open the office's copy`);
+      t.status(await c.get(`/api/daily-report?projectId=${project?.id ?? "x"}`, who), [401, 403], `${who} can't list the office's reports`);
+    }
+    t.status(await c.get(`/api/daily-report/${job.id}`, null), [401, 403], "no login, no report");
     const dir = await c.json(`/api/directors/daily-report/${job.id}`, "DIRECTOR");
     t.status({ status: dir.status }, 200, "a DIRECTOR login opens the directors' copy");
     t.ok(noMoney(dir.body), "...with no dollar figure");
-    t.status(await c.get(`/api/directors/daily-report/${job.id}`, "MANAGER"), 403, "a Manager without director access can't open the directors' copy");
+    // The directors' copy: director access only.
+    for (const who of ["MANAGER", "VIEWER", "TIMESHEETS", "ACCOUNTS"]) {
+      t.status(await c.get(`/api/directors/daily-report/${job.id}`, who), [401, 403], `${who} can't open the directors' copy`);
+      t.status(await c.get(`/api/directors/daily-report/photo?log=x&file=y`, who), [401, 403], `${who} can't fetch a directors'-copy photo`);
+    }
   },
 };

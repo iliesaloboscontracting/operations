@@ -3,7 +3,7 @@
 // is only ever suggestions the supervisor reviews; this file decides what of it is kept. No server imports;
 // `npm test` (voice.test.ts). Design: docs/lci/DAILY-LOG-VOICE-DESIGN.md.
 import { assertNoMoney } from "../moneyGuard";
-import { DELAY_CODES, type DelayCode } from "./rules";
+import { DELAY_CODES, NOTE_MAX, type DelayCode } from "./rules";
 
 // ---------- switch and limits ----------
 
@@ -68,6 +68,8 @@ export function buildVocabulary(v: VocabularyInput): string {
 // ---------- what Claude sends back ----------
 
 export const HEADINGS = ["Work done", "Delays", "Plant", "Tip runs", "Safety & issues", "Tomorrow"] as const;
+// One heading's text at most. Six of them with their headings fit the log's note (NOTE_MAX) - checked in the tests.
+export const SECTION_MAX = 600;
 export type Heading = (typeof HEADINGS)[number];
 export type CleanedSection = { heading: Heading; text: string };
 export type SuggestedDelay = { delayCode: DelayCode; hoursLost: number | null; note: string };
@@ -113,9 +115,9 @@ export function validateCleaned(raw: unknown, transcriptHadAmounts = false): Cle
   for (const s of Array.isArray(r.sections) ? r.sections.slice(0, 12) : []) {
     const o = (s ?? {}) as Record<string, unknown>;
     const heading = HEADINGS.find((h) => h === o.heading);
-    const text = noMoney(textOf(o.text, 1200));
+    const text = noMoney(textOf(o.text, SECTION_MAX));
     if (!heading || !text) continue;
-    byHeading.set(heading, byHeading.has(heading) ? `${byHeading.get(heading)} ${text}`.slice(0, 1200) : text);
+    byHeading.set(heading, byHeading.has(heading) ? `${byHeading.get(heading)} ${text}`.slice(0, SECTION_MAX) : text);
   }
   const sections = HEADINGS.filter((h) => byHeading.has(h)).map((h) => ({ heading: h, text: byHeading.get(h)! }));
   const delays: SuggestedDelay[] = [];
@@ -133,4 +135,6 @@ export function validateCleaned(raw: unknown, transcriptHadAmounts = false): Cle
 }
 
 // The cleaned text as one note (what goes in the log's note box for the supervisor to edit).
-export const cleanedNote = (c: Cleaned) => c.sections.map((s) => `${s.heading}: ${s.text}`).join("\n").slice(0, 2000);
+// Always within NOTE_MAX (SECTION_MAX x 6 plus headings), so it's never cut when the log is sent.
+export const cleanedNote = (c: Cleaned) => c.sections.map((s) => `${s.heading}: ${s.text}`).join("\n");
+export const FAILED_TO_TEXT = "Couldn't turn that into text - try again or type it.";

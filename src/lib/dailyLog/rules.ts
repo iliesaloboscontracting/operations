@@ -26,6 +26,9 @@ export const UNIT_LABEL: Record<string, string> = { t: "t", m3: "m³", loads: "l
 export const DOCKET_CODES = CODES.filter((c) => c.wasteClasses).map((c) => c.code);
 export const ACM = "Asbestos (ACM)";
 export const LIMITS = { codes: 15, plant: 20, delays: 6, dockets: 20, logPhotos: 4, delayPhotos: 4, logsPerLinkPerDay: 20 };
+// The log's note (typed, or the supervisor's voice cleaned up). 4000 since voice entry (29 Oct 2026): a full cleaned
+// log - all six headings at their longest (voiceRules.SECTION_MAX) - always fits, so nothing is cut off quietly.
+export const NOTE_MAX = 4000;
 
 // ---------- the pilot and the reminder switch ----------
 
@@ -166,8 +169,7 @@ export function parseLog(b: Record<string, unknown>, ctx: LogContext): ParsedLog
   const dur = num(b.durationSec);
   return {
     crewOk, crewNote, crewCount, labourHours, splitHours, hours, delays, dockets,
-    // note: 2000 characters since voice entry (29 Oct 2026) - a talked-through day runs longer.
-    note: text(b.note, 2000) || null, photos, noDelays: noDelays || delays.length === 0, noDockets: noDockets || dockets.length === 0,
+    note: text(b.note, NOTE_MAX) || null, photos, noDelays: noDelays || delays.length === 0, noDockets: noDockets || dockets.length === 0,
     durationSec: Number.isFinite(dur) && dur >= 0 && dur <= 86_400 ? Math.round(dur) : null,
   };
 }

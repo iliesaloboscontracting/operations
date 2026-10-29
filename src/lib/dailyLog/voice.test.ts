@@ -107,3 +107,17 @@ test("if tidying fails the supervisor keeps their own words, flagged to check", 
   assert.equal(ok.delays[0].hoursLost, 1);
   assert.equal(ok.amountsRemoved, true, "amounts taken out of the transcript are still flagged");
 });
+
+test("a full cleaned log - all six headings at their longest - fits the log's note, so nothing is cut off", async () => {
+  const { SECTION_MAX, FAILED_TO_TEXT } = await import("./voiceRules");
+  const { NOTE_MAX, parseLog } = await import("./rules");
+  const long = "x".repeat(SECTION_MAX + 500);
+  const c = validateCleaned({ sections: HEADINGS.map((h) => ({ heading: h, text: long })), delays: [], checkThis: [] });
+  assert.equal(c.sections.length, 6);
+  assert.ok(c.sections.every((s) => s.text.length === SECTION_MAX), "each heading capped at SECTION_MAX");
+  const note = cleanedNote(c);
+  assert.ok(note.length <= NOTE_MAX, `${note.length} <= ${NOTE_MAX}`);
+  const parsed = parseLog({ note, hours: [{ code: "STR-02", hours: 8 }], noDelays: true, noDockets: true }, { signedHours: 8, signedCrew: 1, plant: new Map() });
+  assert.ok(!("error" in parsed) && parsed.note === note, "the whole note is kept when the log is sent");
+  assert.equal(FAILED_TO_TEXT, "Couldn't turn that into text - try again or type it.");
+});

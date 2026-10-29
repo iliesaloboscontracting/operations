@@ -13,7 +13,7 @@ import { DELAY_LABEL } from "./rules";
 import { sydneyDay } from "./checks";
 import { cleanTranscript, type Cleaner } from "./voiceClean";
 import {
-  AMOUNTS_NOTICE, VOICE_CAP_REACHED, VOICE_LIMITS, VOICE_OFF, buildVocabulary, cleanedNote, overVoiceCap, stripMoney, voiceAvailable,
+  AMOUNTS_NOTICE, FAILED_TO_TEXT, VOICE_CAP_REACHED, VOICE_LIMITS, VOICE_OFF, buildVocabulary, cleanedNote, overVoiceCap, stripMoney, voiceAvailable,
 } from "./voiceRules";
 
 export type VoiceReply = {
@@ -67,9 +67,9 @@ export async function handleVoice(
   } catch {
     heard = { error: VOICE_OFF, status: 503 };
   }
-  if ("error" in heard) { await finish("FAILED"); return fail(heard.status, heard.error); }
+  if ("error" in heard) { await finish("FAILED"); return fail(heard.status, heard.status === 502 ? FAILED_TO_TEXT : heard.error); }
   const stripped = stripMoney(heard.text);
-  if (!stripped.text.trim()) { await finish("FAILED"); return fail(422, "Nothing was heard - try again, or type it."); }
+  if (!stripped.text.trim()) { await finish("FAILED"); return fail(422, FAILED_TO_TEXT); }
 
   const cleaned = await cleanTranscript(stripped.text, { site, crew: crewNames, plant: plantNames }, stripped.removed, deps.cleaner);
   await finish("DONE", { transcript: stripped.text.slice(0, 8000), cleaned: JSON.stringify(cleaned) });

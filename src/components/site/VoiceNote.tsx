@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { Loader2, Mic, Plus, Square } from "lucide-react";
 import { serverErrorMessage } from "@/lib/apiFetch";
 import type { DelayCode } from "@/lib/dailyLog/rules";
+// The words shown when it couldn't be turned into text (the lead, 29 Oct 2026). Whatever was typed stays as it was.
+const FAILED_TO_TEXT = "Couldn't turn that into text - try again or type it.";
 
 // Voice entry on the daily log (29 Oct 2026, Ilies "go"): one big button (works with gloves) to talk through the
 // day - up to 2 minutes with a timer and a Stop button. The server turns it into clean written notes and suggested
@@ -78,7 +80,9 @@ export default function VoiceNote({ api, jobId, onUseNote, onAddDelay }: {
     const res = await fetch(`${api}/log/voice`, { method: "POST", body: form }).catch(() => null);
     if (!res || !res.ok) {
       setState("idle");
-      return setError(res ? await serverErrorMessage(res, "Couldn't turn that into text - try again, or type it.") : "Couldn't send it - check your signal, or type it.");
+      // The limit, voice off, too long, a format: their own words. Anything else failing: the plain line.
+      if (res && [403, 413, 415, 429, 503].includes(res.status)) return setError(await serverErrorMessage(res, FAILED_TO_TEXT));
+      return setError(res ? FAILED_TO_TEXT : "Couldn't send it - check your signal, or type it.");
     }
     const r: Reply = await res.json();
     setReply(r); setText(r.note); setUsed(false); setAdded([]); setState("review");
