@@ -83,7 +83,7 @@ export default function SiteReport({ jobId, mode }: { jobId: string; mode: "ops"
             <h3 className={h3}>Hours by activity</h3>
             {labour.length ? (
               <table className="w-full text-sm"><tbody>{labour.map((x, i) => (
-                <tr key={i} className="border-t border-edge/50"><td className="py-1"><span className="sr-muted text-gray-500">{x.code}</span> {x.label}</td><td className="py-1 text-right">{hrs(x.hours)}</td></tr>
+                <tr key={i} className="border-t border-edge/50"><td className="py-1">{x.label}</td><td className="py-1 text-right">{hrs(x.hours)}</td></tr>
               ))}</tbody></table>
             ) : <p className="sr-muted text-sm text-gray-500">None split.</p>}
           </section>
@@ -92,7 +92,7 @@ export default function SiteReport({ jobId, mode }: { jobId: string; mode: "ops"
             <section className={card}>
               <h3 className={h3}>Plant</h3>
               <table className="w-full text-sm"><tbody>{plant.map((x, i) => (
-                <tr key={i} className="border-t border-edge/50"><td className="py-1">{x.resourceName ?? "Machine"}</td><td className="sr-muted py-1 text-gray-400">{x.code} {x.label}</td><td className="py-1 text-right">{hrs(x.hours)}</td></tr>
+                <tr key={i} className="border-t border-edge/50"><td className="py-1">{x.resourceName ?? "Machine"}</td><td className="sr-muted py-1 text-gray-400">{x.label}</td><td className="py-1 text-right">{hrs(x.hours)}</td></tr>
               ))}</tbody></table>
             </section>
           )}
