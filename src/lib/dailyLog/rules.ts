@@ -7,6 +7,7 @@
 // Design: docs/lci/PHASE1-DAILY-LOG-DESIGN.md.
 import { BY_CODE, CODES, WASTE_CLASSES, isCode } from "../activityCodes";
 import { assertNoMoney } from "../moneyGuard";
+import { stripMoney } from "./money";
 
 // Money guard for everything the link sends back: no dollar figure anywhere in it.
 export const linkSafe = (x: unknown) => assertNoMoney(JSON.stringify(x));
@@ -74,6 +75,7 @@ export type ParsedLog = {
   delays: { delayCode: DelayCode; hoursLost: number | null; affects: string; note: string | null; photos: string[] }[];
   dockets: { code: string; wasteClass: string; quantity: number; unit: string; docketNo: string | null; facility: string | null; photo: string | null }[];
   note: string | null; photos: string[]; noDelays: boolean; noDockets: boolean; durationSec: number | null;
+  amountsRemoved: boolean; // a dollar amount was taken out of something typed (SEC-002) - the screen says so
 };
 
 const text = (v: unknown, max: number) => (typeof v === "string" ? v.replace(/\r\n/g, "\n").trim().slice(0, max) : "");
@@ -86,8 +88,12 @@ const photoList = (v: unknown) => list(v).filter((p): p is string => typeof p ==
 export function parseLog(b: Record<string, unknown>, ctx: LogContext): ParsedLog | { error: string } {
   // Who and how long: from sign-ins, unless the supervisor says the list is
   // wrong or nobody signed in - then a crew count and total typed by hand.
+  // Typed text never carries an amount (SEC-002): each one becomes "(amount not recorded)" - never refused, so
+  // nothing typed is lost - and amountsRemoved tells the screen to say so. linkSafe stays the backstop.
+  let amounts = false;
+  const free = (v: unknown, max: number) => { const s = stripMoney(text(v, max)); if (s.removed) amounts = true; return s.text; };
   const crewOk = b.crewOk !== false;
-  const crewNote = text(b.crewNote, 500) || null;
+  const crewNote = free(b.crewNote, 500) || null;
   let crewCount = ctx.signedCrew, labourHours = quarter(ctx.signedHours);
   if (!crewOk) {
     if (!crewNote) return { error: "Say what's wrong with the crew list - the office will check it." };
@@ -149,7 +155,7 @@ export function parseLog(b: Record<string, unknown>, ctx: LogContext): ParsedLog
     const affects = (AFFECTS as readonly string[]).includes(String(r.affects)) ? String(r.affects) : "CREW";
     const photos = photoList(r.photos);
     if (photos.length > LIMITS.delayPhotos) return { error: `At most ${LIMITS.delayPhotos} photos for a delay.` };
-    const note = text(r.note, 500) || null;
+    const note = free(r.note, 500) || null;
     if (delayCode === "OTHER" && !note) return { error: "Say what held you up." };
     delays.push({ delayCode, hoursLost: lost == null ? null : quarter(lost), affects, note, photos });
   }
@@ -160,7 +166,7 @@ export function parseLog(b: Record<string, unknown>, ctx: LogContext): ParsedLog
   if (docketRows.length > LIMITS.dockets) return { error: `At most ${LIMITS.dockets} dockets in one log.` };
   for (const raw of docketRows) {
     const r = (raw ?? {}) as Record<string, unknown>;
-    const d = parseDocket(r);
+    const d = parseDocket(r, free);
     if ("error" in d) return d;
     dockets.push(d);
   }
@@ -170,14 +176,15 @@ export function parseLog(b: Record<string, unknown>, ctx: LogContext): ParsedLog
   const dur = num(b.durationSec);
   return {
     crewOk, crewNote, crewCount, labourHours, splitHours, hours, delays, dockets,
-    note: text(b.note, NOTE_MAX) || null, photos, noDelays: noDelays || delays.length === 0, noDockets: noDockets || dockets.length === 0,
+    note: free(b.note, NOTE_MAX) || null, photos, noDelays: noDelays || delays.length === 0, noDockets: noDockets || dockets.length === 0,
     durationSec: Number.isFinite(dur) && dur >= 0 && dur <= 86_400 ? Math.round(dur) : null,
+    amountsRemoved: amounts,
   };
 }
 
 export const splitFits = (split: number, signed: number) => Math.abs(split - signed) <= SPLIT_TOLERANCE + 1e-9;
 
-export function parseDocket(r: Record<string, unknown>): ParsedLog["dockets"][number] | { error: string } {
+export function parseDocket(r: Record<string, unknown>, free: (v: unknown, max: number) => string = (v, max) => stripMoney(text(v, max)).text): ParsedLog["dockets"][number] | { error: string } {
   const code = text(r.code, 10) || "DEM-10";
   if (!DOCKET_CODES.includes(code)) return { error: `Dockets go on ${DOCKET_CODES.join(" or ")}.` };
   const wasteClass = text(r.wasteClass, 60);
@@ -188,7 +195,7 @@ export function parseDocket(r: Record<string, unknown>): ParsedLog["dockets"][nu
   if (!(DOCKET_UNITS as readonly string[]).includes(unit)) return { error: "Pick t, m³, loads or bins." };
   const photo = typeof r.photo === "string" && r.photo ? r.photo : null;
   if (wasteClass === ACM && !photo) return { error: "An asbestos docket needs a photo of the docket." };
-  return { code, wasteClass, quantity: Math.round(quantity * 100) / 100, unit, docketNo: text(r.docketNo, 40) || null, facility: text(r.facility, 80) || null, photo };
+  return { code, wasteClass, quantity: Math.round(quantity * 100) / 100, unit, docketNo: free(r.docketNo, 40) || null, facility: free(r.facility, 80) || null, photo };
 }
 
 // The next version number for a job's log (1 for the first).
@@ -223,7 +230,7 @@ export function parseProgress(
     seen.add(key);
     const pct = num(r.pct);
     if (!Number.isInteger(pct) || pct < 0 || pct > 100) return { error: `% complete for ${line.label} must be 0 to 100.` };
-    const reason = text(r.reason, 300) || null;
+    const reason = stripMoney(text(r.reason, 300)).text || null; // no amounts on the link (SEC-002)
     const before = last.get(key);
     if (before != null && pct < before && !reason) return { error: `${line.label} went down from ${before}% - say why (e.g. rework, scope change).` };
     out.push({ ...line, pctComplete: pct, reason });

@@ -2,8 +2,8 @@
 // dollar amounts out, the vocabulary hint for the transcriber, and checking what Claude sends back. Claude's output
 // is only ever suggestions the supervisor reviews; this file decides what of it is kept. No server imports;
 // `npm test` (voice.test.ts). Design: docs/lci/DAILY-LOG-VOICE-DESIGN.md.
-import { assertNoMoney } from "../moneyGuard";
 import { DELAY_CODES, NOTE_MAX, type DelayCode } from "./rules";
+import { stripMoney } from "./money";
 
 // ---------- switch and limits ----------
 
@@ -15,9 +15,17 @@ export function voiceAvailable(env: { voice?: string; openai?: string; anthropic
   return !!(env.openai ?? "").trim() && !!(env.anthropic ?? "").trim();
 }
 export const VOICE_OFF = "Voice isn't available - type it instead.";
-// 5 minutes / 10 MB a recording (29 Oct 2026, Ilies: capacity for a lot to say; ~14 KB/s, so 5 min is ~4-5 MB and
-// OpenAI takes up to 25 MB). Still 20 a link a day. The phone warns at 4:30 and stops and sends at 5:00.
-export const VOICE_LIMITS = { perLinkPerDay: 20, maxBytes: 10 * 1024 * 1024, maxSeconds: 300, warnAtSeconds: 270 };
+// 5 minutes a recording (29 Oct 2026, Ilies: capacity for a lot to say). ~14 KB/s measured, so 5 minutes is ~4.2 MB
+// (an iPhone's audio/mp4 at ~64-96 kbit/s is 2.4-3.6 MB): the audio may be up to 6 MB and the whole request up to
+// 6.25 MB (security review SEC-003). Still 20 a link a day. The phone warns at 4:30 and stops and sends at 5:00.
+export const VOICE_LIMITS = { perLinkPerDay: 20, maxBytes: 6 * 1024 * 1024, maxRequestBytes: 6.25 * 1024 * 1024, maxSeconds: 300, warnAtSeconds: 270 };
+// Everyone together: at most DAILY_LOG_VOICE_DAY_MAX recordings a Sydney day (default 300) - SEC-001.
+export const dayCeiling = (raw: string | undefined = process.env.DAILY_LOG_VOICE_DAY_MAX) => {
+  const n = Number(raw);
+  return Number.isInteger(n) && n > 0 ? n : 300;
+};
+export const overDayCeiling = (usedToday: number, max = dayCeiling()) => usedToday >= max;
+export const ONE_AT_A_TIME = "One recording at a time - wait for the last one to finish.";
 // The server answers inside the Cloudflare tunnel's 100-second limit: transcription up to 60 s, then the tidy-up gets
 // what's left of ~95 s (up to 90 s). If the tidy-up runs out of time the supervisor gets their own words to edit.
 export const VOICE_TIMEOUTS = { transcribeMs: 60_000, cleanMaxMs: 90_000, totalMs: 95_000, cleanMinMs: 10_000 };
@@ -30,28 +38,8 @@ export const overVoiceCap = (usedToday: number) => usedToday >= VOICE_LIMITS.per
 
 // ---------- money ----------
 
-export const AMOUNTS_NOTICE = "Amounts aren't recorded here - tell the office.";
-const NUMBER_WORDS = "a|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|million|and|half";
-// A rate after an amount goes with it: "$80 an hour", "$850/day", "45 dollars per tonne".
-const RATE = String.raw`(?:\s?(?:\/|per\b|an?\b|each\b)\s?(?:h|hr|hrs|hour|day|week|wk|month|t|tonne|ton|m3|load|bin|man|person)s?\b)?`;
-const MONEY_PATTERNS = [
-  // $500, $ 1,250.50, A$300, $2k, $1.5 million (+ a rate)
-  new RegExp(String.raw`(?:\b(?:AUD|A)\s?)?\$\s?\d[\d,]*(?:\.\d+)?(?:\s?(?:k|m|million|thousand|grand)\b)?` + RATE, "gi"),
-  new RegExp(String.raw`\bAUD\s?\d[\d,]*(?:\.\d+)?\b` + RATE, "gi"),
-  // 500 dollars, 2.5k bucks, 30 cents (+ a rate)
-  new RegExp(String.raw`\b\d[\d,]*(?:\.\d+)?\s?(?:k\s?)?(?:dollars?|bucks|cents?|grand)\b` + RATE, "gi"),
-  // five hundred dollars, a couple of grand, twenty bucks (+ a rate)
-  new RegExp(String.raw`\b(?:(?:${NUMBER_WORDS}|couple(?: of)?|few)[\s-]+)+(?:dollars?|bucks|grand|cents?)\b` + RATE, "gi"),
-];
-const AMOUNT_TAG = "(amount not recorded)";
-// Every dollar amount out of a piece of text. `removed` says whether there was one (the screen then shows AMOUNTS_NOTICE).
-export function stripMoney(text: string): { text: string; removed: boolean } {
-  let out = text, removed = false;
-  for (const re of MONEY_PATTERNS) out = out.replace(re, () => { removed = true; return AMOUNT_TAG; });
-  // Anything the guard would still flag (a "$" followed by a digit in some other shape) goes too.
-  if (!assertNoMoney(out)) { out = out.replace(/\$\s?\d[\d.,]*/g, AMOUNT_TAG); removed = true; }
-  return { text: out, removed };
-}
+// Taking amounts out lives in ./money.ts (shared with the typed log fields - SEC-002); re-exported for the voice code.
+export { AMOUNTS_NOTICE, AMOUNT_TAG, stripMoney } from "./money";
 
 // ---------- the transcriber's vocabulary hint ----------
 
@@ -59,10 +47,18 @@ export function stripMoney(text: string): { text: string; removed: boolean } {
 // names. Names only - nothing that looks like a number with a $ survives, and nothing else is ever passed in.
 export type VocabularyInput = { site: string; crew: string[]; plant: string[]; codes: string[] };
 export const VOCAB_MAX = 1500;
+// A name with any amount taken out (and the brackets / dash it sat in), at most 60 characters. The transcriber's hint
+// and Claude both get names cleaned this way (SEC-004) - crew, plant, site, codes.
+export const NAME_MAX = 60;
+export const cleanName = (s: string) =>
+  stripMoney(s).text.replace(/\(amount not recorded\)/g, "").replace(/\(\s*\)|\[\s*\]/g, "").replace(/\s+[-–]\s*$/, "").replace(/\s+/g, " ").trim().slice(0, NAME_MAX);
+export type CleanContextInput = { site: string; crew: string[]; plant: string[] };
+export const cleanContext = (c: CleanContextInput): CleanContextInput => {
+  const uniq = (xs: string[]) => [...new Set(xs.map(cleanName).filter((x) => x.length > 1))];
+  return { site: cleanName(c.site), crew: uniq(c.crew), plant: uniq(c.plant) };
+};
 export function buildVocabulary(v: VocabularyInput): string {
-  // A name that carried an amount loses it, and the brackets / dash it sat in.
-  const clean = (s: string) =>
-    stripMoney(s).text.replace(/\(amount not recorded\)/g, "").replace(/\(\s*\)|\[\s*\]/g, "").replace(/\s+[-–]\s*$/, "").replace(/\s+/g, " ").trim();
+  const clean = cleanName;
   const uniq = (xs: string[]) => [...new Set(xs.map(clean).filter((x) => x.length > 1))];
   const parts = [
     v.site && `Site: ${clean(v.site)}.`,
@@ -139,10 +135,11 @@ export function validateCleaned(raw: unknown, transcriptHadAmounts = false): Cle
     const heading = HEADINGS.find((h) => h === o.heading);
     const text = noMoney(textOf(o.text, SECTION_MAX * 4)); // read generously, then cut at a sentence below
     if (!heading || !text) continue;
-    byHeading.set(heading, fit(byHeading.has(heading) ? `${byHeading.get(heading)} ${text}` : text, SECTION_MAX));
+    byHeading.set(heading, fit(noMoney(byHeading.has(heading) ? `${byHeading.get(heading)} ${text}` : text), SECTION_MAX));
   }
-  // The whole cleaned note within NOTE_MAX (heading labels and line breaks included).
-  let room = NOTE_MAX;
+  // The whole cleaned note within NOTE_MAX (heading labels and line breaks included), with a little room for the
+  // money check after the join (cleanedNote).
+  let room = NOTE_MAX - 400;
   const sections: CleanedSection[] = [];
   for (const h of HEADINGS.filter((x) => byHeading.has(x))) {
     const label = `${h}: `.length + (sections.length ? 1 : 0);
@@ -172,7 +169,13 @@ export function validateCleaned(raw: unknown, transcriptHadAmounts = false): Cle
 
 // The cleaned text as one note (what goes in the log's note box for the supervisor to edit). validateCleaned keeps it
 // within NOTE_MAX, so it's never cut when the log is sent.
-export const cleanedNote = (c: Cleaned) => c.sections.map((s) => `${s.heading}: ${s.text}`).join("\n");
+export const cleanedNote = (c: Cleaned) => stripMoney(c.sections.map((s) => `${s.heading}: ${s.text}`).join("\n")).text;
+
+// At most 9000 characters of transcript go to Claude - 5 minutes of fast talk (SEC-005). Beyond that the end is
+// left off and "Check this" says so.
+export const TRANSCRIPT_MAX = 9000;
+export const LONG_RECORDING = "The recording was long, so the end may be missing - check it and type anything that's missing.";
+export const capTranscript = (t: string) => (t.length <= TRANSCRIPT_MAX ? { text: t, cut: false, notice: LONG_RECORDING } : { text: t.slice(0, TRANSCRIPT_MAX), cut: true, notice: LONG_RECORDING });
 export const FAILED_TO_TEXT = "Couldn't turn that into text - try again or type it.";
 
 // Recordings add up (29 Oct 2026): a recording's text goes under the note so far - nothing there, just the text;

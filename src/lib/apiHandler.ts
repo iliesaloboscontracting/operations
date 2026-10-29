@@ -40,7 +40,7 @@ export function withErrorHandling<Ctx = unknown>(
         }
       }
       // eslint-disable-next-line no-console
-      console.error(`[api] ${req.method} ${req.nextUrl.pathname} failed:`, err);
+      console.error(`[api] ${req.method} ${req.nextUrl.pathname.replace(/^\/api\/site\/(?!in\/)[^/]+/, "/api/site/[link]").replace(/^\/api\/site\/in\/[^/]+/, "/api/site/in/[code]")} failed:`, err);
       return NextResponse.json({ error: "Something went wrong. Try again." }, { status: 500 });
     }
   };

@@ -77,10 +77,10 @@ export default function VoiceNote({ api, jobId, onUseNote, onAddDelay }: {
     setState("working");
     const form = new FormData();
     form.append("audio", audio, "log");
-    form.append("jobId", jobId);
-    form.append("seconds", String(Math.max(1, Math.min(MAX_SECONDS, Math.round((Date.now() - startedAt.current) / 1000)))));
+    // Which job and how long go in the address, so the server can check them before reading the recording (SEC-003).
+    const secs = Math.max(1, Math.min(MAX_SECONDS, Math.round((Date.now() - startedAt.current) / 1000)));
     chunks.current = []; // the recording leaves this page's memory once sent
-    const res = await fetch(`${api}/log/voice`, { method: "POST", body: form }).catch(() => null);
+    const res = await fetch(`${api}/log/voice?jobId=${encodeURIComponent(jobId)}&seconds=${secs}`, { method: "POST", body: form }).catch(() => null);
     if (!res || !res.ok) {
       setState("idle");
       // The limit, voice off, too long, a format: their own words. Anything else failing: the plain line.
@@ -98,6 +98,7 @@ export default function VoiceNote({ api, jobId, onUseNote, onAddDelay }: {
           <Mic size={28} /> Talk through your day
         </button>
         <p className="mt-1 text-center text-xs text-gray-500">Up to 5 minutes - record again to add more. You&apos;ll see it written out to check before anything goes in.</p>
+        <p className="mt-0.5 text-center text-[11px] text-gray-500">Your recording is sent to OpenAI and Anthropic to write it out. The recording itself isn&apos;t kept.</p>
         {error && <p className="mt-2 rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-300">{error}</p>}
       </div>
     );

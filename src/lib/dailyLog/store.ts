@@ -18,6 +18,7 @@ import {
 } from "./checks";
 import { docketsSentFor } from "../receipts/store";
 import { voiceAvailable } from "./voiceRules";
+import { stripMoney } from "./money";
 import type { DayReviewSiteLogDTO, DayReviewSiteLogsDTO, HoursVsBudgetDTO, LinkLogDTO, LogCardDTO, LogDetailDTO, LogJobDTO, ProgressFormDTO, SiteReportDayDTO, SiteReportDTO } from "./types";
 
 const dateOnly = (day: string) => new Date(`${day}T00:00:00.000Z`);
@@ -144,16 +145,19 @@ type LogRow = NonNullable<Awaited<ReturnType<typeof latestLogRow>>>;
 const latestLogRow = (jobId: string) => prisma.dailyLog.findFirst({ where: { jobId }, orderBy: { revision: "desc" }, include: logInclude });
 const parseIds = (s: string): string[] => { try { const v = JSON.parse(s); return Array.isArray(v) ? v.filter((x) => typeof x === "string") : []; } catch { return []; } };
 
+// Free text read back with any amount taken out - a log saved before typed text was cleaned (SEC-002) can't break the
+// link screen, Day Review or the report.
+const nm = (s: string | null) => (s == null ? s : stripMoney(s).text);
 async function toDetail(l: LogRow): Promise<LogDetailDTO> {
   const resIds = l.hours.map((h) => h.resourceId).filter((x): x is string => !!x);
   const names = new Map((resIds.length ? await prisma.resource.findMany({ where: { id: { in: resIds } }, select: { id: true, name: true } }) : []).map((r) => [r.id, r.name]));
   return {
     id: l.id, revision: l.revision, submittedBy: l.submittedBy, at: l.createdAt.toISOString(), atLabel: sydneyTime(l.createdAt) ?? "",
-    codesVersion: l.codesVersion, crewCount: l.crewCount, labourHours: l.labourHours, splitHours: l.splitHours, crewOk: l.crewOk, crewNote: l.crewNote,
-    note: l.note, photos: parseIds(l.photoIds), noDelays: l.noDelays, noDockets: l.noDockets, durationSec: l.durationSec,
+    codesVersion: l.codesVersion, crewCount: l.crewCount, labourHours: l.labourHours, splitHours: l.splitHours, crewOk: l.crewOk, crewNote: nm(l.crewNote),
+    note: nm(l.note), photos: parseIds(l.photoIds), noDelays: l.noDelays, noDockets: l.noDockets, durationSec: l.durationSec,
     hours: l.hours.map((h) => ({ code: h.code, label: codeLabel(h.code), kind: h.kind, resourceId: h.resourceId, resourceName: h.resourceId ? names.get(h.resourceId) ?? null : null, hours: h.hours })),
-    delays: l.delays.map((d) => ({ delayCode: d.delayCode, label: DELAY_LABEL[d.delayCode as DelayCode] ?? d.delayCode, hoursLost: d.hoursLost, affects: d.affects, note: d.note, photos: parseIds(d.photoIds) })),
-    dockets: l.dockets.map((d) => ({ code: d.code, wasteClass: d.wasteClass, quantity: d.quantity, unit: d.unit, docketNo: d.docketNo, facility: d.facility, photo: d.photoId })),
+    delays: l.delays.map((d) => ({ delayCode: d.delayCode, label: DELAY_LABEL[d.delayCode as DelayCode] ?? d.delayCode, hoursLost: d.hoursLost, affects: d.affects, note: nm(d.note), photos: parseIds(d.photoIds) })),
+    dockets: l.dockets.map((d) => ({ code: d.code, wasteClass: d.wasteClass, quantity: d.quantity, unit: d.unit, docketNo: nm(d.docketNo), facility: nm(d.facility), photo: d.photoId })),
   };
 }
 
@@ -314,7 +318,7 @@ export async function logCard(link: ResolvedLink, now: Date): Promise<LogCardDTO
 
 // ---------- the link: POST a log ----------
 
-type Saved = { error: string; status: number } | { log: LogDetailDTO };
+type Saved = { error: string; status: number } | { log: LogDetailDTO; amountsRemoved: boolean };
 
 export async function submitLog(link: ResolvedLink, body: Record<string, unknown>, now: Date): Promise<Saved> {
   const sent = await prisma.dailyLog.count({ where: { siteLinkId: link.id, createdAt: { gte: new Date(now.getTime() - 86_400_000) } } });
@@ -360,7 +364,7 @@ export async function submitLog(link: ResolvedLink, body: Record<string, unknown
     revision = nextRevision((await prisma.dailyLog.findMany({ where: { jobId: job.id }, select: { revision: true } })).map((l) => l.revision));
     return prisma.dailyLog.create({ data: data(revision), include: logInclude });
   });
-  return { log: await toDetail(saved) };
+  return { log: await toDetail(saved), amountsRemoved: parsed.amountsRemoved };
 }
 
 // The voice recordings a log may cite (voice entry, 29 Oct 2026): this link's, this job's, finished ones only - the

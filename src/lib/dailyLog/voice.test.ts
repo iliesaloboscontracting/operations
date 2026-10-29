@@ -16,13 +16,15 @@ test("the switch: needs both keys; DAILY_LOG_VOICE=off turns it off", () => {
   assert.equal(voiceAvailable({ openai: "sk-x", anthropic: " " }), false, "no Anthropic key");
 });
 
-test("the day's limit: 20 recordings per link, then refused; 5 minutes / 10 MB, warning at 4:30", () => {
+test("the day's limit: 20 recordings per link, then refused; 5 minutes / 6 MB (request 6.25 MB), warning at 4:30", () => {
   assert.equal(VOICE_LIMITS.perLinkPerDay, 20);
   assert.ok(!overVoiceCap(19), "the 20th is allowed");
   assert.ok(overVoiceCap(20), "the 21st is refused");
   assert.equal(VOICE_LIMITS.maxSeconds, 300);
   assert.equal(VOICE_LIMITS.warnAtSeconds, 270);
-  assert.equal(VOICE_LIMITS.maxBytes, 10 * 1024 * 1024);
+  assert.equal(VOICE_LIMITS.maxBytes, 6 * 1024 * 1024);
+  assert.equal(VOICE_LIMITS.maxRequestBytes, 6.25 * 1024 * 1024);
+  assert.ok(300 * 96_000 / 8 < VOICE_LIMITS.maxBytes, "an iPhone's audio/mp4 at 96 kbit/s for 5 minutes fits");
   assert.ok(VOICE_LIMITS.maxBytes < 25 * 1024 * 1024, "under OpenAI's 25 MB file limit");
   assert.ok(VOICE_LIMITS.maxSeconds * 14 * 1024 < VOICE_LIMITS.maxBytes, "5 minutes at ~14 KB/s fits");
 });
@@ -130,7 +132,7 @@ test("a cleaned recording always fits the log's note: a 5-minute day whole, and 
   const huge = validateCleaned({ sections: HEADINGS.map((h) => ({ heading: h, text: sentence.repeat(60) })), delays: [], checkThis: [] });
   const hugeNote = cleanedNote(huge);
   assert.ok(hugeNote.length <= NOTE_MAX, `${hugeNote.length} <= ${NOTE_MAX}`);
-  assert.ok(huge.sections.every((s) => s.text.length <= SECTION_MAX && /\.$/.test(s.text)), "each heading capped, ending on a full sentence");
+  assert.ok(huge.sections.every((s) => s.text.length <= SECTION_MAX && /[.…]$/.test(s.text)), "each heading capped, ending on a full sentence (or a marked word break)");
   assert.equal(huge.checkThis[0], SHORTENED, "the supervisor is told it was shortened");
   const sentHuge = send(hugeNote);
   assert.ok(!("error" in sentHuge) && sentHuge.note === hugeNote, "and it isn't cut again when sent");
@@ -160,4 +162,76 @@ test("a heading with no full stops is cut at a word, marked with …, and flagge
   assert.ok(c.sections[0].text.length <= SECTION_MAX + 1);
   assert.match(c.sections[0].text, /walls…$|ceilings…$|and…$|stripped…$/);
   assert.equal(c.checkThis[0], SHORTENED);
+});
+
+// ---------- security review fixes (29 Oct 2026) ----------
+
+test("SEC-001: the company's daily ceiling (DAILY_LOG_VOICE_DAY_MAX, default 300) and one recording at a time", async () => {
+  const { dayCeiling, overDayCeiling, ONE_AT_A_TIME } = await import("./voiceRules");
+  assert.equal(dayCeiling(undefined), 300);
+  assert.equal(dayCeiling("120"), 120);
+  assert.equal(dayCeiling("nonsense"), 300);
+  assert.equal(dayCeiling("0"), 300);
+  assert.ok(!overDayCeiling(299, 300) && overDayCeiling(300, 300), "the 301st is refused");
+  assert.equal(ONE_AT_A_TIME, "One recording at a time - wait for the last one to finish.");
+});
+
+test("SEC-002: a typed amount is taken out of the note, the crew note, delay notes and docket fields - never refused, and flagged", async () => {
+  const { parseLog, parseDocket, linkSafe } = await import("./rules");
+  const ctx = { signedHours: 8, signedCrew: 2, plant: new Map() };
+  const p = parseLog({
+    crewOk: false, crewNote: "Hire guy charged $300 extra", handCrew: 2, handHours: 8,
+    hours: [{ code: "STR-02", hours: 8 }], delays: [{ delayCode: "OTHER", note: "Gate fee $50 at the dock" }], noDockets: true,
+    note: "Skip lift was $650, call me",
+  }, ctx);
+  assert.ok(!("error" in p), JSON.stringify(p));
+  if ("error" in p) return;
+  assert.equal(p.note, "Skip lift was (amount not recorded), call me");
+  assert.equal(p.crewNote, "Hire guy charged (amount not recorded) extra");
+  assert.equal(p.delays[0].note, "Gate fee (amount not recorded) at the dock");
+  assert.equal(p.amountsRemoved, true);
+  assert.ok(linkSafe(p), "the screen can't break");
+  const d = parseDocket({ code: "DEM-10", wasteClass: "Mixed C&D", quantity: 6, unit: "t", docketNo: "A123 $210", facility: "Bingo ($95/t)" });
+  assert.ok(!("error" in d) && linkSafe(d), JSON.stringify(d));
+  const clean = parseLog({ hours: [{ code: "STR-02", hours: 8 }], noDelays: true, noDockets: true, note: "8 hours, 3 loads" }, ctx);
+  assert.ok(!("error" in clean) && clean.amountsRemoved === false && clean.note === "8 hours, 3 loads");
+});
+
+test("SEC-004: the names Claude gets are cleaned of amounts and capped, the same as the transcriber's hint - no $ reaches the cleaner", async () => {
+  const { cleanContext, NAME_MAX } = await import("./voiceRules");
+  const ctx = cleanContext({ site: "Lido Suites ($1.2m job)", crew: ["Sam Smith", "Joao ($45/h)", "x".repeat(200)], plant: ["Kobelco SK135 - $850 per day"] });
+  let seen = "";
+  await cleanTranscript("did the strip out", ctx, false, async (t, c) => { seen = JSON.stringify({ t, c }); return { sections: [], delays: [], checkThis: [] }; });
+  assert.ok(!/\$/.test(seen), seen);
+  assert.ok(ctx.crew.every((n) => n.length <= NAME_MAX));
+  assert.deepEqual(ctx.plant, ["Kobelco SK135"]);
+  assert.ok(ctx.site.startsWith("Lido Suites") && !/\$/.test(ctx.site), ctx.site);
+});
+
+test("SEC-005: at most 9000 characters of transcript go to Claude; a longer one is flagged", async () => {
+  const { capTranscript, TRANSCRIPT_MAX, LONG_RECORDING } = await import("./voiceRules");
+  assert.equal(TRANSCRIPT_MAX, 9000);
+  assert.deepEqual(capTranscript("short"), { text: "short", cut: false, notice: LONG_RECORDING });
+  const long = capTranscript("y".repeat(12000));
+  assert.ok(long.cut && long.text.length === 9000);
+  assert.match(LONG_RECORDING, /end may be missing/);
+});
+
+test("SEC-006: more money shapes - a currency word after the number, -dollar, 1.2k next to a money word, and a $ split across a join", async () => {
+  const cases = [
+    "the crane was 80 AUD an hour", "about 50 quid for the fuel", "20 euros for parking", "100 USD for the part", "200 pounds for the tool",
+    "a 500-dollar fine", "a five-hundred-dollar bill", "paid 1.2k for the skip", "the quote was 3k", "1.2k for the invoice", "EUR 40 for it",
+  ];
+  for (const c of cases) {
+    const out = stripMoney(c);
+    assert.ok(out.removed, c);
+    assert.doesNotMatch(out.text, /\b(?:AUD|USD|EUR|quid|euros?|pounds?)\b|-dollar|\d\s?k\b/i, out.text);
+  }
+  // Not money: tonnes, hours, a 1.2k-litre tank? stays only when no money word is near.
+  assert.equal(stripMoney("moved 1.2k litres of water, 12 t, 3 loads").removed, false);
+  // "$" at the end of one heading and "5" starting the next: the joined note is checked again.
+  const c = validateCleaned({ sections: [{ heading: "Work done", text: "Tip charged $" }, { heading: "Work done", text: "5 extra" }], delays: [], checkThis: [] });
+  assert.ok(assertNoMoney(cleanedNote(c)), cleanedNote(c));
+  const n = validateCleaned({ sections: [{ heading: "Work done", text: "Paid $" }, { heading: "Delays", text: "5 for gate" }], delays: [], checkThis: [] });
+  assert.ok(assertNoMoney(cleanedNote(n)), cleanedNote(n));
 });

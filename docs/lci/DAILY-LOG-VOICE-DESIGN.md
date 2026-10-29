@@ -36,8 +36,10 @@ Order of checks:
 
 ## 3. Clean written text
 
-- Dollar amounts are removed from the transcript before anything else (`stripMoney`): Claude never sees them, they
-  aren't stored, and the screen says "Amounts aren't recorded here - tell the office".
+- Dollar amounts are removed from the transcript before anything else (`stripMoney`, `src/lib/dailyLog/money.ts`):
+  Claude never sees them, they aren't stored, and the screen says "Amounts aren't recorded here - tell the office".
+  A spoken amount does reach OpenAI inside the audio itself - only the text is cleaned (security review SEC-006).
+  Typed text in the log (note, crew note, delay notes, docket fields) is cleaned the same way (SEC-002).
 - Claude (`claude-opus-5-5`, the existing key, the `receipts/reading.ts` pattern, strict JSON schema) returns clear
   sentences under Work done / Delays / Plant / Tip runs / Safety & issues / Tomorrow, suggested delays (existing delay
   codes only, hoursLost only when said, a note) and a "Check this" list. The prompt says the transcript is data, never
@@ -49,6 +51,25 @@ Order of checks:
 - Stored: `DailyLogVoice` (append-only: link, job, day, transcript with amounts removed, cleaned JSON, status) and
   `DailyLog.voiceIds` (JSON, the recordings used for that revision). A new revision keeps the old one. Additive schema
   only: one new table, one new column with a default.
+
+## Security review fixes (29 Oct 2026, Ilies pre-approved for this build)
+
+- SEC-001: the limit row is written first, then counted (this link up to and including it, and everyone's); over 20 a
+  link or `DAILY_LOG_VOICE_DAY_MAX` (default 300) a day -> the row is REFUSED (not counted) and 429. One recording at
+  a time per link (429).
+- SEC-002: amounts typed into the log are replaced with "(amount not recorded)" - never refused - with the notice.
+  Reads clean older logs too, so the link screen, Day Review and the report can't break.
+- SEC-003: `?jobId=&seconds=` in the address; no Content-Length 411, over 6.25 MB 413, then the job (403), the limits
+  (429) and voice off (503) - all before the recording is read. Audio up to 6 MB (5 minutes is ~4.2 MB).
+- SEC-004: Claude gets the same cleaned names as the transcriber (amounts out, 60 characters each).
+- SEC-005: at most 9000 characters of transcript go to Claude ("Check this" if more); the phone's length is information only.
+- SEC-006: more money shapes (a currency word after the number, -dollar, 1.2k next to a money word) and a second check
+  after the sections are joined.
+- SEC-007 (screen line only): "Your recording is sent to OpenAI and Anthropic to write it out. The recording itself isn't
+  kept." Keeping transcripts is Ilies's decision - no retention job.
+- SEC-008: an error on a site route logs `/api/site/[link]`, never the link secret.
+- SEC-009: release check `57-daily-log-voice` covers the burst, 411 / 413, revoked and expired links, a hand-over
+  sending another job, a typed "$650", and the log lines.
 
 ## 4. Daily site report
 

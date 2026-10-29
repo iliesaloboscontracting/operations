@@ -147,8 +147,8 @@ function LogSteps({ api, job, voice, onBack, onSaved }: { api: string; job: LogJ
     const res = await fetch(`${api}/log`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).catch(() => null);
     setBusy(false);
     if (!res || !res.ok) return setError(res ? await serverErrorMessage(res, "Couldn't send - try again.") : "Couldn't send - check your signal and try again.");
-    const { log } = await res.json();
-    onSaved(`Daily log saved for ${job.label}${log.revision > 1 ? ` (version ${log.revision})` : ""}`);
+    const { log, amountsNotice } = await res.json();
+    onSaved(`Daily log saved for ${job.label}${log.revision > 1 ? ` (version ${log.revision})` : ""}${amountsNotice ? `. ${amountsNotice}` : ""}`);
   }
 
   const steps = ["Who and how long", "What did the crew do?", "Anything hold you up?", "", "Done?"];

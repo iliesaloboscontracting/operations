@@ -3,6 +3,7 @@ import { withErrorHandling } from "@/lib/apiHandler";
 import { resolveLink } from "@/lib/siteLinks";
 import { isPilotLink, linkLogView, submitLog } from "@/lib/dailyLog/store";
 import { linkSafe } from "@/lib/dailyLog/rules";
+import { AMOUNTS_NOTICE } from "@/lib/dailyLog/money";
 
 // The daily site log from a pilot supervisor's link (Task K, 25 Oct 2026).
 // GET  -> the jobs they can log now, each with the crew and signed hours (from
@@ -33,5 +34,5 @@ export const POST = withErrorHandling(async (req: NextRequest, { params: paramsP
   const body = await req.json().catch(() => ({}));
   const out = await submitLog(link, body && typeof body === "object" ? body : {}, new Date());
   if ("error" in out) return NextResponse.json({ error: out.error }, { status: out.status });
-  return safe({ log: out.log }, 201);
+  return safe({ log: out.log, amountsNotice: out.amountsRemoved ? AMOUNTS_NOTICE : null }, 201);
 });
