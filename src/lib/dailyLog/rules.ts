@@ -29,10 +29,21 @@ export const LIMITS = { codes: 15, plant: 20, delays: 6, dockets: 20, logPhotos:
 
 // ---------- the pilot and the reminder switch ----------
 
-// DAILY_LOG_PILOT_LINKS: the SiteLink ids that see the Daily log card
-// (Damien's and Tom's supervisor links to start). Empty or unset = off for everyone.
+// DAILY_LOG_PILOT_LINKS: the SiteLink ids that see the Daily log card (Damien's and Tom's supervisor links to
+// start), or "all" (29 Oct 2026, Ilies "go": every active SUPERVISOR link, new ones included). Empty or unset = off
+// for everyone. Whichever it is, a HANDOVER (one-day stand-in) link on one of those supervisors' jobs gets it too;
+// OFFICE, POSTER and DRIVER links never do.
 export const pilotLinkIds = (raw: string | undefined = process.env.DAILY_LOG_PILOT_LINKS) =>
-  new Set((raw ?? "").split(",").map((s) => s.trim()).filter(Boolean));
+  (raw ?? "").trim().toLowerCase() === "all" ? new Set<string>() : new Set((raw ?? "").split(",").map((s) => s.trim()).filter(Boolean));
+export type PilotRule = { all: boolean; ids: Set<string> };
+export const pilotRule = (raw: string | undefined = process.env.DAILY_LOG_PILOT_LINKS): PilotRule =>
+  ({ all: (raw ?? "").trim().toLowerCase() === "all", ids: pilotLinkIds(raw) });
+export const pilotOn = (r: PilotRule) => r.all || r.ids.size > 0;
+// A supervisor link is on when it's "all" or listed. A hand-over link is on when one of its job's people is on
+// (decided in store.ts from the board). Any other kind: never.
+export const supervisorOn = (r: PilotRule, linkId: string) => r.all || r.ids.has(linkId);
+export const linkGetsLog = (r: PilotRule, link: { kind: string; id: string }, handoverOnRuleJob: boolean) =>
+  pilotOn(r) && (link.kind === "SUPERVISOR" ? supervisorOn(r, link.id) : link.kind === "HANDOVER" ? handoverOnRuleJob : false);
 
 // The approved list of automatic internal reminders (A2). Only this rule is on
 // it; a new reminder type is a code change with Ilies's OK. Kill switch:

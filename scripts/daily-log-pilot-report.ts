@@ -17,7 +17,7 @@
 
 import { PrismaClient } from "@prisma/client";
 import { codeLabel } from "../src/lib/activityCodes";
-import { pilotLinkIds } from "../src/lib/dailyLog/rules";
+import { pilotOn, pilotRule } from "../src/lib/dailyLog/rules";
 import { sydneyDay } from "../src/lib/dailyLog/checks";
 
 const prisma = new PrismaClient();
@@ -32,9 +32,9 @@ async function main() {
   const to = arg("--to") ?? addDays(today, -1);
   const from = arg("--from") ?? addDays(to, -13);
   const csv = process.argv.includes("--csv");
-  const ids = [...pilotLinkIds()];
-  if (!ids.length) throw new Error("DAILY_LOG_PILOT_LINKS is empty - set it to the pilot supervisors' link ids.");
-  const links = await prisma.siteLink.findMany({ where: { id: { in: ids }, kind: "SUPERVISOR" }, select: { id: true, resource: { select: { id: true, name: true } } } });
+  const rule = pilotRule();
+  if (!pilotOn(rule)) throw new Error("DAILY_LOG_PILOT_LINKS is empty - set it to \"all\" or the supervisors' link ids.");
+  const links = await prisma.siteLink.findMany({ where: { ...(rule.all ? { revokedAt: null } : { id: { in: [...rule.ids] } }), kind: "SUPERVISOR" }, select: { id: true, resource: { select: { id: true, name: true } } } });
   const people = new Map(links.filter((l) => l.resource).map((l) => [l.resource!.id, l.resource!.name]));
   if (!people.size) throw new Error("None of those ids is a supervisor link with a person.");
 

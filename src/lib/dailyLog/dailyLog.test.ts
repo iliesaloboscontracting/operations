@@ -224,3 +224,22 @@ test("money guard: nothing the link gets can carry a dollar figure, and the link
   assert.ok(linkPart.length > 500);
   assert.ok(!/\b(rate|cost|price|amount|money|dollar|budgetHours|labourHrs|value)\w*\s*:/i.test(linkPart), "no money or budget-hours field on a link shape");
 });
+
+test("rollout (29 Oct 2026): DAILY_LOG_PILOT_LINKS=all puts every supervisor on; an id list still works; OFFICE / POSTER / DRIVER never; HANDOVER on a supervisor's job", async () => {
+  const { pilotRule, pilotOn, linkGetsLog, pilotLinkIds } = await import("./rules");
+  const all = pilotRule("all"), list = pilotRule(" s1, s2 "), off = pilotRule("");
+  assert.ok(pilotOn(all) && pilotOn(list) && !pilotOn(off) && !pilotOn(pilotRule(undefined)));
+  assert.ok(pilotRule(" ALL ").all, "case and spaces don't matter");
+  assert.deepEqual([...pilotLinkIds("all")], [], "'all' isn't read as a link id");
+  const sup = (id: string) => ({ kind: "SUPERVISOR", id });
+  assert.ok(linkGetsLog(all, sup("anyone-new"), false), "all: a brand-new supervisor link");
+  assert.ok(linkGetsLog(list, sup("s1"), false) && !linkGetsLog(list, sup("s9"), false), "list: only the listed ones");
+  assert.ok(!linkGetsLog(off, sup("s1"), true), "off: nobody");
+  for (const kind of ["OFFICE", "POSTER", "DRIVER"]) {
+    assert.ok(!linkGetsLog(all, { kind, id: "x" }, true), `${kind} never, even with all`);
+    assert.ok(!linkGetsLog(list, { kind, id: "s1" }, true), `${kind} never, even if listed`);
+  }
+  assert.ok(linkGetsLog(all, { kind: "HANDOVER", id: "h" }, true), "a hand-over link on a supervisor's job");
+  assert.ok(!linkGetsLog(all, { kind: "HANDOVER", id: "h" }, false), "not when no supervisor on the rule is on that job");
+  assert.ok(!linkGetsLog(off, { kind: "HANDOVER", id: "h" }, true));
+});

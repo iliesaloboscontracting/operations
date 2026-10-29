@@ -34,7 +34,7 @@ export async function register() {
       alertDueReminders().catch((e) => console.error("reminder check", e));
       // Supervisors: crew still signed in 20 min before finish (24 Oct 2026).
       remindBeforeFinish().catch((e) => console.error("sign-out reminder check", e));
-      // Pilot supervisors: no daily log by 19:00 (Task K, 25 Oct 2026). Off when DAILY_LOG_PILOT_LINKS is empty.
+      // Supervisors on the Daily log (every one with DAILY_LOG_PILOT_LINKS=all): no log by 19:00 (Task K). Off when it's empty.
       remindDailyLogs().catch((e) => console.error("daily log reminder check", e));
       // Controlled changes (LCI phase 4): proposals not decided in time expire. Nothing is pushed.
       expireProposals().catch((e) => console.error("change proposal expiry", e));

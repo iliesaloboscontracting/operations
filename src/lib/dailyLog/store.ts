@@ -12,7 +12,7 @@ import { effectiveTimes, jobFinish, parseClock } from "../shiftTimes";
 import { BY_CODE, VERSION, codeLabel } from "../activityCodes";
 import { listBudgets, getBudget } from "../budgets/estimating";
 import type { BudgetListItem } from "../budgets/rules";
-import { DELAY_LABEL, LIMITS, nextRevision, parseLog, parseProgress, pilotLinkIds, progressKey, type DelayCode, type ParsedLog } from "./rules";
+import { DELAY_LABEL, LIMITS, nextRevision, parseLog, linkGetsLog, parseProgress, pilotOn, pilotRule, progressKey, type DelayCode, type ParsedLog } from "./rules";
 import {
   hoursVsBudget, isMissingLog, logDueAt, pickApprovedBudget, progressDue, splitMismatch, sydneyDay, weekStartOf, type BudgetPackageHours,
 } from "./checks";
@@ -28,26 +28,31 @@ const r2 = (n: number) => Math.round(n * 100) / 100;
 
 // ---------- the pilot ----------
 
-// The people on the pilot (the person behind each pilot SUPERVISOR link) and their link ids.
+// The people on the Daily log (the person behind each SUPERVISOR link that has it - every active one when
+// DAILY_LOG_PILOT_LINKS=all) and their link ids. The 19:00 reminder and Day Review's "No site log" read this.
 export async function pilotPeople(): Promise<Map<string, string[]>> {
-  const ids = [...pilotLinkIds()];
-  if (!ids.length) return new Map();
-  const links = await prisma.siteLink.findMany({ where: { id: { in: ids }, kind: "SUPERVISOR", revokedAt: null, resourceId: { not: null } }, select: { id: true, resourceId: true } });
+  const rule = pilotRule();
+  if (!pilotOn(rule)) return new Map();
+  const links = await prisma.siteLink.findMany({
+    where: { ...(rule.all ? {} : { id: { in: [...rule.ids] } }), kind: "SUPERVISOR", revokedAt: null, resourceId: { not: null }, resource: { active: true } },
+    select: { id: true, resourceId: true },
+  });
   const m = new Map<string, string[]>();
   for (const l of links) m.set(l.resourceId!, [...(m.get(l.resourceId!) ?? []), l.id]);
   return m;
 }
 
-// A link sees the Daily log when it's a pilot supervisor link, or a stand-in's
-// hand-over link for a job a pilot supervisor is on.
+// A link sees the Daily log when it's a supervisor link on the rule (every one with "all"), or a stand-in's
+// hand-over link for a job one of those supervisors is on. OFFICE never (POSTER / DRIVER never resolve here).
 export async function isPilotLink(link: ResolvedLink): Promise<boolean> {
-  const ids = pilotLinkIds();
-  if (!ids.size) return false;
-  if (link.kind === "SUPERVISOR") return ids.has(link.id);
-  if (link.kind !== "HANDOVER" || !link.jobId) return false;
-  const people = await pilotPeople();
-  if (!people.size) return false;
-  return (await prisma.assignment.count({ where: { jobId: link.jobId, resourceId: { in: [...people.keys()] } } })) > 0;
+  const rule = pilotRule();
+  if (!pilotOn(rule)) return false;
+  let handover = false;
+  if (link.kind === "HANDOVER" && link.jobId) {
+    const people = await pilotPeople();
+    handover = people.size > 0 && (await prisma.assignment.count({ where: { jobId: link.jobId, resourceId: { in: [...people.keys()] } } })) > 0;
+  }
+  return linkGetsLog(rule, link, handover);
 }
 
 // ---------- which jobs a link logs ----------

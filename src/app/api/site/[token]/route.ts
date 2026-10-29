@@ -42,7 +42,7 @@ export const GET = withErrorHandling(async (_req: NextRequest, { params: paramsP
     link.kind === "OFFICE" && link.person.id ? prisma.siteRequest.count({ where: { assigneeId: link.person.id, ...LINK_WHERE, kind: { not: "QUERY" }, status: "TODO" } }) : 0,
     link.kind === "OFFICE" ? [] : hireForLink(link),
   ]);
-  // The Daily log card (Task K) - only on pilot links (DAILY_LOG_PILOT_LINKS); others get exactly what they got before.
+  // The Daily log card (Task K) - only on links the rule gives it to (DAILY_LOG_PILOT_LINKS, "all" = every supervisor); others get exactly what they got before.
   const dailyLog = (await isPilotLink(link)) ? await logCard(link, new Date()) : undefined;
   // Receipts sent today - supervisors send tip dockets and fuel receipts too.
   const receipts = link.kind === "SUPERVISOR" && link.person.id ? { receiptsToday: await receiptsSentToday(link.person.id) } : {};
