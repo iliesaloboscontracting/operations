@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { withErrorHandling } from "@/lib/apiHandler";
+import { nameWithoutAmounts } from "@/lib/dailyLog/money";
 import { jobLabel, makeOdometerToken, openJob, pointOf, readTicket, sydneyTime, takesSignIns } from "@/lib/signin";
 import { todaySydney } from "@/lib/today";
 import { syncSignInActualsQuietly } from "@/lib/signInActuals";
@@ -149,4 +150,5 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
 });
 
 const bad = (error: string, status = 400) => NextResponse.json({ error }, { status });
-const clean = (v: unknown) => (typeof v === "string" ? v.replace(/\s+/g, " ").trim().slice(0, 60) : "");
+// A hire worker's typed name / company: never an amount in it (SEC-010) - it's shown on the log screen and the report.
+const clean = (v: unknown) => (typeof v === "string" ? nameWithoutAmounts(v.replace(/\s+/g, " ").trim()).slice(0, 60) : "");

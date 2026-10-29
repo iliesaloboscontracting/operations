@@ -235,3 +235,27 @@ test("SEC-006: more money shapes - a currency word after the number, -dollar, 1.
   const n = validateCleaned({ sections: [{ heading: "Work done", text: "Paid $" }, { heading: "Delays", text: "5 for gate" }], delays: [], checkThis: [] });
   assert.ok(assertNoMoney(cleanedNote(n)), cleanedNote(n));
 });
+
+test("SEC-010: a hire worker's company '$5 Labour' is kept without the amount, and a crew list with it passes the money guard", async () => {
+  const { nameWithoutAmounts } = await import("./money");
+  const { linkSafe } = await import("./rules");
+  assert.equal(nameWithoutAmounts("$5 Labour"), "Labour");
+  assert.equal(nameWithoutAmounts("Hire Worker $40"), "Hire Worker");
+  assert.equal(nameWithoutAmounts("Kobelco SK135 - $850 per day"), "Kobelco SK135");
+  assert.equal(nameWithoutAmounts("Sam Smith"), "Sam Smith", "ordinary names untouched");
+  const crew = { count: 1, hours: 7.5, people: [{ name: nameWithoutAmounts("Hire Worker $40"), company: nameWithoutAmounts("$5 Labour"), in: "6:30 am", out: null, hours: 7.5, stillOn: true }] };
+  assert.ok(linkSafe(crew), JSON.stringify(crew));
+});
+
+test("SEC-011: with no Content-Length the body is read byte-counted and stopped at the limit - never read in full first", async () => {
+  const { readCapped } = await import("./voiceBody");
+  const stream = (chunks: number[], onPull?: () => void) => new ReadableStream<Uint8Array>({
+    start(c) { for (const n of chunks) c.enqueue(new Uint8Array(n)); c.close(); },
+    pull() { onPull?.(); },
+  });
+  const small = await readCapped(stream([100, 200]), 1000);
+  assert.ok(small instanceof Uint8Array && small.byteLength === 300);
+  assert.equal(await readCapped(stream([600, 600, 600]), 1000), "TOO_BIG");
+  const empty = await readCapped(null, 1000);
+  assert.ok(empty instanceof Uint8Array && empty.byteLength === 0);
+});

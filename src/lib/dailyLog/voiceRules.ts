@@ -3,7 +3,7 @@
 // is only ever suggestions the supervisor reviews; this file decides what of it is kept. No server imports;
 // `npm test` (voice.test.ts). Design: docs/lci/DAILY-LOG-VOICE-DESIGN.md.
 import { DELAY_CODES, NOTE_MAX, type DelayCode } from "./rules";
-import { stripMoney } from "./money";
+import { nameWithoutAmounts, stripMoney } from "./money";
 import { FILL_SCHEMA_PROPS, NO_FILL, validateFill, type Fill, type FillContext } from "./fill";
 
 // ---------- switch and limits ----------
@@ -51,8 +51,7 @@ export const VOCAB_MAX = 1500;
 // A name with any amount taken out (and the brackets / dash it sat in), at most 60 characters. The transcriber's hint
 // and Claude both get names cleaned this way (SEC-004) - crew, plant, site, codes.
 export const NAME_MAX = 60;
-export const cleanName = (s: string) =>
-  stripMoney(s).text.replace(/\(amount not recorded\)/g, "").replace(/\(\s*\)|\[\s*\]/g, "").replace(/\s+[-–]\s*$/, "").replace(/\s+/g, " ").trim().slice(0, NAME_MAX);
+export const cleanName = (s: string) => nameWithoutAmounts(s).slice(0, NAME_MAX);
 export type CleanContextInput = {
   site: string; crew: string[]; plant: string[];
   // fill-everything: the job's machines in board order (numbered for Claude - never an id), the crew's signed hours

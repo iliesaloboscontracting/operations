@@ -1308,7 +1308,7 @@ model DailyLogVoice {
   siteLinkId String
   jobId      String
   day        String   // YYYY-MM-DD, Sydney - the day the limit counts
-  status     String   @default("PENDING") // PENDING | DONE | FAILED
+  status     String   @default("PENDING") // PENDING | DONE | FAILED | REFUSED (over a day's limit - not counted; SEC-001)
   seconds    Int?     // the phone's recorded length
   transcript String?  // amounts removed
   cleaned    String?  // JSON { sections, delays, checkThis, amountsRemoved }

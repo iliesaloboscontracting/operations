@@ -18,7 +18,7 @@ import {
 } from "./checks";
 import { docketsSentFor } from "../receipts/store";
 import { voiceAvailable } from "./voiceRules";
-import { stripMoney } from "./money";
+import { nameWithoutAmounts, stripMoney } from "./money";
 import type { DayReviewSiteLogDTO, DayReviewSiteLogsDTO, HoursVsBudgetDTO, LinkLogDTO, LogCardDTO, LogDetailDTO, LogJobDTO, ProgressFormDTO, SiteReportDayDTO, SiteReportDTO } from "./types";
 
 const dateOnly = (day: string) => new Date(`${day}T00:00:00.000Z`);
@@ -78,7 +78,7 @@ export async function loggableJobs(link: ResolvedLink, now: Date) {
   });
 }
 type LogJob = Awaited<ReturnType<typeof loggableJobs>>[number];
-const jobLabel = (j: { title: string; shift: string; project: { name: string } | null }) => `${j.project?.name ?? j.title}${j.shift === "NIGHT" ? " (night)" : ""}`;
+const jobLabel = (j: { title: string; shift: string; project: { name: string } | null }) => `${nameWithoutAmounts(j.project?.name ?? j.title)}${j.shift === "NIGHT" ? " (night)" : ""}`;
 
 // ---------- prefill ----------
 
@@ -90,8 +90,9 @@ export async function crewFor(jobId: string, now: Date): Promise<LogJobDTO["crew
     orderBy: { signInAt: "asc" },
     select: { resourceId: true, workerName: true, company: true, signInAt: true, signOutAt: true, job: { select: { project: { select: { unpaidBreakMinutes: true } } } } },
   });
+  // Names read back without any amount (SEC-010: a hire worker could type "$5 Labour" at sign-in).
   const people = rows.map((r) => ({
-    name: r.workerName, company: r.resourceId ? null : r.company, staff: !!r.resourceId,
+    name: nameWithoutAmounts(r.workerName), company: r.resourceId ? null : r.company ? nameWithoutAmounts(r.company) : r.company, staff: !!r.resourceId,
     in: sydneyTime(r.signInAt), out: sydneyTime(r.signOutAt), stillOn: !r.signOutAt,
     hours: signedHours(r.signInAt, r.signOutAt ?? (now > r.signInAt ? now : r.signInAt), r.job?.project?.unpaidBreakMinutes) ?? 0,
   }));
@@ -117,7 +118,7 @@ export async function plantFor(job: LogJob): Promise<LogJobDTO["plant"]> {
   const length = s != null && e != null ? Math.round((((e - s + 1440) % 1440) / 60) * 4) / 4 : null;
   const seen = new Set<string>();
   return rows.filter((a) => !seen.has(a.resource.id) && seen.add(a.resource.id)).map((a) => ({
-    resourceId: a.resource.id, name: a.resource.name,
+    resourceId: a.resource.id, name: nameWithoutAmounts(a.resource.name),
     kind: a.resource.type === "VEHICLE" || (a.resource.type === "HIRE" && a.resource.category === "VEHICLE") ? "TRUCK" : "PLANT",
     defaultHours: length || null,
   }));
@@ -155,7 +156,7 @@ async function toDetail(l: LogRow): Promise<LogDetailDTO> {
     id: l.id, revision: l.revision, submittedBy: l.submittedBy, at: l.createdAt.toISOString(), atLabel: sydneyTime(l.createdAt) ?? "",
     codesVersion: l.codesVersion, crewCount: l.crewCount, labourHours: l.labourHours, splitHours: l.splitHours, crewOk: l.crewOk, crewNote: nm(l.crewNote),
     note: nm(l.note), photos: parseIds(l.photoIds), noDelays: l.noDelays, noDockets: l.noDockets, durationSec: l.durationSec,
-    hours: l.hours.map((h) => ({ code: h.code, label: codeLabel(h.code), kind: h.kind, resourceId: h.resourceId, resourceName: h.resourceId ? names.get(h.resourceId) ?? null : null, hours: h.hours })),
+    hours: l.hours.map((h) => ({ code: h.code, label: codeLabel(h.code), kind: h.kind, resourceId: h.resourceId, resourceName: h.resourceId && names.has(h.resourceId) ? nameWithoutAmounts(names.get(h.resourceId)!) : null, hours: h.hours })),
     delays: l.delays.map((d) => ({ delayCode: d.delayCode, label: DELAY_LABEL[d.delayCode as DelayCode] ?? d.delayCode, hoursLost: d.hoursLost, affects: d.affects, note: nm(d.note), photos: parseIds(d.photoIds) })),
     dockets: l.dockets.map((d) => ({ code: d.code, wasteClass: d.wasteClass, quantity: d.quantity, unit: d.unit, docketNo: nm(d.docketNo), facility: nm(d.facility), photo: d.photoId })),
   };
@@ -467,7 +468,7 @@ export async function siteReport(jobId: string, now: Date): Promise<SiteReportDT
     crewFor(job.id, now), latestLogRow(job.id), prisma.dailyLog.count({ where: { jobId: job.id } }), docketsSentFor([job.id]),
   ]);
   return {
-    jobId: job.id, projectId: job.projectId, site: job.project?.name ?? job.title, jobNo: job.project?.jobNo ?? null,
+    jobId: job.id, projectId: job.projectId, site: nameWithoutAmounts(job.project?.name ?? job.title), jobNo: job.project?.jobNo ?? null,
     date: isoDay(job.date), shift: job.shift,
     crew: { count: crew.count, hours: crew.hours, staff: crew.staff, hire: crew.hire, people: crew.people },
     log: latest ? { ...(await toDetail(latest)), logId: latest.id, revisions } : null,

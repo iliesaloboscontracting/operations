@@ -82,7 +82,9 @@ export default {
       if (body) rq.write(body);
       rq.end();
     });
-    t.status({ status: await raw({ "content-type": "multipart/form-data; boundary=x", "transfer-encoding": "chunked" }, "--x--") }, 411, "no Content-Length -> 411");
+    // SEC-011: a missing Content-Length isn't refused for that alone (the body is then read byte-counted, stopped at
+    // 6.25 MB) - the checks before reading still come first: voice is off here, so 503.
+    t.status({ status: await raw({ "content-type": "multipart/form-data; boundary=x", "transfer-encoding": "chunked" }, "--x--") }, 503, "no Content-Length: not refused for that - the pre-body checks answer (voice off -> 503)");
     const big = Buffer.alloc(7 * 1024 * 1024); // a real 7 MB body, so the request is whole
     t.status({ status: await raw({ "content-type": "multipart/form-data; boundary=x", "content-length": String(big.length) }, big) }, 413, "a Content-Length over 6.25 MB -> 413 before reading it");
 
@@ -95,6 +97,15 @@ export default {
     const handover = await makeLink(c.db, "HANDOVER", L.sup.resourceId, { jobId: job.id, expiresAt: new Date(Date.now() + 3600_000) });
     const other = await c.db.job.findFirst({ where: { id: { not: job.id } }, select: { id: true } });
     t.status(await voice(handover, { jobId: other?.id ?? "x", audio: audio() }), 403, "a hand-over link sending another job's id -> 403");
+
+    // SEC-010: a hire worker who signed in with company "$5 Labour" - the log screen and the report still open, no $.
+    await c.db.siteAttendance.create({ data: { jobId: job.id, date: day, workerName: "Hire Worker $40", company: "$5 Labour", signInAt: new Date(Date.now() - 3 * 3600_000), signInMethod: "MANUAL", status: "CONFIRMED", allocated: false } });
+    const hireView = await c.json(c.site(L.sup, "/log"), null);
+    t.status({ status: hireView.status }, 200, "with a \"$5 Labour\" hire sign-in the log screen opens");
+    t.ok(noMoney(hireView.body), "...with no dollar figure");
+    const hireRep = await c.json(`/api/daily-report/${job.id}`, "MANAGER");
+    t.status({ status: hireRep.status }, 200, "...and the daily site report opens");
+    t.ok(noMoney(hireRep.body) && JSON.stringify(hireRep.body).includes("Labour"), "...with no dollar figure (the company shows as Labour)");
 
     // SEC-002: a typed "$650" in the note is taken out - the screen and the report still open, with no dollar figure.
     const sent = await fetch(`${c.base}${c.site(L.sup, "/log")}`, {
