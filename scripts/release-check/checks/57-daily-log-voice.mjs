@@ -71,15 +71,20 @@ export default {
     t.ok(results.every((x) => noMoney(x.b)), "...no dollar figure in any reply");
 
     // SEC-003: no Content-Length -> 411, too big -> 413 - both before the form is read.
+    // A raw request (fetch always sets Content-Length itself); never left hanging - 20 s at most.
     const raw = (headers, body) => new Promise((resolve) => {
       const u = new URL(`${c.base}${c.site(burst, "/log/voice")}?jobId=${job.id}&seconds=5`);
-      const rq = http.request({ hostname: u.hostname, port: u.port, path: u.pathname + u.search, method: "POST", headers }, (res) => { res.resume(); resolve(res.statusCode); });
-      rq.on("error", () => resolve(-1));
+      let done = false;
+      const finish = (s) => { if (!done) { done = true; clearTimeout(timer); rq.destroy(); resolve(s); } };
+      const rq = http.request({ hostname: u.hostname, port: u.port, path: u.pathname + u.search, method: "POST", headers }, (res) => { res.resume(); finish(res.statusCode); });
+      const timer = setTimeout(() => finish(-2), 20_000);
+      rq.on("error", () => finish(-1));
       if (body) rq.write(body);
       rq.end();
     });
     t.status({ status: await raw({ "content-type": "multipart/form-data; boundary=x", "transfer-encoding": "chunked" }, "--x--") }, 411, "no Content-Length -> 411");
-    t.status({ status: await raw({ "content-type": "multipart/form-data; boundary=x", "content-length": String(7 * 1024 * 1024) }, "--x--") }, 413, "a Content-Length over 6.25 MB -> 413 before reading it");
+    const big = Buffer.alloc(7 * 1024 * 1024); // a real 7 MB body, so the request is whole
+    t.status({ status: await raw({ "content-type": "multipart/form-data; boundary=x", "content-length": String(big.length) }, big) }, 413, "a Content-Length over 6.25 MB -> 413 before reading it");
 
     // Links that can't use it: revoked supervisor, expired hand-over; a hand-over sending another job.
     const revoked = await makeLink(c.db, "SUPERVISOR", L.sup.resourceId);
