@@ -38,8 +38,9 @@ async function otherSites(excludeProjectIds: Set<string | null>) {
   const day = (n: number) => new Date(new Date(signinDates().today + "T00:00:00.000Z").getTime() + n * 86_400_000);
   const rows = await prisma.project.findMany({
     where: { archived: false, jobs: { some: { date: { gte: day(-120), lte: day(30) } } } },
-    select: { id: true, name: true, client: true },
+    select: { id: true, name: true }, // the name only - nothing else reaches the link (SEC-003)
     orderBy: { name: "asc" },
+    take: 200,
   });
   return rows.filter((p) => !excludeProjectIds.has(p.id));
 }
