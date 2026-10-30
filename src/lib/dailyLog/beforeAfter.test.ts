@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { BEFORE_AFTER_LIMITS, addRefusal, parsePhase, photoFlags, reminderText } from "./beforeAfter";
+import { BEFORE_AFTER_LIMITS, LINK_DAY_CAP, addRefusal, dataUrlBytes, parsePhase, photoFlags, reminderText } from "./beforeAfter";
 
 test("up to 6 shown in a set; the 7th is refused; a removed one frees its place, up to 20 sent in all", () => {
   assert.equal(BEFORE_AFTER_LIMITS.perPhase, 6);
@@ -11,6 +11,20 @@ test("up to 6 shown in a set; the 7th is refused; a removed one frees its place,
   assert.match(addRefusal(6, 6) ?? "", /6 photos already - remove one/);
   assert.equal(addRefusal(5, 9), null, "4 removed - 5 shown, room for one more");
   assert.match(addRefusal(3, 20) ?? "", /most photos for this job today/);
+});
+
+test("SEC-BA-001: 40 a link a Sydney day (removed ones counted), 3 MB a photo, checked before the file is written", () => {
+  assert.equal(BEFORE_AFTER_LIMITS.perLinkPerDay, 40);
+  assert.equal(BEFORE_AFTER_LIMITS.maxBytes, 3 * 1024 * 1024);
+  assert.equal(LINK_DAY_CAP, "That's the most photos this link can send in a day - call the office.");
+  assert.equal(dataUrlBytes("data:image/png;base64," + Buffer.alloc(3000).toString("base64")), 3000);
+  assert.equal(dataUrlBytes("data:image/png;base64," + Buffer.alloc(3001).toString("base64")), 3001);
+  assert.equal(dataUrlBytes(null), 0);
+  const src = readFileSync(new URL("./beforeAfterLink.ts", import.meta.url), "utf8");
+  const add = src.slice(src.indexOf("export async function addLinkPhoto"), src.indexOf("export async function hideLinkPhoto"));
+  assert.ok(add.indexOf("status: 429") > 0 && add.indexOf("status: 429") < add.indexOf("savePhoto("), "the day cap comes before the file is written");
+  assert.ok(add.indexOf("status: 413") < add.indexOf("savePhoto("));
+  assert.match(src, /siteLogPhoto\.count\(\{ where: \{ siteLinkId: linkId, createdAt: \{ gte: since \} \} \}\)/, "every row counts - hidden ones too");
 });
 
 test("only BEFORE or AFTER", () => {

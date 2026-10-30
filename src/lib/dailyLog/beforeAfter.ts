@@ -5,8 +5,19 @@ export const PHASES = ["BEFORE", "AFTER"] as const;
 export type Phase = (typeof PHASES)[number];
 
 // Up to 6 shown per job per day for each set. A removed photo is hidden (never deleted) and frees its place; at most
-// 20 rows a set in all, so add-remove-add can't go on for ever.
-export const BEFORE_AFTER_LIMITS = { perPhase: 6, rowsPerPhase: 20 } as const;
+// 20 rows a set in all, so add-remove-add can't go on for ever. SEC-BA-001: at most 40 photos a link a Sydney day,
+// removed ones counted too, and 3 MB a photo (a phone photo is shrunk to a few hundred KB before it's sent).
+// SEC-BA-002: a request over 9 MB is refused before it's read.
+export const BEFORE_AFTER_LIMITS = { perPhase: 6, rowsPerPhase: 20, perLinkPerDay: 40, maxBytes: 3 * 1024 * 1024, maxRequestBytes: 9 * 1024 * 1024 } as const;
+export const LINK_DAY_CAP = "That's the most photos this link can send in a day - call the office.";
+export const PHOTO_TOO_BIG = "That photo is too large - try again (it should shrink automatically).";
+
+// The decoded size of a data URL's image, without decoding it (base64: 4 characters for 3 bytes, less padding).
+export function dataUrlBytes(dataUrl: unknown): number {
+  if (typeof dataUrl !== "string") return 0;
+  const b64 = dataUrl.slice(dataUrl.indexOf(",") + 1);
+  return Math.floor((b64.length * 3) / 4) - (b64.endsWith("==") ? 2 : b64.endsWith("=") ? 1 : 0);
+}
 
 export const parsePhase = (x: unknown): Phase | null => (PHASES as readonly unknown[]).includes(x) ? (x as Phase) : null;
 export const PHASE_LABEL: Record<Phase, string> = { BEFORE: "Before", AFTER: "After" };
