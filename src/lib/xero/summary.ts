@@ -7,6 +7,7 @@
 // Plain functions; `npm test` (xero.test.ts).
 import { XERO_CONFIG } from "./config";
 import type { HealthTile } from "../insights/health";
+import { THRESHOLDS } from "../insights/dictionary";
 
 export type SummaryInvoice = {
   type: string; status: string; date: string; dueDate: string | null; totalExGst: number; amountDue: number | null;
@@ -26,19 +27,30 @@ const isSale = (t: string) => t === "SALE" || t === "SALE_CREDIT";
 const sign = (t: string) => (t.endsWith("CREDIT") ? -1 : 1);
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
+// What counts as a sale, line by line, with the right sign - the one rule the revenue tile and the Directors' claims
+// (lib/insights/claims.ts) both use (30 Oct 2026). A sales invoice counts +, a credit note -, ex GST; bills and
+// voided / deleted / draft invoices don't count at all. Each line says where it went: a job (projectId), "not a job"
+// (a person said so), or not tied yet.
+export const countsAsSale = (i: { type: string; status: string }) => isSale(i.type) && counts(i.status);
+export type SignedSaleLine = { amount: number; projectId: string | null; notAJob: boolean };
+export function signedSaleLines(i: { type: string; status: string; lines: { amountExGst: number; projectId: string | null; matchMethod: string | null }[] }): SignedSaleLine[] {
+  if (!countsAsSale(i)) return [];
+  return i.lines.map((l) => ({ amount: sign(i.type) * l.amountExGst, projectId: l.projectId, notAJob: !l.projectId && l.matchMethod === "PERSON" }));
+}
+
 export const needsReview = (i: Pick<SummaryInvoice, "type" | "status" | "matchMethod">) =>
   isSale(i.type) && counts(i.status) && (i.matchMethod === "NONE" || i.matchMethod === "SITE_TEXT" || i.matchMethod === "MIXED");
 
 export function revenueSummary(invoices: SummaryInvoice[], today: string) {
   const from = fyStart(today);
-  const sales = invoices.filter((i) => isSale(i.type) && counts(i.status));
+  const sales = invoices.filter(countsAsSale);
   const fy = sales.filter((i) => i.date >= from && i.date <= today);
   let invoiced = 0, matched = 0, notAJob = 0;
   for (const i of fy) {
     invoiced += sign(i.type) * i.totalExGst;
-    for (const l of i.lines) {
-      if (l.projectId) matched += sign(i.type) * l.amountExGst;
-      else if (l.matchMethod === "PERSON") notAJob += sign(i.type) * l.amountExGst;
+    for (const l of signedSaleLines(i)) {
+      if (l.projectId) matched += l.amount;
+      else if (l.notAJob) notAJob += l.amount;
     }
   }
   const review = sales.filter(needsReview);
@@ -111,7 +123,7 @@ export function revenueTile(inv: { info: XeroImportInfo; s: ReturnType<typeof re
     statusWord: p.stale ? `Stale - last read ${p.asAtLabel}` : inv && inv.s.reviewCount ? `${inv.s.reviewCount} not tied to a job` : p.word,
     headline: inv ? money(inv.s.invoiced) : pnl?.s.totalIncome ? money(pnl.s.totalIncome.amount) : null,
     lines, source: p.source, asAt: p.asAt, asAtLabel: p.asAtLabel,
-    confidence: !p.live || p.stale ? "LOW" : share != null && share >= 0.9 ? "HIGH" : "MEDIUM",
+    confidence: !p.live || p.stale ? "LOW" : share != null && share >= THRESHOLDS.revenueTiedHighAt ? "HIGH" : "MEDIUM",
     confidenceWhy: !p.live
       ? `A manual export as at ${dayName(info.asAt)} - only as current as the last upload`
       : p.stale ? `Xero hasn't been read for over ${STALE_AFTER_HOURS} hours - check the connection on Accounts data`
