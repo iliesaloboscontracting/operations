@@ -107,6 +107,10 @@ test("SEC-005: linkLabel takes every $ out and keeps the rest; nothing left -> t
   assert.match(route, /label: linkLabel\(a\.label, "a truck"\)/);
   assert.match(src, /const forLabel = \(s: string \| null, fallback: string\) => \(s == null \? null : linkLabel\(s, fallback\)\);/);
   assert.match(src, /for: forLabel\(/);
+  // SEC-007: today's projects are excluded in the query, before take: 200 - no filter after it.
+  const other = src.slice(src.indexOf("async function otherSites"), src.indexOf("// Lobos-owned trucks"));
+  assert.ok(other.indexOf("id: { notIn: exclude }") > 0 && other.indexOf("id: { notIn: exclude }") < other.indexOf("take: 200"));
+  assert.doesNotMatch(other, /\.filter\(\(p\) => !excludeProjectIds/);
   const optsSrc = src.slice(src.indexOf("export async function receiptOptions"), src.indexOf("// ---------- photos"));
   for (const [line, fb] of [["sites:", "Unnamed site"], ["jobs:", "Unnamed site"], ["trucks:", "a truck"], ["plant:", "a truck"]]) {
     assert.ok((optsSrc.split("\n").find((l) => l.trim().startsWith(line)) ?? "").includes(`"${fb}"`), `${line} falls back to ${fb}`);

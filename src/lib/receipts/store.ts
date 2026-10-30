@@ -36,13 +36,14 @@ function todaysJobs() {
 // count isn't changed.
 async function otherSites(excludeProjectIds: Set<string | null>) {
   const day = (n: number) => new Date(new Date(signinDates().today + "T00:00:00.000Z").getTime() + n * 86_400_000);
-  const rows = await prisma.project.findMany({
-    where: { archived: false, jobs: { some: { date: { gte: day(-120), lte: day(30) } } } },
+  // Projects running today are left out in the query itself (SEC-007), so the 200 are all sites that can be picked.
+  const exclude = [...excludeProjectIds].filter((x): x is string => !!x);
+  return prisma.project.findMany({
+    where: { archived: false, id: { notIn: exclude }, jobs: { some: { date: { gte: day(-120), lte: day(30) } } } },
     select: { id: true, name: true }, // the name only - nothing else reaches the link (SEC-003)
     orderBy: { name: "asc" },
     take: 200,
   });
-  return rows.filter((p) => !excludeProjectIds.has(p.id));
 }
 
 // Lobos-owned trucks (the same ones that get a truck QR: not trailers, not hired).
