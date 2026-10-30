@@ -98,8 +98,11 @@ test("SEC-005: linkLabel takes every $ out and keeps the rest; nothing left -> t
   assert.equal(linkLabel("$5", "Unnamed site"), "Unnamed site");
   assert.equal(linkLabel("$ $", "a truck"), "a truck");
   assert.equal(linkLabel("12 Grand Pde Brighton", "Unnamed site"), "12 Grand Pde Brighton");
-  assert.equal(linkLabel("$5 Bins", "Unnamed site"), "5 Bins");
-  assert.equal(linkLabel("  Hino   500 ($90/day) ", "a truck"), "Hino 500 (90/day)");
+  // SEC-009: the whole "$" amount goes, with any rate and the brackets it leaves.
+  assert.equal(linkLabel("$5 Bins", "Unnamed site"), "Bins");
+  assert.equal(linkLabel("Hino 500 ($90/day)", "a truck"), "Hino 500");
+  assert.equal(linkLabel("  Hino   500 ($90/day) ", "a truck"), "Hino 500");
+  assert.equal(linkLabel("A$300 Site", "Unnamed site"), "Site");
   for (const s of ["$5", "12 Grand Pde Brighton", "$5 Bins", "$$5 5 5", "A$300 Site", "$ 5 Lido"]) assert.ok(linkSafe({ label: linkLabel(s, "Unnamed site") }), s);
   const src = fs.readFileSync(path.join(__dirname, "store.ts"), "utf8");
   // SEC-006: the reimbursement screen - asset labels and "for" (null stays null) through linkLabel; fuelAssets unchanged.

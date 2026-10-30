@@ -55,7 +55,9 @@ export default {
     t.ok((await c.db.receiptPhoto.count()) === before, "no photo copied");
     t.status(await add({ ...F, docketNo: F.docketNo.toLowerCase().replace("-", " ") }), 409, "the same docket again is refused");
     t.status(await add({ ...F, docketNo: F.docketNo + "X", tonnes: "" }), 400, "missing tonnes refused");
-    t.status(await add({ ...F, jobId: "", docketNo: F.docketNo + "Y" }), 400, "a second docket from a job docket needs a job picked (SEC-008)");
+    const noJob = await add({ ...F, jobId: "", docketNo: F.docketNo + "Y" });
+    t.status(noJob, 400, "a second docket from a job docket needs a job picked (SEC-008)");
+    t.ok(/Pick the job/.test((await noJob.json().catch(() => ({}))).error ?? ""), "...saying to pick the job");
     t.ok(!/\$\s?\d/.test((await c.text(c.site(L.sup, "/receipts"), null)).text), "the supervisor link still has no $");
 
     // ---- a tip docket for a site not running today (a bin picked up between stages) ----
@@ -98,6 +100,7 @@ export default {
       t.ok(newRow && /not on that day/.test(newRow.for ?? ""), "the office list shows the new docket as '<site> - not on that day'", newRow ? "row found" : "row not in the list");
       const unknown = await c.post(`/api/receipts/${siteRow.id}`, "MANAGER", { op: "ADD_DOCKET", fields: { ...F, jobId: "cnotarealjob0000000000000", docketNo: `RC-U-${Date.now() % 1000000}` } });
       t.status(unknown, 400, "a second docket naming an unknown job on a project-only docket is refused (SEC-008)");
+      t.ok(/Pick the job/.test((await unknown.json().catch(() => ({}))).error ?? ""), "...saying to pick the job");
     }
     // The 41st receipt from one link in 24 hours - on the site path too.
     const capLink = await makeLink(c.db, "DRIVER", person.id);

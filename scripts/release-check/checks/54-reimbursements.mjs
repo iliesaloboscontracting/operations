@@ -24,7 +24,7 @@ export default {
       try {
         const odd = await c.text(c.site(L.sup, "/reimbursements"), null);
         t.status(odd.status, 200, "a truck named with a dollar sign: the reimbursement screen still opens");
-        t.ok(!odd.text.includes("$") && odd.text.includes("5 Release Truck"), "...with the dollar sign taken out of the label");
+        t.ok(!odd.text.includes("$") && odd.text.includes("Release Truck"), "...with the amount taken out of the label");
       } finally {
         await c.db.resource.update({ where: { id: truck.id }, data: { name: truck.name } });
       }

@@ -35,12 +35,13 @@ const MONEY_PATTERNS = [
 export const nameWithoutAmounts = (s: string) =>
   stripMoney(s).text.replace(/\(amount not recorded\)/g, "").replace(/\(\s*\)|\[\s*\]/g, "").replace(/\s+[-–]\s*$/, "").replace(/\$/g, "").replace(/\s+/g, " ").trim();
 
-// A label a link shows (receipts, reimbursements - SEC-005): every "$" taken out and the spaces tidied, the rest kept as
-// typed ("$5 Bins" -> "5 Bins", "12 Grand Pde Brighton" unchanged); nothing word-like left ("$5" -> "5") -> the
-// fallback. With no "$" left the money guard always passes; linkSafe stays the backstop. nameWithoutAmounts (names on
-// the daily log) is unchanged.
+// A label a link shows (receipts, reimbursements - SEC-005, SEC-009): the whole "$"-led amount taken out first, with
+// any rate after it (the first money pattern: "$5", "A$300", "$90/day"), then empty brackets, then any "$" left, then
+// the spaces tidied ("$5 Bins" -> "Bins", "Hino 500 ($90/day)" -> "Hino 500", "12 Grand Pde Brighton" unchanged);
+// nothing word-like left ("$5") -> the fallback. With no "$" left the money guard always passes; linkSafe stays the
+// backstop. nameWithoutAmounts (names on the daily log) is unchanged.
 export const linkLabel = (s: string, fallback: string) => {
-  const t = s.replace(/\$/g, "").replace(/\s+/g, " ").trim();
+  const t = s.replace(MONEY_PATTERNS[0], "").replace(/\(\s*\)|\[\s*\]/g, "").replace(/\$/g, "").replace(/\s+/g, " ").trim();
   return /\p{L}/u.test(t) ? t : fallback;
 };
 
