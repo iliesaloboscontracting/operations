@@ -102,6 +102,11 @@ test("SEC-005: linkLabel takes every $ out and keeps the rest; nothing left -> t
   assert.equal(linkLabel("  Hino   500 ($90/day) ", "a truck"), "Hino 500 (90/day)");
   for (const s of ["$5", "12 Grand Pde Brighton", "$5 Bins", "$$5 5 5", "A$300 Site", "$ 5 Lido"]) assert.ok(linkSafe({ label: linkLabel(s, "Unnamed site") }), s);
   const src = fs.readFileSync(path.join(__dirname, "store.ts"), "utf8");
+  // SEC-006: the reimbursement screen - asset labels and "for" (null stays null) through linkLabel; fuelAssets unchanged.
+  const route = fs.readFileSync(path.join(__dirname, "../../app/api/site/[token]/reimbursements/route.ts"), "utf8");
+  assert.match(route, /label: linkLabel\(a\.label, "a truck"\)/);
+  assert.match(src, /const forLabel = \(s: string \| null, fallback: string\) => \(s == null \? null : linkLabel\(s, fallback\)\);/);
+  assert.match(src, /for: forLabel\(/);
   const optsSrc = src.slice(src.indexOf("export async function receiptOptions"), src.indexOf("// ---------- photos"));
   for (const [line, fb] of [["sites:", "Unnamed site"], ["jobs:", "Unnamed site"], ["trucks:", "a truck"], ["plant:", "a truck"]]) {
     assert.ok((optsSrc.split("\n").find((l) => l.trim().startsWith(line)) ?? "").includes(`"${fb}"`), `${line} falls back to ${fb}`);

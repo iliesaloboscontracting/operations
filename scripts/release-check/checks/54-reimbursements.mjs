@@ -17,6 +17,18 @@ export default {
     const post = (body) => c.post(c.site(L.sup, "/reimbursements"), null, body);
     t.status(await post({ purpose: "TOOLS", note: "gloves", photoIds: [] }), 400, "no tick, no photo -> refused");
     t.status(await post({ purpose: "OTHER", note: "cost $40", photoIds: ["x"], paidMyself: true }), 400, "a $ figure in the note is refused");
+    // SEC-006: a Lobos truck renamed "$5 ..." on the copy - the screen still opens (200) with no "$"; the name is put back.
+    const truck = await c.db.resource.findFirst({ where: { type: "VEHICLE", ownership: "OWNED", active: true, NOT: { category: "Other" } }, select: { id: true, name: true } });
+    if (truck) {
+      await c.db.resource.update({ where: { id: truck.id }, data: { name: "$5 Release Truck" } });
+      try {
+        const odd = await c.text(c.site(L.sup, "/reimbursements"), null);
+        t.status(odd.status, 200, "a truck named with a dollar sign: the reimbursement screen still opens");
+        t.ok(!odd.text.includes("$") && odd.text.includes("5 Release Truck"), "...with the dollar sign taken out of the label");
+      } finally {
+        await c.db.resource.update({ where: { id: truck.id }, data: { name: truck.name } });
+      }
+    } else t.note("no Lobos truck on the copy - the renamed-truck step didn't run");
     t.status(await c.get(c.site(L.office, "/reimbursements"), null), 404, "an office link is refused");
     t.status(await c.get("/api/receipts", "MANAGER"), 200, "the Operations receipts list still loads");
   },

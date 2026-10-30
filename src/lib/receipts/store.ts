@@ -358,6 +358,7 @@ export type ReimburseLinkDTO = { id: string; purpose: string; for: string | null
 
 // "My reimbursements": what this person sent "I paid this myself" for in the last 60 days, with where it's at.
 // Words and dates only - never an amount.
+const forLabel = (s: string | null, fallback: string) => (s == null ? null : linkLabel(s, fallback));
 export async function myReimbursements(link: ReceiptLink): Promise<ReimburseLinkDTO[]> {
   const rows = await prisma.receipt.findMany({
     where: { ownMoney: true, sentByResourceId: link.person.id, sentAt: { gte: new Date(Date.now() - 60 * 86_400_000) } },
@@ -373,7 +374,8 @@ export async function myReimbursements(link: ReceiptLink): Promise<ReimburseLink
     const claim = mine.find((c) => c.status !== "CANCELLED") ?? mine[mine.length - 1] ?? null;
     return {
       id: r.id, purpose: PURPOSE_LABEL[r.purpose as Purpose] ?? "Other",
-      for: r.purpose === "FUEL" ? assets.find((a) => a.id === r.vehicleId)?.name ?? null : r.note,
+      // Through linkLabel (SEC-006); nothing stays nothing.
+      for: forLabel(r.purpose === "FUEL" ? assets.find((a) => a.id === r.vehicleId)?.name ?? null : r.note, r.purpose === "FUEL" ? "a truck" : "Other"),
       sentOn: r.sentAt.toLocaleDateString("en-AU", { timeZone: "Australia/Sydney", day: "numeric", month: "short" }),
       status: reimburseStatus(r.status, claim ? { status: claim.status, paidOn: claim.paidOn } : null),
     };
