@@ -21,7 +21,12 @@ export type LogDetailDTO = {
 
 // Before and after site photos (30 Oct 2026): names and times only - the image comes from a photo route by id.
 export type BeforeAfterPhotoDTO = { id: string; at: string; atLabel: string; takenBy: string };
-export type BeforeAfterDTO = { before: BeforeAfterPhotoDTO[]; after: BeforeAfterPhotoDTO[]; noBefore: boolean; noAfter: boolean };
+// A removed (hidden) photo, for Managers and up only (SEC-BA-004): shown greyed out with who removed it and when.
+export type RemovedPhotoDTO = BeforeAfterPhotoDTO & { phase: "BEFORE" | "AFTER"; removedBy: string; removedAtLabel: string };
+export type BeforeAfterDTO = {
+  before: BeforeAfterPhotoDTO[]; after: BeforeAfterPhotoDTO[]; noBefore: boolean; noAfter: boolean;
+  removed?: RemovedPhotoDTO[]; // Day Review and the office's report (Manager+) only - never a link, a Viewer or the directors' copy
+};
 
 export type LogJobDTO = {
   jobId: string; date: string; shift: string; label: string; closed: boolean;

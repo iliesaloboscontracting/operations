@@ -39,6 +39,20 @@ test("SEC-BA-002: the route checks the size and one-at-a-time before the photo i
   assert.match(capped, /readCapped\(req\.body, max\)/, "without one, the body is counted as it's read (voiceBody.readCapped)");
 });
 
+test("SEC-BA-004: removed photos only on Manager+ responses - Day Review (office) and the office's report; never a link or the directors' copy", () => {
+  const read = (p: string) => readFileSync(new URL(p, import.meta.url), "utf8");
+  const store = read("./store.ts");
+  assert.match(store, /const photos = office \? await beforeAfterFor\(ids, \{ withRemoved: true \}\) : new Map\(\);/, "Day Review: only for the office");
+  const linkView = store.slice(store.indexOf("export async function linkLogView"), store.indexOf("// Weekly % forms"));
+  assert.match(linkView, /beforeAfterFor\(jobs\.map\(\(j\) => j\.id\)\)/, "the link's log: shown photos only");
+  assert.match(read("./beforeAfterLink.ts"), /beforeAfterFor\(\[jobId\]\)\)/, "the link's add / remove replies: shown photos only");
+  assert.match(read("../../app/api/daily-report/[jobId]/route.ts"), /guard\("MANAGER"\)[\s\S]*reportResponse\(\(await paramsP\)\.jobId, \{ removed: true \}\)/, "the office's report (Manager+) asks for them");
+  assert.match(read("../../app/api/directors/daily-report/[jobId]/route.ts"), /reportResponse\(\(await paramsP\)\.jobId\);/, "the directors' copy doesn't");
+  assert.match(read("../../app/api/day-review/site-logs/before-after/route.ts"), /guard\("MANAGER"\)[\s\S]*allowRemoved: true/, "the office's photo route serves a removed photo, Manager+");
+  assert.doesNotMatch(read("../../app/api/directors/daily-report/before-after/route.ts"), /allowRemoved/, "the directors' photo route never does");
+  assert.doesNotMatch(read("../../app/api/site/[token]/log/photos/route.ts"), /withRemoved|allowRemoved/, "nor the link's");
+});
+
 test("only BEFORE or AFTER", () => {
   assert.equal(parsePhase("BEFORE"), "BEFORE");
   assert.equal(parsePhase("AFTER"), "AFTER");

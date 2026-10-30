@@ -94,7 +94,7 @@ export default function SiteLogPanel({ log, budget }: { log: DayReviewSiteLogDTO
         </div>
       )}
 
-      {log.beforeAfter && (log.beforeAfter.before.length > 0 || log.beforeAfter.after.length > 0) && (
+      {log.beforeAfter && (log.beforeAfter.before.length > 0 || log.beforeAfter.after.length > 0 || (log.beforeAfter.removed?.length ?? 0) > 0) && (
         <div className="mt-2 text-xs">
           <BeforeAfterView data={log.beforeAfter} photoUrl={(id) => `/api/day-review/site-logs/before-after?job=${encodeURIComponent(log.jobId)}&id=${encodeURIComponent(id)}`} />
         </div>

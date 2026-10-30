@@ -91,7 +91,8 @@ export default {
     const ok = await c.get(office(a1?.id), "MANAGER");
     t.ok(ok.status === 200 && /image\//.test(ok.headers.get("content-type") ?? ""), "a Manager gets an after photo", ok.status);
     t.status(await c.get(office(a1?.id, "another-job"), "MANAGER"), 404, "...only with its own job");
-    t.status(await c.get(office(b1?.id), "MANAGER"), 404, "...and never a removed one");
+    // SEC-BA-004: a removed photo is still there for Managers (greyed out), never for the directors' copy or a link.
+    t.status(await c.get(office(b1?.id), "MANAGER"), 200, "...a removed one too, for a Manager (shown greyed out)");
     for (const who of ["VIEWER", "TIMESHEETS", "ACCOUNTS", "DIRECTOR"]) t.status(await c.get(office(a1?.id), who), [401, 403], `${who}: the office's photo route is refused`);
     t.status(await c.get(office(a1?.id), null), [401, 403], "no login: refused");
 

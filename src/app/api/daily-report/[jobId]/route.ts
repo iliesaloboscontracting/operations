@@ -9,5 +9,5 @@ import { reportResponse } from "@/lib/dailyLog/reportResponses";
 export const GET = withErrorHandling(async (_req: NextRequest, { params: paramsP }: { params: Promise<{ jobId: string }> }) => {
   const denied = await guard("MANAGER");
   if (denied) return denied;
-  return reportResponse((await paramsP).jobId);
+  return reportResponse((await paramsP).jobId, { removed: true }); // removed before / after photos too (Manager+)
 });

@@ -424,7 +424,7 @@ export async function siteLogsForDate(date: string, now: Date, office: boolean):
   const out: DayReviewSiteLogDTO[] = [];
   const summary: DayReviewLogSummaryDTO[] = [];
   const supervisorIds = new Set(people.keys());
-  const photos = office ? await beforeAfterFor(ids) : new Map();
+  const photos = office ? await beforeAfterFor(ids, { withRemoved: true }) : new Map();
   for (const j of jobs) {
     const mine = logs.filter((l) => l.jobId === j.id);
     const pilot = j.assignments.some((a) => people.has(a.resourceId));
@@ -489,11 +489,12 @@ export async function logPhotoFile(logId: string, file: string): Promise<string 
 
 // One job on one day for the office: the site, the crew and their signed hours (from sign-ins), the latest log -
 // hours by code, plant, delays with photos, the note and photos - and the tip dockets sent. No money anywhere.
-export async function siteReport(jobId: string, now: Date): Promise<SiteReportDTO | null> {
+// opts.removed: the office's copy (Manager+) also gets removed before / after photos (SEC-BA-004); the directors' doesn't.
+export async function siteReport(jobId: string, now: Date, opts: { removed?: boolean } = {}): Promise<SiteReportDTO | null> {
   const job = await prisma.job.findUnique({ where: { id: jobId }, select: { id: true, date: true, shift: true, title: true, projectId: true, project: { select: { name: true, jobNo: true } } } });
   if (!job) return null;
   const [crew, latest, revisions, dockets, photos] = await Promise.all([
-    crewFor(job.id, now), latestLogRow(job.id), prisma.dailyLog.count({ where: { jobId: job.id } }), docketsSentFor([job.id]), beforeAfterFor([job.id]),
+    crewFor(job.id, now), latestLogRow(job.id), prisma.dailyLog.count({ where: { jobId: job.id } }), docketsSentFor([job.id]), beforeAfterFor([job.id], { withRemoved: !!opts.removed }),
   ]);
   return {
     jobId: job.id, projectId: job.projectId, site: nameWithoutAmounts(job.project?.name ?? job.title), jobNo: job.project?.jobNo ?? null,

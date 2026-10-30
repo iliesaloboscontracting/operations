@@ -7,8 +7,9 @@ import { mediaTypeOf, readPhoto } from "../toolPhotos";
 import { logPhotoFile, siteReport, siteReportDays } from "./store";
 import { beforeAfterFile } from "./beforeAfterStore";
 
-export async function reportResponse(jobId: string) {
-  const report = await siteReport(jobId, new Date());
+// opts.removed: only the office's route (Manager+) asks for removed before / after photos (SEC-BA-004).
+export async function reportResponse(jobId: string, opts: { removed?: boolean } = {}) {
+  const report = await siteReport(jobId, new Date(), opts);
   if (!report) return NextResponse.json({ error: "not found" }, { status: 404 });
   if (!assertNoMoney(JSON.stringify(report))) return NextResponse.json({ error: "This report can't be shown - tell the office." }, { status: 500 });
   return NextResponse.json({ report });
@@ -28,8 +29,8 @@ export async function photoResponse(log: string | null, file: string | null) {
 }
 
 // A before / after photo (30 Oct 2026): served only when it is a shown photo of that job.
-export async function beforeAfterPhotoResponse(jobId: string | null, id: string | null) {
-  const name = await beforeAfterFile(jobId ?? "", id ?? "");
+export async function beforeAfterPhotoResponse(jobId: string | null, id: string | null, opts: { allowRemoved?: boolean } = {}) {
+  const name = await beforeAfterFile(jobId ?? "", id ?? "", opts);
   if (!name) return NextResponse.json({ error: "not found" }, { status: 404 });
   const bytes = await readPhoto(name).catch(() => null);
   if (!bytes) return NextResponse.json({ error: "The photo file is missing." }, { status: 404 });
