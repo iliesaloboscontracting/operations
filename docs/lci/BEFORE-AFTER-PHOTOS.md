@@ -51,3 +51,25 @@
   - The log's "photos of the day" (4) and the delay photos.
   - No AI reading, no outside call, no money anywhere.
 - **Checks.** Unit tests in `src/lib/dailyLog/beforeAfter.test.ts`; release check `59-before-after`.
+
+## Security fixes and the supervisor guide (30 Oct 2026, Ilies approved SEC-BA-001..004 and the guide)
+
+- **SEC-BA-001: a daily cap per link.**
+  - At most 40 photos a link a Sydney day. Removed ones count too, so remove-and-resend can't get round it.
+  - Over that: 429 "That's the most photos this link can send in a day - call the office."
+  - Each photo is limited to 3 MB (413).
+- **SEC-BA-002: limits checked before the body is read.**
+  - An upload names its set in the address (`?phase=`); a remove sends none.
+  - Only one upload at a time per link and set (429). Before and After can go at the same moment.
+  - A Content-Length over 9 MB gets 413 unread. Without a Content-Length, the body is read byte-counted (`readCapped`) and stopped at 9 MB.
+  - The in-progress mark is always released (`finally`).
+- **SEC-BA-003: a magic-byte check.** `savePhoto` (shared with tool photos, site requests and the log's own photos) keeps a file only when its first bytes are a JPEG, PNG or WebP. The extension comes from the bytes. There was no HEIC before, so there is none now.
+- **SEC-BA-004: removed photos.**
+  - Day Review and the office's daily report show removed photos greyed out: "Removed by <name> at <time>".
+  - Managers and up only: only the office's site-logs reply, the office's report route and the office's photo route carry or serve them.
+  - Never on a link or a Viewer's reply. The directors' copy is unchanged; it doesn't get them.
+- **Supervisor guide.** It's on links with the daily log (SUPERVISOR, and HANDOVER on a supervisor's job); the server sends `guide: <version>` only then.
+  - A "What's new" card on the link home. "Got it" hides it for good on that phone (localStorage, per version, wrapped in try/catch).
+  - A "How to use the daily log" link, always there: on the home, on the daily log's job list and on each log step.
+  - Wording as approved, in `src/lib/dailyLog/guide.ts`.
+- **Tests.** Unit tests in `beforeAfter.test.ts`, `toolPhotos.test.ts` and `guide.test.ts`; release check `59-before-after` (cap, 413, magic bytes, removed photos, guide by link kind).
