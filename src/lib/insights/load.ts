@@ -19,7 +19,8 @@ import { screenFor } from "../findings/config";
 import { pipelineTile } from "./pipeline";
 import { OFFICE_KINDS } from "../requestTypes";
 import { loadPipelineState } from "./pipelineFeed";
-import { loadXeroHealth } from "../xero/imports";
+import { loadXeroClaims, loadXeroHealth } from "../xero/imports";
+import { claimsOverview } from "./claimsView";
 import { directorsTaxLine } from "../taxEstimates/store";
 import {
   costConfidence, costPosition, crewDemand, daysNotClosed, daysNotClosedAlert, hiredPlantOut, hoursByWeek,
@@ -173,7 +174,7 @@ export async function loadDirectorOverview() {
   // looked (its latest sighting). The computed alerts stay alongside.
   // Estimating's pipeline (G5) is fetched alongside; it never holds the page up past its timeout.
   // Xero exports uploaded by accounts (G2) feed the revenue and cash tiles.
-  const [openFindings, lastSeen, closedThisWeek, pipelineState, xero, taxLine] = await Promise.all([
+  const [openFindings, lastSeen, closedThisWeek, pipelineState, xero, taxLine, xeroClaims] = await Promise.all([
     prisma.finding.findMany({ where: { status: { in: ["OPEN", "ACKNOWLEDGED", "ACTIONED"] } } }),
     prisma.finding.aggregate({ _max: { lastSeenAt: true } }),
     prisma.finding.findMany({ where: { status: { in: ["RESOLVED", "VERIFIED"] }, resolvedAt: { gte: new Date(now.getTime() - 7 * 86_400_000) } }, select: { ruleCode: true, audience: true } }),
@@ -181,7 +182,10 @@ export async function loadDirectorOverview() {
     loadXeroHealth(today),
     // Accounts stage 7: one estimate line on the Cash tile (the band stays six tiles); never holds the page up.
     directorsTaxLine().catch(() => null),
+    // Claimed (stages 1-3, 30 Oct 2026): the Xero sales mirror's lines and stored job matches.
+    loadXeroClaims(),
   ]);
+  const claims = claimsOverview(xeroClaims, projects, today, now);
   // Task J: the directors' box shows director-level findings only; the rest are on Operations -> Attention.
   const directorFindings = openFindings.filter((f) => screenFor(f) === "DIRECTORS");
   // Lessons (phase 5a): "last time on this ..." - added only to findings that have one.
@@ -235,7 +239,13 @@ export async function loadDirectorOverview() {
       { id: "invoices", label: "Invoices waiting for a person in the inbox", count: invoicesWaiting, href: "/invoices" },
       { id: "hireNoFinish", label: "Hired items with no expected finish date", count: hireNoFinish, href: "/hire" },
       { id: "hireNoRate", label: "Hired items with no rate", count: hireNoRate, href: "/hire" },
+      ...(claims ? [
+        { id: "xeroNotTied", label: "Sales invoices not tied to a job yet (Xero)", count: claims.notTiedInvoices, href: "/directors/accounts" },
+        { id: "xeroDrafts", label: "Draft sales invoices in Xero (never counted)", count: claims.drafts, href: "/directors/accounts" },
+      ] : []),
     ],
+    // Claimed (Xero) - F14-F17. Director access only (this payload is behind guardDirector); never on Tracking.
+    claims,
     notYetAvailable: NOT_YET_AVAILABLE,
     snapshotsSince: firstSnapshot,
     // Company health band (G1): the same figures as the sections below, summed up.

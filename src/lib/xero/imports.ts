@@ -155,6 +155,20 @@ export async function decideMatch(body: { key?: unknown; projectId?: unknown; no
   });
 }
 
+// The sales invoices of the current mirror (uploaded or read live) for the Directors' "Claimed" figures (30 Oct 2026) -
+// with their lines and stored job matches, drafts included (claims.ts counts them apart, never in a total). Bills
+// aren't read. Director access only (the callers check).
+export async function loadXeroClaims() {
+  const inv = await currentImport("INVOICES");
+  if (!inv) return null;
+  const invoices = await prisma.xeroInvoice.findMany({
+    where: { importId: inv.id, type: { in: ["SALE", "SALE_CREDIT"] } },
+    select: { number: true, contact: true, date: true, type: true, status: true, totalExGst: true, matchMethod: true, matchNote: true, xeroId: true, lines: { select: { amountExGst: true, projectId: true, matchMethod: true } } },
+    orderBy: [{ date: "desc" }, { number: "asc" }],
+  });
+  return { info: { source: inv.source, asAt: inv.asAt, uploadedBy: inv.uploadedBy, createdAt: inv.createdAt.toISOString() }, invoices };
+}
+
 // Figures for the Directors health band and the "not tied to a job" finding.
 export async function loadXeroHealth(today: string) {
   const [inv, pnl] = await Promise.all([currentImport("INVOICES"), currentImport("PNL")]);

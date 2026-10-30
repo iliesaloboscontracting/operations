@@ -23,6 +23,7 @@ import { useMyQueries } from "@/components/queries/MyQueries";
 import HealthBand from "@/components/directors/HealthBand";
 import QuestionsBanner from "@/components/queries/QuestionsBanner";
 import DirectorChanges from "@/components/changes/DirectorChanges";
+import { ClaimsSection } from "@/components/directors/Claims";
 
 const day = (iso: string) => fmtDay(iso, { day: "numeric", month: "short" });
 const weekday = (iso: string) => fmtDay(iso, { weekday: "short", day: "numeric" });
@@ -128,7 +129,7 @@ function Overview({ o, showAll, setShowAll, onRefresh }: { o: DirectorOverviewDT
               );
             })}
           </DLink>
-          <p className="mt-2 text-[11px] text-gray-500">Cost against contract value - not margin. Revenue isn&apos;t connected yet. Labour hire only counts once the agency invoices, so recent weeks read low.</p>
+          <p className="mt-2 text-[11px] text-gray-500">Cost against contract value - not margin. What each job has been claimed is in Claimed (Xero) below. Labour hire only counts once the agency invoices, so recent weeks read low.</p>
         </Section>
 
         <Section title="Workload" kpi="O1">
@@ -169,6 +170,9 @@ function Overview({ o, showAll, setShowAll, onRefresh }: { o: DirectorOverviewDT
       <Section title="Spend by week, by type" kpi="F4" className="mb-4">
         <CostTrend trend={c.trend} />
       </Section>
+
+      {/* 5b. Claimed (Xero) - F14-F17 (30 Oct 2026) */}
+      <ClaimsSection c={o.claims} />
 
       {/* 6-7. Plant & hire, people */}
       <div className="mb-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
