@@ -55,6 +55,7 @@ export default {
     t.ok((await c.db.receiptPhoto.count()) === before, "no photo copied");
     t.status(await add({ ...F, docketNo: F.docketNo.toLowerCase().replace("-", " ") }), 409, "the same docket again is refused");
     t.status(await add({ ...F, docketNo: F.docketNo + "X", tonnes: "" }), 400, "missing tonnes refused");
+    t.status(await add({ ...F, jobId: "", docketNo: F.docketNo + "Y" }), 400, "a second docket from a job docket needs a job picked (SEC-008)");
     t.ok(!/\$\s?\d/.test((await c.text(c.site(L.sup, "/receipts"), null)).text), "the supervisor link still has no $");
 
     // ---- a tip docket for a site not running today (a bin picked up between stages) ----
@@ -81,7 +82,7 @@ export default {
     else t.note("every active project has a board day in range - that case not run");
     // A listed site: saved on the project, no job.
     const site = sites[0];
-    if (!site) { t.note("no other site on the copy - the site cases need one"); return; }
+    if (!site) return t.block("no other site on the copy - skipped: listed-site 201, second docket on a project-only docket, unknown job on it, office list 'not on that day', the 41st-receipt cap on the site path, the '$5' project name");
     const okSite = await tipFor(L.sup, site.id);
     t.status(okSite, 201, "a tip docket for a listed site not running today is sent");
     const siteRow = await c.db.receipt.findFirst({ where: { kind: "TIP", projectId: site.id, jobId: null }, orderBy: { sentAt: "desc" } });
@@ -93,8 +94,10 @@ export default {
       const nw2 = a2.id ? await c.db.receipt.findUnique({ where: { id: a2.id } }) : null;
       t.ok([200, 201].includes(add2.status) && nw2 && nw2.jobId === null && nw2.projectId === site.id, "a second docket from a project-only docket stays on that project with no job", add2.status);
       const office2 = (await c.json("/api/receipts", "MANAGER")).body;
-      const listed = JSON.stringify(office2 ?? {});
-      t.ok(listed.includes("not on that day"), "the office list shows '<site> - not on that day'");
+      const newRow = (office2?.rows ?? []).find((x) => x.id === a2.id);
+      t.ok(newRow && /not on that day/.test(newRow.for ?? ""), "the office list shows the new docket as '<site> - not on that day'", newRow ? "row found" : "row not in the list");
+      const unknown = await c.post(`/api/receipts/${siteRow.id}`, "MANAGER", { op: "ADD_DOCKET", fields: { ...F, jobId: "cnotarealjob0000000000000", docketNo: `RC-U-${Date.now() % 1000000}` } });
+      t.status(unknown, 400, "a second docket naming an unknown job on a project-only docket is refused (SEC-008)");
     }
     // The 41st receipt from one link in 24 hours - on the site path too.
     const capLink = await makeLink(c.db, "DRIVER", person.id);
