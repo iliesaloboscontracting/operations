@@ -24,7 +24,8 @@ export default {
     await c.db.assignment.create({ data: { jobId: job.id, resourceId: L.sup.resourceId } });
     const link = await makeLink(c.db, "SUPERVISOR", L.sup.resourceId);
     const driver = await makeLink(c.db, "DRIVER", L.sup.resourceId);
-    const post = (l, body) => fetch(`${c.base}${c.site(l, "/log/photos")}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    // An upload names its set in the address (SEC-BA-002: checked before the photo is read); a remove sends none.
+    const post = (l, { phase, ...body }) => fetch(`${c.base}${c.site(l, "/log/photos")}${phase ? `?phase=${encodeURIComponent(phase)}` : ""}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 
     // Who can't.
     t.status(await post(L.office, { jobId: job.id, phase: "BEFORE", photo: PNG }), 404, "an office link can't send before / after photos");

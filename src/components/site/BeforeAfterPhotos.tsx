@@ -62,11 +62,12 @@ export default function BeforeAfterPhotos({ api, jobId, phase, initial, onChange
         const it = queueRef.current.find((w) => w.state === "waiting");
         if (!it) break;
         setQueue((q) => q.map((w) => (w.key === it.key ? { ...w, state: "sending", progress: 0 } : w)));
-        const r = await send(url, { jobId, phase, photo: it.dataUrl }, (p) => setQueue((q) => q.map((w) => (w.key === it.key ? { ...w, progress: p } : w))));
+        // The set goes in the address so the server can check it before the photo is read (SEC-BA-002).
+        const r = await send(`${url}?phase=${phase}`, { jobId, photo: it.dataUrl }, (p) => setQueue((q) => q.map((w) => (w.key === it.key ? { ...w, progress: p } : w))));
         if (r.status === 201) {
           apply(r.body.photos);
           setQueue((q) => q.filter((w) => w.key !== it.key));
-        } else if (r.status === 0 || r.status >= 500 || r.status === 429) {
+        } else if (r.status === 0 || r.status >= 500 || (r.status === 429 && /^One photo at a time/.test(r.body.error ?? ""))) {
           setQueue((q) => q.map((w) => (w.key === it.key ? { ...w, state: "failed", error: r.status === 0 ? "Didn't send - no signal?" : r.body.error ?? "Didn't send" } : w)));
         } else {
           setError(r.body.error ?? "That photo wasn't saved.");

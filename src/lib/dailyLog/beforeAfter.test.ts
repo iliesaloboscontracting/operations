@@ -27,6 +27,18 @@ test("SEC-BA-001: 40 a link a Sydney day (removed ones counted), 3 MB a photo, c
   assert.match(src, /siteLogPhoto\.count\(\{ where: \{ siteLinkId: linkId, createdAt: \{ gte: since \} \} \}\)/, "every row counts - hidden ones too");
 });
 
+test("SEC-BA-002: the route checks the size and one-at-a-time before the photo is read, and always lets go", () => {
+  const src = readFileSync(new URL("../../app/api/site/[token]/log/photos/route.ts", import.meta.url), "utf8");
+  const post = src.slice(src.indexOf("export const POST"));
+  assert.match(post, /const key = `\$\{link\.id\}\|\$\{phase\}`/, "keyed by link and set - Before and After at once are both fine");
+  assert.ok(post.indexOf("inProgress.has(key)") < post.indexOf("cappedJson(req, BEFORE_AFTER_LIMITS.maxRequestBytes)"), "429 before anything is read");
+  assert.match(post, /finally \{\s*inProgress\.delete\(key\);/, "released in finally");
+  assert.equal(BEFORE_AFTER_LIMITS.maxRequestBytes, 9 * 1024 * 1024);
+  const capped = src.slice(src.indexOf("async function cappedJson"), src.indexOf("export const GET"));
+  assert.ok(capped.indexOf('return "TOO_BIG"') < capped.indexOf("readCapped("), "a declared length over the limit is refused unread");
+  assert.match(capped, /readCapped\(req\.body, max\)/, "without one, the body is counted as it's read (voiceBody.readCapped)");
+});
+
 test("only BEFORE or AFTER", () => {
   assert.equal(parsePhase("BEFORE"), "BEFORE");
   assert.equal(parsePhase("AFTER"), "AFTER");
