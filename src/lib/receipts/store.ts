@@ -4,6 +4,7 @@
 // Nothing here touches jobs, sign-ins, allocations or costs; a link never gets a price back.
 import { prisma } from "../prisma";
 import { jobLabel, signinDates, sydneyTime } from "../signin";
+import { nameWithoutAmounts } from "../dailyLog/money";
 import { fromSydneyLocal } from "../shiftTimes";
 import type { ReceiptLink } from "../siteLinks";
 import { saveReceiptPhoto } from "./files";
@@ -79,6 +80,10 @@ export type ReceiptOptionsDTO = {
 
 // Their job today: on the board, else where they signed in today. Their truck today: the truck QR
 // they signed in on today, else the one Lobos truck on their job's board (if there's exactly one).
+// Every label a link sees goes through nameWithoutAmounts (SEC-002): a "$5" typed into a project, job or truck name
+// is taken out, so the link's money guard (linkSafe, still the backstop) never has to refuse the whole screen.
+const linkLabel = (s: string) => nameWithoutAmounts(s);
+
 export async function receiptOptions(link: ReceiptLink): Promise<ReceiptOptionsDTO> {
   const me = link.person.id;
   const [jobs, trucks, plant, signIns] = await Promise.all([
@@ -100,10 +105,10 @@ export async function receiptOptions(link: ReceiptLink): Promise<ReceiptOptionsD
   const mineIds = new Set([...mine.map((j) => j.id), ...(signedJob ? [signedJob] : [])]);
   const sites = await otherSites(new Set(jobs.map((j) => j.projectId)));
   return {
-    jobs: [...jobs].sort((a, b) => Number(mineIds.has(b.id)) - Number(mineIds.has(a.id))).map((j) => ({ id: j.id, label: jobLabel(j), mine: mineIds.has(j.id) })),
-    sites: sites.map((p) => ({ id: p.id, label: p.name })),
-    trucks: trucks.map((t) => ({ id: t.id, label: t.identifier ? `${t.name} (${t.identifier})` : t.name })),
-    plant: plant.map((p) => ({ id: p.id, label: p.identifier ? `${p.name} (${p.identifier})` : p.name })),
+    jobs: [...jobs].sort((a, b) => Number(mineIds.has(b.id)) - Number(mineIds.has(a.id))).map((j) => ({ id: j.id, label: linkLabel(jobLabel(j)), mine: mineIds.has(j.id) })),
+    sites: sites.map((p) => ({ id: p.id, label: linkLabel(p.name) })),
+    trucks: trucks.map((t) => ({ id: t.id, label: linkLabel(t.identifier ? `${t.name} (${t.identifier})` : t.name) })),
+    plant: plant.map((p) => ({ id: p.id, label: linkLabel(p.identifier ? `${p.name} (${p.identifier})` : p.name) })),
     prefill: { jobId, vehicleId },
   };
 }
@@ -169,11 +174,11 @@ async function linkRows(ids?: string[], personId?: string): Promise<ReceiptLinkD
   ]);
   const tipFor = (r: { jobId: string | null; projectId: string | null }) => {
     const j = jobs.find((x) => x.id === r.jobId);
-    return j ? jobLabel(j) : projects.find((p) => p.id === r.projectId)?.name ?? "a job";
+    return linkLabel(j ? jobLabel(j) : projects.find((p) => p.id === r.projectId)?.name ?? "a job");
   };
   return rows.filter((r) => r.kind !== "PURCHASE").map((r) => ({
     id: r.id, kind: r.kind as ReceiptKind, label: KIND_LABEL[r.kind as ReceiptKind] ?? r.kind,
-    for: r.kind === "TIP" ? tipFor(r) : trucks.find((t) => t.id === r.vehicleId)?.name ?? "a truck",
+    for: r.kind === "TIP" ? tipFor(r) : linkLabel(trucks.find((t) => t.id === r.vehicleId)?.name ?? "a truck"),
     at: sydneyTime(r.sentAt) ?? "", asbestos: r.asbestos, photos: r._count.photos, status: STATUS_LABEL[r.status] ?? "Sent",
   }));
 }

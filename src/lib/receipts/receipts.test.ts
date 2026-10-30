@@ -79,3 +79,16 @@ test("only real photos are stored, under names that can't leave the folder", asy
   assert.match((await saveReceiptPhoto(42) as { error: string }).error, /No photo/);
   await assert.rejects(readReceiptPhoto("../../.env"));
 });
+
+test("SEC-002: every label a link sees is cleaned of amounts - a '$5' in a project name can't stop the receipts screen", async () => {
+  const { nameWithoutAmounts } = await import("../dailyLog/money");
+  const label = nameWithoutAmounts("$5 Bins - Lido stage 2");
+  assert.ok(linkSafe({ sites: [{ id: "p1", label }] }), label);
+  const src = fs.readFileSync(path.join(__dirname, "store.ts"), "utf8");
+  const opts = src.slice(src.indexOf("export async function receiptOptions"), src.indexOf("// ---------- photos"));
+  for (const k of ["jobs:", "sites:", "trucks:", "plant:"]) assert.match(opts.split("\n").find((l) => l.trim().startsWith(k)) ?? "", /linkLabel\(/, `${k} labels go through linkLabel`);
+  const rows = src.slice(src.indexOf("async function linkRows"), src.indexOf("export const myReceiptsToday"));
+  assert.match(rows, /return linkLabel\(j \? jobLabel\(j\)/, "tipFor (job or site) is cleaned");
+  assert.match(rows, /linkLabel\(trucks\.find/, "the truck name is cleaned");
+  assert.match(src, /const linkLabel = \(s: string\) => nameWithoutAmounts\(s\);/);
+});
