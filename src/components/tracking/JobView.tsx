@@ -25,6 +25,8 @@ import { ArrowLeft, Plus } from "lucide-react";
 import HoursVsBudget from "@/components/tracking/HoursVsBudget";
 import type { HoursVsBudgetDTO, SiteReportDayDTO } from "@/lib/dailyLog/types";
 import { jobTips, newTipSites } from "@/lib/receipts/indicators";
+import type { JobClaimsDTO } from "@/lib/insights/claimsView";
+import { ConfidenceBadge } from "@/components/directors/parts";
 
 const INVOICE_CAT: Record<string, CostCatKey> = { LABOUR_HIRE: "labourHire", PLANT_HIRE: "hire", TIP_FEES: "tipFees", MATERIALS: "materials" };
 const day = (iso: string) => fmtDay(iso, { day: "numeric", month: "short" });
@@ -34,6 +36,8 @@ export default function JobView({ id, mode }: { id: string; mode: "ops" | "direc
   const isAdmin = useAuth().isAdmin && !director; // per-person wages: Operations Admins only
   const back = director ? { href: "/directors", label: "Directors overview" } : { href: "/tracking", label: "All jobs" };
   const [p, setP] = useState<ProjectCostDTO | null>(null);
+  // What the job has been claimed in Xero (30 Oct 2026) - the director route only sends it; Tracking never does.
+  const [claims, setClaims] = useState<JobClaimsDTO | null>(null);
   const [missing, setMissing] = useState(false);
   const [picked, setPicked] = useState<string | null>(null);
   const [invoiceFor, setInvoiceFor] = useState<{ invoice: InvoicedCostDTO | null } | null>(null);
@@ -41,7 +45,7 @@ export default function JobView({ id, mode }: { id: string; mode: "ops" | "direc
 
   const load = useCallback(() =>
     director
-      ? apiFetch(`/api/directors/jobs/${id}`).then((r) => (r.ok ? r.json() : { project: null })).then((d) => { setP(d.project ?? null); setMissing(!d.project); })
+      ? apiFetch(`/api/directors/jobs/${id}`).then((r) => (r.ok ? r.json() : { project: null })).then((d) => { setP(d.project ?? null); setClaims(d.claims ?? null); setMissing(!d.project); })
       : apiFetch("/api/tracking").then((r) => (r.ok ? r.json() : { projects: [] })).then((d) => {
           const found = (d.projects as ProjectCostDTO[]).find((x) => x.id === id) ?? null;
           setP(found); setMissing(!found);
@@ -94,10 +98,13 @@ export default function JobView({ id, mode }: { id: string; mode: "ops" | "direc
           sub={`${usedPct != null ? `${usedPct}% of contract · ` : ""}${short(confirmed)} firm, ${short(p.estimatedTotal)} estimate`} />
         <Tile label="Still to come" value={short(p.stillToCome)}
           sub={[p.unbilledLabourHire > 0 && `${short(p.unbilledLabourHire)} labour hire not billed`, p.bookedDays > 0 && `${p.bookedDays} day${p.bookedDays === 1 ? "" : "s"} booked`, p.hireToCome > 0 && `${short(p.hireToCome)} hire to finish`].filter(Boolean).join(" · ") || "Nothing booked or outstanding"} />
-        <Tile label="Forecast · margin" value={short(p.forecastCost)}
+        {/* The Directors' copy says headroom (no "margin" on the Directors screen - Ilies's rule); Operations' label is his call. */}
+        <Tile label={director ? "Forecast · headroom" : "Forecast · margin"} value={short(p.forecastCost)}
           sub={margin != null ? `${margin >= 0 ? "" : "-"}${short(Math.abs(margin))} ${margin >= 0 ? "left" : "over"} (${Math.round((margin / (p.contractValue as number)) * 100)}%) · rough indicator` : "No contract value to compare"}
           subTone={margin != null ? (margin < 0 ? "bad" : undefined) : undefined} />
       </div>
+
+      {director && claims && <JobClaimsCard c={claims} />}
 
       <Card className="mb-4">
         <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
@@ -314,5 +321,45 @@ function People({ rows }: { rows: ProjectCostDTO["labour"] }) {
         </div>
       ))}
     </div>
+  );
+}
+
+// Claimed (Xero) for one job - the Directors' copy only (F14, F16, F17). Never on the Operations page.
+function JobClaimsCard({ c }: { c: JobClaimsDTO }) {
+  const signed = (n: number) => (n < 0 ? `-${short(-n)}` : short(n));
+  return (
+    <Card className="mb-4">
+      <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+        <div className="text-sm font-semibold text-gray-100">Claimed (Xero)</div>
+        <ConfidenceBadge level={c.confidence} why={c.why} />
+      </div>
+      <div className="mb-3 text-[11px] text-gray-500">
+        Xero sales from {c.from ? fmtDay(c.from, { day: "numeric", month: "short", year: "numeric" }) : "-"} · {c.sourceLabel}, read {c.readAtLabel} · ex GST · retention as invoiced
+      </div>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <Tile label="Claimed" value={short(c.claimed)} sub={c.invoiceCount ? `${c.invoiceCount} invoice${c.invoiceCount === 1 ? "" : "s"}${c.lastClaim ? ` · last ${day(c.lastClaim)}` : ""}` : "Nothing claimed in Xero yet"} />
+        <Tile label="Claimed less cost to date" value={signed(c.lessCost)} sub="A timing difference - claims run ahead of or behind the work" />
+        <Tile label="Left to claim" value={c.over ? "Over" : c.noContract ? "-" : short(c.leftToClaim)}
+          sub={c.over ? c.overText ?? "" : c.noContract ? "No contract value in Operations" : "Against the Operations contract value (variations aren't in Operations)"} />
+      </div>
+      {c.maybe > 0 && <p className="mt-2 text-[12px] text-amber-300">{c.maybe} invoice{c.maybe === 1 ? "" : "s"} may belong to this job, waiting for accounts</p>}
+      {c.invoices.length > 0 && (
+        <details className="mt-3 text-sm">
+          <summary className="cursor-pointer text-[12px] text-gray-400">Invoices tied to this job ({c.invoices.length})</summary>
+          <table className="mt-2 w-full text-sm">
+            <tbody>
+              {c.invoices.map((i) => (
+                <tr key={`${i.number}-${i.date}`} className="border-t border-edge/50">
+                  <td className="py-1 pr-2 text-gray-300">{i.number}{i.credit && <span className="ml-1 text-[11px] text-gray-500">credit note</span>}</td>
+                  <td className="py-1 pr-2 text-gray-500">{day(i.date)}</td>
+                  <td className="py-1 pr-2 text-gray-400">{i.contact}</td>
+                  <td className="py-1 text-right tabular-nums text-gray-200">{signed(i.amount)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </details>
+      )}
+    </Card>
   );
 }

@@ -38,6 +38,18 @@ export default {
     const proj = (tr.body?.projects ?? []).find((p) => p.status === "ACTIVE") ?? tr.body?.projects?.[0];
     if (!proj) return t.block("no project in Tracking on the snapshot");
 
+    // The director job page carries claims (stage 3); the Operations one (it reads /api/tracking) doesn't.
+    const dj = await c.json(`/api/directors/jobs/${proj.id}`, "DIRECTOR");
+    t.status({ status: dj.status }, 200, "DIRECTOR: a job page opens");
+    t.ok(dj.body && "claims" in dj.body, "...with a claims field");
+    if (dj.body?.claims) {
+      const jc = dj.body.claims;
+      const sum = (jc.invoices ?? []).reduce((n, i) => n + i.amount, 0);
+      t.ok(near(sum, jc.claimed), "the job's invoice list adds up to what it has claimed");
+      t.ok(typeof jc.maybe === "number", "the 'may belong to this job' count is there");
+      t.ok(!/margin|profit/i.test(JSON.stringify(jc)), "...and never says margin or profit");
+    }
+    for (const who of ["MANAGER", "ACCOUNTS", "ADMIN_PLAIN"]) t.status(await c.get(`/api/directors/jobs/${proj.id}`, who), [401, 403], `${who}: the director job page is refused`);
     t.status(await c.get(`/tracking/${proj.id}`, "MANAGER"), 200, "the Operations job page opens as a Manager");
     // JobView shows claims only in director mode - checked in src/lib/insights/claims.test.ts (the page source).
   },

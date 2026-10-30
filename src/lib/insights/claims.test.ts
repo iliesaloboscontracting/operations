@@ -105,3 +105,19 @@ test("dictionary: F14-F17 defined, never called margin or profit; F13 still bloc
   assert.match(kpi("F15")!.formula, /invoice date/);
   assert.match(kpi("F17")!.notes ?? "", /variations aren't in Operations/);
 });
+
+test("JobView: claims only in director mode (the director route only); 'headroom' only on the Directors' copy", async () => {
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("../../components/tracking/JobView.tsx", import.meta.url), "utf8");
+  assert.match(src, /\{director && claims && <JobClaimsCard c=\{claims\} \/>\}/, "the card renders only in director mode");
+  assert.equal((src.match(/setClaims\(d\.claims/g) ?? []).length, 1, "claims are only read from the director route's reply");
+  const opsLoad = src.slice(src.indexOf(': apiFetch("/api/tracking")'), src.indexOf("useEffect(() => { load(); }"));
+  assert.doesNotMatch(opsLoad, /claims/, "the Operations load never touches claims");
+  assert.match(src, /label=\{director \? "Forecast · headroom" : "Forecast · margin"\}/, "Operations' label unchanged (Ilies's call)");
+  const card = src.slice(src.indexOf("function JobClaimsCard"));
+  assert.doesNotMatch(card, /margin|profit/i);
+  const route = readFileSync(new URL("../../app/api/directors/jobs/[id]/route.ts", import.meta.url), "utf8");
+  assert.match(route, /guardDirector\(\)/);
+  const tracking = readFileSync(new URL("../../app/api/tracking/route.ts", import.meta.url), "utf8");
+  assert.doesNotMatch(tracking, /claims|loadXeroClaims/, "Tracking's route never loads claims");
+});
