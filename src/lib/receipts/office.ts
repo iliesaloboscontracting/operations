@@ -77,7 +77,7 @@ export async function receiptAction(who: Who, id: string, body: Record<string, u
     if (!isOdo && status === "CONFIRMED") await claimFromOwnReceipt(id); // "I paid this myself" -> the claim
     return { ok: true, status };
   }
-  if (op === "ADD_DOCKET" && !isOdo) return addDocketFromPhoto(who, row as { id: string; kind: string; status: string; siteLinkId: string; sentBy: string; sentByResourceId: string | null; sentAt: Date; photoFromReceiptId: string | null }, body);
+  if (op === "ADD_DOCKET" && !isOdo) return addDocketFromPhoto(who, row as { id: string; kind: string; status: string; siteLinkId: string; sentBy: string; sentByResourceId: string | null; sentAt: Date; photoFromReceiptId: string | null; jobId: string | null; projectId: string | null }, body);
   if (op === "CONFIRM") {
     if (row.status !== "READ" && row.status !== "CHECK") return { error: row.status === "CONFIRMED" ? "Already confirmed." : "Only a read receipt can be confirmed.", status: 409 };
     await save({ status: "CONFIRMED" });
@@ -124,7 +124,7 @@ export async function jobsForCorrection(currentJobId: string | null) {
 const siteKey = (s: string | null | undefined) => (s ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 async function addDocketFromPhoto(
   who: Who,
-  src: { id: string; kind: string; status: string; siteLinkId: string; sentBy: string; sentByResourceId: string | null; sentAt: Date; photoFromReceiptId: string | null },
+  src: { id: string; kind: string; status: string; siteLinkId: string; sentBy: string; sentByResourceId: string | null; sentAt: Date; photoFromReceiptId: string | null; jobId: string | null; projectId: string | null },
   body: Record<string, unknown>,
 ): Promise<{ ok: true; status: string; id: string } | Problem> {
   if (src.kind === "PURCHASE") return { error: "Not found", status: 404 };
@@ -136,8 +136,11 @@ async function addDocketFromPhoto(
   const missing = [!fields.tipSite && "tip site", !fields.docketNo && "docket number", !fields.docketAt && "date and time", !(fields.tonnes != null && fields.tonnes > 0) && "tonnes"].filter(Boolean);
   if (fields.docketAt === undefined || fields.tonnes === undefined) return { error: "Check the date and the tonnes - they don't look right.", status: 400 };
   if (missing.length) return { error: `Fill in the ${missing.join(", ")}.`, status: 400 };
-  const job = typeof f.jobId === "string" ? await prisma.job.findUnique({ where: { id: f.jobId }, select: { id: true, projectId: true } }) : null;
-  if (!job) return { error: "Pick the job it's for.", status: 400 };
+  const job = typeof f.jobId === "string" && f.jobId ? await prisma.job.findUnique({ where: { id: f.jobId }, select: { id: true, projectId: true } }) : null;
+  // No job picked, from a docket for a site not running that day (project, no job): the new one goes on that same
+  // project with no job (SEC-001). Otherwise a job is needed.
+  const projectOnly = !job && !f.jobId && src.kind === "TIP" && !src.jobId && !!src.projectId;
+  if (!job && !projectOnly) return { error: "Pick the job it's for.", status: 400 };
   // Same docket number at the same tip site already in -> refuse (normalised as the tip matching does).
   const key = normDocket(fields.docketNo), site = siteKey(fields.tipSite);
   const same = (await prisma.receipt.findMany({ where: { kind: "TIP", status: { not: "REJECTED" }, docketNo: { not: null } }, select: { id: true, docketNo: true, tipSite: true, sentBy: true } }))
@@ -148,7 +151,7 @@ async function addDocketFromPhoto(
   const created = await prisma.receipt.create({
     data: {
       kind: "TIP", siteLinkId: src.siteLinkId, sentBy: src.sentBy, sentByResourceId: src.sentByResourceId, sentAt: src.sentAt,
-      jobId: job.id, projectId: job.projectId, asbestos, status: "CONFIRMED", photoFromReceiptId: photoOwner,
+      jobId: job ? job.id : null, projectId: job ? job.projectId : src.projectId, asbestos, status: "CONFIRMED", photoFromReceiptId: photoOwner,
       docketNo: fields.docketNo, docketAt: fields.docketAt, tipSite: fields.tipSite, wasteType: fields.wasteType, tonnes: fields.tonnes, rego: fields.rego,
       vehicleId: vehicleForRego(fields.rego, await truckRegos()),
       correctedBy: who.name, correctedAt: now,

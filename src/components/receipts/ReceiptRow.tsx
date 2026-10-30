@@ -132,6 +132,9 @@ export default function ReceiptRow({ r, jobs, trucks, onChanged }: { r: ReceiptO
             {r.type === "TIP" && (
               <label className="sm:col-span-2 text-xs text-gray-400">Job
                 <select className={input} value={form.jobId} onChange={(e) => setForm({ ...form, jobId: e.target.value })}>
+                  {/* A docket for a site not running that day has no job (SEC-001): it shows as it is, and saving it
+                      unchanged leaves it on the project with no job. */}
+                  {!r.jobId && <option value="">{r.for}</option>}
                   {jobs.map((j) => <option key={j.id} value={j.id}>{j.label}</option>)}
                 </select>
               </label>
@@ -182,7 +185,8 @@ export default function ReceiptRow({ r, jobs, trucks, onChanged }: { r: ReceiptO
             <div className="sm:col-span-2 text-xs text-gray-400">A second docket on the same photo - it shares the photo and goes in as confirmed.</div>
             <label className="sm:col-span-2 text-xs text-gray-400">Job
               <select className={input} value={docket.jobId} onChange={(e) => setDocket({ ...docket, jobId: e.target.value })}>
-                <option value="">Which job?</option>
+                {/* From a project-only docket the second one can stay on that site with no job (SEC-001). */}
+                <option value="">{r.type === "TIP" && !r.jobId ? r.for : "Which job?"}</option>
                 {jobs.map((j) => <option key={j.id} value={j.id}>{j.label}</option>)}
               </select>
             </label>
