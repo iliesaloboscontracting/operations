@@ -35,6 +35,15 @@ const MONEY_PATTERNS = [
 export const nameWithoutAmounts = (s: string) =>
   stripMoney(s).text.replace(/\(amount not recorded\)/g, "").replace(/\(\s*\)|\[\s*\]/g, "").replace(/\s+[-–]\s*$/, "").replace(/\$/g, "").replace(/\s+/g, " ").trim();
 
+// A label a link shows (receipts, reimbursements - SEC-005): every "$" taken out and the spaces tidied, the rest kept as
+// typed ("$5 Bins" -> "5 Bins", "12 Grand Pde Brighton" unchanged); nothing word-like left ("$5" -> "5") -> the
+// fallback. With no "$" left the money guard always passes; linkSafe stays the backstop. nameWithoutAmounts (names on
+// the daily log) is unchanged.
+export const linkLabel = (s: string, fallback: string) => {
+  const t = s.replace(/\$/g, "").replace(/\s+/g, " ").trim();
+  return /\p{L}/u.test(t) ? t : fallback;
+};
+
 // Every dollar amount out of a piece of text. `removed` says whether there was one (the screen then shows AMOUNTS_NOTICE).
 export function stripMoney(text: string): { text: string; removed: boolean } {
   let out = text, removed = false;

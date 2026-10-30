@@ -81,8 +81,8 @@ test("only real photos are stored, under names that can't leave the folder", asy
 });
 
 test("SEC-002: every label a link sees is cleaned of amounts - a '$5' in a project name can't stop the receipts screen", async () => {
-  const { nameWithoutAmounts } = await import("../dailyLog/money");
-  const label = nameWithoutAmounts("$5 Bins - Lido stage 2");
+  const { linkLabel } = await import("../dailyLog/money");
+  const label = linkLabel("$5 Bins - Lido stage 2", "Unnamed site");
   assert.ok(linkSafe({ sites: [{ id: "p1", label }] }), label);
   const src = fs.readFileSync(path.join(__dirname, "store.ts"), "utf8");
   const opts = src.slice(src.indexOf("export async function receiptOptions"), src.indexOf("// ---------- photos"));
@@ -90,5 +90,20 @@ test("SEC-002: every label a link sees is cleaned of amounts - a '$5' in a proje
   const rows = src.slice(src.indexOf("async function linkRows"), src.indexOf("export const myReceiptsToday"));
   assert.match(rows, /return linkLabel\(j \? jobLabel\(j\)/, "tipFor (job or site) is cleaned");
   assert.match(rows, /linkLabel\(trucks\.find/, "the truck name is cleaned");
-  assert.match(src, /const linkLabel = \(s: string\) => nameWithoutAmounts\(s\);/);
+  assert.match(src, /import \{ linkLabel \} from "\.\.\/dailyLog\/money";/);
+});
+
+test("SEC-005: linkLabel takes every $ out and keeps the rest; nothing left -> the fallback; linkSafe always passes", async () => {
+  const { linkLabel } = await import("../dailyLog/money");
+  assert.equal(linkLabel("$5", "Unnamed site"), "Unnamed site");
+  assert.equal(linkLabel("$ $", "a truck"), "a truck");
+  assert.equal(linkLabel("12 Grand Pde Brighton", "Unnamed site"), "12 Grand Pde Brighton");
+  assert.equal(linkLabel("$5 Bins", "Unnamed site"), "5 Bins");
+  assert.equal(linkLabel("  Hino   500 ($90/day) ", "a truck"), "Hino 500 (90/day)");
+  for (const s of ["$5", "12 Grand Pde Brighton", "$5 Bins", "$$5 5 5", "A$300 Site", "$ 5 Lido"]) assert.ok(linkSafe({ label: linkLabel(s, "Unnamed site") }), s);
+  const src = fs.readFileSync(path.join(__dirname, "store.ts"), "utf8");
+  const optsSrc = src.slice(src.indexOf("export async function receiptOptions"), src.indexOf("// ---------- photos"));
+  for (const [line, fb] of [["sites:", "Unnamed site"], ["jobs:", "Unnamed site"], ["trucks:", "a truck"], ["plant:", "a truck"]]) {
+    assert.ok((optsSrc.split("\n").find((l) => l.trim().startsWith(line)) ?? "").includes(`"${fb}"`), `${line} falls back to ${fb}`);
+  }
 });
