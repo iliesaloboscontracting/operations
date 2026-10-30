@@ -12,6 +12,7 @@ import { todaySydney } from "../../today";
 import type { AuthUser } from "../../auth";
 import { isOwner } from "../../owner";
 import { writeInvoices, writePnl } from "../imports";
+import { XERO_CONFIG } from "../config";
 import { xeroSetup, scrub, NOT_SET_UP, type XeroSetup } from "./setup";
 import { encryptToken, decryptToken, newState, pkcePair, readState, signState } from "./secure";
 import { accountingGet, authorizeUrl, exchangeCode, listConnections, realFetch, refreshTokens, revokeToken, type Fetch } from "./client";
@@ -21,7 +22,9 @@ import { apiInvoiceToRead, readApiPnl, type ApiInvoice, type ApiReport } from ".
 type Ok = Extract<XeroSetup, { ok: true }>;
 const REFRESH_EVERY_MIN = 15;
 const PAGE = 100;
-const MAX_PAGES = 50; // 5,000 invoices a kind - far above what one organisation needs in two years
+// 10,000 a kind from the fixed start (XERO_CONFIG.mirrorFrom) - years of room. Reaching it fails the read loudly
+// rather than quietly leaving invoices out.
+export const MAX_PAGES = 100;
 
 export async function xeroStatus(user: AuthUser) {
   const setup = xeroSetup();
@@ -104,16 +107,17 @@ function tokenDeps(s: Ok, f: Fetch, id: string) {
   };
 }
 
-const fyBack = (today: string) => { // from 1 July of the previous financial year
-  const y = Number(today.slice(0, 4)), m = Number(today.slice(5, 7));
-  return { y: (m >= 7 ? y : y - 1) - 1, m: 7, d: 1 };
-};
+// Everything from the fixed mirror start (stage 4, 30 Oct 2026) - no longer a rolling 1 July.
+export function mirrorWhere(from: string = XERO_CONFIG.mirrorFrom) {
+  const [y, m, d] = from.split("-");
+  return encodeURIComponent(`Date>=DateTime(${Number(y)},${m},${d})`);
+}
 
-async function pullAll(f: Fetch, token: string, tenant: string, resource: "Invoices" | "CreditNotes", today: string) {
-  const { y, m, d } = fyBack(today);
-  const where = encodeURIComponent(`Date>=DateTime(${y},${String(m).padStart(2, "0")},${String(d).padStart(2, "0")})`);
+export async function pullAll(f: Fetch, token: string, tenant: string, resource: "Invoices" | "CreditNotes") {
+  const where = mirrorWhere();
   const out: ApiInvoice[] = [];
-  for (let page = 1; page <= MAX_PAGES; page++) {
+  for (let page = 1; ; page++) {
+    if (page > MAX_PAGES) throw new Error(`More than ${MAX_PAGES * PAGE} ${resource === "Invoices" ? "invoices" : "credit notes"} since ${XERO_CONFIG.mirrorFrom} - the read stopped rather than leave some out.`);
     const r = await accountingGet<Record<string, ApiInvoice[]>>(f, token, tenant, `${resource}?page=${page}&pageSize=${PAGE}&where=${where}`);
     if (!r.ok) throw new Error(r.error);
     const rows = r.data?.[resource] ?? [];
@@ -135,7 +139,7 @@ export async function syncXero(by: { name: string; userId: string | null }, opts
   const today = todaySydney();
   try {
     const r = await withAccessToken(tokenDeps(s, f, c.id), async (token, tenant) => {
-      const [inv, cn] = [await pullAll(f, token, tenant, "Invoices", today), await pullAll(f, token, tenant, "CreditNotes", today)];
+      const [inv, cn] = [await pullAll(f, token, tenant, "Invoices"), await pullAll(f, token, tenant, "CreditNotes")];
       const now = new Date(today.slice(0, 4) + "-" + today.slice(5, 7) + "-01T00:00:00Z");
       const lastDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0)).toISOString().slice(0, 10);
       const pnl = await accountingGet<ApiReport>(f, token, tenant, `Reports/ProfitAndLoss?fromDate=${today.slice(0, 8)}01&toDate=${lastDay}&periods=11&timeframe=MONTH`);

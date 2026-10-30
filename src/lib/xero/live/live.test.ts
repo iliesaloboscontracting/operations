@@ -12,7 +12,8 @@ import { decryptToken, encryptToken, pkceChallenge, readState, signState } from 
 import { authorizeUrl, refreshTokens, xeroCall, type Fetch } from "./client";
 import { withAccessToken, type TokenDeps } from "./tokens";
 import { apiInvoiceToRead, readApiPnl, type ApiReport } from "./api";
-import { finishConnect, nightlyXeroSync, startConnect, syncXero } from "./service";
+import { MAX_PAGES, finishConnect, mirrorWhere, nightlyXeroSync, pullAll, startConnect, syncXero } from "./service";
+import { XERO_CONFIG } from "../config";
 
 const KEY = randomBytes(32);
 const ENV = { XERO_CLIENT_ID: "test-client-id", XERO_CLIENT_SECRET: "test-client-secret-abcdef", XERO_TOKEN_KEY: KEY.toString("base64") };
@@ -198,4 +199,24 @@ test("tiles from the live connection: live and confident when fresh, Stale and L
   assert.deepEqual([old.status, old.confidence], ["WATCH", "LOW"]);
   const manual = revenueTile({ info: { ...info, source: "UPLOAD", uploadedBy: "Accounts" }, s }, null)!;
   assert.deepEqual([manual.statusWord, manual.confidence], ["Manual upload", "LOW"]);
+});
+
+test("stage 4: the read starts at the fixed mirror start (not a rolling 1 July), pages on, and stops loudly at MAX_PAGES", async () => {
+  assert.equal(XERO_CONFIG.mirrorFrom, "2025-07-01");
+  assert.equal(decodeURIComponent(mirrorWhere()), "Date>=DateTime(2025,07,01)");
+  // Mocked Xero: two full pages then a short one - same endpoint, same host, the date in every filter.
+  let page = 0;
+  const { f, calls } = spyFetch(() => ({ status: 200, body: { Invoices: Array.from({ length: page++ < 2 ? 100 : 3 }, (_, i) => ({ InvoiceID: `inv-${page}-${i}` })) } }));
+  const rows = await pullAll(f, "test-access-token", "test-tenant", "Invoices");
+  assert.equal(rows.length, 203);
+  assert.equal(calls.length, 3);
+  for (const c of calls) {
+    assert.ok(c.url.startsWith("https://api.xero.com/api.xro/2.0/Invoices?"), c.url);
+    assert.ok(decodeURIComponent(c.url).includes("where=Date>=DateTime(2025,07,01)"), c.url);
+    assert.equal(c.method, "GET");
+  }
+  // A read that would need more than MAX_PAGES stops with a plain error rather than leave invoices out.
+  const always = spyFetch(() => ({ status: 200, body: { CreditNotes: Array.from({ length: 100 }, (_, i) => ({ CreditNoteID: `cn-${i}` })) } }));
+  await assert.rejects(pullAll(always.f, "test-access-token", "test-tenant", "CreditNotes"), /the read stopped rather than leave some out/);
+  assert.equal(always.calls.length, MAX_PAGES);
 });

@@ -17,6 +17,9 @@ export const XERO_CONFIG = {
   ignoredStatuses: ["VOIDED", "VOID", "DELETED", "DRAFT"],
   // Australian financial year starts 1 July.
   financialYearStartMonth: 7,
+  // Where the live read starts (stage 4 of "Claimed", Ilies 30 Oct 2026): a fixed date, so history no longer drops
+  // off every 1 July. The same read-only endpoints and scopes - only more pages as the years add up.
+  mirrorFrom: "2025-07-01",
 };
 
 // field -> header names it may appear under (first match wins)

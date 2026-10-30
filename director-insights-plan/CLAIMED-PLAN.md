@@ -80,7 +80,7 @@ Build stages 1-3, and approve stage 4. Don't build the upload for Nick's tracker
 
 ## Approved (30 Oct 2026)
 
-Ilies said "build stages 1-3". Stage 4 (pinning the mirror start) is **not** approved, so the live sync's window is unchanged.
+Ilies said "build stages 1-3". Later the same day he approved stage 4 too ("do all of this"): the live read now starts at a fixed `XERO_CONFIG.mirrorFrom = "2025-07-01"` instead of the rolling 1 July. It uses the same endpoint and the same read-only scopes, just more pages (MAX_PAGES 100). Reaching that limit stops the read with an error rather than quietly leaving invoices out.
 
 Until Ilies answers the open questions, these defaults apply. Each is labelled on the screen or in the dictionary note:
 
@@ -90,7 +90,7 @@ Until Ilies answers the open questions, these defaults apply. Each is labelled o
 4. **Left to claim** is against the Operations contract value only. Above it, the screen says in words "Claimed more than the contract value (variations aren't in Operations)".
 5. **"Not a job" invoices** get their own band in the monthly chart and never count in any job.
 6. **Job table:** active jobs, plus jobs with a board day in the last 60 days.
-7. **Mirror start:** unchanged. The screen shows the "Xero sales from <date>" line.
+7. **Mirror start:** fixed at 1 July 2025 (stage 4). The screen shows the "Xero sales from <date>" line.
 8. **Draft invoices** never count. They show as a data-quality count.
 
 **Thresholds (drafts):** claimsMonths 15, claimCostGapDays 31. claimsTiedHighAt reuses F9's 0.9 (`THRESHOLDS.revenueTiedHighAt`). F13 "Margin per job" stays blocked.

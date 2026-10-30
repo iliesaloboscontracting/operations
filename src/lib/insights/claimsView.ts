@@ -5,6 +5,7 @@
 import { STALE_AFTER_HOURS, countsAsSale } from "../xero/summary";
 import { suggestionOf } from "../xero/match";
 import { claimedByMonth, claimsByJob, claimsConfidence, claimsJobRows, draftSales, jobClaimPosition, mirrorFrom, type ClaimInvoice } from "./claims";
+import { XERO_CONFIG } from "../xero/config";
 
 type XeroClaims = { info: { source: string; asAt: string | null; uploadedBy: string | null; createdAt: string }; invoices: ClaimInvoice[] } | null;
 type CostProject = { id: string; name: string; jobNo: string | null; status: string; health: string; contractValue: number | null; totalCost: number; firstDate: string | null; lastDate: string | null };
@@ -25,7 +26,8 @@ function provenance(x: NonNullable<XeroClaims>, now: Date) {
 export function claimsOverview(x: XeroClaims, projects: CostProject[], today: string, now: Date) {
   if (!x) return null;
   const p = provenance(x, now);
-  const from = mirrorFrom(x.invoices);
+  // The live read starts at the fixed mirror start (stage 4); an upload covers what the export held.
+  const from = p.live ? XERO_CONFIG.mirrorFrom : mirrorFrom(x.invoices);
   const c = claimsByJob(x.invoices, today);
   const conf = claimsConfidence({ live: p.live, stale: p.stale, tied: c.totals.tied, notTied: c.totals.notTied });
   const rows = claimsJobRows(projects, today).map((pr) => {
