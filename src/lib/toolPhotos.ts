@@ -19,6 +19,16 @@ const ALLOWED = new Map([
   ["image/webp", "webp"],
 ]);
 
+// What the bytes really are (SEC-BA-003): a photo is only kept when its first bytes are a JPEG, PNG or WebP - whatever
+// the browser said it was. The file name's extension then comes from the bytes, never from the claim.
+export function imageTypeOf(bytes: Uint8Array): "image/jpeg" | "image/png" | "image/webp" | null {
+  const at = (i: number, ...v: number[]) => v.every((x, k) => bytes[i + k] === x);
+  if (bytes.length >= 3 && at(0, 0xff, 0xd8, 0xff)) return "image/jpeg";
+  if (bytes.length >= 8 && at(0, 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a)) return "image/png";
+  if (bytes.length >= 12 && at(0, 0x52, 0x49, 0x46, 0x46) && at(8, 0x57, 0x45, 0x42, 0x50)) return "image/webp"; // RIFF....WEBP
+  return null;
+}
+
 export function photoDir() {
   return process.env.TOOL_PHOTO_DIR || path.resolve(process.cwd(), "..", "operations-tool-photos");
 }
@@ -32,7 +42,9 @@ export async function savePhoto(dataUrl: unknown): Promise<{ fileName: string } 
   const bytes = Buffer.from(m[2], "base64");
   if (bytes.length === 0) return { error: "The photo is empty." };
   if (bytes.length > MAX_BYTES) return { error: "The photo is too large - try again (it should shrink automatically)." };
-  const fileName = `${Date.now()}-${randomBytes(8).toString("hex")}.${ALLOWED.get(m[1])}`;
+  const real = imageTypeOf(bytes);
+  if (!real) return { error: "The photo must be a JPEG, PNG or WebP image." };
+  const fileName = `${Date.now()}-${randomBytes(8).toString("hex")}.${ALLOWED.get(real)}`;
   await fs.mkdir(photoDir(), { recursive: true });
   await fs.writeFile(path.join(photoDir(), fileName), bytes);
   return { fileName };
