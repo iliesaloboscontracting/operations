@@ -26,6 +26,14 @@ test("a tip docket needs a photo, a job and the asbestos tap", () => {
   assert.equal((parseReceipt(tip({ vehicleId: id(8) })) as { vehicleId: string | null }).vehicleId, null);
 });
 
+test("a tip docket can be for a site not running today (a bin pick-up): the project, no job", () => {
+  assert.deepEqual(parseReceipt(tip({ jobId: undefined, projectId: id(7) })), { kind: "TIP", jobId: null, projectId: id(7), vehicleId: null, asbestos: false, photoIds: [id(1)] });
+  // today's job wins when both are sent; a junk project id is no choice at all
+  assert.equal((parseReceipt(tip({ projectId: id(7) })) as { projectId?: string | null }).projectId, undefined);
+  assert.match(err(tip({ jobId: undefined, projectId: "../x" })), /job/);
+  assert.match(err(tip({ jobId: undefined, projectId: id(7), asbestos: undefined })), /Asbestos/);
+});
+
 test("a fuel receipt needs a photo and a truck - no job, no asbestos", () => {
   assert.deepEqual(parseReceipt(fuel({ jobId: id(9), asbestos: true })), { kind: "FUEL", jobId: null, vehicleId: id(8), asbestos: null, photoIds: [id(1)] });
   assert.match(err(fuel({ vehicleId: "" })), /truck/);

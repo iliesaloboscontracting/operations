@@ -18,6 +18,7 @@ const primary = "flex w-full items-center justify-center gap-2 rounded-xl bg-bra
 const choice = (on: boolean) => `flex flex-1 items-center justify-center gap-2 rounded-2xl border px-3 py-5 text-lg font-semibold ${on ? "border-brand-500 bg-brand-600/30 text-brand-100" : "border-edge bg-panel text-gray-200"}`;
 
 type Data = { options: ReceiptOptionsDTO; today: ReceiptLinkDTO[] };
+const SITE = "site:"; // a "Job" choice that's a site not running today (sent as projectId)
 
 function useReceipts(api: string) {
   const [data, setData] = useState<Data | null>(null);
@@ -72,7 +73,7 @@ export function AddReceipt({ api, onDone }: { api: string; onDone: (message: str
     const res = await fetch(`${api}/receipts`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ kind, photoIds: shot, ...(kind === "TIP" ? { jobId, asbestos } : { vehicleId }) }),
+      body: JSON.stringify({ kind, photoIds: shot, ...(kind === "TIP" ? { ...(jobId.startsWith(SITE) ? { projectId: jobId.slice(SITE.length) } : { jobId }), asbestos } : { vehicleId }) }),
     }).catch(() => null);
     setBusy(false);
     if (!res?.ok) return setSendError(res ? await serverErrorMessage(res, "Couldn't send - try again.") : "Couldn't send - check your signal and try again.");
@@ -96,10 +97,22 @@ export function AddReceipt({ api, onDone }: { api: string; onDone: (message: str
             <span className="mb-1 block text-sm text-gray-300">Job</span>
             <select className={input} value={jobId} onChange={(e) => setJobId(e.target.value)}>
               <option value="">Which job?</option>
-              {data.options.jobs.map((j) => <option key={j.id} value={j.id}>{j.label}{j.mine ? " (yours today)" : ""}</option>)}
+              {data.options.sites.length > 0 ? (
+                <>
+                  <optgroup label="Running today">
+                    {data.options.jobs.map((j) => <option key={j.id} value={j.id}>{j.label}{j.mine ? " (yours today)" : ""}</option>)}
+                  </optgroup>
+                  <optgroup label="Other sites (not on today - e.g. a bin pick-up)">
+                    {data.options.sites.map((s) => <option key={s.id} value={SITE + s.id}>{s.label}</option>)}
+                  </optgroup>
+                </>
+              ) : (
+                data.options.jobs.map((j) => <option key={j.id} value={j.id}>{j.label}{j.mine ? " (yours today)" : ""}</option>)
+              )}
             </select>
           </label>
-          {data.options.jobs.length === 0 && <p className="text-sm text-amber-300">No jobs are running today - call the office.</p>}
+          {jobId.startsWith(SITE) && <p className="text-sm text-gray-400">This site isn&apos;t on today - the docket goes on the site, not a day.</p>}
+          {data.options.jobs.length === 0 && data.options.sites.length === 0 && <p className="text-sm text-amber-300">No jobs are running today - call the office.</p>}
           <div>
             <div className="mb-1 text-sm text-gray-300">Asbestos?</div>
             <div className="flex gap-3">

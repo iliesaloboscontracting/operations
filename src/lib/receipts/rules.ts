@@ -29,7 +29,8 @@ export const STATUS_LABEL: Record<string, string> = {
 // Money guard for everything a link gets back: no dollar figure anywhere in it.
 export const linkSafe = (x: unknown) => assertNoMoney(JSON.stringify(x));
 
-export type ReceiptInput = { kind: ReceiptKind; jobId: string | null; vehicleId: string | null; asbestos: boolean | null; photoIds: string[] };
+// A tip docket is for today's job, or (projectId, no job) a site not running today - a bin picked up between stages.
+export type ReceiptInput = { kind: ReceiptKind; jobId: string | null; projectId?: string | null; vehicleId: string | null; asbestos: boolean | null; photoIds: string[] };
 
 // A new receipt from a phone. The job / truck only have to be chosen; whether they exist (and are
 // ones the phone may pick) is checked by the store.
@@ -42,9 +43,10 @@ export function parseReceipt(b: Record<string, unknown>): ReceiptInput | { error
   const id = (v: unknown) => (typeof v === "string" && /^[a-z0-9]{20,40}$/.test(v) ? v : null);
   if (kind === "TIP") {
     const jobId = id(b.jobId);
-    if (!jobId) return { error: "Which job is it for?" };
+    const projectId = jobId ? null : id(b.projectId);
+    if (!jobId && !projectId) return { error: "Which job is it for?" };
     if (b.asbestos !== true && b.asbestos !== false) return { error: "Asbestos - yes or no?" };
-    return { kind, jobId, vehicleId: null, asbestos: b.asbestos, photoIds };
+    return projectId ? { kind, jobId: null, projectId, vehicleId: null, asbestos: b.asbestos, photoIds } : { kind, jobId, vehicleId: null, asbestos: b.asbestos, photoIds };
   }
   const vehicleId = id(b.vehicleId);
   if (!vehicleId) return { error: "Which truck?" };

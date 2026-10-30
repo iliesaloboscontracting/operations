@@ -29,6 +29,20 @@ function todaysJobs() {
   });
 }
 
+// Sites with no job running today that a tip docket can still be for - a driver picking up a bin left on a site
+// between stages (Ilies, 30 Oct 2026). Projects not archived with a board day in the last 120 days or the next 30.
+// The docket goes on the project with no job (jobId null): tip costs are by project, and an old day's docket
+// count isn't changed.
+async function otherSites(excludeProjectIds: Set<string | null>) {
+  const day = (n: number) => new Date(new Date(signinDates().today + "T00:00:00.000Z").getTime() + n * 86_400_000);
+  const rows = await prisma.project.findMany({
+    where: { archived: false, jobs: { some: { date: { gte: day(-120), lte: day(30) } } } },
+    select: { id: true, name: true, client: true },
+    orderBy: { name: "asc" },
+  });
+  return rows.filter((p) => !excludeProjectIds.has(p.id));
+}
+
 // Lobos-owned trucks (the same ones that get a truck QR: not trailers, not hired).
 export function lobosTrucks() {
   return prisma.resource.findMany({
@@ -57,6 +71,7 @@ export async function fuelAssets(): Promise<{ id: string; name: string; label: s
 
 export type ReceiptOptionsDTO = {
   jobs: { id: string; label: string; mine: boolean }[];
+  sites: { id: string; label: string }[]; // projects not running today - a bin picked up from a site between stages
   trucks: { id: string; label: string }[];
   plant: { id: string; label: string }[]; // owned machines - fuel can be for them too
   prefill: { jobId: string | null; vehicleId: string | null };
@@ -83,8 +98,10 @@ export async function receiptOptions(link: ReceiptLink): Promise<ReceiptOptionsD
   const boardTrucks = [...new Set(mine.flatMap((j) => j.assignments.filter((a) => isTruck(a.resource)).map((a) => a.resourceId)))];
   const vehicleId = signedTruck ?? (boardTrucks.length === 1 ? boardTrucks[0] : null);
   const mineIds = new Set([...mine.map((j) => j.id), ...(signedJob ? [signedJob] : [])]);
+  const sites = await otherSites(new Set(jobs.map((j) => j.projectId)));
   return {
     jobs: [...jobs].sort((a, b) => Number(mineIds.has(b.id)) - Number(mineIds.has(a.id))).map((j) => ({ id: j.id, label: jobLabel(j), mine: mineIds.has(j.id) })),
+    sites: sites.map((p) => ({ id: p.id, label: p.name })),
     trucks: trucks.map((t) => ({ id: t.id, label: t.identifier ? `${t.name} (${t.identifier})` : t.name })),
     plant: plant.map((p) => ({ id: p.id, label: p.identifier ? `${p.name} (${p.identifier})` : p.name })),
     prefill: { jobId, vehicleId },
@@ -113,7 +130,12 @@ export async function createReceipt(link: ReceiptLink, body: Record<string, unkn
   const photos = await prisma.receiptPhoto.findMany({ where: { id: { in: input.photoIds }, siteLinkId: link.id, receiptId: null, odometerReadingId: null, createdAt: { gte: since24h() } }, select: { id: true } });
   if (photos.length !== input.photoIds.length) return { error: "A photo didn't upload - take it again.", status: 400 };
   let projectId: string | null = null;
-  if (input.kind === "TIP") {
+  if (input.kind === "TIP" && input.projectId) {
+    const jobs = await todaysJobs();
+    const site = (await otherSites(new Set(jobs.map((j) => j.projectId)))).find((p) => p.id === input.projectId);
+    if (!site) return { error: "Pick the site from the list - call the office if it isn't there.", status: 400 };
+    projectId = site.id;
+  } else if (input.kind === "TIP") {
     const job = (await todaysJobs()).find((j) => j.id === input.jobId);
     if (!job) return { error: "That job isn't running today - pick today's job.", status: 400 };
     projectId = job.projectId;
@@ -137,16 +159,21 @@ export async function createReceipt(link: ReceiptLink, body: Record<string, unkn
 async function linkRows(ids?: string[], personId?: string): Promise<ReceiptLinkDTO[]> {
   const rows = await prisma.receipt.findMany({
     where: ids ? { id: { in: ids } } : { sentByResourceId: personId, sentAt: { gte: sydneyMidnight() } },
-    select: { id: true, kind: true, jobId: true, vehicleId: true, asbestos: true, status: true, sentAt: true, _count: { select: { photos: true } } },
+    select: { id: true, kind: true, jobId: true, projectId: true, vehicleId: true, asbestos: true, status: true, sentAt: true, _count: { select: { photos: true } } },
     orderBy: { sentAt: "desc" },
   });
-  const [jobs, trucks] = await Promise.all([
+  const [jobs, projects, trucks] = await Promise.all([
     prisma.job.findMany({ where: { id: { in: rows.map((r) => r.jobId).filter((x): x is string => !!x) } }, select: { id: true, title: true, shift: true, project: { select: { name: true } } } }),
+    prisma.project.findMany({ where: { id: { in: rows.filter((r) => !r.jobId).map((r) => r.projectId).filter((x): x is string => !!x) } }, select: { id: true, name: true } }),
     prisma.resource.findMany({ where: { id: { in: rows.map((r) => r.vehicleId).filter((x): x is string => !!x) } }, select: { id: true, name: true } }),
   ]);
+  const tipFor = (r: { jobId: string | null; projectId: string | null }) => {
+    const j = jobs.find((x) => x.id === r.jobId);
+    return j ? jobLabel(j) : projects.find((p) => p.id === r.projectId)?.name ?? "a job";
+  };
   return rows.filter((r) => r.kind !== "PURCHASE").map((r) => ({
     id: r.id, kind: r.kind as ReceiptKind, label: KIND_LABEL[r.kind as ReceiptKind] ?? r.kind,
-    for: r.kind === "TIP" ? (() => { const j = jobs.find((x) => x.id === r.jobId); return j ? jobLabel(j) : "a job"; })() : trucks.find((t) => t.id === r.vehicleId)?.name ?? "a truck",
+    for: r.kind === "TIP" ? tipFor(r) : trucks.find((t) => t.id === r.vehicleId)?.name ?? "a truck",
     at: sydneyTime(r.sentAt) ?? "", asbestos: r.asbestos, photos: r._count.photos, status: STATUS_LABEL[r.status] ?? "Sent",
   }));
 }
@@ -252,8 +279,10 @@ export async function officeList(f: ReceiptFilters): Promise<{ rows: ReceiptOffi
     sharedPhotos.set(p.receiptId!, [...(sharedPhotos.get(p.receiptId!) ?? []), p.id]);
   }
   const recent = { sentAt: { gte: new Date(Date.now() - 60 * 86_400_000) } };
-  const [jobRows, trucks, senders, odoSenders, toCheck] = await Promise.all([
+  const siteIds = [...new Set(receipts.filter((r) => !r.jobId).map((r) => r.projectId).filter((x): x is string => !!x))];
+  const [jobRows, siteRows, trucks, senders, odoSenders, toCheck] = await Promise.all([
     prisma.job.findMany({ where: { id: { in: jobIds } }, select: { id: true, title: true, shift: true, date: true, project: { select: { name: true } } } }),
+    prisma.project.findMany({ where: { id: { in: siteIds } }, select: { id: true, name: true } }),
     fuelAssets(),
     prisma.receipt.findMany({ where: recent, select: { sentBy: true }, distinct: ["sentBy"] }),
     prisma.odometerReading.findMany({ where: recent, select: { sentBy: true }, distinct: ["sentBy"] }),
@@ -269,11 +298,16 @@ export async function officeList(f: ReceiptFilters): Promise<{ rows: ReceiptOffi
       rejected: log.rejected ? { by: log.rejected.by, reason: log.rejected.reason } : null,
     };
   };
-  const jobName = (id: string | null) => { const j = jobRows.find((x) => x.id === id); return j ? `${jobLabel(j)} · ${j.date.toISOString().slice(5, 10).split("-").reverse().join("/")}` : "a job"; };
+  const jobName = (id: string | null, projectId?: string | null) => {
+    const j = jobRows.find((x) => x.id === id);
+    if (j) return `${jobLabel(j)} · ${j.date.toISOString().slice(5, 10).split("-").reverse().join("/")}`;
+    const site = !id && siteRows.find((p) => p.id === projectId); // a docket from a site not running that day
+    return site ? `${site.name} · not on that day` : "a job";
+  };
   const truckName = (id: string | null) => trucks.find((t) => t.id === id)?.name ?? "a truck";
   const rows: ReceiptOfficeDTO[] = [
     ...receipts.map((r) => ({
-      id: r.id, type: r.kind as "TIP" | "FUEL", label: KIND_LABEL[r.kind as ReceiptKind] ?? r.kind, for: r.kind === "TIP" ? jobName(r.jobId) : truckName(r.vehicleId),
+      id: r.id, type: r.kind as "TIP" | "FUEL", label: KIND_LABEL[r.kind as ReceiptKind] ?? r.kind, for: r.kind === "TIP" ? jobName(r.jobId, r.projectId) : truckName(r.vehicleId),
       jobId: r.jobId, vehicleId: r.vehicleId, sentBy: r.sentBy, sentAt: r.sentAt.toISOString(), asbestos: r.asbestos, status: r.status,
       photoIds: r.photoFromReceiptId ? sharedPhotos.get(r.photoFromReceiptId) ?? [] : r.photos.map((p) => p.id),
       added: logOf(r.reading).added ? { by: logOf(r.reading).added!.by, fromReceiptId: logOf(r.reading).added!.fromReceiptId } : null,
