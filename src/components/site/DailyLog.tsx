@@ -10,6 +10,7 @@ import { DELAY_CODES, DELAY_LABEL, NOTE_MAX, SPLIT_TOLERANCE, type DelayCode } f
 import type { LinkLogDTO, LogJobDTO, ProgressFormDTO } from "@/lib/dailyLog/types";
 import VoiceNote from "./VoiceNote";
 import BeforeAfterPhotos from "./BeforeAfterPhotos";
+import { GuideLink } from "./LogGuide";
 import type { Phase } from "@/lib/dailyLog/beforeAfter";
 import { addToNote } from "@/lib/dailyLog/voiceRules";
 import { mergeDelays, mergeFill } from "@/lib/dailyLog/fill";
@@ -71,7 +72,8 @@ export default function DailyLog({ api, onDone }: { api: string; onDone: (messag
   return (
     <div>
       <h2 className="mb-1 text-lg font-semibold text-gray-100">Daily log</h2>
-      <p className="mb-4 text-sm text-gray-500">About a minute: who worked, what they did and any hold-ups.</p>
+      <p className="mb-2 text-sm text-gray-500">About a minute: who worked, what they did and any hold-ups.</p>
+      <GuideLink className="mb-4" />
       {data.jobs.length === 0 && <p className="mb-4 rounded-xl border border-edge bg-panel p-4 text-sm text-gray-400">You&apos;re not on a job to log today.</p>}
       <div className="space-y-3">
         {data.jobs.map((j) => (
@@ -194,7 +196,8 @@ function LogSteps({ api, job, voice, onBack, onSaved }: { api: string; job: LogJ
         <h2 className="text-lg font-semibold text-gray-100">{steps[step]}</h2>
         <span className="text-xs text-gray-500">{step < 3 ? `Step ${step + 1} of 3` : "Review"}</span>
       </div>
-      <p className="mb-4 text-sm text-gray-500">{job.label} · {dayLabel(job.date)}{prev ? ` · correcting the ${prev.atLabel} log (saves version ${prev.revision + 1})` : ""}</p>
+      <p className="mb-1 text-sm text-gray-500">{job.label} · {dayLabel(job.date)}{prev ? ` · correcting the ${prev.atLabel} log (saves version ${prev.revision + 1})` : ""}</p>
+      <GuideLink className="mb-4" />
       {voice && (
         <VoiceNote
           api={api} jobId={job.jobId}

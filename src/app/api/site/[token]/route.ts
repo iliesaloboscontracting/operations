@@ -7,6 +7,7 @@ import { OPEN_STATUSES } from "@/lib/requestTypes";
 import { hireForLink } from "@/lib/hireCheck";
 import { LINK_WHERE } from "@/lib/siteRequests";
 import { isPilotLink, logCard } from "@/lib/dailyLog/store";
+import { GUIDE_VERSION } from "@/lib/dailyLog/guide";
 
 // GET /api/site/:token -> who the link belongs to and their toolbox(es) with
 // the tools in each (for picking a tool when reporting a fault). Tool names
@@ -43,8 +44,9 @@ export const GET = withErrorHandling(async (_req: NextRequest, { params: paramsP
     link.kind === "OFFICE" ? [] : hireForLink(link),
   ]);
   // The Daily log card (Task K) - only on links the rule gives it to (DAILY_LOG_PILOT_LINKS, "all" = every supervisor); others get exactly what they got before.
-  const dailyLog = (await isPilotLink(link)) ? await logCard(link, new Date()) : undefined;
+  const hasLog = await isPilotLink(link);
+  const dailyLog = hasLog ? await logCard(link, new Date()) : undefined;
   // Receipts sent today - supervisors send tip dockets and fuel receipts too.
   const receipts = link.kind === "SUPERVISOR" && link.person.id ? { receiptsToday: await receiptsSentToday(link.person.id) } : {};
-  return NextResponse.json({ person: link.person.name, kind: link.kind, shared: link.shared, toolboxes, openRequests, needsAnswer, todo, hireItems: hire.length, hireToCheck: hire.filter((h) => h.askNow).length, ...(dailyLog ? { dailyLog } : {}), ...receipts });
+  return NextResponse.json({ person: link.person.name, kind: link.kind, shared: link.shared, toolboxes, openRequests, needsAnswer, todo, hireItems: hire.length, hireToCheck: hire.filter((h) => h.askNow).length, ...(dailyLog ? { dailyLog } : {}), ...(hasLog ? { guide: GUIDE_VERSION } : {}), ...receipts });
 });

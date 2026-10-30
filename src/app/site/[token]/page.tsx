@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState, use } from "react";
 import { ArrowLeft, Camera, ClipboardList, ListChecks, Loader2, NotebookPen, QrCode as QrIcon, ImagePlus, ClipboardCheck, ReceiptText, ScanLine, Send, ShoppingCart, Truck, Wrench, Wallet } from "lucide-react";
 import PhotoPicker from "@/components/tools/PhotoPicker";
 import DailyLog from "@/components/site/DailyLog";
+import { GuideLink, WhatsNewCard } from "@/components/site/LogGuide";
 import type { LogCardDTO } from "@/lib/dailyLog/types";
 import SignInCrew from "@/components/site/SignInCrew";
 import { MyRequests, RequestForm } from "@/components/site/SiteRequests";
@@ -37,6 +38,7 @@ type SiteInfo = {
   hireItems: number;
   hireToCheck: number;
   dailyLog?: LogCardDTO; // only on the daily log pilot's links (Task K)
+  guide?: number; // the daily log guide's version - only on links with the daily log (30 Oct 2026)
   receiptsToday?: number; // supervisor and driver links (Receipts)
 };
 type Mode = "home" | "register" | "check" | "fault" | "signin" | "request" | "requests" | "todo" | "purchases" | "hire" | "log" | "receipt" | "receipts" | "hours" | "reimburse";
@@ -126,6 +128,7 @@ export default function SitePhotosPage({ params: paramsP }: { params: Promise<{ 
               />
             </label>
           )}
+          {info.guide && <WhatsNewCard version={info.guide} />}
           <InstallApp appName={info.kind === "OFFICE" && !info.shared ? "Lobos Office" : "Lobos Site"} />
           {info.kind !== "OFFICE" && !driver && (
             <div className="mb-4 rounded-xl border border-edge bg-panel p-3">
@@ -160,6 +163,7 @@ export default function SitePhotosPage({ params: paramsP }: { params: Promise<{ 
                 onClick={() => { setFlash(null); setMode("log"); }}
               />
             )}
+            {info.guide && <div className="-mt-1 text-center"><GuideLink /></div>}
             {info.dailyLog && info.dailyLog.jobs === 0 && info.dailyLog.progressDue && (
               <Big icon={<NotebookPen size={22} />} title="Progress this week" text="% complete for your jobs - due this week" alert onClick={() => { setFlash(null); setMode("log"); }} />
             )}
