@@ -33,7 +33,7 @@ export function ClaimsSection({ c }: { c: ClaimsOverviewDTO | null }) {
   return (
     <Section title="Claimed (Xero)" kpi="F14" className="mb-4" right={<ConfidenceBadge level={c.confidence} why={c.confidenceWhy} />}>
       <p className="mb-3 text-[11px] text-gray-500">
-        Xero sales from {c.from ? fmtDay(c.from, { day: "numeric", month: "short", year: "numeric" }) : "-"} · {c.sourceLabel}, read {c.readAtLabel} · ex GST · retention as invoiced · month = invoice date · draft invoices never count
+        Xero sales from {c.from ? fmtDay(c.from, { day: "numeric", month: "short", year: "numeric" }) : "-"} · {c.sourceLabel}, read {c.readAtLabel} · ex GST · retention as invoiced · month = invoice date · drafts and invoices awaiting approval never count
       </p>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Figure label="Claimed since the Xero start" value={short(c.totals.total)} sub="Sales less credit notes" />
@@ -87,7 +87,7 @@ export function ClaimsSection({ c }: { c: ClaimsOverviewDTO | null }) {
       </div>
       {c.otherJobs !== 0 && <p className="mt-2 text-[11px] text-gray-500">Claimed on other jobs (completed or older, not in the table): {signed(c.otherJobs)}</p>}
       <p className="mt-2 text-[11px] text-gray-500">
-        Claimed is what&apos;s been invoiced in Xero; cost to date is Project Tracking&apos;s. Claimed less cost is a timing difference (claims run ahead of or behind the work), not a result. Left to claim is against the Operations contract value - variations aren&apos;t in Operations. {c.drafts > 0 ? `${c.drafts} draft invoice${c.drafts === 1 ? " isn't" : "s aren't"} counted.` : ""}
+        Claimed is what&apos;s been invoiced in Xero; cost to date is Project Tracking&apos;s. Claimed less cost is a timing difference (claims run ahead of or behind the work), not a result. Left to claim is against the Operations contract value - variations aren&apos;t in Operations. {c.drafts > 0 ? `${c.drafts} invoice${c.drafts === 1 ? "" : "s"} still draft or awaiting approval in Xero - not counted.` : ""}
       </p>
     </Section>
   );

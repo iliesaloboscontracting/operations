@@ -140,6 +140,6 @@ export const signedLinesFrom = (invoices: ClaimInvoice[]) => invoices.reduce((n,
 export const mirrorFrom = (invoices: ClaimInvoice[]) =>
   invoices.reduce<string | null>((m, i) => ((i.type === "SALE" || i.type === "SALE_CREDIT") && (m == null || i.date < m) ? i.date : m), null);
 
-// Draft sales invoices are never counted - shown as a data-quality count.
+// Draft and awaiting-approval (SUBMITTED) sales invoices are never counted - shown as a data-quality count (CLM-006).
 export const draftSales = (invoices: ClaimInvoice[]) =>
-  invoices.filter((i) => (i.type === "SALE" || i.type === "SALE_CREDIT") && i.status.toUpperCase() === "DRAFT").length;
+  invoices.filter((i) => (i.type === "SALE" || i.type === "SALE_CREDIT") && ["DRAFT", "SUBMITTED"].includes(i.status.toUpperCase())).length;

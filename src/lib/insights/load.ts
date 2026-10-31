@@ -241,7 +241,7 @@ export async function loadDirectorOverview() {
       { id: "hireNoRate", label: "Hired items with no rate", count: hireNoRate, href: "/hire" },
       ...(claims ? [
         { id: "xeroNotTied", label: "Sales invoices not tied to a job yet (Xero)", count: claims.notTiedInvoices, href: "/directors/accounts" },
-        { id: "xeroDrafts", label: "Draft sales invoices in Xero (never counted)", count: claims.drafts, href: "/directors/accounts" },
+        { id: "xeroDrafts", label: "Draft or awaiting approval in Xero, not counted", count: claims.drafts, href: "/directors/accounts" },
         { id: "xeroLinesOff", label: "Xero lines don't add up to the invoice total", count: claims.linesOff, href: "/directors/accounts" },
       ] : []),
     ],

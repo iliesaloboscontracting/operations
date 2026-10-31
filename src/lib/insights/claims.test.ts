@@ -94,6 +94,13 @@ test("the Xero start and draft count", () => {
   assert.equal(draftSales(INVOICES), 1);
 });
 
+test("CLM-006: awaiting approval (SUBMITTED) is never claimed - it joins the draft count", () => {
+  const submitted = inv("INV-S", "2026-10-09", [[700, "jobA", "TRACKING"]], "SALE", "SUBMITTED");
+  const c = claimsByJob([...INVOICES, submitted], TODAY);
+  assert.deepEqual(c.byJob.get("jobA"), { claimed: 900, invoices: 2, lastDate: "2026-10-06" }, "jobA unchanged");
+  assert.equal(draftSales([...INVOICES, submitted]), 2);
+});
+
 test("dictionary: F14-F17 defined, never called margin or profit; F13 still blocked", () => {
   for (const id of ["F14", "F15", "F16", "F17"]) {
     const k = kpi(id);
