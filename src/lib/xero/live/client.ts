@@ -7,9 +7,9 @@
 // accounting API; POSTs only to the identity server's token / revoke.
 import { XERO_URLS, allowedHost, scrub, type XeroSetup } from "./setup";
 
-export type Fetch = (url: string, init: { method: string; headers: Record<string, string>; body?: string; signal?: AbortSignal }) => Promise<{ status: number; text: () => Promise<string> }>;
+export type Fetch = (url: string, init: { method: string; headers: Record<string, string>; body?: string; signal?: AbortSignal }) => Promise<{ status: number; text: () => Promise<string>; headers?: { get(name: string): string | null } }>;
 type Ok = Extract<XeroSetup, { ok: true }>;
-export type XeroResult<T> = { ok: true; data: T } | { ok: false; status: number; error: string; invalidGrant?: boolean };
+export type XeroResult<T> = { ok: true; data: T } | { ok: false; status: number; error: string; invalidGrant?: boolean; retryAfter?: number };
 
 const TIMEOUT_MS = 20_000;
 
@@ -34,7 +34,9 @@ export async function xeroCall<T>(
   const err = (json as { error?: string; Message?: string; Detail?: string } | null) ?? null;
   const invalidGrant = err?.error === "invalid_grant";
   const why = err?.error || err?.Message || err?.Detail || `HTTP ${res.status}`;
-  return { ok: false, status: res.status, error: scrub(`Xero said: ${why}`, secrets), invalidGrant };
+  // Too many calls (CLM-002): Xero says how many seconds to wait.
+  const ra = res.status === 429 ? Number(res.headers?.get("retry-after") ?? NaN) : NaN;
+  return { ok: false, status: res.status, error: scrub(`Xero said: ${why}`, secrets), invalidGrant, ...(Number.isFinite(ra) ? { retryAfter: ra } : {}) };
 }
 
 const basic = (s: Ok) => `Basic ${Buffer.from(`${s.clientId}:${s.clientSecret}`).toString("base64")}`;

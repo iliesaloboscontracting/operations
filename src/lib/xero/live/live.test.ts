@@ -207,9 +207,12 @@ test("stage 4: the read starts at the fixed mirror start (not a rolling 1 July),
   // Mocked Xero: two full pages then a short one - same endpoint, same host, the date in every filter.
   let page = 0;
   const { f, calls } = spyFetch(() => ({ status: 200, body: { Invoices: Array.from({ length: page++ < 2 ? 100 : 3 }, (_, i) => ({ InvoiceID: `inv-${page}-${i}` })) } }));
-  const rows = await pullAll(f, "test-access-token", "test-tenant", "Invoices");
+  const waits: number[] = [];
+  const sleep = async (ms: number) => { waits.push(ms); };
+  const rows = await pullAll(f, "test-access-token", "test-tenant", "Invoices", { sleep });
   assert.equal(rows.length, 203);
   assert.equal(calls.length, 3);
+  assert.deepEqual(waits, [1000, 1000], "CLM-002: about a second between pages");
   for (const c of calls) {
     assert.ok(c.url.startsWith("https://api.xero.com/api.xro/2.0/Invoices?"), c.url);
     assert.ok(decodeURIComponent(c.url).includes("where=Date>=DateTime(2025,07,01)"), c.url);
@@ -217,8 +220,52 @@ test("stage 4: the read starts at the fixed mirror start (not a rolling 1 July),
   }
   // A read that would need more than MAX_PAGES stops with a plain error rather than leave invoices out.
   const always = spyFetch(() => ({ status: 200, body: { CreditNotes: Array.from({ length: 100 }, (_, i) => ({ CreditNoteID: `cn-${i}` })) } }));
-  await assert.rejects(pullAll(always.f, "test-access-token", "test-tenant", "CreditNotes"), /the read stopped rather than leave some out/);
+  await assert.rejects(pullAll(always.f, "test-access-token", "test-tenant", "CreditNotes", { sleep }), /the read stopped rather than leave some out/);
   assert.equal(always.calls.length, MAX_PAGES);
+});
+
+test("CLM-002: a 429 waits as long as Xero says and tries the page again; sales and bills filtered by type", async () => {
+  const waits: number[] = [];
+  const sleep = async (ms: number) => { waits.push(ms); };
+  const calls: string[] = [];
+  let n = 0;
+  const f: Fetch = async (url) => {
+    calls.push(url);
+    n += 1;
+    if (n === 1) return { status: 429, text: async () => JSON.stringify({ Message: "Rate limit exceeded" }), headers: { get: (h: string) => (h.toLowerCase() === "retry-after" ? "7" : null) } };
+    return { status: 200, text: async () => JSON.stringify({ Invoices: [{ InvoiceID: "a" }] }) };
+  };
+  const rows = await pullAll(f, "test-access-token", "test-tenant", "Invoices", { where: mirrorWhere("2025-07-01", "ACCREC"), sleep });
+  assert.equal(rows.length, 1);
+  assert.equal(calls.length, 2, "the same page asked again after the wait");
+  assert.deepEqual(waits, [7000], "waited the 7 seconds Xero asked for");
+  assert.equal(calls[0], calls[1]);
+  assert.ok(decodeURIComponent(calls[0]).includes('where=Type=="ACCREC" AND Date>=DateTime(2025,07,01)'), calls[0]);
+  // Three 429s in a row: the read gives up with Xero's (scrubbed) message rather than loop.
+  const busy: Fetch = async () => ({ status: 429, text: async () => "{}", headers: { get: () => "1" } });
+  await assert.rejects(pullAll(busy, "t", "x", "Invoices", { sleep }), /Xero said/);
+  // Bills: a shorter window - 1 July of the previous financial year.
+  const { billsFrom } = await import("./service");
+  assert.equal(billsFrom("2026-10-31"), "2025-07-01");
+  assert.equal(billsFrom("2027-03-01"), "2025-07-01");
+  assert.equal(billsFrom("2027-08-01"), "2026-07-01");
+});
+
+test("CLM-002: Refresh now is throttled on the last attempt (a refresh straight after a failure is refused); a page-limit stop holds for the day", async () => {
+  const { refreshRefusal, nightlyDue } = await import("./service");
+  const t = Date.parse("2026-10-31T03:00:00Z");
+  const base = { now: t + 60_000, lastAttemptAt: t, lastSyncAt: null, force: false, pageLimitDay: null, today: "2026-10-31" };
+  assert.match(refreshRefusal(base) ?? "", /less than 15 minutes ago/, "a failed read a minute ago (no success) - refused");
+  assert.equal(refreshRefusal({ ...base, now: t + 16 * 60_000 }), null, "16 minutes later - fine");
+  assert.match(refreshRefusal({ ...base, lastAttemptAt: 0, lastSyncAt: t }) ?? "", /less than 15 minutes ago/, "a success a minute ago - refused too");
+  assert.equal(refreshRefusal({ ...base, force: true }), null, "the nightly may go");
+  assert.match(refreshRefusal({ ...base, force: true, pageLimitDay: "2026-10-31" }) ?? "", /page limit today/, "after a page-limit stop - not again that day, even the nightly");
+  const night = { now: t, lastAttemptAt: t - 61 * 60_000, hour: 3, lastSyncDay: "2026-10-30", today: "2026-10-31", pageLimitDay: null };
+  assert.equal(nightlyDue(night), true);
+  assert.equal(nightlyDue({ ...night, lastAttemptAt: t - 30 * 60_000 }), false, "an hour after the last attempt of any kind");
+  assert.equal(nightlyDue({ ...night, hour: 1 }), false, "not before 2am");
+  assert.equal(nightlyDue({ ...night, lastSyncDay: "2026-10-31" }), false, "already read today");
+  assert.equal(nightlyDue({ ...night, pageLimitDay: "2026-10-31" }), false, "a page-limit stop today");
 });
 
 test("CLM-001: API lines keep their sign - a retention line comes off; inclusive lines with a negative line come out right", async () => {
