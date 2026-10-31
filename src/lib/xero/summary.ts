@@ -1,8 +1,9 @@
 // Xero figures for the Directors health band (G2, 25 Oct 2026), from the
 // latest upload of each kind. Manual exports, so always "Manual upload, as
 // at <date>" and LOW confidence. Revenue = sales invoices less credit notes,
-// ex GST, this financial year (from 1 July), voided / draft left out.
-// Owed and overdue use Xero's own amount-due (inc GST). The P&L lines are
+// ex GST, this financial year (from 1 July), voided, draft and awaiting-approval
+// left out. Owed and overdue (F10) use Xero's own amount-due (inc GST), with the
+// same invoices left out - awaiting approval (SUBMITTED) too. The P&L lines are
 // shown as Xero reports them - never re-added or re-categorised.
 // Plain functions; `npm test` (xero.test.ts).
 import { XERO_CONFIG } from "./config";
