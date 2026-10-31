@@ -282,3 +282,16 @@ test("CLM-001: API lines keep their sign - a retention line comes off; inclusive
   assert.equal(c.byJob.get("jobB")?.claimed, 900);
   assert.equal(linesOff([asClaim(exclusive, "jobA"), asClaim(inclusive, "jobB")], "2026-10-30").count, 0, "both add up to their totals");
 });
+
+test("CLM-008: the read's lock, last attempt and page-limit day live on globalThis, shared by the tick's copy and the routes'", async () => {
+  const { readFileSync } = await import("node:fs");
+  await import("./service");
+  const st = (globalThis as unknown as { xeroSyncState?: { running: unknown; lastAttemptAt: unknown; pageLimitDay: unknown } }).xeroSyncState;
+  assert.ok(st, "loading the module puts the state on globalThis");
+  assert.equal(typeof st!.running, "boolean");
+  assert.equal(typeof st!.lastAttemptAt, "number");
+  assert.ok(st!.pageLimitDay === null || typeof st!.pageLimitDay === "string");
+  const src = readFileSync(new URL("./service.ts", import.meta.url), "utf8");
+  assert.match(src, /const state = \(globalForXero\.xeroSyncState \?\?= \{ running: false, lastAttemptAt: 0, pageLimitDay: null \}\);/, "a second copy reuses the first copy's state");
+  assert.doesNotMatch(src, /^let (running|lastAttemptAt|pageLimitDay)\b/m, "no per-copy module state left");
+});

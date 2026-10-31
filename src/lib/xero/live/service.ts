@@ -95,7 +95,11 @@ export async function disconnect(user: AuthUser, f: Fetch = realFetch): Promise<
 
 // ---------- sync ----------
 
-let running = false;
+// The read's lock and timers (CLM-002), one copy per server process (CLM-008): the instrumentation tick and the route
+// handlers each load their own copy of this module, so - as src/lib/prisma.ts does - the state lives on globalThis and
+// the nightly read and "Refresh now" see the same lock, last attempt and page-limit day.
+const globalForXero = globalThis as unknown as { xeroSyncState?: { running: boolean; lastAttemptAt: number; pageLimitDay: string | null } };
+const state = (globalForXero.xeroSyncState ??= { running: false, lastAttemptAt: 0, pageLimitDay: null });
 
 function tokenDeps(s: Ok, f: Fetch, id: string) {
   return {
@@ -152,8 +156,6 @@ export async function pullAll(f: Fetch, token: string, tenant: string, resource:
 
 // When a read may start (CLM-002) - on the last ATTEMPT, not the last success, so a failing read can't be hammered.
 // A page-limit stop means no more tries that day, even forced (the nightly).
-let lastAttemptAt = 0;
-let pageLimitDay: string | null = null;
 export function refreshRefusal(x: { now: number; lastAttemptAt: number; lastSyncAt: number | null; force: boolean; pageLimitDay: string | null; today: string }): string | null {
   if (x.pageLimitDay === x.today) return "The Xero read stopped at its page limit today - it will try again tomorrow. Tell the office if it keeps happening.";
   if (x.force) return null;
@@ -170,11 +172,11 @@ export async function syncXero(by: { name: string; userId: string | null }, opts
   const c = await prisma.xeroConnection.findFirst({ where: { status: "ACTIVE" } });
   if (!c) return { ok: false, error: "Xero isn't connected.", status: 409 };
   const today = todaySydney();
-  const refused = refreshRefusal({ now: Date.now(), lastAttemptAt, lastSyncAt: c.lastSyncAt?.getTime() ?? null, force: !!opts.force, pageLimitDay, today });
+  const refused = refreshRefusal({ now: Date.now(), lastAttemptAt: state.lastAttemptAt, lastSyncAt: c.lastSyncAt?.getTime() ?? null, force: !!opts.force, pageLimitDay: state.pageLimitDay, today });
   if (refused) return { ok: false, error: refused, status: 429 };
-  if (running) return { ok: false, error: "A Xero read is already running.", status: 409 };
-  running = true;
-  lastAttemptAt = Date.now();
+  if (state.running) return { ok: false, error: "A Xero read is already running.", status: 409 };
+  state.running = true;
+  state.lastAttemptAt = Date.now();
   const f = opts.f ?? realFetch;
   try {
     const r = await withAccessToken(tokenDeps(s, f, c.id), async (token, tenant) => {
@@ -209,7 +211,7 @@ export async function syncXero(by: { name: string; userId: string | null }, opts
     await prisma.xeroConnection.update({ where: { id: c.id }, data: { lastSyncAt: new Date(), lastError: null } });
     return { ok: true, invoices: sales.length, bills: bills.length, pnlLines };
   } catch (e) {
-    if (e instanceof PageLimitError) pageLimitDay = today; // no more tries today (CLM-002)
+    if (e instanceof PageLimitError) state.pageLimitDay = today; // no more tries today (CLM-002)
     // Xero errors arrive already scrubbed; a database error could echo the values
     // being written (the encrypted token), so it's never shown or logged as is.
     const raw = e instanceof Error ? e.message : "";
@@ -218,7 +220,7 @@ export async function syncXero(by: { name: string; userId: string | null }, opts
     console.error("xero sync failed:", error); // already scrubbed - never a token
     return { ok: false, error, status: 502 };
   } finally {
-    running = false;
+    state.running = false;
   }
 }
 
@@ -228,12 +230,12 @@ export async function syncXero(by: { name: string; userId: string | null }, opts
 export async function nightlyXeroSync(now = new Date()) {
   if (!xeroSetup().ok) return null;
   const hour = Number(new Intl.DateTimeFormat("en-AU", { timeZone: "Australia/Sydney", hour: "numeric", hourCycle: "h23" }).format(now));
-  if (!nightlyDue({ now: now.getTime(), lastAttemptAt, hour, lastSyncDay: null, today: todaySydney(), pageLimitDay })) return null;
+  if (!nightlyDue({ now: now.getTime(), lastAttemptAt: state.lastAttemptAt, hour, lastSyncDay: null, today: todaySydney(), pageLimitDay: state.pageLimitDay })) return null;
   const c = await prisma.xeroConnection.findFirst({ where: { status: "ACTIVE" } });
   if (!c) return null;
   const today = todaySydney();
   const lastDay = c.lastSyncAt ? new Intl.DateTimeFormat("en-CA", { timeZone: "Australia/Sydney" }).format(c.lastSyncAt) : null;
-  if (!nightlyDue({ now: now.getTime(), lastAttemptAt, hour, lastSyncDay: lastDay, today, pageLimitDay })) return null;
+  if (!nightlyDue({ now: now.getTime(), lastAttemptAt: state.lastAttemptAt, hour, lastSyncDay: lastDay, today, pageLimitDay: state.pageLimitDay })) return null;
   return syncXero({ name: "nightly", userId: null }, { force: true });
 }
 
