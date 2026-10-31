@@ -125,8 +125,11 @@ export function readInvoiceGrid(grid: string[][], kind: "INVOICES" | "BILLS"): {
     const totalExGst = Math.round((Math.abs(total) - Math.abs(tax ?? 0)) * 100) / 100;
     // Line amounts are inclusive or exclusive of GST depending on how the
     // invoice was raised: whichever way they add up to the total decides.
+    // Signed (CLM-001): each line keeps its sign (a retention line is negative), times the sign of the document total -
+    // a credit note exported with negative amounts comes out positive, and its type carries the sign (once).
+    const sgn = total < 0 ? -1 : 1;
     const raw = rows.map((r) => ({ amount: num(cell(r, "lineAmount")), tax: num(cell(r, "lineTax")) ?? 0, r }));
-    const sum = raw.reduce((n, x) => n + Math.abs(x.amount ?? 0), 0);
+    const sum = raw.reduce((n, x) => n + sgn * (x.amount ?? 0), 0);
     const inclusive = Math.abs(sum - Math.abs(total)) < Math.abs(sum - totalExGst);
     const track = (r: string[], n: "tracking1" | "tracking2") => {
       const name = cell(r, `${n}Name` as InvoiceField), opt = cell(r, `${n}Option` as InvoiceField);
@@ -135,7 +138,7 @@ export function readInvoiceGrid(grid: string[][], kind: "INVOICES" | "BILLS"): {
     const lines: ReadLine[] = raw.some((x) => x.amount != null)
       ? raw.filter((x) => x.amount != null).map((x) => ({
           description: cell(x.r, "description") || null,
-          amountExGst: Math.round((Math.abs(x.amount!) - (inclusive ? Math.abs(x.tax) : 0)) * 100) / 100,
+          amountExGst: Math.round(sgn * (x.amount! - (inclusive ? x.tax : 0)) * 100) / 100,
           accountCode: cell(x.r, "accountCode") || null,
           tracking1: track(x.r, "tracking1"), tracking2: track(x.r, "tracking2"),
         }))

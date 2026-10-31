@@ -28,7 +28,9 @@ export function apiInvoiceToRead(i: ApiInvoice): (ReadInvoice & { xeroId: string
     const t = (l.Tracking ?? []).map((x) => (x.Option ? (x.Name ? `${x.Name}: ${x.Option}` : x.Option) : null));
     return {
       description: l.Description?.trim() || null,
-      amountExGst: r2(Math.abs(l.LineAmount ?? 0) - (inclusive ? Math.abs(l.TaxAmount ?? 0) : 0)),
+      // Signed (CLM-001): a retention or discount line is negative and must stay so - the lines then add up to the
+      // SubTotal. API credit notes come with positive amounts; their type carries the sign.
+      amountExGst: r2((l.LineAmount ?? 0) - (inclusive ? (l.TaxAmount ?? 0) : 0)),
       accountCode: l.AccountCode ?? null,
       tracking1: t[0] ?? null,
       tracking2: t[1] ?? null,

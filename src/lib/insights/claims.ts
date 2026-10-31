@@ -3,7 +3,7 @@
 // (F14), the company by month (F15), claimed against cost to date (F16), left to claim (F17) and how far to trust it.
 // The "what counts as a sale" rule is the revenue tile's own (xero/summary.ts signedSaleLines) - one rule. Never called
 // margin or profit. No server imports; `npm test` (claims.test.ts).
-import { signedSaleLines } from "../xero/summary";
+import { countsAsSale, signedSaleLines } from "../xero/summary";
 import { THRESHOLDS } from "./dictionary";
 
 export type ClaimInvoice = {
@@ -42,6 +42,24 @@ export function claimsByJob(invoices: ClaimInvoice[], today: string) {
     totals: { total: r2(tied + notTied + notAJob), tied: r2(tied), notTied: r2(notTied), notAJob: r2(notAJob) },
     notTiedInvoices: notTiedInvoices.size,
   };
+}
+
+// The reconciliation guard (CLM-001): a counted sales document whose lines don't add up to its total ex GST (more than
+// 5 cents out) - its jobs drop to LOW confidence and the count goes on the data-quality list. Older uploads keep the
+// lines they were read with; the next live read rewrites them.
+export const LINES_OFF_TOLERANCE = 0.05;
+export function linesOff(invoices: ClaimInvoice[], today: string) {
+  const jobs = new Set<string>();
+  let count = 0;
+  for (const i of invoices) {
+    if (i.date > today || !countsAsSale(i)) continue;
+    const sum = i.lines.reduce((n, l) => n + l.amountExGst, 0);
+    if (Math.abs(sum - i.totalExGst) > LINES_OFF_TOLERANCE) {
+      count += 1;
+      for (const l of i.lines) if (l.projectId) jobs.add(l.projectId);
+    }
+  }
+  return { count, jobs };
 }
 
 // F15: the last N months (this month so far included), by invoice month, in three bands. A month before the Xero sales
@@ -114,6 +132,9 @@ export function claimsJobRows<P extends { id: string; status: string; health: st
   const since = addDays(today, -THRESHOLDS.claimsRecentDays);
   return projects.filter((p) => p.health !== "OVERHEAD" && (p.status === "ACTIVE" || (p.lastDate != null && p.lastDate >= since)));
 }
+
+// The counted sales lines of some documents, signed and summed.
+export const signedLinesFrom = (invoices: ClaimInvoice[]) => invoices.reduce((n, i) => n + signedSaleLines(i).reduce((m, l) => m + l.amount, 0), 0);
 
 // The earliest sales date the mirror holds - shown as "Xero sales from <date>".
 export const mirrorFrom = (invoices: ClaimInvoice[]) =>

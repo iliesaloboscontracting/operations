@@ -27,7 +27,13 @@ export default {
       t.ok(cl.jobs.every((j) => ["HIGH", "MEDIUM", "LOW"].includes(j.confidence)), "every job row has a confidence");
       t.ok(typeof cl.drafts === "number" && typeof cl.notTiedInvoices === "number", "draft and not-tied counts are there");
       t.ok((o.body.dataQuality ?? []).some((d) => d.id === "xeroDrafts") && (o.body.dataQuality ?? []).some((d) => d.id === "xeroNotTied"), "the data-quality list has the Xero rows");
-    }
+      // CLM-001: this financial year's claimed lines = the revenue tile's invoiced (revenueSummary), apart from the documents
+      // whose lines don't add up - asserted, never printed. Older lines are rewritten on the next live read.
+      const fy = cl.fyCheck;
+      t.ok(fy && near(fy.lines - fy.offGap, fy.invoiced), "this financial year's claimed lines = the revenue tile's invoiced, apart from documents whose lines don't add up (not printed)");
+      t.ok(typeof cl.linesOff === "number" && (cl.linesOff > 0 || near(fy?.offGap ?? 0, 0)), "the 'lines don't add up' count is there, and nothing is out when it's 0");
+      const offRow = (o.body.dataQuality ?? []).find((d) => d.id === "xeroLinesOff");
+      t.ok(offRow && offRow.count === cl.linesOff, "the data-quality list carries the same 'lines don't add up' count");    }
     t.ok(!/margin|profit/i.test(JSON.stringify(cl ?? {})), "the claims payload never says margin or profit");
 
     // Tracking (Operations) never carries claims - the list and the job page's source.

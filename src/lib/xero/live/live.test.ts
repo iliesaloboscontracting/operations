@@ -220,3 +220,18 @@ test("stage 4: the read starts at the fixed mirror start (not a rolling 1 July),
   await assert.rejects(pullAll(always.f, "test-access-token", "test-tenant", "CreditNotes"), /the read stopped rather than leave some out/);
   assert.equal(always.calls.length, MAX_PAGES);
 });
+
+test("CLM-001: API lines keep their sign - a retention line comes off; inclusive lines with a negative line come out right", async () => {
+  const { claimsByJob, linesOff } = await import("../../insights/claims");
+  const exclusive = apiInvoiceToRead({ InvoiceID: "i1", Type: "ACCREC", InvoiceNumber: "INV-1", DateString: "2026-10-10T00:00:00", Status: "AUTHORISED", LineAmountTypes: "Exclusive", SubTotal: 950, TotalTax: 95, Total: 1045,
+    LineItems: [{ Description: "Claim 4", LineAmount: 1000, TaxAmount: 100 }, { Description: "Retention", LineAmount: -50, TaxAmount: -5 }] })!;
+  assert.deepEqual([exclusive.totalExGst, exclusive.lines.map((l) => l.amountExGst)], [950, [1000, -50]]);
+  const inclusive = apiInvoiceToRead({ InvoiceID: "i2", Type: "ACCREC", InvoiceNumber: "INV-2", DateString: "2026-10-11T00:00:00", Status: "AUTHORISED", LineAmountTypes: "Inclusive", SubTotal: 900, TotalTax: 90, Total: 990,
+    LineItems: [{ Description: "Works", LineAmount: 1100, TaxAmount: 100 }, { Description: "Discount", LineAmount: -110, TaxAmount: -10 }] })!;
+  assert.deepEqual([inclusive.totalExGst, inclusive.lines.map((l) => l.amountExGst)], [900, [1000, -100]]);
+  const asClaim = (i: typeof exclusive, projectId: string) => ({ ...i, matchMethod: "TRACKING", lines: i.lines.map((l) => ({ amountExGst: l.amountExGst, projectId, matchMethod: "TRACKING" })) });
+  const c = claimsByJob([asClaim(exclusive, "jobA"), asClaim(inclusive, "jobB")], "2026-10-30");
+  assert.equal(c.byJob.get("jobA")?.claimed, 950, "+1000 / -50 retention, SubTotal 950 -> claimed 950");
+  assert.equal(c.byJob.get("jobB")?.claimed, 900);
+  assert.equal(linesOff([asClaim(exclusive, "jobA"), asClaim(inclusive, "jobB")], "2026-10-30").count, 0, "both add up to their totals");
+});

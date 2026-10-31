@@ -2,9 +2,9 @@
 // from the Xero sales mirror (xero/imports.ts loadXeroClaims) and Project Tracking's costs (never recomputed). Director
 // access only - the two routes that call this are behind guardDirector; Tracking never carries any of it. Never
 // called margin or profit. No server imports.
-import { STALE_AFTER_HOURS, countsAsSale } from "../xero/summary";
+import { STALE_AFTER_HOURS, countsAsSale, fyStart, revenueSummary } from "../xero/summary";
 import { suggestionOf } from "../xero/match";
-import { claimedByMonth, claimsByJob, claimsConfidence, claimsJobRows, draftSales, jobClaimPosition, mirrorFrom, type ClaimInvoice } from "./claims";
+import { claimedByMonth, claimsByJob, claimsConfidence, claimsJobRows, draftSales, jobClaimPosition, linesOff, mirrorFrom, signedLinesFrom, type ClaimInvoice } from "./claims";
 import { XERO_CONFIG } from "../xero/config";
 
 type XeroClaims = { info: { source: string; asAt: string | null; uploadedBy: string | null; createdAt: string }; invoices: ClaimInvoice[] } | null;
@@ -30,13 +30,22 @@ export function claimsOverview(x: XeroClaims, projects: CostProject[], today: st
   const from = p.live ? XERO_CONFIG.mirrorFrom : mirrorFrom(x.invoices);
   const c = claimsByJob(x.invoices, today);
   const conf = claimsConfidence({ live: p.live, stale: p.stale, tied: c.totals.tied, notTied: c.totals.notTied });
+  const off = linesOff(x.invoices, today);
   const rows = claimsJobRows(projects, today).map((pr) => {
     const j = c.byJob.get(pr.id) ?? { claimed: 0, invoices: 0, lastDate: null };
     return {
       id: pr.id, name: pr.name, jobNo: pr.jobNo, status: pr.status, contractValue: pr.contractValue, invoices: j.invoices, lastClaim: j.lastDate,
-      ...jobClaimPosition({ claimed: j.claimed, totalCost: pr.totalCost, contractValue: pr.contractValue, firstCostDate: pr.firstDate, from, companyConfidence: conf.level }),
+      ...linesOffLow(jobClaimPosition({ claimed: j.claimed, totalCost: pr.totalCost, contractValue: pr.contractValue, firstCostDate: pr.firstDate, from, companyConfidence: conf.level }), off.jobs.has(pr.id)),
     };
   }).sort((a, b) => b.claimed - a.claimed || a.name.localeCompare(b.name));
+  // The cross-check: this financial year's counted lines against the revenue tile's own total (revenueSummary.invoiced).
+  // They differ only by the documents whose lines don't add up (offGap) - the release check asserts it, never prints it.
+  const fy = fyStart(today);
+  const fyInvoices = x.invoices.filter((i) => i.date >= fy && i.date <= today);
+  const fyLines = r2(signedLinesFrom(fyInvoices));
+  const fyOff = r2(fyInvoices.filter((i) => countsAsSale(i) && Math.abs(i.lines.reduce((n, l) => n + l.amountExGst, 0) - i.totalExGst) > 0.05)
+    .reduce((n, i) => n + (i.type === "SALE_CREDIT" ? -1 : 1) * (i.lines.reduce((m, l) => m + l.amountExGst, 0) - i.totalExGst), 0));
+  const fyInvoiced = revenueSummary(x.invoices.map((i) => ({ ...i, dueDate: null, amountDue: null })), today).invoiced;
   const inTable = new Set(rows.map((r) => r.id));
   // Claimed on jobs not in the table (completed or older) - so the table, these, "not tied" and "not a job" add up to
   // the company total.
@@ -49,9 +58,16 @@ export function claimsOverview(x: XeroClaims, projects: CostProject[], today: st
     jobs: rows,
     notTiedInvoices: c.notTiedInvoices,
     drafts: draftSales(x.invoices),
+    linesOff: off.count,
+    fyCheck: { from: fy, lines: fyLines, invoiced: fyInvoiced, offGap: fyOff },
   };
 }
 export type ClaimsOverviewDTO = NonNullable<ReturnType<typeof claimsOverview>>;
+
+// A job with a sales document whose lines don't add up (CLM-001): LOW, and says why.
+function linesOffLow<T extends { confidence: "HIGH" | "MEDIUM" | "LOW"; why: string }>(pos: T, off: boolean): T {
+  return off ? { ...pos, confidence: "LOW", why: "One of its Xero invoices' lines don't add up to the invoice total - check it in Xero" } : pos;
+}
 
 // One job's claims for the director job page (stage 3): the position, the invoices tied to it (newest first, this job's
 // share of each), and how many untied invoices the matcher thinks may be this job - waiting for accounts to decide.
@@ -74,7 +90,7 @@ export function jobClaims(x: XeroClaims, project: CostProject, projects: CostPro
   return {
     sourceLabel: all.sourceLabel, readAtLabel: all.readAtLabel, from: all.from, companyConfidence: all.confidence,
     invoiceCount: j.invoices, lastClaim: j.lastDate,
-    ...jobClaimPosition({ claimed: j.claimed, totalCost: project.totalCost, contractValue: project.contractValue, firstCostDate: project.firstDate, from: all.from, companyConfidence: all.confidence }),
+    ...linesOffLow(jobClaimPosition({ claimed: j.claimed, totalCost: project.totalCost, contractValue: project.contractValue, firstCostDate: project.firstDate, from: all.from, companyConfidence: all.confidence }), linesOff(x.invoices, today).jobs.has(project.id)),
     invoices, maybe,
   };
 }

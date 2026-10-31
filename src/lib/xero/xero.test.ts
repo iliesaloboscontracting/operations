@@ -154,3 +154,23 @@ test("tiles: manual upload, LOW, as at the export date; nothing when nothing is 
   assert.equal(cashTile(null), undefined);
   assert.ok(!JSON.stringify([r, c]).match(/margin/i));
 });
+
+test("CLM-001: an exported credit note with negative amounts comes out positive and is subtracted once; a negative line keeps its sign", async () => {
+  const { claimsByJob } = await import("../insights/claims");
+  const grid = [
+    H,
+    row({ ContactName: "Builder A", InvoiceNumber: "CN-9", InvoiceDate: "12 Oct 2026", Total: "-220", TaxTotal: "-20", Description: "Credit", LineAmount: "-200", TaxAmount: "-20", TrackingName1: "Job", TrackingOption1: "26_168", Type: "Sales credit note" }),
+    // exclusive with a retention line: 1,000 - 50 = 950 = total ex GST
+    row({ ContactName: "Builder A", InvoiceNumber: "INV-9", InvoiceDate: "10 Oct 2026", Total: "1045", TaxTotal: "95", Description: "Claim 4", LineAmount: "1000", TaxAmount: "100", Type: "Sales invoice" }),
+    row({ ContactName: "Builder A", InvoiceNumber: "INV-9", InvoiceDate: "10 Oct 2026", Total: "1045", TaxTotal: "95", Description: "Retention", LineAmount: "-50", TaxAmount: "-5", Type: "Sales invoice" }),
+  ];
+  const r = readInvoiceGrid(grid, "INVOICES");
+  if ("error" in r) assert.fail(r.error);
+  const cn = r.invoices.find((i) => i.number === "CN-9")!;
+  assert.deepEqual([cn.type, cn.totalExGst, cn.lines.map((l) => l.amountExGst)], ["SALE_CREDIT", 200, [200]]);
+  const inv = r.invoices.find((i) => i.number === "INV-9")!;
+  assert.deepEqual([inv.totalExGst, inv.lines.map((l) => l.amountExGst)], [950, [1000, -50]]);
+  const asClaim = (i: typeof cn, projectId: string) => ({ ...i, status: "AUTHORISED", matchMethod: "TRACKING", lines: i.lines.map((l) => ({ amountExGst: l.amountExGst, projectId, matchMethod: "TRACKING" })) });
+  const c = claimsByJob([asClaim(inv, "jobA"), asClaim(cn, "jobA")], "2026-10-30");
+  assert.equal(c.byJob.get("jobA")?.claimed, 750, "950 claimed less the 200 credit - once");
+});

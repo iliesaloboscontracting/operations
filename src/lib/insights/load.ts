@@ -242,6 +242,7 @@ export async function loadDirectorOverview() {
       ...(claims ? [
         { id: "xeroNotTied", label: "Sales invoices not tied to a job yet (Xero)", count: claims.notTiedInvoices, href: "/directors/accounts" },
         { id: "xeroDrafts", label: "Draft sales invoices in Xero (never counted)", count: claims.drafts, href: "/directors/accounts" },
+        { id: "xeroLinesOff", label: "Xero lines don't add up to the invoice total", count: claims.linesOff, href: "/directors/accounts" },
       ] : []),
     ],
     // Claimed (Xero) - F14-F17. Director access only (this payload is behind guardDirector); never on Tracking.

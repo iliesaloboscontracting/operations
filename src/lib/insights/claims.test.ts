@@ -121,3 +121,16 @@ test("JobView: claims only in director mode (the director route only); 'headroom
   const tracking = readFileSync(new URL("../../app/api/tracking/route.ts", import.meta.url), "utf8");
   assert.doesNotMatch(tracking, /claims|loadXeroClaims/, "Tracking's route never loads claims");
 });
+
+test("CLM-001 guard: a sales document whose lines don't add up (over 5 cents) is counted, and its jobs are flagged", async () => {
+  const { linesOff } = await import("./claims");
+  const docs = [
+    inv("OK-1", "2026-10-01", [[600, "jobA", "TRACKING"], [400, "jobB", "TRACKING"]]), // adds up
+    { ...inv("BAD-1", "2026-10-02", [[1000, "jobC", "TRACKING"]]), totalExGst: 950 }, // lines 1000, total 950
+    { ...inv("NEAR-1", "2026-10-03", [[100.03, "jobD", "TRACKING"]]), totalExGst: 100 }, // within 5 cents
+    { ...inv("BAD-D", "2026-10-04", [[10, "jobE", "TRACKING"]], "SALE", "DRAFT"), totalExGst: 99 }, // drafts aren't counted
+  ];
+  const off = linesOff(docs, TODAY);
+  assert.equal(off.count, 1);
+  assert.deepEqual([...off.jobs], ["jobC"]);
+});
