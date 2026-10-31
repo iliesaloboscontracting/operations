@@ -4,6 +4,11 @@
 // printed); Tracking and the Operations job page never carry claims; nothing calls it margin or profit.
 // Read-only.
 const near = (a, b) => Math.abs(a - b) < 0.05;
+// = LINES_OFF_TOLERANCE in src/lib/insights/claims.ts (claims.test.ts keeps the two equal).
+const LINES_OFF_TOLERANCE = 0.05;
+// CLM-007: each counted document may be up to LINES_OFF_TOLERANCE out without being "off" - allow that much per
+// document (at least 5 cents), compared in whole cents.
+const fyWithin = (fy) => Math.round(Math.abs(fy.lines - fy.offGap - fy.invoiced) * 100) <= Math.round(Math.max(0.05, LINES_OFF_TOLERANCE * fy.docs) * 100);
 
 export default {
   id: "directors-claimed", title: "Directors claimed (Xero): director access only, adds up, never on Tracking",
@@ -30,7 +35,7 @@ export default {
       // CLM-001: this financial year's claimed lines = the revenue tile's invoiced (revenueSummary), apart from the documents
       // whose lines don't add up - asserted, never printed. Older lines are rewritten on the next live read.
       const fy = cl.fyCheck;
-      t.ok(fy && near(fy.lines - fy.offGap, fy.invoiced), "this financial year's claimed lines = the revenue tile's invoiced, apart from documents whose lines don't add up (not printed)");
+      t.ok(fy && typeof fy.docs === "number" && fyWithin(fy), "this financial year's claimed lines = the revenue tile's invoiced, apart from documents whose lines don't add up (not printed)");
       t.ok(typeof cl.linesOff === "number" && (cl.linesOff > 0 || near(fy?.offGap ?? 0, 0)), "the 'lines don't add up' count is there, and nothing is out when it's 0");
       const offRow = (o.body.dataQuality ?? []).find((d) => d.id === "xeroLinesOff");
       t.ok(offRow && offRow.count === cl.linesOff, "the data-quality list carries the same 'lines don't add up' count");    }

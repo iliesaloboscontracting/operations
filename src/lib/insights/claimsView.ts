@@ -4,7 +4,7 @@
 // called margin or profit. No server imports.
 import { STALE_AFTER_HOURS, countsAsSale, fyStart, needsReview, revenueSummary } from "../xero/summary";
 import { suggestionOf } from "../xero/match";
-import { claimedByMonth, claimsByJob, claimsConfidence, claimsJobRows, draftSales, jobClaimPosition, linesOff, mirrorFrom, signedLinesFrom, type ClaimInvoice } from "./claims";
+import { LINES_OFF_TOLERANCE, claimedByMonth, claimsByJob, claimsConfidence, claimsJobRows, draftSales, jobClaimPosition, linesOff, mirrorFrom, signedLinesFrom, type ClaimInvoice } from "./claims";
 import { XERO_CONFIG } from "../xero/config";
 
 type XeroClaims = { info: { source: string; asAt: string | null; uploadedBy: string | null; createdAt: string }; invoices: ClaimInvoice[] } | null;
@@ -39,12 +39,14 @@ export function claimsOverview(x: XeroClaims, projects: CostProject[], today: st
     };
   }).sort((a, b) => b.claimed - a.claimed || a.name.localeCompare(b.name));
   // The cross-check: this financial year's counted lines against the revenue tile's own total (revenueSummary.invoiced).
-  // They differ only by the documents whose lines don't add up (offGap) - the release check asserts it, never prints it.
+  // They differ only by the documents whose lines don't add up (offGap), and by up to LINES_OFF_TOLERANCE on each of the
+  // documents counted (docs, a count only) - the release check asserts it, never prints it.
   const fy = fyStart(today);
   const fyInvoices = x.invoices.filter((i) => i.date >= fy && i.date <= today);
   const fyLines = r2(signedLinesFrom(fyInvoices));
-  const fyOff = r2(fyInvoices.filter((i) => countsAsSale(i) && Math.abs(i.lines.reduce((n, l) => n + l.amountExGst, 0) - i.totalExGst) > 0.05)
+  const fyOff = r2(fyInvoices.filter((i) => countsAsSale(i) && Math.abs(i.lines.reduce((n, l) => n + l.amountExGst, 0) - i.totalExGst) > LINES_OFF_TOLERANCE)
     .reduce((n, i) => n + (i.type === "SALE_CREDIT" ? -1 : 1) * (i.lines.reduce((m, l) => m + l.amountExGst, 0) - i.totalExGst), 0));
+  const fyDocs = fyInvoices.filter(countsAsSale).length;
   const fyInvoiced = revenueSummary(x.invoices.map((i) => ({ ...i, dueDate: null, amountDue: null })), today).invoiced;
   const inTable = new Set(rows.map((r) => r.id));
   // Claimed on jobs not in the table (completed or older) - so the table, these, "not tied" and "not a job" add up to
@@ -59,7 +61,7 @@ export function claimsOverview(x: XeroClaims, projects: CostProject[], today: st
     notTiedInvoices: c.notTiedInvoices,
     drafts: draftSales(x.invoices),
     linesOff: off.count,
-    fyCheck: { from: fy, lines: fyLines, invoiced: fyInvoiced, offGap: fyOff },
+    fyCheck: { from: fy, lines: fyLines, invoiced: fyInvoiced, offGap: fyOff, docs: fyDocs },
   };
 }
 export type ClaimsOverviewDTO = NonNullable<ReturnType<typeof claimsOverview>>;

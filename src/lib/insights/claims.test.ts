@@ -150,3 +150,33 @@ test("CLM-001 guard: a sales document whose lines don't add up (over 5 cents) is
   assert.equal(off.count, 1);
   assert.deepEqual([...off.jobs], ["jobC"]);
 });
+
+test("CLM-007: the FY cross-check allows LINES_OFF_TOLERANCE per counted document; one document 10 cents out is flagged", async () => {
+  const { readFileSync } = await import("node:fs");
+  const { claimsOverview } = await import("./claimsView");
+  const { LINES_OFF_TOLERANCE } = await import("./claims");
+  const check = readFileSync(new URL("../../../scripts/release-check/checks/22-directors-claimed.mjs", import.meta.url), "utf8");
+  // the release check's rule, word for word, and its copy of the tolerance
+  assert.match(check, /const LINES_OFF_TOLERANCE = 0\.05;/);
+  assert.equal(LINES_OFF_TOLERANCE, 0.05);
+  assert.match(check, /Math\.round\(Math\.abs\(fy\.lines - fy\.offGap - fy\.invoiced\) \* 100\) <= Math\.round\(Math\.max\(0\.05, LINES_OFF_TOLERANCE \* fy\.docs\) \* 100\)/);
+  const fyWithin = (fy: { lines: number; offGap: number; invoiced: number; docs: number }) =>
+    Math.round(Math.abs(fy.lines - fy.offGap - fy.invoiced) * 100) <= Math.round(Math.max(0.05, LINES_OFF_TOLERANCE * fy.docs) * 100);
+  const x = (invoices: ClaimInvoice[]) => ({ info: { source: "UPLOAD", asAt: null, uploadedBy: "test", createdAt: "2026-10-30T00:00:00Z" }, invoices });
+  const now = new Date("2026-10-30T01:00:00Z");
+  // ten documents, each a cent out: none is "off", and the check passes (the old flat 5 cents would not)
+  const ten = Array.from({ length: 10 }, (_, k) => ({ ...inv(`C-${k}`, "2026-10-01", [[100.01, "jobA", "TRACKING"]]), totalExGst: 100 }));
+  const a = claimsOverview(x(ten), [], TODAY, now)!;
+  assert.equal(a.fyCheck.docs, 10);
+  assert.equal(a.linesOff, 0);
+  assert.equal(a.fyCheck.offGap, 0);
+  assert.ok(fyWithin(a.fyCheck), "ten cents across ten documents passes");
+  assert.ok(Math.abs(a.fyCheck.lines - a.fyCheck.offGap - a.fyCheck.invoiced) >= 0.05, "...where a flat 5 cents would have failed");
+  // one document ten cents out: flagged, and taken out of the check as offGap
+  const one = [{ ...inv("D-1", "2026-10-01", [[100.1, "jobB", "TRACKING"]]), totalExGst: 100 }];
+  const b = claimsOverview(x(one), [], TODAY, now)!;
+  assert.equal(b.linesOff, 1);
+  assert.equal(b.fyCheck.offGap, 0.1);
+  assert.equal(b.fyCheck.docs, 1);
+  assert.ok(fyWithin(b.fyCheck));
+});
