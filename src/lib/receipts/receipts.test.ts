@@ -103,7 +103,15 @@ test("SEC-005: linkLabel takes every $ out and keeps the rest; nothing left -> t
   assert.equal(linkLabel("Hino 500 ($90/day)", "a truck"), "Hino 500");
   assert.equal(linkLabel("  Hino   500 ($90/day) ", "a truck"), "Hino 500");
   assert.equal(linkLabel("A$300 Site", "Unnamed site"), "Site");
-  for (const s of ["$5", "12 Grand Pde Brighton", "$5 Bins", "$$5 5 5", "A$300 Site", "$ 5 Lido"]) assert.ok(linkSafe({ label: linkLabel(s, "Unnamed site") }), s);
+  // SEC-010: a job number with no dollar sign stays; full-width and small dollar signs go.
+  assert.equal(linkLabel("24117", "Unnamed site"), "24117");
+  assert.ok(["5 Bins", "Bins"].includes(linkLabel("\uFF045 Bins", "Unnamed site")), linkLabel("\uFF045 Bins", "Unnamed site"));
+  assert.ok(["5 Bins", "Bins"].includes(linkLabel("\uFE695 Bins", "Unnamed site")));
+  assert.equal(linkLabel("\uFF045", "Unnamed site"), "Unnamed site");
+  for (const s of ["$5", "12 Grand Pde Brighton", "$5 Bins", "$$5 5 5", "A$300 Site", "$ 5 Lido", "Hino 500 ($90/day)", "24117", "\uFF045 Bins", "\uFE69 5 x"]) {
+    const out = linkLabel(s, "Unnamed site");
+    assert.ok(linkSafe({ label: out }) && !/[$\uFF04\uFE69]/.test(out), s);
+  }
   const src = fs.readFileSync(path.join(__dirname, "store.ts"), "utf8");
   // SEC-006: the reimbursement screen - asset labels and "for" (null stays null) through linkLabel; fuelAssets unchanged.
   const route = fs.readFileSync(path.join(__dirname, "../../app/api/site/[token]/reimbursements/route.ts"), "utf8");

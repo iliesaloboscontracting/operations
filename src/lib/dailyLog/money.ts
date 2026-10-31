@@ -38,11 +38,14 @@ export const nameWithoutAmounts = (s: string) =>
 // A label a link shows (receipts, reimbursements - SEC-005, SEC-009): the whole "$"-led amount taken out first, with
 // any rate after it (the first money pattern: "$5", "A$300", "$90/day"), then empty brackets, then any "$" left, then
 // the spaces tidied ("$5 Bins" -> "Bins", "Hino 500 ($90/day)" -> "Hino 500", "12 Grand Pde Brighton" unchanged);
-// nothing word-like left ("$5") -> the fallback. With no "$" left the money guard always passes; linkSafe stays the
-// backstop. nameWithoutAmounts (names on the daily log) is unchanged.
+// SEC-010: the full-width and small dollar signs ("\uFF04", "\uFE69") go too. Kept when a letter is left, or when the name
+// had no dollar sign and a digit is left ("24117" stays); otherwise ("$5") the fallback. With no dollar sign left the
+// money guard always passes; linkSafe stays the backstop. nameWithoutAmounts (names on the daily log) is unchanged.
+const DOLLAR_SIGNS = /[$\uFF04\uFE69]/g;
 export const linkLabel = (s: string, fallback: string) => {
-  const t = s.replace(MONEY_PATTERNS[0], "").replace(/\(\s*\)|\[\s*\]/g, "").replace(/\$/g, "").replace(/\s+/g, " ").trim();
-  return /\p{L}/u.test(t) ? t : fallback;
+  const hadDollar = /[$\uFF04\uFE69]/.test(s);
+  const t = s.replace(MONEY_PATTERNS[0], "").replace(/\(\s*\)|\[\s*\]/g, "").replace(DOLLAR_SIGNS, "").replace(/\s+/g, " ").trim();
+  return /\p{L}/u.test(t) || (!hadDollar && /\d/.test(t)) ? t : fallback;
 };
 
 // Every dollar amount out of a piece of text. `removed` says whether there was one (the screen then shows AMOUNTS_NOTICE).
