@@ -79,3 +79,31 @@ test("an unreadable audit is BLOCKED, never a pass", () => {
   assert.equal(judge(null).status, "BLOCKED");
   assert.equal(judge({ error: { code: "ENOTFOUND" } }).status, "BLOCKED");
 });
+
+// AUD-001 (1 Nov 2026): minimatch < 11.0.1 through exceljs 4.4.0. Fixture: main 2fe2321's `npm audit --omit=dev --json`.
+const PROD2 = load("audit-prod-2fe2321.json");
+const NOW2 = { today: "2026-11-01", nextVersion: "15.5.28" };
+
+test("AUD-001: main 2fe2321 - exactly the accepted entries pass (minimatch and its exceljs chain included)", () => {
+  const r = judge(PROD2, NOW2);
+  assert.equal(r.status, "PASS", r.reason);
+  assert.equal(r.accepted.length, 12);
+  for (const p of ["minimatch", "glob", "readdir-glob", "archiver-utils", "zip-stream", "archiver", "rimraf", "exceljs"]) assert.ok(r.accepted.some((x) => x.startsWith(`${p}(moderate) accepted: EX-001`)), p);
+});
+
+test("AUD-001: minimatch reached from a package outside the exceljs chain fails", () => {
+  const j = clone(PROD2);
+  j.vulnerabilities.minimatch.effects.push("some-other-pkg");
+  const r = judge(j, NOW2);
+  assert.equal(r.status, "FAIL");
+  assert.match(r.reason, /minimatch\(moderate\) - not covered by EX-001: now also affects some-other-pkg/);
+  const k = clone(PROD2);
+  k.vulnerabilities.glob.effects.push("eslint-plugin-x");
+  assert.match(judge(k, NOW2).reason, /glob\(moderate\) - not covered by EX-001: now also affects eslint-plugin-x/);
+  const m = clone(PROD2);
+  m.vulnerabilities.minimatch.nodes.push("node_modules/some-other-pkg/node_modules/minimatch");
+  assert.match(judge(m, NOW2).reason, /now also installed at node_modules\/some-other-pkg\/node_modules\/minimatch/);
+  const n = clone(PROD2);
+  n.vulnerabilities.exceljs.via.push("minimatch");
+  assert.match(judge(n, NOW2).reason, /exceljs\(moderate\) - not covered by EX-001: newly affected through minimatch/);
+});

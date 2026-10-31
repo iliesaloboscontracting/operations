@@ -30,7 +30,8 @@ export const REFUSE_BY_REDIRECT = [/^\/api\/directors\/xero\/(connect|callback)$
 // date (or the event named) the exception stops applying. Add one only with a record in docs/security/EXCEPTIONS.md.
 export const AUDIT_EXCEPTIONS = [
   {
-    id: "EX-001", // docs/security/EXCEPTIONS.md on main 33e8ec7 - accepted by Ilies (owner), 27 Oct 2026
+    id: "EX-001", // docs/security/EXCEPTIONS.md on main 33e8ec7 - accepted by Ilies (owner), 27 Oct 2026;
+    // the minimatch / exceljs entries added 1 Nov 2026 (EXCEPTIONS.md EX-001 "minimatch addition", AUD-001)
     expires: "2027-01-25", // Sydney date; from this day on it no longer applies
     endsAtNextMajor: 16, // or at the Next.js 16 upgrade, whichever comes first
     entries: [
@@ -44,7 +45,19 @@ export const AUDIT_EXCEPTIONS = [
       { pkg: "postcss-selector-parser", maxSeverity: "moderate", ghsa: { "GHSA-rj75-hqrm-r3gf": "moderate" } },
       // uuid < 11.1.1, only through exceljs (which calls v4 only).
       { pkg: "uuid", maxSeverity: "moderate", effectsWithin: ["exceljs"], ghsa: { "GHSA-w5hq-g745-h8pq": "moderate" } },
-      { pkg: "exceljs", maxSeverity: "moderate", via: ["uuid"] },
+      { pkg: "exceljs", maxSeverity: "moderate", via: ["uuid", "archiver"] },
+      // minimatch < 11.0.1, only through exceljs 4.4.0 (archiver 5 / unzipper -> glob 7). Every entry below is pinned
+      // to today's parents and install paths, so minimatch, glob or any of these reached from outside exceljs FAILS.
+      { pkg: "minimatch", maxSeverity: "moderate", effectsWithin: ["glob", "readdir-glob"], ghsa: { "GHSA-g3hv-75wg-m249": "moderate" },
+        nodes: [/^node_modules\/minimatch$/, /^node_modules\/readdir-glob\/node_modules\/minimatch$/] },
+      { pkg: "glob", maxSeverity: "moderate", via: ["minimatch"], effectsWithin: ["archiver-utils", "rimraf"],
+        nodes: [/^node_modules\/archiver-utils\/node_modules\/glob$/, /^node_modules\/fstream\/node_modules\/glob$/, /^node_modules\/zip-stream\/node_modules\/glob$/] },
+      { pkg: "readdir-glob", maxSeverity: "moderate", via: ["minimatch"], effectsWithin: ["archiver"], nodes: [/^node_modules\/readdir-glob$/] },
+      { pkg: "archiver-utils", maxSeverity: "moderate", via: ["glob"], effectsWithin: ["archiver", "zip-stream"],
+        nodes: [/^node_modules\/archiver-utils$/, /^node_modules\/zip-stream\/node_modules\/archiver-utils$/] },
+      { pkg: "zip-stream", maxSeverity: "moderate", via: ["archiver-utils"], effectsWithin: [], nodes: [/^node_modules\/zip-stream$/] },
+      { pkg: "archiver", maxSeverity: "moderate", via: ["archiver-utils", "readdir-glob", "zip-stream"], effectsWithin: ["exceljs"], nodes: [/^node_modules\/archiver$/] },
+      { pkg: "rimraf", maxSeverity: "moderate", via: ["glob"], effectsWithin: [], nodes: [/^node_modules\/fstream\/node_modules\/rimraf$/] },
     ],
   },
 ];
