@@ -2,7 +2,7 @@
 // from the Xero sales mirror (xero/imports.ts loadXeroClaims) and Project Tracking's costs (never recomputed). Director
 // access only - the two routes that call this are behind guardDirector; Tracking never carries any of it. Never
 // called margin or profit. No server imports.
-import { STALE_AFTER_HOURS, countsAsSale, fyStart, revenueSummary } from "../xero/summary";
+import { STALE_AFTER_HOURS, countsAsSale, fyStart, needsReview, revenueSummary } from "../xero/summary";
 import { suggestionOf } from "../xero/match";
 import { claimedByMonth, claimsByJob, claimsConfidence, claimsJobRows, draftSales, jobClaimPosition, linesOff, mirrorFrom, signedLinesFrom, type ClaimInvoice } from "./claims";
 import { XERO_CONFIG } from "../xero/config";
@@ -86,7 +86,8 @@ export function jobClaims(x: XeroClaims, project: CostProject, projects: CostPro
     })
     .filter((i) => i.has && i.counted)
     .map(({ has: _h, counted: _c, ...rest }) => rest);
-  const maybe = x.invoices.filter((i) => (i.matchMethod === "NONE" || i.matchMethod === "SITE_TEXT" || i.matchMethod === "MIXED") && suggestionOf(i.matchNote ?? null) === project.id).length;
+  // The same "needs a person" rule as accounts' list (CLM-004): counted sales only - no drafts, voided or future-dated.
+  const maybe = x.invoices.filter((i) => needsReview(i) && i.date <= today && suggestionOf(i.matchNote ?? null) === project.id).length;
   return {
     sourceLabel: all.sourceLabel, readAtLabel: all.readAtLabel, from: all.from, companyConfidence: all.confidence,
     invoiceCount: j.invoices, lastClaim: j.lastDate,

@@ -106,6 +106,15 @@ test("dictionary: F14-F17 defined, never called margin or profit; F13 still bloc
   assert.match(kpi("F17")!.notes ?? "", /variations aren't in Operations/);
 });
 
+test("CLM-004: 'may belong to this job' uses accounts' needsReview rule and today's date", async () => {
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("./claimsView.ts", import.meta.url), "utf8");
+  assert.match(src, /const maybe = x\.invoices\.filter\(\(i\) => needsReview\(i\) && i\.date <= today && suggestionOf\(i\.matchNote \?\? null\) === project\.id\)\.length;/);
+  const { needsReview } = await import("../xero/summary");
+  assert.equal(needsReview({ type: "SALE", status: "DRAFT", matchMethod: "SITE_TEXT" }), false, "a draft never needs a person");
+  assert.equal(needsReview({ type: "SALE", status: "AUTHORISED", matchMethod: "SITE_TEXT" }), true);
+});
+
 test("JobView: claims only in director mode (the director route only); 'headroom' only on the Directors' copy", async () => {
   const { readFileSync } = await import("node:fs");
   const src = readFileSync(new URL("../../components/tracking/JobView.tsx", import.meta.url), "utf8");
