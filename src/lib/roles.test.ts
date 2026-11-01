@@ -2,7 +2,7 @@
 // guard() keeps refusing it, and only the routes that name it (guardOrCoordinator) let it in.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { COORDINATOR_PAGES, NO_DIRECTOR_ACCESS_ROLES, RANK, ROLES, coordinatorHref, coordinatorOr, homeFor, isCoordinatorPage, rankAtLeast } from "./roles";
+import { COORDINATOR_PAGES, NO_DIRECTOR_ACCESS_ROLES, RANK, ROLES, coordinatorHref, coordinatorOr, homeFor, isCoordinatorPage, rankAtLeast, touchesOwnerOnlyRole } from "./roles";
 import { audiencesFor, canActOnFindings } from "./findings/actions";
 
 test("COORDINATOR ranks below VIEWER - guard(VIEWER / MANAGER / ADMIN) all refuse it", () => {
@@ -45,6 +45,13 @@ test("coordinatorHref: links to his pages stay, others become plain text (null);
   assert.equal(coordinatorHref("/tracking/abc", true), null);
   assert.equal(coordinatorHref("/tools/site", true), null);
   assert.equal(coordinatorHref("/tracking/abc", false), "/tracking/abc");
+});
+
+test("only the owner gives, takes away or creates DIRECTOR and COORDINATOR (Ilies, 2 Nov 2026: 'Only you (the owner)')", () => {
+  for (const [from, to] of [["VIEWER", "COORDINATOR"], ["TIMESHEETS", "COORDINATOR"], ["COORDINATOR", "MANAGER"], ["COORDINATOR", "TIMESHEETS"], [null, "COORDINATOR"], ["MANAGER", "DIRECTOR"], ["DIRECTOR", "ADMIN"], [null, "DIRECTOR"], ["COORDINATOR", "DIRECTOR"]] as const)
+    assert.equal(touchesOwnerOnlyRole(from, to), true, `${from} -> ${to}`);
+  for (const [from, to] of [["VIEWER", "MANAGER"], ["TIMESHEETS", "VIEWER"], ["COORDINATOR", "COORDINATOR"], ["DIRECTOR", "DIRECTOR"], [null, "VIEWER"], [null, "TIMESHEETS"]] as const)
+    assert.equal(touchesOwnerOnlyRole(from, to), false, `${from} -> ${to}`);
 });
 
 test("no director access and no findings for the coordinator, even with the tick set", () => {

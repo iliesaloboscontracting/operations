@@ -153,10 +153,20 @@ export default {
     const dir = await read("/api/messages/directory");
     t.ok(dir.status === 200, "messages: the directory");
 
-    // (9) Users: an Admin can give the role; director access never goes with it; other logins unchanged.
-    const made = await c.post("/api/users", "ADMIN_PLAIN", { name: `RC coordinator ${Date.now()}`, email: `rc-coord-${Date.now()}@release-check.test`, role: C, password: "Release-check-pass-1" });
-    t.status(made, 201, "an Admin creates a COORDINATOR login");
-    if (U.OWNER) t.status(await c.patch(`/api/users/${U.COORDINATOR.id}`, "OWNER", { directorAccess: true }), 400, "even the owner can't give a COORDINATOR login director access");
+    // (9) Users: only the owner gives, takes away or creates COORDINATOR (Ilies, 2 Nov 2026: "Only you (the owner)");
+    // director access never goes with it; other logins unchanged.
+    const newLogin = (who) => c.post("/api/users", who, { name: `RC coordinator ${who} ${Date.now()}`, email: `rc-coord-${who.toLowerCase()}-${Date.now()}@release-check.test`, role: C, password: "Release-check-pass-1" });
+    t.status(await newLogin("ADMIN_PLAIN"), 403, "a non-owner Admin can't create a COORDINATOR login");
+    t.status(await c.patch(`/api/users/${U.VIEWER.id}`, "ADMIN_PLAIN", { role: C }), 403, "a non-owner Admin can't make a login a COORDINATOR");
+    t.status(await c.patch(`/api/users/${U.COORDINATOR.id}`, "ADMIN_PLAIN", { role: "VIEWER" }), 403, "a non-owner Admin can't take COORDINATOR away");
+    t.ok((await c.db.user.findUnique({ where: { id: U.VIEWER.id }, select: { role: true } }))?.role === "VIEWER" && (await c.db.user.findUnique({ where: { id: U.COORDINATOR.id }, select: { role: true } }))?.role === C, "both logins are unchanged");
+    if (U.OWNER) {
+      const made = await newLogin("OWNER");
+      t.status(made, 201, "the owner creates a COORDINATOR login");
+      const madeId = (await made.json().catch(() => ({}))).id;
+      if (madeId) t.status(await c.patch(`/api/users/${madeId}`, "OWNER", { role: "VIEWER" }), 200, "the owner takes COORDINATOR away");
+      t.status(await c.patch(`/api/users/${U.COORDINATOR.id}`, "OWNER", { directorAccess: true }), 400, "even the owner can't give a COORDINATOR login director access");
+    } else t.note("no owner login on the copy - the owner's COORDINATOR changes aren't exercised");
     t.status(await c.get("/api/hire-alerts", "TIMESHEETS"), 403, "a TIMESHEETS login is still refused Hire");
     t.status(await c.get(`/api/timesheets?week=${q.week}`, "TIMESHEETS"), 200, "a TIMESHEETS login still reviews timesheets");
     if (c.links.office) t.status(await c.get(c.site(c.links.office, "/todo"), null), 200, "an OFFICE link's to-do still works");

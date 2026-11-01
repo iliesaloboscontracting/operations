@@ -25,10 +25,11 @@ const ROLE_OPTIONS = [
   { value: "VIEWER", label: "Viewer — read only" },
   { value: "TIMESHEETS", label: "Timesheets — review only, nothing else" },
   { value: "ACCOUNTS", label: "Accounts — upload invoices, nothing else" },
-  // Project coordinator (2 Nov 2026): his own dashboard - views timesheets, sign-ins, Day Review and the calendar;
-  // works tools and hire (no dollar figures); purchase requests, messages, site & safety documents.
-  { value: "COORDINATOR", label: "Coordinator — tools, hire, timesheets & sign-ins view; no Operations" },
 ];
+// Project coordinator (2 Nov 2026): his own dashboard - views timesheets, sign-ins, Day Review and the calendar;
+// works tools and hire (no dollar figures); purchase requests, messages, site & safety documents. Only the owner
+// can give or take it away (Ilies, 2 Nov 2026: "Only you (the owner)").
+const COORDINATOR_OPTION = { value: "COORDINATOR", label: "Coordinator — tools, hire, timesheets & sign-ins view; no Operations" };
 // Directors-only login (25 Oct 2026) - only the owner can give or take it away.
 const DIRECTOR_OPTION = { value: "DIRECTOR", label: "Director — company overview only, no Operations" };
 
@@ -81,8 +82,10 @@ export default function UsersPage() {
       key: "role",
       label: "Role",
       type: "select",
-      // The owner can pick Director; anyone else only sees it on someone who already has it (and can't change it).
-      options: isOwner(me?.email) || (editing as UserRow | null)?.role === "DIRECTOR" ? [...ROLE_OPTIONS, DIRECTOR_OPTION] : ROLE_OPTIONS,
+      // The owner can pick Director and Coordinator; anyone else only sees one on someone who already has it (and can't change it).
+      options: isOwner(me?.email) ? [...ROLE_OPTIONS, COORDINATOR_OPTION, DIRECTOR_OPTION]
+        : (editing as UserRow | null)?.role === "DIRECTOR" ? [...ROLE_OPTIONS, DIRECTOR_OPTION]
+        : (editing as UserRow | null)?.role === "COORDINATOR" ? [...ROLE_OPTIONS, COORDINATOR_OPTION] : ROLE_OPTIONS,
       full: true,
     },
     ...(!isNew

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser, guard, hashPassword, MIN_PASSWORD, ROLES } from "@/lib/auth";
-import { NO_DIRECTOR_ACCESS_ROLES } from "@/lib/roles";
+import { NO_DIRECTOR_ACCESS_ROLES, touchesOwnerOnlyRole } from "@/lib/roles";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { isOwner } from "@/lib/owner";
 import { BUILDING_AGENT_EMAIL } from "@/lib/session";
@@ -57,6 +57,10 @@ export const PATCH = withErrorHandling(async (
     // Directors-only logins (25 Oct 2026): only the owner gives or takes away the DIRECTOR role.
     if ((body.role === "DIRECTOR") !== (target.role === "DIRECTOR") && !isOwner(me?.email)) {
       return NextResponse.json({ error: "Only Iliesa can change a Director login." }, { status: 403 });
+    }
+    // Coordinator logins (2 Nov 2026, Ilies: "Only you (the owner)"): the same - only the owner gives or takes it away.
+    if (touchesOwnerOnlyRole(target.role, body.role) && !isOwner(me?.email)) {
+      return NextResponse.json({ error: "Only Iliesa can change a Coordinator login." }, { status: 403 });
     }
     data.role = body.role;
   }

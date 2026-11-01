@@ -99,7 +99,7 @@ business, without becoming unnecessarily complicated.
   Tools (add, edit, move, delete, faults, toolbox checks - never create / rename / re-supervise /
   retire a toolbox) and Hire (add, extend, off-hire - no dollar figure in or out, no archiving:
   `src/lib/coordinatorHire.ts`); raises his own purchase requests (never approves); office chat;
-  site & safety documents only, not the Assistant. Never director access. Outlook (phase 2) is a
+  site & safety documents only, not the Assistant. Never director access. Only the owner gives, takes away or creates a COORDINATOR login (Ilies, 2 Nov 2026: "Only you (the owner)"). Outlook (phase 2) is a
   placeholder only. Release check `63-coordinator`.
   **Owner** (2026-10-23, `src/lib/owner.ts`): Iliesa's account. The directors
   (Yoel, Nick) are full Admins, but only the owner can change the owner's

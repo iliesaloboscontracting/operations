@@ -27,6 +27,12 @@ export const rankAtLeast = (role: string, min: Role) => atLeast(role, min);
 // A route open to `min` and up, plus the coordinator - never anyone else below `min`.
 export const coordinatorOr = (role: string, min: Role) => role === "COORDINATOR" || rankAtLeast(role, min);
 
+// Logins only the owner gives, takes away or creates: DIRECTOR (25 Oct 2026) and COORDINATOR (2 Nov 2026, Ilies: "Only
+// you (the owner)"). True when a change from `from` to `to` (from = null for a new login) touches one of them.
+export const OWNER_ONLY_ROLES: readonly string[] = ["DIRECTOR", "COORDINATOR"];
+export const touchesOwnerOnlyRole = (from: string | null, to: string) =>
+  OWNER_ONLY_ROLES.some((r) => (from === r) !== (to === r));
+
 // The one-page logins that never have director access, even if the tick was set by mistake.
 export const NO_DIRECTOR_ACCESS_ROLES: readonly string[] = ["TIMESHEETS", "ACCOUNTS", "COORDINATOR"];
 
