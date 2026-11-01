@@ -1,5 +1,7 @@
 # LCI phase 6 - folders for document search: draft for Ilies to tick (27 Oct 2026)
 
+**APPROVED, 1 Nov 2026 (Ilies: "All 20 as drafted").** Every line below is ticked, at the level shown, and `00_Templates` is confirmed as blank forms only. Also decided that day: read through Microsoft Graph from the server (option A, `Sites.Selected`, read-only); short snippets from the Manager-level (site & safety) folders may go to the Assistant (Claude), but snippets from the COMMERCIAL folders never do (our prices stay out of any AI).
+
 This was drafted by browsing SharePoint **read-only** on 27 Oct: the Management site, Shared Documents → "Lobos Demolition". Nothing was written, moved or renamed.
 
 **How to use it:**
@@ -16,26 +18,26 @@ This was drafted by browsing SharePoint **read-only** on 27 Oct: the Management 
 
 | ✓? | Folder (below "Lobos Demolition") | Level | What's in it |
 |---|---|---|---|
-| ☐ | `01_Projects - Live/*/22_001_09_HSE & Site Management/04_SWMS` | MANAGER | each job's SWMS |
-| ☐ | `01_Projects - Live/*/22_001_09_HSE & Site Management/02_Site Induction` | MANAGER | inductions |
-| ☐ | `01_Projects - Live/*/22_001_09_HSE & Site Management/03_Tool box Talks` | MANAGER | toolbox talks |
-| ☐ | `01_Projects - Live/*/22_001_09_HSE & Site Management/05_Hot Work Permit` | MANAGER | hot work permits |
-| ☐ | `03_General/Demolition Work Plans` | MANAGER | company work plans |
-| ☐ | `03_General/Methodologies` | MANAGER | methodologies |
-| ☐ | `03_General/Checklists` | MANAGER | checklists |
-| ☐ | `03_General/Waste Disposal Documents` | MANAGER | waste / tip documents |
-| ☐ | `00_Templates` | MANAGER | blank templates (see the note below: please confirm) |
-| ☐ | `01_Projects - Live/*/22_001_04_Drawing Records` | MANAGER | drawings (most are drawings-only PDFs; their title blocks are searchable) |
-| ☐ | `01_Projects - Live/*/22_001_07_Programme` | MANAGER | programmes |
-| ☐ | `01_Projects - Live/*/22_001_06_ Meeting Minutes` | MANAGER | site meeting minutes |
-| ☐ | `01_Projects - Live/*/22_001_13_Quality Management` | MANAGER | ITPs, quality records |
-| ☐ | `01_Projects - Live/*/22_001_08_Registers (Tools & Equipment)` | MANAGER | registers |
-| ☐ | `01_Projects - Live/*/ESTIMATE STAGE` | COMMERCIAL | the scope as tendered, with the estimate and quote (DS-019: moved up from MANAGER, because it holds the tender price build-up) |
-| ☐ | `01_Projects - Live/*/22_001_05_Contract` | COMMERCIAL | contracts |
-| ☐ | `01_Projects - Live/*/22_001_15_Variations` | COMMERCIAL | variations |
-| ☐ | `01_Projects - Live/*/22_001_17_EOT's & NOD's` | COMMERCIAL | EOTs and notices of delay |
-| ☐ | `01_Projects - Live/*/22_001_10_Client Correspondence` | COMMERCIAL | client letters (may mention money) |
-| ☐ | `02_3 Tenders - Estimates & Quotes (2026)/*` | COMMERCIAL | 2026 tenders and quotes (D6-8: 2026 only; 2022–2025 add another ~400 GB, mostly drawings) |
+| ✅ | `01_Projects - Live/*/22_001_09_HSE & Site Management/04_SWMS` | MANAGER | each job's SWMS |
+| ✅ | `01_Projects - Live/*/22_001_09_HSE & Site Management/02_Site Induction` | MANAGER | inductions |
+| ✅ | `01_Projects - Live/*/22_001_09_HSE & Site Management/03_Tool box Talks` | MANAGER | toolbox talks |
+| ✅ | `01_Projects - Live/*/22_001_09_HSE & Site Management/05_Hot Work Permit` | MANAGER | hot work permits |
+| ✅ | `03_General/Demolition Work Plans` | MANAGER | company work plans |
+| ✅ | `03_General/Methodologies` | MANAGER | methodologies |
+| ✅ | `03_General/Checklists` | MANAGER | checklists |
+| ✅ | `03_General/Waste Disposal Documents` | MANAGER | waste / tip documents |
+| ✅ | `00_Templates` | MANAGER | blank templates (see the note below: please confirm) |
+| ✅ | `01_Projects - Live/*/22_001_04_Drawing Records` | MANAGER | drawings (most are drawings-only PDFs; their title blocks are searchable) |
+| ✅ | `01_Projects - Live/*/22_001_07_Programme` | MANAGER | programmes |
+| ✅ | `01_Projects - Live/*/22_001_06_ Meeting Minutes` | MANAGER | site meeting minutes |
+| ✅ | `01_Projects - Live/*/22_001_13_Quality Management` | MANAGER | ITPs, quality records |
+| ✅ | `01_Projects - Live/*/22_001_08_Registers (Tools & Equipment)` | MANAGER | registers |
+| ✅ | `01_Projects - Live/*/ESTIMATE STAGE` | COMMERCIAL | the scope as tendered, with the estimate and quote (DS-019: moved up from MANAGER, because it holds the tender price build-up) |
+| ✅ | `01_Projects - Live/*/22_001_05_Contract` | COMMERCIAL | contracts |
+| ✅ | `01_Projects - Live/*/22_001_15_Variations` | COMMERCIAL | variations |
+| ✅ | `01_Projects - Live/*/22_001_17_EOT's & NOD's` | COMMERCIAL | EOTs and notices of delay |
+| ✅ | `01_Projects - Live/*/22_001_10_Client Correspondence` | COMMERCIAL | client letters (may mention money) |
+| ✅ | `02_3 Tenders - Estimates & Quotes (2026)/*` | COMMERCIAL | 2026 tenders and quotes (D6-8: 2026 only; 2022–2025 add another ~400 GB, mostly drawings) |
 
 **Templates, for you to confirm (DS-019):** `00_Templates` is drafted as MANAGER because it should hold blank forms only. If it also holds rate sheets, quote / estimate templates with our rates filled in, or anything with prices, it should be COMMERCIAL or left out. Please confirm before ticking it.
 

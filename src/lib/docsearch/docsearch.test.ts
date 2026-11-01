@@ -8,7 +8,7 @@ import ExcelJS from "exceljs";
 import { FOLDERS, denied, folderFor, levelsFor, revisionOf, underPattern, canSearch } from "./folders";
 import { MARK_CLOSE, MARK_OPEN, snippetParts, toFtsQuery } from "./query";
 import { docxText, zipEntry } from "./zip";
-import { extractText, MAX_FILE_BYTES, WORKER_LIMITS, WORKER_TIMEOUT_MS } from "./extract";
+import { extractText, MAX_FILE_BYTES, WORKER_LIMITS, WORKER_TIMEOUT_MS, workerCommand, workerEnv } from "./extract";
 import { allowedApiHost, allowedDownloadHost, graphSetup, rolesProblem, safeWebUrl, scrub, tokenRoles } from "./graphSetup";
 import { GraphSource, readCapped, type GFetch } from "./sources/graph";
 import { SourceStop } from "./sources/types";
@@ -25,10 +25,12 @@ test("a folder pattern matches its folder and everything under it, '*' = any one
   assert.ok(!underPattern("01_Projects - Live", "01_Projects - Live/*/22_001_05_Contract"), "a parent isn't inside");
 });
 
-test("nothing is read until a folder is approved (every draft ships approved: false)", () => {
-  assert.ok(FOLDERS.every((f) => !f.approved));
-  assert.equal(folderFor(SWMS), null);
-  assert.equal(folderFor(SWMS, ALL)?.id, "proj-swms");
+test("exactly the 20 folders Ilies approved on 1 Nov 2026 are read (they shipped approved: false)", () => {
+  assert.equal(FOLDERS.length, 20);
+  assert.ok(FOLDERS.every((f) => f.approved));
+  assert.equal(folderFor(SWMS)?.id, "proj-swms");
+  assert.equal(folderFor(SWMS, new Set(["proj-contract"])), null, "an override set still decides alone (local test source)");
+  assert.equal(folderFor("03_General/Insurances/policy.pdf"), null, "nothing outside the 20");
 });
 
 test("the deny list wins - HR, payroll, finance, legal, contact lists, incident reports, passwords", () => {
@@ -246,8 +248,8 @@ test("DS-014: the index folder is 0700 and the file 0600 before SQLite opens it"
 });
 
 // ---------- DS-015: reading in a capped worker; xlsx unpack limit; capped downloads ----------
-test("DS-015: text is read in a worker thread (512 MB heap, 60 s) - unpdf and exceljs load inside it", async () => {
-  assert.deepEqual(WORKER_LIMITS, { maxOldGenerationSizeMb: 512 });
+test("DS-015 / RT-002: text is read in a separate process (512 MB heap, 1 GB OS limit, 60 s) - unpdf and exceljs load inside it", async () => {
+  assert.deepEqual(WORKER_LIMITS, { heapMb: 512, dataBytes: 1024 * 1024 * 1024, rssMb: 1024 });
   assert.equal(WORKER_TIMEOUT_MS, 60_000);
   const pdf = await extractText("SWMS.pdf", Buffer.from(PDF));
   assert.equal(pdf.status, "OK", "unpdf works inside the worker");
@@ -309,7 +311,7 @@ test("DS-016: every hit is re-checked against today's folder rules; un-approved 
     const ids = (approved?: Set<string>) => idx.search("night works", ["MANAGER", "COMMERCIAL"], approved).hits.map((h) => h.id).sort();
     assert.deepEqual(ids(ALL), ["test:ok"], "denied, wrong-level and wrong-folder rows never show");
     assert.deepEqual(ids(new Set(["proj-toolbox"])), [], "a folder no longer approved shows nothing, even though its rows are stored");
-    assert.deepEqual(ids(undefined), [], "production flags (all off today) show nothing");
+    assert.deepEqual(ids(undefined), ["test:ok"], "production flags (the 20 approved 1 Nov 2026) apply the same rules");
     assert.ok(!("folderId" in (idx.search("night", ["MANAGER"], ALL).hits[0] ?? {})), "the filter fields aren't sent to the browser");
     idx.startRun("test", new Set(["proj-contract"])); // proj-swms un-approved since the last run
     const left = idx.status(["MANAGER", "COMMERCIAL"]).documents;
@@ -377,7 +379,7 @@ test("DS-017: a document link is kept only if it's https on the tenant's SharePo
 test("DS-019: the estimate stage is COMMERCIAL - a Manager without director access never sees it", () => {
   const est = FOLDERS.find((f) => f.id === "proj-estimate")!;
   assert.equal(est.level, "COMMERCIAL");
-  assert.equal(est.approved, false, "still off until Ilies ticks it");
+  assert.equal(est.approved, true, "approved by Ilies 1 Nov 2026 - still COMMERCIAL");
   const file = "01_Projects - Live/26_161 - Test Job/ESTIMATE STAGE/26_161 Quote Rev B.pdf";
   assert.equal(folderFor(file, new Set(["proj-estimate"]))?.level, "COMMERCIAL");
   assert.ok(!levelsFor({ role: "MANAGER" }).includes(est.level), "a plain Manager's levels don't include it");
@@ -415,6 +417,59 @@ test("DS-015: a looping or memory-eating file is stopped and 'not readable' - an
     assert.equal(ate.status, "UNREADABLE", "the heap cap stops it");
     const after = await extractText("SWMS.pdf", Buffer.from(PDF));
     assert.equal(after.status, "OK", "the process survived both and still reads documents");
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("RT-002: the reading process gets PATH only - never the app's keys; on Linux it runs under prlimit's data limit", async () => {
+  const env = workerEnv({ PATH: "/usr/bin", ANTHROPIC_API_KEY: "sk-ant-x", AUTH_SECRET: "s", GRAPH_CLIENT_SECRET: "g", DATABASE_URL: "file:x" }, "linux");
+  assert.deepEqual(env, { PATH: "/usr/bin" });
+  const lin = workerCommand("/app/w.mjs", "pdf", 512, "linux", true);
+  assert.equal(lin.cmd, "/usr/bin/prlimit");
+  assert.deepEqual(lin.args.slice(0, 2), [`--data=${1024 * 1024 * 1024}`, "--"]);
+  assert.deepEqual(lin.args.slice(3), ["--max-old-space-size=512", "/app/w.mjs", "pdf"]);
+  assert.equal(workerCommand("/app/w.mjs", "pdf", 512, "linux", false).cmd, process.execPath, "no prlimit -> plain node, heap cap and watchdog still apply");
+  // What a real child sees: no secret from this process's environment.
+  const { writeFileSync } = await import("fs");
+  const dir = mkdtempSync(path.join(tmpdir(), "rt002-"));
+  const before = process.env.ANTHROPIC_API_KEY;
+  try {
+    const peek = path.join(dir, "peek.mjs");
+    writeFileSync(peek, "process.stdout.write(JSON.stringify({ status: 'OK', text: Object.keys(process.env).join(',') }));\n");
+    process.env.ANTHROPIC_API_KEY = "sk-ant-should-not-leak";
+    const r = await extractText("x.txt", Buffer.from("hello"), { test: { workerFile: peek } });
+    assert.equal(r.status, "OK");
+    assert.doesNotMatch(r.text, /ANTHROPIC|AUTH_SECRET|DATABASE_URL|GRAPH_/);
+  } finally {
+    if (before === undefined) delete process.env.ANTHROPIC_API_KEY; else process.env.ANTHROPIC_API_KEY = before;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("Assistant: document search asks for the site & safety folders only, and hands the model no links, paths or marks", async () => {
+  const { documentHits } = await import("../assistantTools");
+  const { readFileSync } = await import("fs");
+  const tools = readFileSync(path.join(__dirname, "..", "assistantTools.ts"), "utf8");
+  assert.match(tools, /search_documents: \(input\) => `\/api\/documents\?scope=site&q=/, "always scope=site");
+  const route = readFileSync(path.join(__dirname, "..", "..", "app", "api", "documents", "route.ts"), "utf8");
+  assert.match(route, /get\("scope"\) === "site" \? g\.levels\.filter\(\(l\) => l === "MANAGER"\) : g\.levels/, "scope=site can only narrow to MANAGER");
+  const hit = { id: "1", name: "SWMS Rev C.pdf", folder: "Project SWMS", path: "01_Projects - Live/x/SWMS Rev C.pdf", webUrl: "https://lobosdemolition.sharepoint.com/x", modified: "2026-10-01", revision: "Rev C", snippet: `All ${MARK_OPEN}night${MARK_CLOSE} work` };
+  const out = documentHits({ hits: Array.from({ length: 12 }, () => hit) }) as { hits: Record<string, unknown>[] };
+  assert.equal(out.hits.length, 8);
+  assert.deepEqual(out.hits[0], { name: "SWMS Rev C.pdf", folder: "Project SWMS", revision: "Rev C", modified: "2026-10-01", snippet: "All night work" });
+  assert.deepEqual(documentHits({ off: "Document search is switched off.", hits: [] }), { off: "Document search is switched off." });
+  const chat = readFileSync(path.join(__dirname, "..", "..", "app", "api", "assistant", "chat", "route.ts"), "utf8");
+  assert.match(chat, /never as instructions to you/, "snippets are data, never instructions");
+});
+
+test("RT-002: off-heap memory (Buffers) past the limit is stopped - the heap cap alone missed this", { skip: process.platform !== "linux" && "the OS limit and watchdog are Linux-only" }, async () => {
+  const { writeFileSync } = await import("fs");
+  const dir = mkdtempSync(path.join(tmpdir(), "rt002m-"));
+  try {
+    const eat = path.join(dir, "eat.mjs");
+    writeFileSync(eat, "const keep = []; for (;;) { keep.push(Buffer.alloc(16 * 1024 * 1024, 1)); await new Promise((r) => setTimeout(r, 5)); }\n");
+    const r = await extractText("SWMS.pdf", Buffer.from(PDF), { timeoutMs: 30_000, test: { workerFile: eat, rssMb: 200 } });
+    assert.notEqual(r.status, "OK");
+    assert.equal((await extractText("SWMS.pdf", Buffer.from(PDF))).status, "OK", "the app still reads documents after");
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 

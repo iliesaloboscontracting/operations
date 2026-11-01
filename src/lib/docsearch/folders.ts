@@ -2,8 +2,9 @@
 // them. Plain rules, no server imports; `npm test` (folders.test.ts). Design: docs/lci/PHASE6-DESIGN.md §4.
 //
 // Paths are below the library root ("Shared Documents/Lobos Demolition" on the Management site). A pattern segment
-// "*" matches any one folder name (each project, each tender). Every folder ships approved: false (D6-2) - nothing
-// is read until Ilies ticks it in docs/lci/PHASE6-FOLDERS.md and this list is updated. The deny list always wins.
+// "*" matches any one folder name (each project, each tender). Folders shipped approved: false (D6-2); Ilies approved
+// all 20 as drafted on 1 Nov 2026, templates confirmed as blank forms (docs/lci/PHASE6-FOLDERS.md). A folder is read
+// only while approved: true here. The deny list always wins.
 
 export type Level = "MANAGER" | "COMMERCIAL";
 export type Folder = { id: string; label: string; pattern: string; level: Level; approved: boolean };
@@ -14,30 +15,30 @@ const HSE = `${P}/22_001_09_HSE & Site Management`;
 
 export const FOLDERS: Folder[] = [
   // SWMS and safety - Managers and up
-  { id: "proj-swms", label: "Project SWMS", pattern: `${HSE}/04_SWMS`, level: "MANAGER", approved: false },
-  { id: "proj-induction", label: "Project site induction", pattern: `${HSE}/02_Site Induction`, level: "MANAGER", approved: false },
-  { id: "proj-toolbox", label: "Project toolbox talks", pattern: `${HSE}/03_Tool box Talks`, level: "MANAGER", approved: false },
-  { id: "proj-hotwork", label: "Project hot work permits", pattern: `${HSE}/05_Hot Work Permit`, level: "MANAGER", approved: false },
-  { id: "gen-workplans", label: "Demolition work plans", pattern: "03_General/Demolition Work Plans", level: "MANAGER", approved: false },
-  { id: "gen-methods", label: "Methodologies", pattern: "03_General/Methodologies", level: "MANAGER", approved: false },
-  { id: "gen-checklists", label: "Checklists", pattern: "03_General/Checklists", level: "MANAGER", approved: false },
-  { id: "gen-waste", label: "Waste disposal documents", pattern: "03_General/Waste Disposal Documents", level: "MANAGER", approved: false },
-  { id: "templates", label: "Templates", pattern: "00_Templates", level: "MANAGER", approved: false },
+  { id: "proj-swms", label: "Project SWMS", pattern: `${HSE}/04_SWMS`, level: "MANAGER", approved: true },
+  { id: "proj-induction", label: "Project site induction", pattern: `${HSE}/02_Site Induction`, level: "MANAGER", approved: true },
+  { id: "proj-toolbox", label: "Project toolbox talks", pattern: `${HSE}/03_Tool box Talks`, level: "MANAGER", approved: true },
+  { id: "proj-hotwork", label: "Project hot work permits", pattern: `${HSE}/05_Hot Work Permit`, level: "MANAGER", approved: true },
+  { id: "gen-workplans", label: "Demolition work plans", pattern: "03_General/Demolition Work Plans", level: "MANAGER", approved: true },
+  { id: "gen-methods", label: "Methodologies", pattern: "03_General/Methodologies", level: "MANAGER", approved: true },
+  { id: "gen-checklists", label: "Checklists", pattern: "03_General/Checklists", level: "MANAGER", approved: true },
+  { id: "gen-waste", label: "Waste disposal documents", pattern: "03_General/Waste Disposal Documents", level: "MANAGER", approved: true },
+  { id: "templates", label: "Templates", pattern: "00_Templates", level: "MANAGER", approved: true },
   // Scopes, drawings, programmes, quality - Managers and up
-  { id: "proj-drawings", label: "Project drawings", pattern: `${P}/22_001_04_Drawing Records`, level: "MANAGER", approved: false },
-  { id: "proj-programme", label: "Project programme", pattern: `${P}/22_001_07_Programme`, level: "MANAGER", approved: false },
-  { id: "proj-minutes", label: "Project meeting minutes", pattern: `${P}/22_001_06_ Meeting Minutes`, level: "MANAGER", approved: false },
-  { id: "proj-quality", label: "Project quality management", pattern: `${P}/22_001_13_Quality Management`, level: "MANAGER", approved: false },
-  { id: "proj-registers", label: "Project registers (tools & equipment)", pattern: `${P}/22_001_08_Registers (Tools & Equipment)`, level: "MANAGER", approved: false },
+  { id: "proj-drawings", label: "Project drawings", pattern: `${P}/22_001_04_Drawing Records`, level: "MANAGER", approved: true },
+  { id: "proj-programme", label: "Project programme", pattern: `${P}/22_001_07_Programme`, level: "MANAGER", approved: true },
+  { id: "proj-minutes", label: "Project meeting minutes", pattern: `${P}/22_001_06_ Meeting Minutes`, level: "MANAGER", approved: true },
+  { id: "proj-quality", label: "Project quality management", pattern: `${P}/22_001_13_Quality Management`, level: "MANAGER", approved: true },
+  { id: "proj-registers", label: "Project registers (tools & equipment)", pattern: `${P}/22_001_08_Registers (Tools & Equipment)`, level: "MANAGER", approved: true },
   // Contracts, variations, tenders and quotes - Admins and directors
   // DS-019 (security review, Ilies approved 27 Oct): the estimate stage holds the tender build-up and quote, so it's
   // COMMERCIAL, not MANAGER.
-  { id: "proj-estimate", label: "Project estimate stage (scope and quote)", pattern: `${P}/ESTIMATE STAGE`, level: "COMMERCIAL", approved: false },
-  { id: "proj-contract", label: "Project contract", pattern: `${P}/22_001_05_Contract`, level: "COMMERCIAL", approved: false },
-  { id: "proj-variations", label: "Project variations", pattern: `${P}/22_001_15_Variations`, level: "COMMERCIAL", approved: false },
-  { id: "proj-eot", label: "Project EOTs & NODs", pattern: `${P}/22_001_17_EOT's & NOD's`, level: "COMMERCIAL", approved: false },
-  { id: "proj-client", label: "Project client correspondence", pattern: `${P}/22_001_10_Client Correspondence`, level: "COMMERCIAL", approved: false },
-  { id: "tenders-2026", label: "Tenders & quotes 2026", pattern: "02_3 Tenders - Estimates & Quotes (2026)/*", level: "COMMERCIAL", approved: false },
+  { id: "proj-estimate", label: "Project estimate stage (scope and quote)", pattern: `${P}/ESTIMATE STAGE`, level: "COMMERCIAL", approved: true },
+  { id: "proj-contract", label: "Project contract", pattern: `${P}/22_001_05_Contract`, level: "COMMERCIAL", approved: true },
+  { id: "proj-variations", label: "Project variations", pattern: `${P}/22_001_15_Variations`, level: "COMMERCIAL", approved: true },
+  { id: "proj-eot", label: "Project EOTs & NODs", pattern: `${P}/22_001_17_EOT's & NOD's`, level: "COMMERCIAL", approved: true },
+  { id: "proj-client", label: "Project client correspondence", pattern: `${P}/22_001_10_Client Correspondence`, level: "COMMERCIAL", approved: true },
+  { id: "tenders-2026", label: "Tenders & quotes 2026", pattern: "02_3 Tenders - Estimates & Quotes (2026)/*", level: "COMMERCIAL", approved: true },
 ];
 
 // Never read, wherever they sit - even inside an approved folder (D6-7 and the plan's exclusions).

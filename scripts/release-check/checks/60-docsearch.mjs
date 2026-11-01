@@ -1,5 +1,5 @@
 // Document search (LCI phase 6) - runs only when the candidate has src/lib/docsearch. Who may search, never on a site
-// link, OFF with no Graph keys (no call out, no index file), every shipped folder unapproved, the index refuses
+// link, OFF with no Graph keys (no call out, no index file), exactly the approved folders on, the index refuses
 // prisma/, the DOC_SEARCH=off kill switch.
 import { existsSync } from "node:fs";
 import path from "node:path";
@@ -9,7 +9,7 @@ const tsxEval = (c, code, env = {}) => run(process.execPath, [path.join(c.p.appD
   { cwd: c.p.appDir, env: { ...c.childEnv, ...env }, timeoutMs: 60_000 });
 
 export default {
-  id: "docsearch", title: "Document search: Manager/Admin only, OFF without Graph, nothing approved, index outside prisma/",
+  id: "docsearch", title: "Document search: Manager/Admin only, OFF without Graph, exactly the approved folders, index outside prisma/",
   applies: (c) => c.hasPath("src/lib/docsearch/folders.ts") || "the candidate has no document search (src/lib/docsearch)",
   async run(t, c) {
     // Who may use it (API decides; the page is a client-gated shell like every other page).
@@ -40,10 +40,17 @@ export default {
     t.ok(!existsSync(c.p.searchIndex), "no index file at SEARCH_INDEX_PATH (test folder)");
     t.ok(c.pre.defaultIndexExisted || !existsSync(c.p.defaultSearchIndex), "no index file at the default path (../operations-search/search.db)");
 
-    // Static: every shipped folder is unapproved; the index refuses prisma/; the kill switch; Graph OFF without keys.
+    // The Assistant's narrower ask (scope=site) answers the same people.
+    t.status(await c.get("/api/documents?q=swms&scope=site", "ADMIN"), 200, "GET /api/documents?scope=site as ADMIN");
+    t.status(await c.get("/api/documents?q=swms&scope=site", "VIEWER"), 403, "GET /api/documents?scope=site as VIEWER");
+
+    // Static: exactly the folders Ilies approved (1 Nov 2026) - a folder added or switched on later fails here until
+    // this list is changed on purpose; the index refuses prisma/; the kill switch; Graph OFF without keys.
     const f = await tsxEval(c, "import { FOLDERS } from './src/lib/docsearch/folders.ts'; console.log('RC' + JSON.stringify({ n: FOLDERS.length, approved: FOLDERS.filter((f) => f.approved).map((f) => f.id) }));");
     const fj = JSON.parse(f.out.match(/RC(\{.*\})/)?.[1] ?? "null");
-    t.ok(fj && fj.n > 0 && fj.approved.length === 0, `every one of the ${fj?.n ?? "?"} shipped folders is approved:false`, fj ? fj.approved.join(",") : f.out.slice(-200));
+    const APPROVED = ["proj-swms", "proj-induction", "proj-toolbox", "proj-hotwork", "gen-workplans", "gen-methods", "gen-checklists", "gen-waste", "templates",
+      "proj-drawings", "proj-programme", "proj-minutes", "proj-quality", "proj-registers", "proj-estimate", "proj-contract", "proj-variations", "proj-eot", "proj-client", "tenders-2026"];
+    t.ok(fj && fj.n === APPROVED.length && JSON.stringify([...fj.approved].sort()) === JSON.stringify([...APPROVED].sort()), `exactly the ${APPROVED.length} folders Ilies approved on 1 Nov 2026 are on`, fj ? fj.approved.join(",") : f.out.slice(-200));
     const probe = path.join(c.p.prismaDir, "rc-probe-search.db");
     const i = await tsxEval(c, `import { openIndex } from './src/lib/docsearch/index.ts'; try { openIndex(${JSON.stringify(probe)}); console.log('RCOPENED'); } catch (e) { console.log('RCREFUSED ' + e.message); }`);
     t.ok(/RCREFUSED/.test(i.out) && !existsSync(probe), "the index refuses a path under prisma/ (no file created)", i.out.slice(-200));
