@@ -514,6 +514,28 @@ business, without becoming unnecessarily complicated.
       revisited only if we outgrow the server.
     - Keep the current Claude and OpenAI connections. The AI data-residency
       question is closed as "stay as is".
+- **Allocation guard** (2 Nov 2026, `src/lib/boardGuard/`). Background: on
+  1 Nov Ilies sent Monday's sheet, then made a late change on Sunday's board
+  by mistake. He asked: "did you actually mean this?".
+  - **What the board asks.** Before the first change to a day (and before its
+    sheet goes out) the board asks "did you mean <day>?". It asks when:
+    - a later day's sheet went out in the last 18 h;
+    - the day has already gone;
+    - it's today but this person usually plans ahead at this time of day.
+      This is learned from `BoardEdit` (≥20 changes within ±90 min, ≥80%
+      for a later day). Until then the default is today after 3pm, or a send
+      of today's sheet after noon.
+  - **One tap either way, never a block.** "Go to <day>" switches days and
+    nothing changes. A "yes" lasts 30 min.
+  - **New tables (append-only):**
+    - `DaySheetSend`: Export's Copy / Open in email, with a server-side
+      snapshot (names, roles, sites, times, no money);
+    - `BoardEdit`: every assignment / job / copy / clear write, also the
+      change history the board never kept.
+  - **The board shows** "sheet went out at …, N changes since".
+  - **Evening phone alert, 7-11pm,** once each, to the sender: tomorrow
+    changed after it was sent, or an earlier day changed after it was sent.
+  - Release check `64-board-guard`.
 - **Sign-ins: delete** (27 Oct): an Admin can delete a sign-in (e.g. signed
   in twice) - `removeAttendance`: status REJECTED + `removedAt`, hidden from
   the Sign-ins page and the supervisor's list, no hours anywhere, the reason

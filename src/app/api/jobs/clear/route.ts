@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { guard } from "@/lib/auth";
+import { guard, getCurrentUser } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
+import { logBoardEdit } from "@/lib/boardGuard/store";
 
 // POST /api/jobs/clear { date: "YYYY-MM-DD" }
 // Resets every job on that date (running or not) back to a blank slate: unassigns
@@ -26,5 +27,6 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
     prisma.job.updateMany({ where: { ...dateFilter, dayBrief: { not: null } }, data: { dayBrief: null } }),
   ]);
 
+  await logBoardEdit(await getCurrentUser(), date, "CLEAR", `${cleared} allocation${cleared === 1 ? "" : "s"}, ${briefsCleared} day brief${briefsCleared === 1 ? "" : "s"}`);
   return NextResponse.json({ cleared, briefsCleared });
 });

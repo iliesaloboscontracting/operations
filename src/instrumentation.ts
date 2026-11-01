@@ -19,6 +19,7 @@ export async function register() {
     const { tipTick } = await import("./lib/receipts/tipStore");
     const { alertAccountsDue } = await import("./lib/accounts/store");
     const { nightlyDocIndex } = await import("./lib/docsearch/service");
+    const { eveningBoardCheck } = await import("./lib/boardGuard/store");
     setInterval(() => {
       // Xero (read-only, G3): once a day from 2am Sydney, after the backup. Does nothing until set up and connected.
       nightlyXeroSync().catch((e) => console.error("xero nightly", e instanceof Error ? e.message : "failed"));
@@ -44,6 +45,9 @@ export async function register() {
       tipTick().catch((e) => console.error("tip matching", e instanceof Error ? e.message : "failed"));
       // Accounts calendar (26 Oct 2026): one phone alert per due date to the accounts login.
       alertAccountsDue().catch((e) => console.error("accounts due-date alerts", e));
+      // Allocation guard (2 Nov 2026): 7pm-11pm, tomorrow's sheet changed after it went out, or an earlier day changed
+      // after it went out - one phone alert each, to whoever sent it.
+      eveningBoardCheck().catch((e) => console.error("board evening check", e instanceof Error ? e.message : "failed"));
     }, 60_000);
   }
 }

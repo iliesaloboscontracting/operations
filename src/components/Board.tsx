@@ -35,6 +35,7 @@ import { Building2, CalendarClock, Download, Eraser, HardHat, Plus, Users } from
 import StatTile from "./StatTile";
 import { saveWithDateCheck } from "@/lib/dateCheckPrompt";
 import { nightOnly } from "@/lib/shiftTimes";
+import { SentBanner, useBoardGuard } from "./board/BoardGuard";
 
 const BOARD_DATE_KEY = "board.selectedDate";
 
@@ -134,11 +135,14 @@ export default function Board() {
     );
   }, [loadJobs, loadResources, loadProjects]);
 
-  const refresh = () => Promise.all([loadJobs(), loadResources()]);
-
   function fail(text: string) {
     setMessage({ text, error: true });
   }
+
+  // Allocation guard (2 Nov 2026): "did you mean another day?" before the first change to a day and before its sheet
+  // goes out, plus when the day's sheet last went out and what's changed since.
+  const boardGuard = useBoardGuard(selectedDate, setSelectedDate, (text) => setMessage({ text }));
+  const refresh = () => Promise.all([loadJobs(), loadResources(), boardGuard.refreshSent()]);
 
   // Viewers can look but not change anything (the server enforces this too).
   const { canEdit } = useAuth();
@@ -146,6 +150,11 @@ export default function Board() {
     if (canEdit) return false;
     fail("You have view-only access, so you can't change the board.");
     return true;
+  }
+  // Every change on the board goes through here first: view-only, then the day check.
+  async function cantChange() {
+    if (viewOnly()) return true;
+    return !(await boardGuard.confirmEdit());
   }
 
   // A placeholder row has no real job yet - dragging someone onto it creates
@@ -186,7 +195,7 @@ export default function Board() {
   }
 
   async function handleAssign(jobId: string, payload: DragResourcePayload) {
-    if (viewOnly()) return;
+    if (await cantChange()) return;
     setMessage(null);
     let realJobId = jobId;
     if (jobId.startsWith("virtual:")) {
@@ -231,7 +240,7 @@ export default function Board() {
   }
 
   async function handleRoleChange(assignmentId: string, role: string) {
-    if (viewOnly()) return;
+    if (await cantChange()) return;
     setMessage(null);
     const res = await fetch(`/api/assignments/${assignmentId}`, {
       method: "PATCH",
@@ -239,11 +248,11 @@ export default function Board() {
       body: JSON.stringify({ role: role || null }),
     });
     if (!res.ok) return fail(await serverErrorMessage(res, "Couldn't update role. Try again."));
-    await loadJobs();
+    await Promise.all([loadJobs(), boardGuard.refreshSent()]);
   }
 
   async function handleRemove(assignmentId: string) {
-    if (viewOnly()) return;
+    if (await cantChange()) return;
     setMessage(null);
     const res = await fetch(`/api/assignments/${assignmentId}`, { method: "DELETE" });
     if (!res.ok) return fail(await serverErrorMessage(res, "Couldn't remove that assignment. Try again."));
@@ -258,6 +267,7 @@ export default function Board() {
   }
 
   async function copyFromYesterday() {
+    if (await cantChange()) return;
     setMessage(null);
     const res = await fetch("/api/jobs/copy", {
       method: "POST",
@@ -282,6 +292,7 @@ export default function Board() {
     const totalAssigned = jobs.reduce((n, j) => n + j.assignments.length, 0);
     const totalBriefs = jobs.reduce((n, j) => n + (j.dayBrief ? 1 : 0), 0);
     if (totalAssigned === 0 && totalBriefs === 0) return;
+    if (!(await boardGuard.confirmEdit())) return;
     const parts = [];
     if (totalAssigned > 0) parts.push(`${totalAssigned} allocation${totalAssigned > 1 ? "s" : ""}`);
     if (totalBriefs > 0) parts.push(`${totalBriefs} day brief${totalBriefs > 1 ? "s" : ""}`);
@@ -413,7 +424,8 @@ export default function Board() {
   const [daySheet, setDaySheet] = useState<
     { subject: string; body: string; scopeJobs: { id: string; title: string; projectId: string }[] } | null
   >(null);
-  function openDaySheet() {
+  async function openDaySheet() {
+    if (!(await boardGuard.confirmSend())) return;
     // Narrow to only the fields the day sheet is allowed to use - this goes
     // straight to the whole crew, so a pay rate/cost field simply isn't
     // reachable here even if JobDTO/ResourceDTO carry one for this viewer.
@@ -456,8 +468,8 @@ export default function Board() {
     onAssign: handleAssign,
     onRoleChange: handleRoleChange,
     onRemove: handleRemove,
-    onEdit: (j: JobDTO) => {
-      if (!canEdit) return;
+    onEdit: async (j: JobDTO) => {
+      if (!canEdit || !(await boardGuard.confirmEdit())) return;
       if (j.virtual) {
         setNewJobPrefill({ projectId: j.projectId!, title: j.title });
         setFromInactiveProject(true);
@@ -508,7 +520,8 @@ export default function Board() {
                   Copy yesterday
                 </button>
                 <button
-                  onClick={() => {
+                  onClick={async () => {
+                    if (!(await boardGuard.confirmEdit())) return;
                     setNewJobPrefill(null);
                     setFromInactiveProject(false);
                     setEditing("new");
@@ -546,6 +559,8 @@ export default function Board() {
           <UpcomingAlerts compact onSelect={selectAlert} />
         </div>
       </header>
+
+      <SentBanner sent={boardGuard.sent} />
 
       {message && (
         <div
@@ -626,9 +641,12 @@ export default function Board() {
           subject={daySheet.subject}
           body={daySheet.body}
           scopeJobs={daySheet.scopeJobs}
+          onSent={boardGuard.recordSend}
           onClose={() => setDaySheet(null)}
         />
       )}
+
+      {boardGuard.modal}
 
       {canEdit && <CommandAssistant resources={resources} boardRows={boardRows} onAssign={handleAssign} />}
     </div>

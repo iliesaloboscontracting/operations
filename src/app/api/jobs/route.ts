@@ -8,6 +8,7 @@ import { assertDateOpen } from "@/lib/dayLock";
 import { todaySydney } from "@/lib/today";
 import { checkJobDate } from "@/lib/dateRulesServer";
 import { matchHireSignIns } from "@/lib/labourHireMatch";
+import { logBoardEdit, siteName } from "@/lib/boardGuard/store";
 
 // GET /api/jobs?date=YYYY-MM-DD  -> jobs for that date, with assignments+resource included
 export const GET = withErrorHandling(async (req: NextRequest) => {
@@ -134,6 +135,7 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
     include: { assignments: { include: { resource: true } } },
   });
 
+  await logBoardEdit(user, body.date, "JOB_ADD", siteName(job));
   sanitizeJobs([job], user?.role ?? null);
   return NextResponse.json(job, { status: 201 });
 });

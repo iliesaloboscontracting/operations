@@ -6,6 +6,7 @@ import { liveJobFields } from "@/lib/jobs";
 import { sanitizeJobs } from "@/lib/serializeResource";
 import { assertDateOpen } from "@/lib/dayLock";
 import { checkJobDate } from "@/lib/dateRulesServer";
+import { isoDay, logBoardEdit, siteName } from "@/lib/boardGuard/store";
 
 // PATCH /api/jobs/:id -> update job fields
 export const PATCH = withErrorHandling(async (
@@ -88,6 +89,10 @@ export const PATCH = withErrorHandling(async (
       assignments: { include: { resource: true } },
     },
   });
+  // Field names only (a day brief's words stay out of the history); a job moved to another day is noted on both days.
+  const fields = Object.keys(data).filter((k) => k !== "dateCheckNote");
+  const note = `${siteName(job)}: ${fields.join(", ") || "saved"}`;
+  for (const d of new Set([isoDay(current.date), isoDay(job.date)])) await logBoardEdit(user, d, "JOB_EDIT", note);
   const { project, ...rest } = job;
   sanitizeJobs([rest], user?.role ?? null);
 
@@ -105,7 +110,7 @@ export const DELETE = withErrorHandling(async (
   const params = await paramsP;
   const denied = await guard("MANAGER");
   if (denied) return denied;
-  const current = await prisma.job.findUnique({ where: { id: params.id }, select: { date: true } });
+  const current = await prisma.job.findUnique({ where: { id: params.id }, select: { date: true, title: true, shift: true } });
   if (!current) return NextResponse.json({ error: "not found" }, { status: 404 });
   const locked = await assertDateOpen(current.date.toISOString().slice(0, 10));
   if (locked) return locked;
@@ -119,5 +124,6 @@ export const DELETE = withErrorHandling(async (
     );
   }
   await prisma.job.delete({ where: { id: params.id } });
+  await logBoardEdit(await getCurrentUser(), isoDay(current.date), "JOB_DELETE", siteName(current));
   return NextResponse.json({ ok: true });
 });

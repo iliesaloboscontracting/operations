@@ -774,6 +774,39 @@ model ShiftReminder {
   @@unique([jobId, kind])
 }
 
+// Allocation guard (2 Nov 2026, Ilies: "did you actually mean this?" - lib/boardGuard). Each time a day's sheet goes
+// out from the board (Copy or Open in email): who, when, and what the board held then - sites, shifts, times, names
+// and roles only, never money. Append-only. The two alert times: when the "changed after you sent it" and "you changed
+// an earlier day after sending this one" phone alerts went out for this send (one each).
+model DaySheetSend {
+  id              String    @id @default(cuid())
+  date            String // the board day, YYYY-MM-DD
+  how             String // COPY | EMAIL
+  sentById        String
+  sentBy          String
+  sentAt          DateTime  @default(now())
+  snapshot        String // JSON BoardSnapshot (lib/boardGuard/rules.ts)
+  changeAlertAt   DateTime?
+  wrongDayAlertAt DateTime?
+
+  @@index([date, sentAt])
+}
+
+// Every change made on the allocations board: which day, what, who (2 Nov 2026). Append-only. The board learns from
+// it which day each person usually works on at each time of day, and it's the change history the board didn't keep.
+model BoardEdit {
+  id     String   @id @default(cuid())
+  date   String // the board day changed, YYYY-MM-DD
+  action String // ASSIGN | MOVE | ROLE | REMOVE | JOB_ADD | JOB_EDIT | JOB_DELETE | COPY | CLEAR
+  detail String? // a few words - "Joe Bloggs -> Myers (night)" - names only, never money
+  userId String
+  by     String
+  at     DateTime @default(now())
+
+  @@index([userId, at])
+  @@index([date, at])
+}
+
 // Something sent from site: a tool to register, a toolbox check, or a fault.
 // It waits here until the office applies or rejects it - nothing from site
 // changes the register by itself.

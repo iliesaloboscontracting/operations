@@ -11,11 +11,14 @@ export default function DaySheetModal({
   subject,
   body,
   scopeJobs,
+  onSent,
   onClose,
 }: {
   subject: string;
   body: string;
   scopeJobs: { id: string; title: string; projectId: string }[];
+  // The sheet went out (copied or opened in email) - the board records when, so it can tell if the day changes after.
+  onSent?: (how: "COPY" | "EMAIL") => void;
   onClose: () => void;
 }) {
   const [text, setText] = useState(body);
@@ -33,6 +36,7 @@ export default function DaySheetModal({
   async function copy() {
     try {
       await navigator.clipboard.writeText(text);
+      onSent?.("COPY");
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
@@ -42,6 +46,7 @@ export default function DaySheetModal({
   }
 
   function emailIt() {
+    onSent?.("EMAIL");
     window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(text)}`;
   }
 

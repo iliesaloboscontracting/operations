@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { effectiveTimes, nightOnly } from "@/lib/shiftTimes";
 import { prisma } from "@/lib/prisma";
-import { guard } from "@/lib/auth";
+import { guard, getCurrentUser } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { assertDateOpen } from "@/lib/dayLock";
+import { logBoardEdit } from "@/lib/boardGuard/store";
 import { isISODate } from "@/lib/dateRules";
 import { QUICK_LABOUR_HIRE_NAME, nextQuickLabourHireNumber } from "@/lib/resource";
 
@@ -157,5 +158,6 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
     });
     copied++;
   }
+  if (copied || merged) await logBoardEdit(await getCurrentUser(), to, "COPY", `from ${from}: ${copied} job${copied === 1 ? "" : "s"} copied, ${merged} filled in`);
   return NextResponse.json({ copied, merged, skipped });
 });

@@ -4,6 +4,7 @@ import { guard, getCurrentUser } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { sanitizeAssignment } from "@/lib/serializeResource";
 import { assertDateOpen } from "@/lib/dayLock";
+import { isoDay, logBoardEdit, siteName } from "@/lib/boardGuard/store";
 
 // POST /api/assignments -> drag a resource onto a job
 // body: { jobId, resourceId, role? }
@@ -20,7 +21,7 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
     );
   }
 
-  const job = await prisma.job.findUnique({ where: { id: body.jobId }, select: { date: true } });
+  const job = await prisma.job.findUnique({ where: { id: body.jobId }, select: { date: true, title: true, shift: true } });
   if (!job) return NextResponse.json({ error: "not found" }, { status: 404 });
   const locked = await assertDateOpen(job.date.toISOString().slice(0, 10));
   if (locked) return locked;
@@ -44,6 +45,7 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
     include: { resource: true },
   });
 
+  await logBoardEdit(user, isoDay(job.date), "ASSIGN", `${assignment.resource.name} -> ${siteName(job)}`);
   sanitizeAssignment(assignment, user?.role ?? null);
   return NextResponse.json(assignment, { status: 201 });
 });
