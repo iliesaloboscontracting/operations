@@ -107,3 +107,14 @@ test("AUD-001: minimatch reached from a package outside the exceljs chain fails"
   n.vulnerabilities.exceljs.via.push("minimatch");
   assert.match(judge(n, NOW2).reason, /exceljs\(moderate\) - not covered by EX-001: newly affected through minimatch/);
 });
+
+test("N-1: exceljs is pinned - a second install path or anything depending on it fails", () => {
+  const j = clone(PROD2);
+  j.vulnerabilities.exceljs.nodes.push("node_modules/some-pkg/node_modules/exceljs");
+  const r = judge(j, NOW2);
+  assert.equal(r.status, "FAIL");
+  assert.match(r.reason, /exceljs\(moderate\) - not covered by EX-001: now also installed at node_modules\/some-pkg\/node_modules\/exceljs/);
+  const k = clone(PROD2);
+  k.vulnerabilities.exceljs.effects.push("some-pkg");
+  assert.match(judge(k, NOW2).reason, /exceljs\(moderate\) - not covered by EX-001: now also affects some-pkg/);
+});

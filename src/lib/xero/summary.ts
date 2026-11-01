@@ -30,7 +30,7 @@ const r2 = (n: number) => Math.round(n * 100) / 100;
 
 // What counts as a sale, line by line, with the right sign - the one rule the revenue tile and the Directors' claims
 // (lib/insights/claims.ts) both use (30 Oct 2026). A sales invoice counts +, a credit note -, ex GST; bills and
-// voided / deleted / draft invoices don't count at all. Each line says where it went: a job (projectId), "not a job"
+// voided / deleted / draft / awaiting-approval (SUBMITTED) invoices don't count at all. Each line says where it went: a job (projectId), "not a job"
 // (a person said so), or not tied yet.
 export const countsAsSale = (i: { type: string; status: string }) => isSale(i.type) && counts(i.status);
 export type SignedSaleLine = { amount: number; projectId: string | null; notAJob: boolean };

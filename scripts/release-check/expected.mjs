@@ -45,7 +45,8 @@ export const AUDIT_EXCEPTIONS = [
       { pkg: "postcss-selector-parser", maxSeverity: "moderate", ghsa: { "GHSA-rj75-hqrm-r3gf": "moderate" } },
       // uuid < 11.1.1, only through exceljs (which calls v4 only).
       { pkg: "uuid", maxSeverity: "moderate", effectsWithin: ["exceljs"], ghsa: { "GHSA-w5hq-g745-h8pq": "moderate" } },
-      { pkg: "exceljs", maxSeverity: "moderate", via: ["uuid", "archiver"] },
+      // exceljs itself: a top-level dependency that nothing else depends on, installed in one place (N-1, 1 Nov 2026).
+      { pkg: "exceljs", maxSeverity: "moderate", via: ["uuid", "archiver"], effectsWithin: [], nodes: [/^node_modules\/exceljs$/] },
       // minimatch < 11.0.1, only through exceljs 4.4.0 (archiver 5 / unzipper -> glob 7). Every entry below is pinned
       // to today's parents and install paths, so minimatch, glob or any of these reached from outside exceljs FAILS.
       { pkg: "minimatch", maxSeverity: "moderate", effectsWithin: ["glob", "readdir-glob"], ghsa: { "GHSA-g3hv-75wg-m249": "moderate" },

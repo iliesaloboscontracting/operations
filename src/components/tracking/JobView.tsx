@@ -4,7 +4,7 @@
 // (/tracking/[id]) and, read-only, the Directors screen (/directors/jobs/[id],
 // 25 Oct 2026: directors have no Operations access, so no edit buttons and no
 // links into Operations there). Originally Project Tracking - one job. Contract value, spent,
-// still to come, forecast and margin up top; cost building up over time
+// still to come, forecast and headroom up top; cost building up over time
 // against the contract value; what it's spent on, tap a type for the records
 // behind it; supplier invoices (Add invoice). Research: reports/Job cost
 // tracking page design.md.
@@ -68,7 +68,7 @@ export default function JobView({ id, mode }: { id: string; mode: "ops" | "direc
   if (!p) return <PageShell title="Project Tracking"><p className="py-10 text-center text-sm text-gray-500">Loading...</p></PageShell>;
 
   const confirmed = p.lockedCost + p.invoicedTotal;
-  const margin = p.contractValue != null ? p.contractValue - p.forecastCost : null;
+  const headroom = p.contractValue != null ? p.contractValue - p.forecastCost : null;
   const usedPct = p.contractValue ? Math.round((p.totalCost / p.contractValue) * 100) : null;
 
   // Cost building up week by week, then a dashed step to the forecast.
@@ -98,10 +98,10 @@ export default function JobView({ id, mode }: { id: string; mode: "ops" | "direc
           sub={`${usedPct != null ? `${usedPct}% of contract · ` : ""}${short(confirmed)} firm, ${short(p.estimatedTotal)} estimate`} />
         <Tile label="Still to come" value={short(p.stillToCome)}
           sub={[p.unbilledLabourHire > 0 && `${short(p.unbilledLabourHire)} labour hire not billed`, p.bookedDays > 0 && `${p.bookedDays} day${p.bookedDays === 1 ? "" : "s"} booked`, p.hireToCome > 0 && `${short(p.hireToCome)} hire to finish`].filter(Boolean).join(" · ") || "Nothing booked or outstanding"} />
-        {/* The Directors' copy says headroom (no "margin" on the Directors screen - Ilies's rule); Operations' label is his call. */}
-        <Tile label={director ? "Forecast · headroom" : "Forecast · margin"} value={short(p.forecastCost)}
-          sub={margin != null ? `${margin >= 0 ? "" : "-"}${short(Math.abs(margin))} ${margin >= 0 ? "left" : "over"} (${Math.round((margin / (p.contractValue as number)) * 100)}%) · rough indicator` : "No contract value to compare"}
-          subTone={margin != null ? (margin < 0 ? "bad" : undefined) : undefined} />
+        {/* Headroom on both screens (Ilies, 1 Nov 2026): cost against contract value, not margin - revenue isn't in it. */}
+        <Tile label="Forecast · headroom" value={short(p.forecastCost)}
+          sub={headroom != null ? `${headroom >= 0 ? "" : "-"}${short(Math.abs(headroom))} ${headroom >= 0 ? "left" : "over"} (${Math.round((headroom / (p.contractValue as number)) * 100)}%) · rough indicator` : "No contract value to compare"}
+          subTone={headroom != null ? (headroom < 0 ? "bad" : undefined) : undefined} />
       </div>
 
       {director && claims && <JobClaimsCard c={claims} />}

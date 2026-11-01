@@ -5,7 +5,9 @@ event named, or as soon as the reason stops being true - whichever comes first.
 
 ## EX-001 - npm audit: postcss / next, uuid / exceljs, minimatch / exceljs (accepted 27 Oct 2026; minimatch added 1 Nov 2026)
 
-- **What:** `npm audit` reports 2 high and 4 moderate advisories on main and every release candidate:
+- **What:** the gated production audit (`npm audit --omit=dev`) reports 2 high and 10 moderate advisories on main and
+  every release candidate (main 2fe2321, 1 Nov 2026; postcss-selector-parser below is dev-only and adds one more in a
+  full `npm audit`):
   - postcss <= 8.5.22, nested in next 15.5 (high). The only fix is next@16, a major upgrade.
   - source-map-js 1.0.0 - 1.2.1 (high).
   - postcss-selector-parser < 6.1.5 (moderate).
