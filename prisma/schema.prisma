@@ -38,6 +38,9 @@ model Project {
   // site's award/agreement differs. Applied to live costing only; never
   // rewrites the historical LabourCost backfill.
   unpaidBreakMinutes Int? @default(30)
+  // Regional job (2 Nov 2026, Ilies): its crew get travel sign-in (Start travel / Travelling home, lib/travel/).
+  // Set by a Manager or Admin on the project page or the board. Turning it off never touches a travel leg.
+  regional  Boolean  @default(false)
   notes     String?
   // The room-by-room/task-by-task demolition scope, kept deliberately separate
   // from `notes` (a mixed research scratchpad that sometimes carries $ figures)
@@ -2070,4 +2073,59 @@ model NoticeSeen {
   seenAt DateTime @default(now())
 
   @@unique([userId, notice])
+}
+
+// Travel to and from regional jobs (2 Nov 2026, Ilies: "a sign-in for travel that's connected to their app ... track
+// the travel time and then they sign in separately when they get to site" + "yes track the trip home too").
+// One row per leg, on the worker's own phone, regional projects only (rules in lib/travel/rules.ts):
+//   OUT  - "Start travel" -> ended by their site sign-in on that project (endAttendanceId).
+//   HOME - "Travelling home" after signing out of a regional job (startAttendanceId) -> "Arrived".
+// Append-only like SiteAttendance: never deleted; office corrections go in TravelEdit with a reason. Plain ids, no
+// relations, so a job, project or person change can never take a leg away. GPS: one point at the start (and at
+// "Arrived"), accounts / Admins only, like SiteAttendance.gps*. Never a site hour, a JobActual or a cost.
+model TravelLeg {
+  id                String    @id @default(cuid())
+  direction         String // OUT | HOME
+  resourceId        String // the Labour-register person (travel is staff only)
+  workerName        String
+  jobId             String // OUT: the job they travelled to; HOME: the job they signed out of
+  projectId         String
+  siteLabel         String // the job's label when the leg started, e.g. "Orange hospital (night)"
+  date              String // YYYY-MM-DD - the job's date (the timesheet week it falls in)
+  startAt           DateTime
+  endAt             DateTime? // null = not ended (counts no hours; flagged once the 8 h window has passed)
+  endMethod         String? // SIGN_IN | ARRIVED | OFFICE
+  startAttendanceId String?   @unique // HOME: the sign-out it follows
+  endAttendanceId   String? // OUT: the site sign-in that ended it
+  deviceId          String?
+  startGpsLat       Float?
+  startGpsLng       Float?
+  startGpsAccuracyM Float?
+  startGpsStatus    String?
+  endGpsLat         Float?
+  endGpsLng         Float?
+  endGpsAccuracyM   Float?
+  endGpsStatus      String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  edits             TravelEdit[]
+
+  @@unique([resourceId, jobId, direction]) // one leg each way per job - a second tap gets the first
+  @@index([date])
+  @@index([resourceId, endAt])
+}
+
+// Every office change to a travel leg: what, from, to, why, who (like AttendanceEdit).
+model TravelEdit {
+  id          String    @id @default(cuid())
+  travelLegId String
+  travelLeg   TravelLeg @relation(fields: [travelLegId], references: [id], onDelete: Restrict)
+  field       String // startAt | endAt
+  before      String?
+  after       String?
+  reason      String
+  editedBy    String
+  editedAt    DateTime  @default(now())
+
+  @@index([travelLegId])
 }

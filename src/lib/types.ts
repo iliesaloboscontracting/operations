@@ -97,6 +97,7 @@ export interface JobDTO {
   notRunning: boolean;
   sortOrder: number;
   assignments: AssignmentDTO[];
+  regional?: boolean; // the project is regional (travel sign-in) - from /api/jobs, 2 Nov 2026
   // Client-only: a placeholder row for an active/inactive project that has no
   // job created yet for the selected date - see Board.tsx. Never sent to the API.
   virtual?: boolean;
@@ -109,6 +110,7 @@ export interface ProjectDTO {
   jobNo: string | null;
   quoteNo?: string | null;
   address: string | null;
+  regional?: boolean; // travel sign-in for its crew (2 Nov 2026)
   startDate: string | null;
   status: "ACTIVE" | "INACTIVE" | "COMPLETED";
   dayStart: string | null;

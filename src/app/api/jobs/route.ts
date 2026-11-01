@@ -28,7 +28,7 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
     where: { date: { gte: date, lt: nextDay }, status: { not: "COMPLETED" } },
     orderBy: [{ notRunning: "asc" }, { sortOrder: "asc" }, { createdAt: "asc" }],
     include: {
-      project: { select: { name: true, client: true, jobNo: true, address: true } },
+      project: { select: { name: true, client: true, jobNo: true, address: true, regional: true } },
       assignments: {
         include: { resource: true },
         orderBy: { createdAt: "asc" },
@@ -61,6 +61,7 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
     ...j,
     assignments: j.assignments.map((a) => ({ ...a, signedInAs: filledBy.get(a.id) ?? null })),
     ...liveJobFields({ title: j.title, client: j.client, siteCode: j.siteCode, siteAddress: j.siteAddress, project }),
+    regional: !!project?.regional, // the Regional badge on the board (2 Nov 2026)
     date: j.date.toISOString().slice(0, 10),
   }));
   return NextResponse.json(out);

@@ -7,6 +7,7 @@ import DropCell from "./DropCell";
 import { GRID_COLS } from "./JobGridHeader";
 import { ShiftBadge } from "./ShiftBadge";
 import JobStatusBadge from "./JobStatusBadge";
+import RegionalToggle from "./RegionalToggle";
 
 export default function JobRow({
   job,
@@ -65,6 +66,8 @@ export default function JobRow({
             {job.siteCode && <span className="text-gray-400">{job.siteCode}</span>}
             <ShiftBadge shift={job.shift} />
             <JobStatusBadge status={job.status} />
+            {/* Regional (2 Nov 2026): the project's flag - badge for everyone, switch for Managers / Admins. */}
+            <RegionalToggle projectId={job.projectId} projectName={job.title} regional={!!job.regional} />
             {(job.startTime || job.endTime) && (
               <span>
                 {job.startTime ?? "?"} - {job.endTime ?? "?"}

@@ -2,7 +2,7 @@ import { normaliseSources, PROJECT_FILE_KEYS } from "./projectFile";
 
 const FIELDS = [
   "name", "client", "jobNo", "quoteNo", "address", "status", "startDate", "dayStart", "dayEnd",
-  "nightStart", "nightEnd", "unpaidBreakMinutes", "notes", "archived",
+  "nightStart", "nightEnd", "unpaidBreakMinutes", "notes", "archived", "regional",
   "contractValue", "contractValueNotes", "scopeOfWorks",
   "startDateConfidence", "completionConfidence", "completionReviewBy",
   ...PROJECT_FILE_KEYS,
@@ -15,7 +15,9 @@ export function pickProject(body: Record<string, unknown>) {
   for (const k of FIELDS) {
     if (k in body) {
       const v = body[k];
-      if (NUMERIC_FIELDS.has(k)) {
+      if (k === "regional") {
+        data[k] = v === true || v === "true"; // Regional (2 Nov 2026): a yes / no
+      } else if (NUMERIC_FIELDS.has(k)) {
         data[k] = v === "" || v === null || v === undefined ? null : Number(v);
       } else {
         data[k] = typeof v === "string" && v.trim() === "" && k !== "name" && k !== "status" ? null : v;

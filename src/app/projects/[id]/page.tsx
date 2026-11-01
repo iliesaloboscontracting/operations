@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ArrowLeft, ClipboardList, FileText, Pencil, Plus, Trash2, UserRound } from "lucide-react";
 import PageShell from "@/components/PageShell";
 import FormModal from "@/components/FormModal";
+import RegionalToggle from "@/components/RegionalToggle";
 import { useAuth } from "@/components/AuthProvider";
 import { apiFetch, serverErrorMessage } from "@/lib/apiFetch";
 import { PROJECT_FORM_FIELDS } from "@/lib/projectFormFields";
@@ -615,6 +616,10 @@ export default function ProjectFilePage({ params: paramsP }: { params: Promise<{
               <Row label="Quote number">{project.quoteNo || <Unknown />}</Row>
               <Row label="Address">{project.address || <Unknown />}</Row>
               <Row label="Status">{project.status === "ACTIVE" ? "Active" : project.status === "INACTIVE" ? "Inactive" : "Completed"}</Row>
+              <Row label="Regional">
+                {/* Regional (2 Nov 2026): crew get travel sign-in on every day of this project. */}
+                <span className="inline-flex flex-wrap items-center gap-2"><RegionalToggle projectId={project.id} projectName={project.name} regional={!!project.regional} size="md" onChanged={() => load()} />{!project.regional && <span className="text-xs text-gray-500">Local</span>}</span>
+              </Row>
               <Row label="Start date">
                 {project.startDate ? fmtDay(project.startDate, { weekday: "short", day: "numeric", month: "short", year: "numeric" }) : <Unknown />}
               </Row>

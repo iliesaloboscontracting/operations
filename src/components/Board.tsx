@@ -353,6 +353,7 @@ export default function Board() {
         notRunning: p.status !== "ACTIVE",
         sortOrder: 999,
         assignments: [],
+        regional: !!p.regional,
         virtual: true,
       }));
     return [...jobs, ...placeholders];
