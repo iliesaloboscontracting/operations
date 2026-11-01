@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useAuth } from "@/components/AuthProvider";
+import { coordinatorHref } from "@/lib/roles";
 
 const TABS = [
   { href: "/tools", label: "Register" },
@@ -12,9 +14,11 @@ const TABS = [
 
 export default function ToolsTabs() {
   const path = usePathname();
+  // The coordinator's tabs are the ones he may open (lib/roles.ts) - "From site" (site links) isn't one.
+  const { coordinatorOnly } = useAuth();
   return (
     <div className="mb-4 flex flex-wrap gap-1.5">
-      {TABS.map((t) => (
+      {TABS.filter((t) => coordinatorHref(t.href, coordinatorOnly)).map((t) => (
         <Link
           key={t.href}
           href={t.href}

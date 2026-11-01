@@ -1,8 +1,9 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
+import type { Role } from "@/lib/roles";
 
-export type Role = "ADMIN" | "MANAGER" | "VIEWER" | "TIMESHEETS" | "ACCOUNTS" | "DIRECTOR";
+export type { Role };
 export interface Me {
   id: string;
   email: string;
@@ -16,10 +17,11 @@ interface AuthCtx {
   loading: boolean;
   canEdit: boolean; // Manager or Admin
   isAdmin: boolean;
-  timesheetsOnly: boolean; // review-only timesheets access (Alex) - nothing else
+  timesheetsOnly: boolean; // review-only timesheets access - nothing else
   accountsOnly: boolean; // the invoices inbox (accounts) - nothing else
   isDirector: boolean; // sees the Directors overview (the API checks this too)
   directorOnly: boolean; // a directors-only login (Nick, Yoel) - the Directors pages and nothing else
+  coordinatorOnly: boolean; // the project coordinator (Alex) - /coordinator and its pages only (lib/roles.ts)
   signOut: () => Promise<void>;
 }
 
@@ -32,6 +34,7 @@ const Ctx = createContext<AuthCtx>({
   accountsOnly: false,
   isDirector: false,
   directorOnly: false,
+  coordinatorOnly: false,
   signOut: async () => {},
 });
 
@@ -72,6 +75,7 @@ export default function AuthProvider({
         accountsOnly: user?.role === "ACCOUNTS",
         isDirector: !!user?.directorAccess,
         directorOnly: user?.role === "DIRECTOR",
+        coordinatorOnly: user?.role === "COORDINATOR",
         signOut,
       }}
     >

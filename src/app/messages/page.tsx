@@ -17,7 +17,7 @@ import { BANK_NOTICE, CHAT_NOTICE } from "@/lib/messages/notices";
 // edits or deletes their own message; every earlier text is kept. No site-link side. ?t=<id> opens a conversation
 // (from a phone alert); ?new=1&type=&key=&label= starts one about a record.
 type Person = { id: string; name: string; role: string | null };
-const ROLE: Record<string, string> = { ACCOUNTS: "Accounts", DIRECTOR: "Director", ADMIN: "Admin", MANAGER: "Manager" };
+const ROLE: Record<string, string> = { ACCOUNTS: "Accounts", DIRECTOR: "Director", ADMIN: "Admin", MANAGER: "Manager", COORDINATOR: "Coordinator" };
 
 function NewMessage({ subject, onDone, onCancel }: { subject: { type: string; key: string; label: string } | null; onDone: (id: string) => void; onCancel: () => void }) {
   const [dir, setDir] = useState<{ users: Person[] } | null>(null);
@@ -91,7 +91,7 @@ function Messages() {
   useEffect(() => { load(); const iv = setInterval(load, 30_000); return () => clearInterval(iv); }, [load]);
   const changed = useCallback(() => { load(); window.dispatchEvent(new Event("messages-changed")); }, [load]);
 
-  if (!loading && (!user || !["ACCOUNTS", "DIRECTOR", "ADMIN", "MANAGER"].includes(user.role))) return <PageShell title="Messages"><p className="text-sm text-gray-400">Messages are for accounts, directors and the office.</p></PageShell>;
+  if (!loading && (!user || !["ACCOUNTS", "DIRECTOR", "ADMIN", "MANAGER", "COORDINATOR"].includes(user.role))) return <PageShell title="Messages"><p className="text-sm text-gray-400">Messages are for accounts, directors and the office.</p></PageShell>;
   return (
     <PageShell title="Messages" subtitle="The Office room is for everyone in the office; a one-to-one is only for its two people. You can edit or delete your own messages - earlier versions are kept on record."
       actions={<button onClick={() => { setComposing(true); router.replace("/messages"); }} className="inline-flex items-center gap-1 rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white"><Plus size={12} /> New message</button>}>

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { TriangleAlert } from "lucide-react";
 import RegisterPage from "@/components/RegisterPage";
+import type { FieldDef } from "@/components/FormModal";
 import { ResourceDTO } from "@/lib/types";
 import { whereToday } from "@/lib/resource";
 import { fmtDay, parseISO, parseLooseDate } from "@/lib/dates";
@@ -133,8 +134,14 @@ function ComingOffHire() {
   );
 }
 
+// Fields that hold a dollar figure - Managers and Admins only; the coordinator neither sees nor sends them
+// (lib/coordinatorHire.ts refuses a write that has one).
+const MONEY_FIELDS = new Set(["hireRate", "hireRateUnit", "hireDeliveryCost", "hireCollectionCost", "rate"]);
+
 export default function HirePage() {
-  const { canEdit } = useAuth();
+  const { canEdit, coordinatorOnly } = useAuth();
+  // The coordinator (2 Nov 2026) adds and edits hire, with no money and no archiving.
+  const canWork = canEdit || coordinatorOnly;
   // Overview first (21 Oct 2026): every site's hire at a glance.
   const [tab, setTab] = useState("OVERVIEW");
   const [projects, setProjects] = useState<{ id: string; name: string; status: string }[]>([]);
@@ -208,6 +215,8 @@ export default function HirePage() {
         itemNoun: `${t.noun} hire`,
         api: "/api/resources",
         query: `type=HIRE&category=${tab}`,
+        canEdit: canWork,
+        canDelete: canEdit,
         searchText: (r) => `${r.name} ${r.agency} ${r.role} ${r.hireRef ?? ""} ${projectName(r.hireProjectId)}`,
         newDefaults: { type: "HIRE", category: tab, ownership: "HIRED", role: isLabour ? "General labour" : "", hireStatus: isLabour ? "" : "BOOKED" },
         header: () => <ComingOffHire />,
@@ -284,7 +293,7 @@ export default function HirePage() {
               ]
             : []),
         ],
-        fields: [
+        fields: ([
           {
             key: "name",
             label: isLabour ? "Worker" : "Item",
@@ -347,7 +356,7 @@ export default function HirePage() {
           { key: "hireEnd", label: "Legacy finish note (free text, being phased out)" },
           { key: "rate", label: "Legacy rate note (free text, being phased out)", full: true },
           { key: "notes", label: "Notes", type: "textarea" },
-        ],
+        ] as FieldDef[]).filter((f) => canEdit || !MONEY_FIELDS.has(f.key)),
       }}
     />
   );

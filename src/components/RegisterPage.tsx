@@ -31,6 +31,10 @@ export interface RegisterConfig<T> {
   itemNoun?: string;
   detail?: (row: T, reload: () => Promise<void>) => React.ReactNode; // extra panel in the edit modal (existing rows only)
   extraActions?: (reload: () => Promise<void>) => React.ReactNode; // more buttons beside "Add" (editors only)
+  // Who may add and edit here - Managers and Admins unless the page says otherwise (the coordinator on Hire and
+  // Tools, 2 Nov 2026); canDelete false hides Delete in the edit form (the server refuses it anyway).
+  canEdit?: boolean;
+  canDelete?: boolean;
 }
 
 const PILL: Record<string, string> = {
@@ -57,7 +61,8 @@ export default function RegisterPage<T extends { id: string }>({
 }: {
   config: RegisterConfig<T>;
 }) {
-  const { canEdit } = useAuth();
+  const auth = useAuth();
+  const canEdit = config.canEdit ?? auth.canEdit;
   const [rows, setRows] = useState<T[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -233,7 +238,7 @@ export default function RegisterPage<T extends { id: string }>({
           initial={editing === "new" ? config.newDefaults : (editing as any)}
           onSave={save}
           onClose={() => setEditing(null)}
-          onDelete={editing === "new" ? undefined : remove}
+          onDelete={editing === "new" || config.canDelete === false ? undefined : remove}
           extra={editing !== "new" && config.detail ? config.detail(editing as T, load) : undefined}
           wide={editing !== "new" && !!config.detail}
         />

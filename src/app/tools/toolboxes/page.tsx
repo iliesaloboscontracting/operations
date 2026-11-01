@@ -20,7 +20,10 @@ const json = (url: string, method: string, body: unknown) =>
   fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 
 export default function ToolboxesPage() {
-  const { canEdit } = useAuth();
+  // canEdit: create, rename / re-supervise and remove a toolbox (Managers and Admins). canFill: what's in it - add
+  // and move tools, check by photo - which the coordinator does too (Ilies, 2 Nov 2026; the server enforces both).
+  const { canEdit, coordinatorOnly } = useAuth();
+  const canFill = canEdit || coordinatorOnly;
   const [boxes, setBoxes] = useState<ToolboxDTO[]>([]);
   const [tools, setTools] = useState<ToolDTO[]>([]);
   const [people, setPeople] = useState<ResourceDTO[]>([]);
@@ -37,8 +40,9 @@ export default function ToolboxesPage() {
   }, []);
   useEffect(() => {
     load();
-    apiFetch("/api/resources?type=PERSONNEL").then((r) => (r.ok ? r.json() : [])).then(setPeople);
-  }, [load]);
+    // The people list is only for choosing a toolbox's supervisor.
+    if (canEdit) apiFetch("/api/resources?type=PERSONNEL").then((r) => (r.ok ? r.json() : [])).then(setPeople);
+  }, [load, canEdit]);
 
   async function act(fn: () => Promise<Response>, fallback: string) {
     setError(null);
@@ -78,6 +82,7 @@ export default function ToolboxesPage() {
               key={b.id}
               box={b}
               canEdit={canEdit}
+              canFill={canFill}
               people={people}
               unassigned={unassigned}
               onCheck={() => setChecking(b)}
@@ -102,10 +107,11 @@ export default function ToolboxesPage() {
 }
 
 function ToolboxCard({
-  box, canEdit, people, unassigned, onCheck, act,
+  box, canEdit, canFill, people, unassigned, onCheck, act,
 }: {
   box: ToolboxDTO;
   canEdit: boolean;
+  canFill: boolean;
   people: ResourceDTO[];
   unassigned: ToolDTO[];
   onCheck: () => void;
@@ -131,13 +137,13 @@ function ToolboxCard({
             <div className="text-xs text-gray-400">{box.supervisor?.name ?? "No supervisor set"}</div>
           )}
         </div>
-        {canEdit && (
+        {canFill && (
           <div className="flex flex-wrap gap-2">
             <button onClick={onCheck} className="flex items-center gap-1.5 rounded-lg border border-brand-500 px-3 py-1.5 text-xs font-medium text-brand-300 hover:bg-brand-600/20">
               <ScanLine size={14} /> Check by photo
             </button>
             {/* For someone no longer with us (25 Oct 2026): the box goes, its tools go back to the Yard. */}
-            <button
+            {canEdit && <button
               onClick={() => {
                 const n = box.tools.length;
                 if (!window.confirm(`Remove ${box.name}?${n ? ` Its ${n} tool${n === 1 ? "" : "s"} go back to the Yard (each move is recorded).` : ""}`)) return;
@@ -146,7 +152,7 @@ function ToolboxCard({
               className="flex items-center gap-1.5 rounded-lg border border-edge px-3 py-1.5 text-xs text-gray-400 hover:border-red-500/60 hover:text-red-300"
             >
               <Trash2 size={14} /> Remove toolbox
-            </button>
+            </button>}
           </div>
         )}
       </div>
@@ -177,7 +183,7 @@ function ToolboxCard({
         ))}
       </ul>
 
-      {canEdit && (
+      {canFill && (
         <div className="mt-3 flex min-w-0 gap-2">
           <select className={`${input} min-w-0 py-1.5 text-xs`} value={adding} onChange={(e) => setAdding(e.target.value)}>
             <option value="">Add a tool from the yard…</option>

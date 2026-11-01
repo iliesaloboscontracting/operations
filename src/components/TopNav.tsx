@@ -109,14 +109,27 @@ const ACCOUNTS = [
   { href: "/messages", label: "Messages" },
   { href: "/accounts/tax", label: "Tax estimates" },
 ];
+// The coordinator's screen (Alex, 2 Nov 2026): his dashboard and the pages he may use (lib/roles.ts COORDINATOR_PAGES).
+const COORDINATOR = [
+  { href: "/coordinator", label: "Dashboard" },
+  { href: "/timesheets", label: "Timesheets" },
+  { href: "/attendance", label: "Sign-ins" },
+  { href: "/day-review", label: "Day Review" },
+  { href: "/calendar", label: "Calendar" },
+  { href: "/tools", label: "Tools" },
+  { href: "/hire", label: "Hire" },
+  { href: "/purchases", label: "Purchases" },
+  { href: "/messages", label: "Messages" },
+  { href: "/documents", label: "Documents" },
+];
 // The invoices inbox is an Operations page as well as an Accounts tab: an Admin who got there from the
 // Accounts screen stays on the Accounts screen.
 const SCREEN_KEY = "lobos-screen";
 
 export default function TopNav() {
   const path = usePathname() ?? "";
-  const { user, loading, canEdit, isAdmin, isDirector, directorOnly, timesheetsOnly, accountsOnly, signOut } = useAuth();
-  const onePage = timesheetsOnly ? "/timesheets" : accountsOnly ? "/accounts" : directorOnly ? "/directors" : null;
+  const { user, loading, canEdit, isAdmin, isDirector, directorOnly, timesheetsOnly, accountsOnly, coordinatorOnly, signOut } = useAuth();
+  const onePage = timesheetsOnly ? "/timesheets" : accountsOnly ? "/accounts" : directorOnly ? "/directors" : coordinatorOnly ? "/coordinator" : null;
   const [changingPw, setChangingPw] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [startingSoon, setStartingSoon] = useState(0);
@@ -137,7 +150,7 @@ export default function TopNav() {
   // Messages (office chat, 27 Oct 2026): unread in the Office room and my one-to-ones, on every screen that has the tab.
   const [messages, setMessages] = useState(0);
   const refreshMessages = useCallback(() => {
-    if (loading || !user || !["ACCOUNTS", "DIRECTOR", "ADMIN", "MANAGER"].includes(user.role)) return;
+    if (loading || !user || !["ACCOUNTS", "DIRECTOR", "ADMIN", "MANAGER", "COORDINATOR"].includes(user.role)) return;
     fetch("/api/messages/unread").then((r) => (r.ok ? r.json() : { unread: 0 })).then((d: { unread: number }) => setMessages(d.unread)).catch(() => setMessages(0));
   }, [loading, user]);
   useEffect(refreshMessages, [refreshMessages, path]);
@@ -201,12 +214,13 @@ export default function TopNav() {
     } catch { setFromScreen(null); }
   }, [path]);
   const fromAccounts = fromScreen === "accounts";
-  const screen: "directors" | "accounts" | null = directorOnly ? "directors" : accountsOnly ? "accounts"
+  const screen: "directors" | "accounts" | "coordinator" | null = directorOnly ? "directors" : accountsOnly ? "accounts" : coordinatorOnly ? "coordinator"
     : isDirector && (isActive("/directors") || (path === "/messages" && fromScreen === "directors")) ? "directors"
     : isAdmin && (isActive("/accounts") || ((path === "/invoices" || path === "/messages") && fromAccounts)) ? "accounts" : null;
-  const screenTabs = screen === "directors" ? DIRECTORS : screen === "accounts" ? ACCOUNTS : [];
+  const screenTabs = screen === "directors" ? DIRECTORS : screen === "accounts" ? ACCOUNTS : screen === "coordinator" ? COORDINATOR : [];
   // Overview also covers a job opened from it; every other tab is its own page or below it.
-  const tabActive = (href: string) => (href === "/directors" ? path === "/directors" || path.startsWith("/directors/jobs") : href === "/accounts" ? path === "/accounts" : isActive(href));
+  const tabActive = (href: string) => (href === "/directors" ? path === "/directors" || path.startsWith("/directors/jobs") : href === "/accounts" ? path === "/accounts"
+    : href === "/day-review" ? isActive(href) || path.startsWith("/daily-report/") : isActive(href));
 
   return (
     <nav className="relative z-10 flex h-14 w-full shrink-0 items-center border-b-[3px] border-brand-500 bg-sidebar px-3 shadow-soft">

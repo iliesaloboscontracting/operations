@@ -49,11 +49,14 @@ export default function AttendancePage() {
   useEffect(() => {
     load();
   }, [load]);
+  // The people and truck pickers are for the office's changes - a view-only login (the coordinator, 2 Nov 2026)
+  // doesn't load them (the registers refuse him).
   useEffect(() => {
-    apiFetch("/api/resources?type=PERSONNEL").then(async (r) => r.ok && setPeople(((await r.json()) as ResourceDTO[]).filter((p) => p.type === "PERSONNEL")));
     apiFetch("/api/projects").then(async (r) => r.ok && setProjects(await r.json()));
+    if (!canEdit) return;
+    apiFetch("/api/resources?type=PERSONNEL").then(async (r) => r.ok && setPeople(((await r.json()) as ResourceDTO[]).filter((p) => p.type === "PERSONNEL")));
     apiFetch("/api/resources?type=VEHICLE").then(async (r) => r.ok && setVehicles(((await r.json()) as ResourceDTO[]).filter((v) => v.type === "VEHICLE")));
-  }, []);
+  }, [canEdit]);
   // Today's page keeps itself current while it's open.
   useEffect(() => {
     if (!data || date !== data.today) return;

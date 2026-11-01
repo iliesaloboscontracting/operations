@@ -18,7 +18,9 @@ type Status = {
 const when = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" }) : "");
 
 export default function DocumentsPage() {
-  const { canEdit, loading } = useAuth();
+  // The coordinator searches the site & safety folders only (the server decides which - 2 Nov 2026).
+  const { canEdit: manager, coordinatorOnly, loading } = useAuth();
+  const canEdit = manager || coordinatorOnly;
   const [q, setQ] = useState("");
   const [hits, setHits] = useState<Hit[] | null>(null);
   const [busy, setBusy] = useState(false);
@@ -45,7 +47,7 @@ export default function DocumentsPage() {
     loadStatus();
   }
 
-  if (!loading && !canEdit) return <PageShell title="Documents"><p className="text-sm text-gray-400">Document search is for Managers and Admins.</p></PageShell>;
+  if (!loading && !canEdit) return <PageShell title="Documents"><p className="text-sm text-gray-400">Document search is for the office.</p></PageShell>;
   return (
     <PageShell title="Documents" subtitle="Search SWMS, scopes, drawings and contracts in the approved SharePoint folders. Opening a document goes through SharePoint's own permissions.">
       {st && (

@@ -8,6 +8,7 @@ import { fmtDay } from "@/lib/dates";
 import { ACM, UNIT_LABEL } from "@/lib/dailyLog/rules";
 import type { SiteReportDTO } from "@/lib/dailyLog/types";
 import BeforeAfterView from "./BeforeAfterView";
+import { useAuth } from "@/components/AuthProvider";
 
 // The written "Daily site report" (29 Oct 2026, Ilies "go"): one job on one day, laid out for the office to read or
 // print - site, date, supervisor, crew and signed hours, hours by activity code, plant, delays with photos, tip
@@ -34,6 +35,7 @@ const PRINT = `
 export default function SiteReport({ jobId, mode, inline = false }: { jobId: string; mode: "ops" | "director"; inline?: boolean }) {
   const [r, setR] = useState<SiteReportDTO | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const { coordinatorOnly } = useAuth();
   const base = mode === "director" ? `/api/directors/daily-report` : `/api/daily-report`;
   const photo = (logId: string, file: string) =>
     `${mode === "director" ? "/api/directors/daily-report/photo" : "/api/day-review/site-logs/photo"}?log=${logId}&file=${encodeURIComponent(file)}`;
@@ -46,7 +48,8 @@ export default function SiteReport({ jobId, mode, inline = false }: { jobId: str
   const l = r.log;
   const labour = l ? l.hours.filter((x) => x.kind === "LABOUR") : [];
   const plant = l ? l.hours.filter((x) => x.kind !== "LABOUR") : [];
-  const back = mode === "director" ? (r.projectId ? `/directors/jobs/${r.projectId}` : "/directors") : (r.projectId ? `/tracking/${r.projectId}` : "/day-review");
+  // The coordinator has no Tracking page - his report goes back to Day Review.
+  const back = mode === "director" ? (r.projectId ? `/directors/jobs/${r.projectId}` : "/directors") : (r.projectId && !coordinatorOnly ? `/tracking/${r.projectId}` : "/day-review");
   const card = "sr-card rounded-xl border border-edge bg-panel p-4";
   const h3 = "mb-2 text-sm font-semibold uppercase tracking-wide text-gray-400 sr-muted";
 

@@ -8,6 +8,7 @@ import RegisterByPhoto from "@/components/tools/RegisterByPhoto";
 import ToolDetail from "@/components/tools/ToolDetail";
 import { OWNERSHIP_LABEL, TOOL_CONDITIONS, TOOL_OWNERSHIP } from "@/lib/pickTool";
 import { ToolDTO } from "@/lib/types";
+import { useAuth } from "@/components/AuthProvider";
 
 const SECTION_TO_CHECK = "Added from site - to check";
 const SECTION_UNREADABLE = "Plate not readable";
@@ -27,10 +28,13 @@ const conditionPill = (c: string) =>
 
 export default function ToolsPage() {
   const [byPhoto, setByPhoto] = useState<null | (() => Promise<void>)>(null);
+  // The coordinator (2 Nov 2026, Ilies) adds, edits, moves and deletes tools the way a Manager does.
+  const { canEdit, coordinatorOnly } = useAuth();
   return (
     <>
       <RegisterPage<ToolDTO>
         config={{
+          canEdit: canEdit || coordinatorOnly,
           title: "Tools",
           subtitle: "Every tagged tool, its serial number, and the toolbox it belongs in.",
           addLabel: "Add tool by hand",

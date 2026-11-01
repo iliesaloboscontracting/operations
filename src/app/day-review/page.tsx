@@ -341,9 +341,10 @@ export default function DayReviewPage() {
     load();
   }, [load]);
 
+  // The register is only for adding someone to a job - a view-only login (the coordinator, 2 Nov 2026) doesn't load it.
   useEffect(() => {
-    apiFetch("/api/resources").then((r) => (r.ok ? r.json() : [])).then(setResources);
-  }, []);
+    if (canEdit) apiFetch("/api/resources").then((r) => (r.ok ? r.json() : [])).then(setResources);
+  }, [canEdit]);
 
   const closed = data?.dayClose.status === "CLOSED";
 

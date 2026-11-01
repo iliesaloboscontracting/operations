@@ -157,7 +157,9 @@ function SiteView({ data, search }: { data: Data; search: string }) {
 }
 
 export default function TimesheetsPage() {
-  const { canEdit, isAdmin, timesheetsOnly } = useAuth();
+  const { canEdit, isAdmin, timesheetsOnly: reviewer, coordinatorOnly } = useAuth();
+  // The TIMESHEETS login and the coordinator (2 Nov 2026) look only - no approve, reopen or export.
+  const timesheetsOnly = reviewer || coordinatorOnly;
   const [week, setWeek] = useState(() => localISODate());
   const [data, setData] = useState<Data | null>(null);
   const [error, setError] = useState<string | null>(null);

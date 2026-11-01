@@ -6,12 +6,13 @@ import FormModal, { FieldDef } from "@/components/FormModal";
 import { useAuth } from "@/components/AuthProvider";
 import { isOwner } from "@/lib/owner";
 import { apiFetch } from "@/lib/apiFetch";
+import type { Role } from "@/lib/roles";
 
 interface UserRow {
   id: string;
   email: string;
   name: string;
-  role: "ADMIN" | "MANAGER" | "VIEWER" | "TIMESHEETS" | "ACCOUNTS" | "DIRECTOR";
+  role: Role;
   active: boolean;
   directorAccess: boolean;
   lastLoginAt: string | null;
@@ -24,6 +25,9 @@ const ROLE_OPTIONS = [
   { value: "VIEWER", label: "Viewer — read only" },
   { value: "TIMESHEETS", label: "Timesheets — review only, nothing else" },
   { value: "ACCOUNTS", label: "Accounts — upload invoices, nothing else" },
+  // Project coordinator (2 Nov 2026): his own dashboard - views timesheets, sign-ins, Day Review and the calendar;
+  // works tools and hire (no dollar figures); purchase requests, messages, site & safety documents.
+  { value: "COORDINATOR", label: "Coordinator — tools, hire, timesheets & sign-ins view; no Operations" },
 ];
 // Directors-only login (25 Oct 2026) - only the owner can give or take it away.
 const DIRECTOR_OPTION = { value: "DIRECTOR", label: "Director — company overview only, no Operations" };
@@ -35,6 +39,7 @@ const ROLE_STYLE: Record<string, string> = {
   TIMESHEETS: "bg-emerald-900/50 text-emerald-300",
   ACCOUNTS: "bg-amber-900/50 text-amber-300",
   DIRECTOR: "bg-sky-900/50 text-sky-300",
+  COORDINATOR: "bg-teal-900/50 text-teal-300",
 };
 
 function when(iso: string | null) {
