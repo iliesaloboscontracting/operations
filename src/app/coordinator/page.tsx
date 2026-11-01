@@ -16,7 +16,7 @@ const TILES = [
   { href: "/calendar", label: "Calendar", what: "Every job coming up and running. View only.", icon: CalendarDays },
   { href: "/tools", label: "Tools & toolboxes", what: "The tool register, toolboxes, checks by photo, faults and Hilti swaps.", icon: Wrench },
   { href: "/hire", label: "Hire", what: "Add, extend and off-hire - suppliers, dates, status and the project it's for.", icon: Truck },
-  { href: "/purchases", label: "Purchase requests", what: "Ask to buy something and follow it - Ilies or a director approves.", icon: ShoppingCart },
+  { href: "/purchases", label: "Purchase requests", what: "Buy or hire something, with suppliers' quotes - Ilies or a director approves.", icon: ShoppingCart },
   { href: "/messages", label: "Messages", what: "The office chat and your one-to-ones.", icon: MessageSquare },
   { href: "/documents", label: "Documents", what: "Search the site & safety folders - SWMS, scopes, drawings.", icon: FileSearch },
 ];

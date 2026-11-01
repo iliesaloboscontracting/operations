@@ -1,9 +1,10 @@
 "use client";
 
-// Directors -> Purchases to approve (Accounts stage 6, 27 Oct 2026). Accounts have checked and priced each request;
-// a DIRECTOR login other than the person who asked approves or declines it, then accounts order it. Money is
-// shown - directors only.
+// Directors -> Purchases to approve (Accounts stage 6, 27 Oct 2026). The owner or a DIRECTOR login other than the
+// person who asked approves or declines each request, picking the supplier's quote to go with (2 Nov 2026), then
+// accounts order it. Prices are shown.
 import { useCallback, useEffect, useState } from "react";
+import { money } from "@/lib/resource";
 import PageShell from "@/components/PageShell";
 import Summary, { type PurchaseDTO } from "@/components/purchases/Summary";
 import { useAuth } from "@/components/AuthProvider";
@@ -12,24 +13,39 @@ import { btn, btnPrimary, input } from "@/components/compliance/shared";
 
 function Decide({ r, onChanged }: { r: PurchaseDTO; onChanged: () => void }) {
   const [note, setNote] = useState("");
+  // D3 (Ilies, 2 Nov 2026): approving picks the supplier's quote to go with; a single quote is pre-selected.
+  const [pick, setPick] = useState<string>(r.quotes.length === 1 ? r.quotes[0].id : "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   if (r.cannotDecide) return <p className="mt-2 text-sm text-gray-400">{r.cannotDecide}</p>;
   async function act(action: "APPROVE" | "DECLINE" | "ASK_INFO") {
     setBusy(true);
     setError(null);
-    const res = await apiFetch(`/api/directors/purchases/${r.id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, note, question: note, version: r.version }) });
+    const res = await apiFetch(`/api/directors/purchases/${r.id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, note, question: note, version: r.version, ...(action === "APPROVE" && pick ? { chosenQuoteId: pick } : {}) }) });
     setBusy(false);
     if (!res.ok) return setError(await serverErrorMessage(res, "Couldn't save."));
     onChanged();
   }
   return (
-    <div className="mt-2 flex flex-wrap items-center gap-2">
-      <input className={`${input} max-w-md`} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note or question (needed to decline or ask; the requester sees it - no prices)" />
-      <button disabled={busy} className={btnPrimary} onClick={() => act("APPROVE")}>Approve</button>
+    <div className="mt-2 space-y-2">
+      {r.quotes.length > 1 && (
+        <fieldset className="space-y-1">
+          <legend className="text-xs font-medium text-gray-400">Go with</legend>
+          {r.quotes.map((q) => (
+            <label key={q.id} className="flex items-center gap-2 text-sm text-gray-200">
+              <input type="radio" name={`pick-${r.id}`} checked={pick === q.id} onChange={() => setPick(q.id)} />
+              {q.supplier}{q.priceExGst != null ? ` - ${money(q.priceExGst)} ex GST` : ""}
+            </label>
+          ))}
+        </fieldset>
+      )}
+    <div className="flex flex-wrap items-center gap-2">
+      <input className={`${input} max-w-md`} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note or question (needed to decline or ask; the requester sees it)" />
+      <button disabled={busy || (r.quotes.length > 1 && !pick)} title={r.quotes.length > 1 && !pick ? "Pick the supplier first" : undefined} className={btnPrimary} onClick={() => act("APPROVE")}>Approve</button>
       <button disabled={busy} className={btn} onClick={() => act("DECLINE")}>Decline</button>
       <button disabled={busy || note.trim().length < 3} className={btn} onClick={() => act("ASK_INFO")}>Ask a question</button>
       {error && <span className="text-xs text-red-400">{error}</span>}
+    </div>
     </div>
   );
 }
