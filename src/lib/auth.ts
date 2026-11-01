@@ -6,7 +6,7 @@ import { promisify } from "util";
 import { prisma } from "./prisma";
 import { SESSION_COOKIE, sessionMaxAgeFor, signSession, verifySession } from "./session";
 import { isOwner } from "./owner";
-import { rankAtLeast } from "./roleRank";
+import { UNKNOWN_RANK, rankAtLeast, rankOf } from "./roleRank";
 
 const scrypt = promisify(scryptCb) as (pw: string, salt: Buffer, len: number) => Promise<Buffer>;
 
@@ -32,8 +32,10 @@ export interface AuthUser {
 }
 
 // Director Insights (24 Oct 2026): the director tick, or the owner. Never the
-// one-page roles, even if ticked by mistake.
+// one-page roles, even if ticked by mistake - and never a role the code doesn't know, whatever its tick says
+// (CO-001-R1, Ilies approved 2 Nov 2026).
 export function hasDirectorAccess(u: { email: string; role: string; directorAccess: boolean }) {
+  if (rankOf(u.role) === UNKNOWN_RANK) return false;
   if (u.role === "TIMESHEETS" || u.role === "ACCOUNTS") return false;
   return u.role === "DIRECTOR" || isOwner(u.email) || u.directorAccess;
 }

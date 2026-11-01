@@ -17,6 +17,15 @@ test("an unknown role (a rollback, a typo, anything) is refused by every level",
   }
 });
 
+test("CO-001-R1: an unknown role never has director access, whatever its tick says; known roles unchanged", async () => {
+  const { hasDirectorAccess } = await import("./auth");
+  for (const role of ["COORDINATOR", "BOGUS", ""]) assert.equal(hasDirectorAccess({ email: "x@example.test", role, directorAccess: true }), false, role);
+  assert.equal(hasDirectorAccess({ email: "x@example.test", role: "DIRECTOR", directorAccess: false }), true);
+  assert.equal(hasDirectorAccess({ email: "x@example.test", role: "MANAGER", directorAccess: true }), true);
+  assert.equal(hasDirectorAccess({ email: "x@example.test", role: "MANAGER", directorAccess: false }), false);
+  for (const role of ["TIMESHEETS", "ACCOUNTS"]) assert.equal(hasDirectorAccess({ email: "x@example.test", role, directorAccess: true }), false, role);
+});
+
 test("money is stripped for an unknown role, as for the lowest", () => {
   const r = toPublicResource({ name: "Excavator", dailyRateExGst: 900, rate: 1, ordinaryRate: 50 } as Record<string, unknown>, "COORDINATOR" as never);
   assert.deepEqual(r, { name: "Excavator" });
