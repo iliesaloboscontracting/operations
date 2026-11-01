@@ -117,8 +117,9 @@ export default {
     }
     // Payroll files (accounts): a Travel hours column, still hours only.
     for (const f of ["payrun", "summary"]) {
-      const csv = (await c.text(`/api/accounts/payroll/export?week=${week}&file=${f}`, "ACCOUNTS")).text;
-      t.ok(/Travel hours/.test(csv) && noMoney(csv) && !/\bBSB\b|\bTFN\b|\bABA\b/i.test(csv), `payroll ${f} file: Travel hours column, no money`);
+      const r = await c.text(`/api/accounts/payroll/export?week=${week}&file=${f}`, "ACCOUNTS");
+      const csv = r.text;
+      t.ok(r.status === 200 && /Travel hours/.test(csv) && noMoney(csv) && !/\bBSB\b|\bTFN\b|\bABA\b/i.test(csv), `payroll ${f} file: Travel hours column, no money`, `${r.status} ${csv.slice(0, 160)}`);
     }
     // GPS: accounts / Admins only (the payroll week), never the Sign-ins page.
     const pay = await c.text(`/api/accounts/payroll?week=${week}`, "ACCOUNTS");
