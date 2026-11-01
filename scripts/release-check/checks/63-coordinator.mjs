@@ -161,8 +161,10 @@ export default {
     t.status(await c.get(`/api/timesheets?week=${q.week}`, "TIMESHEETS"), 200, "a TIMESHEETS login still reviews timesheets");
     if (c.links.office) t.status(await c.get(c.site(c.links.office, "/todo"), null), 200, "an OFFICE link's to-do still works");
 
-    // (10) No dollar figure in anything he received.
-    const leaks = seen.filter(([, text]) => !noMoney(text)).map(([p]) => p);
-    t.ok(leaks.length === 0, `no "$" + digit in any of his ${seen.length} replies`, leaks.join(", "));
+    // (10) No dollar figure in anything he received - except office chat, where amounts are allowed for every office
+    // login (Ilies, 27 Oct 2026: "DOLLAR VALUES ARE APPROVED WITHIN THE OFFICE CHATS AND MESSAGES").
+    const scanned = seen.filter(([p]) => !/\/api\/messages/.test(p));
+    const leaks = scanned.filter(([, text]) => !noMoney(text)).map(([p]) => p);
+    t.ok(leaks.length === 0, `no "$" + digit in any of his ${scanned.length} replies (office chat aside)`, leaks.join(", "));
   },
 };

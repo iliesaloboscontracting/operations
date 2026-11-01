@@ -1,6 +1,6 @@
-import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { guardOrCoordinator } from "@/lib/auth";
+import { viewJson } from "@/lib/coordinatorView"; // the coordinator gets no dollar figure (2 Nov 2026)
 import { withErrorHandling } from "@/lib/apiHandler";
 import { offHireAlert } from "@/lib/hireEstimate";
 import { todaySydney } from "@/lib/today";
@@ -37,5 +37,5 @@ export const GET = withErrorHandling(async () => {
       daysLeft: a.daysLeft,
     }))
     .sort((x, y) => order[x.level] - order[y.level] || x.daysLeft - y.daysLeft);
-  return NextResponse.json({ today, alerts });
+  return viewJson({ today, alerts });
 });

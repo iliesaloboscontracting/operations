@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { guard, getCurrentUser, guardOrCoordinator } from "@/lib/auth";
+import { viewJson } from "@/lib/coordinatorView"; // the coordinator gets no dollar figure (2 Nov 2026)
 import { pickProject } from "@/lib/pickProject";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { addDays } from "@/lib/dates";
@@ -90,7 +91,7 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
       return out;
     })
   );
-  return NextResponse.json(out);
+  return viewJson(out);
 });
 
 export const POST = withErrorHandling(async (req: NextRequest) => {

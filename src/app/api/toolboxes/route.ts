@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { guard, guardOrCoordinator } from "@/lib/auth";
+import { viewJson } from "@/lib/coordinatorView"; // the coordinator gets no dollar figure (2 Nov 2026)
 import { withErrorHandling } from "@/lib/apiHandler";
 import { checkSupervisor } from "@/lib/toolboxServer";
 
@@ -20,7 +21,7 @@ export const GET = withErrorHandling(async () => {
       checks: { orderBy: { createdAt: "desc" }, take: 1, select: { id: true, createdAt: true, checkedBy: true, result: true } },
     },
   });
-  return NextResponse.json(
+  return viewJson(
     boxes.map(({ checks, ...b }) => {
       const last = checks[0];
       let summary: { missing: number; foreign: number } | null = null;

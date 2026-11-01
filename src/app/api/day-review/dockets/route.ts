@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { guardOrCoordinator } from "@/lib/auth";
+import { viewJson } from "@/lib/coordinatorView"; // the coordinator gets no dollar figure (2 Nov 2026)
 import { withErrorHandling } from "@/lib/apiHandler";
 import { docketsForDay } from "@/lib/receipts/indicatorStore";
 
@@ -11,5 +12,5 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
   if (denied) return denied;
   const date = req.nextUrl.searchParams.get("date") ?? "";
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return NextResponse.json({ error: "date is required" }, { status: 400 });
-  return NextResponse.json(await docketsForDay(date));
+  return viewJson(await docketsForDay(date));
 });

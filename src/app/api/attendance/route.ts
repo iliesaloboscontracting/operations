@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { guard, getCurrentUser, guardOrCoordinator } from "@/lib/auth";
+import { viewJson } from "@/lib/coordinatorView"; // the coordinator gets no dollar figure (2 Nov 2026)
 import { withErrorHandling } from "@/lib/apiHandler";
 import { isISODate } from "@/lib/dateRules";
 import { attendanceForDate } from "@/lib/attendanceView";
@@ -27,7 +28,7 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
       select: { id: true, jobId: true, expiresAt: true, createdBy: true, resource: { select: { name: true } } },
     }),
   ]);
-  return NextResponse.json({ date, today: todaySydney(), jobs: view.jobs, points: view.points, posters, handovers });
+  return viewJson({ date, today: todaySydney(), jobs: view.jobs, points: view.points, posters, handovers });
 });
 
 // POST /api/attendance - the office adds a sign-in that was missed.

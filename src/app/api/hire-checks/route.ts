@@ -1,5 +1,5 @@
-import { NextResponse } from "next/server";
 import { guardOrCoordinator } from "@/lib/auth";
+import { viewJson } from "@/lib/coordinatorView"; // the coordinator gets no dollar figure (2 Nov 2026)
 import { withErrorHandling } from "@/lib/apiHandler";
 import { latestHireChecks } from "@/lib/hireCheck";
 
@@ -8,5 +8,5 @@ import { latestHireChecks } from "@/lib/hireCheck";
 export const GET = withErrorHandling(async () => {
   const denied = await guardOrCoordinator("VIEWER");
   if (denied) return denied;
-  return NextResponse.json({ checks: await latestHireChecks() });
+  return viewJson({ checks: await latestHireChecks() });
 });

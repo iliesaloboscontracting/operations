@@ -3,7 +3,25 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { assertNoMoney } from "./moneyGuard";
-import { HIRE_MONEY_FIELDS, NO_ARCHIVE, NO_MONEY_ON_HIRE, coordinatorHireWrite, toCoordinatorHire } from "./coordinatorHire";
+import { HIRE_MONEY_FIELDS, NO_ARCHIVE, NO_MONEY_ON_HIRE, coordinatorHireWrite, toCoordinatorHire, withoutAmounts } from "./coordinatorHire";
+
+test("his other replies: every amount in free text taken out, nothing else touched", () => {
+  const at = new Date("2026-11-02T00:00:00Z");
+  const reply = {
+    date: "2026-11-02", count: 3, ok: true, none: null, at,
+    jobs: [{ title: "Smith St", notes: "Variation approved $4,500 + GST", otherSignIns: [{ name: "Sam", company: "$5 Labour" }] }],
+  };
+  const out = withoutAmounts(reply);
+  assert.ok(assertNoMoney(JSON.stringify(out)), JSON.stringify(out));
+  assert.equal(out.count, 3);
+  assert.equal(out.ok, true);
+  assert.equal(out.none, null);
+  assert.equal(out.at, at, "a date stays a date");
+  assert.equal(out.jobs[0].title, "Smith St", "text with no amount is unchanged");
+  assert.match(out.jobs[0].notes, /Variation approved \(amount not recorded\)/);
+  assert.match(out.jobs[0].otherSignIns[0].company, /Labour/);
+  assert.match(reply.jobs[0].notes, /\$4,500/, "the original isn't changed");
+});
 
 const stored = {
   id: "r1", type: "HIRE", category: "PLANT", ownership: "HIRED", active: true, status: "AVAILABLE",

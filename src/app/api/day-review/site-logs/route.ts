@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser, guardOrCoordinator } from "@/lib/auth";
+import { viewJson } from "@/lib/coordinatorView"; // the coordinator gets no dollar figure (2 Nov 2026)
 import { withErrorHandling } from "@/lib/apiHandler";
 import { siteLogsForDate } from "@/lib/dailyLog/store";
 
@@ -20,5 +21,5 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return NextResponse.json({ error: "date is required" }, { status: 400 });
   const user = await getCurrentUser();
   const office = !!user && (user.role === "MANAGER" || user.role === "ADMIN");
-  return NextResponse.json(await siteLogsForDate(date, new Date(), office));
+  return viewJson(await siteLogsForDate(date, new Date(), office));
 });

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { guardOrCoordinator } from "@/lib/auth";
+import { viewJson } from "@/lib/coordinatorView"; // the coordinator gets no dollar figure (2 Nov 2026)
 import { addDays } from "@/lib/dates";
 import { CalendarJobDTO } from "@/lib/types";
 import { withErrorHandling } from "@/lib/apiHandler";
@@ -80,5 +81,5 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
     };
   });
 
-  return NextResponse.json(out);
+  return viewJson(out);
 });

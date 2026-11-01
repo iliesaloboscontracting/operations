@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser, guardOrCoordinator } from "@/lib/auth";
+import { viewJson } from "@/lib/coordinatorView"; // the coordinator gets no dollar figure (2 Nov 2026)
 import { pickTool, toolFieldError } from "@/lib/pickTool";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { moveTool } from "@/lib/toolMoves";
@@ -24,7 +25,7 @@ export const GET = withErrorHandling(async (_req: NextRequest, { params: paramsP
     },
   });
   if (!tool) return NextResponse.json({ error: "not found" }, { status: 404 });
-  return NextResponse.json(tool);
+  return viewJson(tool);
 });
 
 // PATCH /api/tools/:id { ...fields, toolboxId?, moveReason? }

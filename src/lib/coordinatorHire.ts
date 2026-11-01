@@ -36,6 +36,21 @@ export function shownText(field: string, v: unknown): string | null {
   return (NAME_FIELDS as readonly string[]).includes(field) ? nameWithoutAmounts(v) : text.replace(/\$/g, "");
 }
 
+// Every other reply he reads (sign-ins, Day Review, timesheets, the calendar and its project list, tools, the hire
+// alerts): the same data a Viewer gets, with any amount typed into free text taken out (a project's notes, a hire
+// company someone named "$5 Labour"). Walks arrays and plain objects; numbers, dates and the rest are left alone.
+// Office chat is not run through this - amounts are allowed there (Ilies, 27 Oct 2026).
+export function withoutAmounts<T>(x: T): T {
+  if (typeof x === "string") return shownText("notes", x) as T;
+  if (Array.isArray(x)) return x.map((v) => withoutAmounts(v)) as T;
+  if (x && typeof x === "object") {
+    const proto = Object.getPrototypeOf(x);
+    if (proto !== Object.prototype && proto !== null) return x; // a Date, a Buffer...
+    return Object.fromEntries(Object.entries(x as Record<string, unknown>).map(([k, v]) => [k, withoutAmounts(v)])) as T;
+  }
+  return x;
+}
+
 type Row = Record<string, unknown> & { id: string };
 export type CoordinatorHireDTO = {
   id: string; type: string; category: string | null; active: boolean;

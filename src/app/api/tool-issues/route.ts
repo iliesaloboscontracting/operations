@@ -1,6 +1,6 @@
-import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { guardOrCoordinator } from "@/lib/auth";
+import { viewJson } from "@/lib/coordinatorView"; // the coordinator gets no dollar figure (2 Nov 2026)
 import { withErrorHandling } from "@/lib/apiHandler";
 
 // GET /api/tool-issues -> open faults (reported or waiting on a Hilti swap), oldest first.
@@ -19,5 +19,5 @@ export const GET = withErrorHandling(async () => {
       },
     },
   });
-  return NextResponse.json(issues);
+  return viewJson(issues);
 });

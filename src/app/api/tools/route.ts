@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser, guardOrCoordinator } from "@/lib/auth";
+import { viewJson } from "@/lib/coordinatorView"; // the coordinator gets no dollar figure (2 Nov 2026)
 import { withErrorHandling } from "@/lib/apiHandler";
 import { createTool } from "@/lib/toolCreate";
 
@@ -15,7 +16,7 @@ export const GET = withErrorHandling(async () => {
       _count: { select: { issues: { where: { status: { in: ["REPORTED", "SWAP_REQUESTED"] } } } } },
     },
   });
-  return NextResponse.json(
+  return viewJson(
     tools.map(({ _count, ...t }) => ({ ...t, openIssues: _count.issues }))
   );
 });

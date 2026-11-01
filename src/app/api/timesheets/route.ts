@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { guard, getCurrentUser, guardTimesheetViewer } from "@/lib/auth";
+import { viewJson } from "@/lib/coordinatorView"; // the coordinator gets no dollar figure (2 Nov 2026)
 import { withErrorHandling } from "@/lib/apiHandler";
 import { isISODate } from "@/lib/dateRules";
 import { todaySydney } from "@/lib/today";
@@ -39,7 +40,7 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
       approvedLines.filter((a) => !lines.some((l) => l.attendanceId === a.attendanceId)).length
     : 0;
   const issues = lines.filter((l) => lineIssues(l).length > 0).length;
-  return NextResponse.json({
+  return viewJson({
     weekStart,
     weekEnd: weekEnd(weekStart),
     days: weekDates(weekStart),

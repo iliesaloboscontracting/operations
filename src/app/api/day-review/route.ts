@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser, guardOrCoordinator } from "@/lib/auth";
+import { viewJson } from "@/lib/coordinatorView"; // the coordinator gets no dollar figure (2 Nov 2026)
 import { withErrorHandling } from "@/lib/apiHandler";
 import { costAllocation } from "@/lib/costAllocation";
 import { liveJobFields } from "@/lib/jobs";
@@ -136,7 +137,7 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
     };
   });
 
-  return NextResponse.json({
+  return viewJson({
     date,
     dayClose: close ?? { date, status: "OPEN", closedBy: null, closedAt: null, reopenedBy: null, reopenedAt: null, reopenReason: null },
     jobs: outJobs,
