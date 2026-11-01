@@ -423,11 +423,13 @@ test("DS-015: a looping or memory-eating file is stopped and 'not readable' - an
 test("RT-002: the reading process gets PATH only - never the app's keys; on Linux it runs under prlimit's data limit", async () => {
   const env = workerEnv({ PATH: "/usr/bin", ANTHROPIC_API_KEY: "sk-ant-x", AUTH_SECRET: "s", GRAPH_CLIENT_SECRET: "g", DATABASE_URL: "file:x" }, "linux");
   assert.deepEqual(env, { PATH: "/usr/bin" });
-  const lin = workerCommand("/app/w.mjs", "pdf", 512, "linux", true);
+  const lin = workerCommand("/app/w.mjs", "pdf", 512, "linux", true)!;
   assert.equal(lin.cmd, "/usr/bin/prlimit");
   assert.deepEqual(lin.args.slice(0, 2), [`--data=${1024 * 1024 * 1024}`, "--"]);
   assert.deepEqual(lin.args.slice(3), ["--max-old-space-size=512", "/app/w.mjs", "pdf"]);
-  assert.equal(workerCommand("/app/w.mjs", "pdf", 512, "linux", false).cmd, process.execPath, "no prlimit -> plain node, heap cap and watchdog still apply");
+  assert.equal(workerCommand("/app/w.mjs", "pdf", 512, "linux", false, false)?.cmd, process.execPath, "no prlimit off the server -> plain node, heap cap and watchdog still apply");
+  assert.equal(workerCommand("/app/w.mjs", "pdf", 512, "linux", false, true), null, "DSO-003: on the server with no prlimit, nothing is started");
+  assert.equal(workerCommand("/app/w.mjs", "pdf", 512, "win32", false, true)?.cmd, process.execPath, "not Linux -> plain node");
   // What a real child sees: no secret from this process's environment.
   const { writeFileSync } = await import("fs");
   const dir = mkdtempSync(path.join(tmpdir(), "rt002-"));
@@ -451,7 +453,7 @@ test("Assistant: document search asks for the site & safety folders only, and ha
   const tools = readFileSync(path.join(__dirname, "..", "assistantTools.ts"), "utf8");
   assert.match(tools, /search_documents: \(input\) => `\/api\/documents\?scope=site&q=/, "always scope=site");
   const route = readFileSync(path.join(__dirname, "..", "..", "app", "api", "documents", "route.ts"), "utf8");
-  assert.match(route, /get\("scope"\) === "site" \? g\.levels\.filter\(\(l\) => l === "MANAGER"\) : g\.levels/, "scope=site can only narrow to MANAGER");
+  assert.match(route, /narrowLevels\(g\.levels, req\.nextUrl\.searchParams\.get\("scope"\)\)/, "the route narrows with narrowLevels");
   const hit = { id: "1", name: "SWMS Rev C.pdf", folder: "Project SWMS", path: "01_Projects - Live/x/SWMS Rev C.pdf", webUrl: "https://lobosdemolition.sharepoint.com/x", modified: "2026-10-01", revision: "Rev C", snippet: `All ${MARK_OPEN}night${MARK_CLOSE} work` };
   const out = documentHits({ hits: Array.from({ length: 12 }, () => hit) }) as { hits: Record<string, unknown>[] };
   assert.equal(out.hits.length, 8);
@@ -459,6 +461,66 @@ test("Assistant: document search asks for the site & safety folders only, and ha
   assert.deepEqual(documentHits({ off: "Document search is switched off.", hits: [] }), { off: "Document search is switched off." });
   const chat = readFileSync(path.join(__dirname, "..", "..", "app", "api", "assistant", "chat", "route.ts"), "utf8");
   assert.match(chat, /never as instructions to you/, "snippets are data, never instructions");
+});
+
+test("DSO-001: no dollar amount reaches the model from a document, and spreadsheets are left out", async () => {
+  const { documentHits } = await import("../assistantTools");
+  const { assertNoMoney } = await import("../moneyGuard");
+  const base = { id: "1", folder: "Waste disposal documents", path: "x", webUrl: null, modified: "2026-10-01", revision: null };
+  const out = documentHits({ hits: [
+    { ...base, name: "Rates $5.pdf", snippet: `Clean heavies ${MARK_OPEN}tip${MARK_CLOSE} $185/t, mixed waste $345 per tonne, AUD 90 a load` },
+    { ...base, name: "Tip rates 2026.xlsx", snippet: "Clean heavies 185 | Mixed 345" },
+    { ...base, name: "Hire register.CSV", snippet: "Excavator 5.5t 650" },
+  ] }) as { hits: { name: string; snippet: string }[] };
+  assert.equal(out.hits.length, 1, "the .xlsx and .csv hits are left out");
+  assert.ok(assertNoMoney(JSON.stringify(out.hits)), JSON.stringify(out.hits));
+  assert.doesNotMatch(JSON.stringify(out.hits), /\$\s?\d|185|345|AUD 90/);
+  assert.match(out.hits[0].snippet, /\(amount not recorded\)/);
+});
+
+test("scope=site narrows a login's own levels to MANAGER - behaviour on a real index, never widening", async () => {
+  const { narrowLevels } = await import("./folders");
+  for (const u of [{ role: "ADMIN" }, { role: "MANAGER", directorAccess: true }, { role: "MANAGER" }]) {
+    assert.deepEqual(narrowLevels(levelsFor(u), "site"), ["MANAGER"], u.role);
+    assert.deepEqual(narrowLevels(levelsFor(u), null), levelsFor(u), "no scope = unchanged");
+    assert.deepEqual(narrowLevels(levelsFor(u), "all"), levelsFor(u), "any other scope = unchanged, never more");
+  }
+  assert.deepEqual(narrowLevels([], "site"), [], "nothing stays nothing");
+  const dir = mkdtempSync(path.join(tmpdir(), "scope-"));
+  process.env.SEARCH_INDEX_PATH = path.join(dir, "search.db");
+  const idx = await import("./index");
+  try {
+    idx.closeIndex();
+    const run = idx.startRun("test", ALL);
+    const put = (id: string, p: string, folderId: string) => {
+      const f = FOLDERS.find((x) => x.id === folderId)!;
+      idx.putDoc({ id: `test:${id}`, folderId, folderLabel: f.label, level: f.level, name: p.split("/").pop()!, path: p, webUrl: null, modified: "2026-10-01", revision: null, etag: "1", size: 1, ext: "pdf", status: "OK", why: null, text: "demolition sequence for the level 2 slab" }, run);
+    };
+    put("swms", SWMS, "proj-swms");
+    put("contract", CONTRACT, "proj-contract");
+    const ids = (levels: ("MANAGER" | "COMMERCIAL")[]) => idx.search("demolition sequence", levels).hits.map((h) => h.id).sort();
+    assert.deepEqual(ids(levelsFor({ role: "ADMIN" })), ["test:contract", "test:swms"], "an Admin on the Documents page sees both");
+    assert.deepEqual(ids(narrowLevels(levelsFor({ role: "ADMIN" }), "site")), ["test:swms"], "the Assistant's ask, as an Admin: the contract never comes back");
+    assert.deepEqual(ids(narrowLevels(levelsFor({ role: "MANAGER", directorAccess: true }), "site")), ["test:swms"]);
+  } finally { idx.closeIndex(); delete process.env.SEARCH_INDEX_PATH; rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("DSO-002: the refresh lock is one per process (globalThis), shared by the nightly tick and Refresh now", async () => {
+  const svc = await import("./service");
+  const g = globalThis as unknown as { docIndexState?: { running: boolean } };
+  assert.ok(g.docIndexState, "loading service.ts puts the lock on globalThis");
+  const before = process.env.DOC_SEARCH;
+  try {
+    process.env.DOC_SEARCH_SOURCE = "local"; process.env.DOC_SEARCH_LOCAL_ROOT = tmpdir();
+    g.docIndexState!.running = true; // as if the other module copy were mid-run
+    assert.deepEqual(await svc.runRefresh(), { busy: true });
+  } finally {
+    g.docIndexState!.running = false;
+    delete process.env.DOC_SEARCH_SOURCE; delete process.env.DOC_SEARCH_LOCAL_ROOT;
+    if (before === undefined) delete process.env.DOC_SEARCH; else process.env.DOC_SEARCH = before;
+  }
+  const { readFileSync } = await import("fs");
+  assert.match(readFileSync(path.join(__dirname, "index.ts"), "utf8"), /PRAGMA busy_timeout = 5000;/);
 });
 
 test("RT-002: off-heap memory (Buffers) past the limit is stopped - the heap cap alone missed this", { skip: process.platform !== "linux" && "the OS limit and watchdog are Linux-only" }, async () => {

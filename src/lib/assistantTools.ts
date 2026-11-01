@@ -12,6 +12,7 @@
 // until read-only has proven itself.
 
 import type Anthropic from "@anthropic-ai/sdk";
+import { stripMoney } from "./dailyLog/money";
 
 export type ToolName = "get_jobs" | "get_tracking_summary" | "get_projects" | "get_resources" | "search_documents";
 
@@ -71,11 +72,17 @@ const PATH_FOR: Record<ToolName, (input: Record<string, unknown>) => string> = {
 };
 
 // What a document search hands the model: the top 8, without links or paths, the highlight marks removed.
+// DSO-001 (Ilies approved 1 Nov 2026 - rates never go to an AI): every dollar amount in a name or snippet becomes
+// "(amount not recorded)", and spreadsheets (.xlsx / .csv - bare numbers with no "$") are left out; they stay
+// searchable on the Documents page.
 export function documentHits(data: unknown): unknown {
   const d = data as { off?: string; hits?: { name: string; folder: string; revision: string | null; modified: string | null; snippet: string }[] };
   if (d?.off) return { off: d.off };
   return {
-    hits: (d?.hits ?? []).slice(0, 8).map((h) => ({ name: h.name, folder: h.folder, revision: h.revision, modified: h.modified, snippet: h.snippet.replace(/[\u0001\u0002]/g, "") })),
+    hits: (d?.hits ?? []).filter((h) => !/\.(xlsx|csv)$/i.test(h.name)).slice(0, 8).map((h) => ({
+      name: stripMoney(h.name).text, folder: h.folder, revision: h.revision, modified: h.modified,
+      snippet: stripMoney(h.snippet.replace(/[\u0001\u0002]/g, "")).text,
+    })),
   };
 }
 

@@ -38,7 +38,9 @@ export function openIndex(file = indexPath()): Db {
   if (file !== ":memory:") secureFile(file);
   db = new (sqlite().DatabaseSync)(file);
   openedAt = file;
+  // DSO-002: each module copy holds its own connection - wait up to 5 s for the other instead of failing on SQLITE_BUSY.
   db.exec(`
+    PRAGMA busy_timeout = 5000;
     PRAGMA journal_mode = WAL;
     CREATE TABLE IF NOT EXISTS docs (
       rowid INTEGER PRIMARY KEY, id TEXT UNIQUE NOT NULL, folder_id TEXT NOT NULL, folder_label TEXT NOT NULL, level TEXT NOT NULL,

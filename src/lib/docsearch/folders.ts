@@ -77,6 +77,8 @@ export function levelsFor(user: { role: string; directorAccess?: boolean }): Lev
   return [];
 }
 export const canSearch = (user: { role: string }) => user.role === "ADMIN" || user.role === "MANAGER";
+// "scope=site" (the Assistant's search, 1 Nov 2026): the login's own levels cut down to MANAGER - it can only narrow.
+export const narrowLevels = (levels: Level[], scope: string | null): Level[] => (scope === "site" ? levels.filter((l) => l === "MANAGER") : levels);
 
 // "Rev C", "Rev.2", "R3", "v4", "Revision B" in a file name -> "Rev C" etc.; null when there's none.
 export function revisionOf(name: string): string | null {

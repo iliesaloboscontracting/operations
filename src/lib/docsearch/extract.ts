@@ -50,12 +50,16 @@ export function workerEnv(env: Record<string, string | undefined> = process.env,
   return out as NodeJS.ProcessEnv;
 }
 
-// The command line: node with the heap cap, under prlimit's data limit on Linux when it's there.
-export function workerCommand(file: string, ext: string, heapMb: number, platform = process.platform, hasPrlimit = existsSync(PRLIMIT)) {
+// The command line: node with the heap cap, under prlimit's data limit on Linux when it's there. DSO-003 (Ilies approved
+// 1 Nov 2026): on the Linux server (production) with no prlimit, null - nothing is read rather than read without the
+// OS limit.
+export function workerCommand(file: string, ext: string, heapMb: number, platform = process.platform, hasPrlimit = existsSync(PRLIMIT), production = process.env.NODE_ENV === "production") {
   const node = [process.execPath, `--max-old-space-size=${heapMb}`, file, ext];
   if (platform === "linux" && hasPrlimit) return { cmd: PRLIMIT, args: [`--data=${WORKER_LIMITS.dataBytes}`, "--", ...node] };
+  if (platform === "linux" && production) return null;
   return { cmd: node[0], args: node.slice(1) };
 }
+let warnedNoLimit = false;
 
 // Resident memory of a Linux process in MB, or null (not Linux, or gone).
 function rssMb(pid: number): number | null {
@@ -69,9 +73,14 @@ function rssMb(pid: number): number | null {
 type Opts = { timeoutMs?: number; test?: { workerFile?: string; heapMb?: number; rssMb?: number } };
 
 function inWorker(ext: string, buf: Buffer, opts: Opts): Promise<Extracted> {
+  const command = workerCommand(opts.test?.workerFile ?? workerFile(), ext, opts.test?.heapMb ?? WORKER_LIMITS.heapMb);
+  if (!command) {
+    if (!warnedNoLimit) { warnedNoLimit = true; console.error("document search: /usr/bin/prlimit is missing - nothing is read until it's back (DSO-003)"); }
+    return Promise.resolve(fail("UNREADABLE", "the server can't limit memory for reading"));
+  }
+  const { cmd, args } = command;
   return new Promise((resolve) => {
     let done = false;
-    const { cmd, args } = workerCommand(opts.test?.workerFile ?? workerFile(), ext, opts.test?.heapMb ?? WORKER_LIMITS.heapMb);
     const child = spawn(cmd, args, { cwd: process.cwd(), env: workerEnv(), stdio: ["pipe", "pipe", "ignore"], windowsHide: true });
     const out: Buffer[] = [];
     let outBytes = 0;

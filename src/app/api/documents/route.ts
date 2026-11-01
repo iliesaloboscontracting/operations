@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { guardDocuments } from "@/lib/docsearch/guard";
+import { narrowLevels } from "@/lib/docsearch/folders";
 import { searchOrClosed } from "@/lib/docsearch/service";
 
 // GET /api/documents?q=words -> matching documents this login may see (LCI phase 6, docs/lci/PHASE6-DESIGN.md).
@@ -12,7 +13,7 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
   const g = await guardDocuments();
   if ("denied" in g) return g.denied;
   const q = (req.nextUrl.searchParams.get("q") ?? "").slice(0, 200);
-  const levels = req.nextUrl.searchParams.get("scope") === "site" ? g.levels.filter((l) => l === "MANAGER") : g.levels;
+  const levels = narrowLevels(g.levels, req.nextUrl.searchParams.get("scope"));
   // DS-016: no source for any reason -> no hits, with the reason; each hit re-checked against today's folder rules.
   return NextResponse.json(searchOrClosed(q, levels));
 });

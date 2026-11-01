@@ -37,16 +37,20 @@ export function searchOrClosed(q: string, levels: Level[]) {
   return { ...r, hits: r.hits.map((h) => ({ ...h, webUrl: s.ok && p.source.name === "graph" ? safeWebUrl(h.webUrl, s.siteHost) : null })) };
 }
 
-let running = false;
+// DSO-002 (Ilies approved 1 Nov 2026): one refresh at a time per server process. The instrumentation tick (nightly) and
+// the "Refresh now" route each load their own copy of this module, so - as Xero's lock (CLM-008) and src/lib/prisma.ts
+// do - the flag lives on globalThis.
+const globalForDocs = globalThis as unknown as { docIndexState?: { running: boolean } };
+const state = (globalForDocs.docIndexState ??= { running: false });
 export async function runRefresh(): Promise<RunResult | { off: string } | { busy: true }> {
-  if (running) return { busy: true };
+  if (state.running) return { busy: true };
   const p = pickSource();
   if ("off" in p) return p;
-  running = true;
+  state.running = true;
   try {
     return await refreshIndex(p.source, p.approvedIds);
   } finally {
-    running = false;
+    state.running = false;
   }
 }
 
@@ -60,7 +64,7 @@ const sydney = () => {
 // and never opens the index file then, so an unconfigured server never even creates it.
 export async function nightlyDocIndex() {
   const p = pickSource();
-  if ("off" in p || running) return;
+  if ("off" in p || state.running) return;
   const now = sydney();
   if (now.minutes < 150) return;
   if (getMeta("nightly") === now.date) return;
