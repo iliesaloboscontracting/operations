@@ -115,12 +115,19 @@ export default {
       const csv = (await c.text(path, who)).text;
       t.ok(csv.includes("Hours,Travel (h),Status") && csv.includes("Travel out to") && csv.includes("Travel home from") && noMoney(csv), `${who} timesheet export has the Travel column and legs, no $`);
     }
-    // Payroll files (accounts): a Travel hours column, still hours only.
+    // Payroll files (accounts): a Travel hours column, still hours only. On a week of its own (2020-02-03), because
+    // earlier checks seed "$5 Labour" sign-ins this week and the payroll files refuse a week with a $ in a name.
+    const payWeek = "2020-02-03";
+    await db.siteAttendance.create({ data: { place: "OFFICE", placeLabel: "Office", date: "2020-02-04", resourceId: person.id, workerName: person.name, signInAt: new Date("2020-02-03T21:00:00Z"), signOutAt: new Date("2020-02-04T05:30:00Z"), signInMethod: "OFFICE", status: "CONFIRMED" } });
+    await db.travelLeg.create({ data: { direction: "HOME", resourceId: person.id, workerName: person.name, jobId: `rc-pay-${tag}`, projectId: reg.id, siteLabel: reg.name, date: "2020-02-04", startAt: new Date("2020-02-04T05:40:00Z"), endAt: new Date("2020-02-04T07:40:00Z"), endMethod: "ARRIVED" } });
     for (const f of ["payrun", "summary"]) {
-      const r = await c.text(`/api/accounts/payroll/export?week=${week}&file=${f}`, "ACCOUNTS");
+      const r = await c.text(`/api/accounts/payroll/export?week=${payWeek}&file=${f}`, "ACCOUNTS");
       const csv = r.text;
       t.ok(r.status === 200 && /Travel hours/.test(csv) && noMoney(csv) && !/\bBSB\b|\bTFN\b|\bABA\b/i.test(csv), `payroll ${f} file: Travel hours column, no money`, `${r.status} ${csv.slice(0, 160)}`);
+      if (f === "summary") t.ok(csv.split("\n").some((l) => l.startsWith(person.name) && /,2\r?$/.test(l)), "summary: the person's 2h travel in Travel hours", csv.slice(0, 300));
     }
+    const thisWeekPay = await c.get(`/api/accounts/payroll/export?week=${week}&file=summary`, "ACCOUNTS");
+    if (thisWeekPay.status !== 200) t.note(`this week's payroll summary answers ${thisWeekPay.status} on the copy - earlier checks seed $ names this week (pre-existing fileIsSafe refusal, not travel)`);
     // GPS: accounts / Admins only (the payroll week), never the Sign-ins page.
     const pay = await c.text(`/api/accounts/payroll?week=${week}`, "ACCOUNTS");
     t.ok(pay.status === 200 && /"travel":\[/.test(pay.text) && /-33\.28/.test(pay.text), "accounts see the travel legs with the start GPS point");
