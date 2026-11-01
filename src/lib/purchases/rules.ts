@@ -1,5 +1,6 @@
 // Accounts stage 6 (27 Oct 2026): purchase requests - the plain rules. Who may do what at which status, the
-// money rules, and the narrow shapes a link / Manager may see. No server imports; `npm test` (rules.test.ts).
+// money rules, and the narrow shapes a link / Manager may see. Quotes, the kind and the link money exception
+// (2 Nov 2026) are in quotes.ts. No server imports; `npm test` (rules.test.ts).
 // Design: docs/accounts/STAGE6-DESIGN.md §3.
 //
 // 28 Oct 2026, Ilies: "This should have send to directors ... not accounts ... accounts removed as it has no authority
@@ -68,8 +69,11 @@ export function check(action: Action, r: { status: string; requestedBy: string; 
   return { to: rule.to };
 }
 
-// Text that can reach the requester's link (what they asked, accounts' question, their answer, a decision reason)
-// must carry no dollar figure.
+// 2 Nov 2026 (Ilies: "remove the $ money restriction from purchase requests to the directors ... add a bit more
+// description including pricing"): purchase-request text may carry prices - what was asked, the description, the
+// directors' question, the answer, the decision note and every quote - in the app and on the requester's personal
+// OFFICE link (the only link exception - quotes.ts linkMayCarryMoney). Accounts' own amount and note stay theirs and
+// the directors' (accountsView in store.ts). linkSafeText is kept for anything that must still be money-free.
 export const linkSafeText = (t: string | null | undefined) => !t || assertNoMoney(t);
 
 // The amount, as typed by accounts: "$1,250.50", "1250.5" -> 1250.5; nonsense -> null.
@@ -82,8 +86,9 @@ export function parseAmount(v: unknown): number | null {
 
 export const purchaseNo = (n: number) => `P-${String(n).padStart(4, "0")}`;
 
-// What a link (Alex's OFFICE link) and a Manager see: no amount, no accounts note. Built field by field so a new
-// money column can never slip through.
+// What the requester (in-app or on their OFFICE link) and a Manager / Admin / the coordinator see: the request as
+// written, prices included (2 Nov 2026) - but never accounts' own amount or note. Built field by field so a new
+// accounts-only column can never slip through.
 export type RequesterView = {
   id: string; ref: string; what: string; why: string | null; qty: string | null; supplier: string | null; linkUrl: string | null;
   neededBy: string | null; status: Status; statusText: string; infoQuestion: string | null; infoAnswer: string | null;
@@ -95,11 +100,10 @@ export function requesterView(r: {
   requestedBy: string; createdAt: Date | string; version: number;
 }): RequesterView {
   const status = r.status as Status;
-  const safe = (t: string | null) => (linkSafeText(t) ? t : null);
   return {
-    id: r.id, ref: purchaseNo(r.number), what: safe(r.what) ?? "(see accounts)", why: safe(r.why), qty: r.qty, supplier: r.supplier, linkUrl: r.linkUrl,
-    neededBy: r.neededBy, status, statusText: STATUS_FOR_REQUESTER[status] ?? r.status, infoQuestion: safe(r.infoQuestion), infoAnswer: safe(r.infoAnswer),
-    decisionNote: status === "DECLINED" || status === "APPROVED" ? safe(r.decisionNote) : null, requestedBy: r.requestedBy,
+    id: r.id, ref: purchaseNo(r.number), what: r.what, why: r.why, qty: r.qty, supplier: r.supplier, linkUrl: r.linkUrl,
+    neededBy: r.neededBy, status, statusText: STATUS_FOR_REQUESTER[status] ?? r.status, infoQuestion: r.infoQuestion, infoAnswer: r.infoAnswer,
+    decisionNote: status === "DECLINED" || status === "APPROVED" ? r.decisionNote : null, requestedBy: r.requestedBy,
     createdAt: new Date(r.createdAt).toISOString(), version: r.version,
   };
 }

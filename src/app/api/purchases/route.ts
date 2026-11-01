@@ -1,26 +1,30 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser, type AuthUser } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
-import { createRequest, listForRequester, projectChoices } from "@/lib/purchases/store";
+import { createRequest, listForRequester, listOthers, projectChoices } from "@/lib/purchases/store";
+import { SEES_ALL_REQUESTS } from "@/lib/purchases/quotes";
 
-// In-app purchase requests (stage 6): Managers and Admins ask (Operations only - DIRECTOR and ACCOUNTS logins never
-// reach Operations, so they're refused here too; the lead, 27 Oct 2026), and see their own
-// requests with the status in words. No amounts here - prices are on the Accounts and Directors screens only.
-// The COORDINATOR login (Alex, 2 Nov 2026) asks and sees his own the same way; he never approves (lib/purchases/rules.ts).
+// In-app purchase and hire requests (stage 6): Managers, Admins and the coordinator (Alex, 2 Nov 2026) ask - DIRECTOR
+// and ACCOUNTS logins never reach Operations, so they're refused here too (the lead, 27 Oct 2026). Each sees their own
+// requests, with their suppliers' quotes and prices (Ilies, 2 Nov 2026), and everyone else's read-only ("ALL
+// requests, read-only"). Accounts' own amount and note are never here. Nobody approves from here (lib/purchases/rules.ts).
 async function asker(): Promise<{ denied: NextResponse } | { user: AuthUser }> {
   const user = await getCurrentUser();
   if (!user) return { denied: NextResponse.json({ error: "Not signed in" }, { status: 401 }) };
-  if (!["ADMIN", "MANAGER", "COORDINATOR"].includes(user.role)) return { denied: NextResponse.json({ error: "You don't have permission to do that" }, { status: 403 }) };
+  if (!SEES_ALL_REQUESTS.includes(user.role)) return { denied: NextResponse.json({ error: "You don't have permission to do that" }, { status: 403 }) };
   return { user };
 }
 
 export const GET = withErrorHandling(async () => {
   const a = await asker();
   if ("denied" in a) return a.denied;
-  const [requests, projects] = await Promise.all([listForRequester({ kind: "APP", userId: a.user.id, name: a.user.name }), projectChoices()]);
-  return NextResponse.json({ requests, projects });
+  const [requests, others, projects] = await Promise.all([
+    listForRequester({ kind: "APP", userId: a.user.id, name: a.user.name }), listOthers(a.user.id), projectChoices(),
+  ]);
+  return NextResponse.json({ requests, others, projects });
 });
 
+// POST { kind?, what, why?, qty?, linkUrl?, neededBy?, projectId?, quotes?: [{ supplier, priceExGst?, details?, linkUrl?, file?: { dataUrl, name } }] }
 export const POST = withErrorHandling(async (req: NextRequest) => {
   const a = await asker();
   if ("denied" in a) return a.denied;
