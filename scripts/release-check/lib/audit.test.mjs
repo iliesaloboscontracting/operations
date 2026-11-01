@@ -118,3 +118,16 @@ test("N-1: exceljs is pinned - a second install path or anything depending on it
   k.vulnerabilities.exceljs.effects.push("some-pkg");
   assert.match(judge(k, NOW2).reason, /exceljs\(moderate\) - not covered by EX-001: now also affects some-pkg/);
 });
+
+test("OBS-2: next, source-map-js and uuid are pinned too - a second install path or a new dependant fails", () => {
+  for (const pkg of ["next", "source-map-js", "uuid"]) {
+    const j = clone(PROD2);
+    j.vulnerabilities[pkg].nodes.push(`node_modules/some-pkg/node_modules/${pkg}`);
+    const r = judge(j, NOW2);
+    assert.equal(r.status, "FAIL", pkg);
+    assert.match(r.reason, new RegExp(`${pkg}\\(\\w+\\) - not covered by EX-001: now also installed at node_modules/some-pkg/node_modules/${pkg}`));
+    const k = clone(PROD2);
+    k.vulnerabilities[pkg].effects.push("some-pkg");
+    assert.match(judge(k, NOW2).reason, new RegExp(`${pkg}\\(\\w+\\) - not covered by EX-001: now also affects some-pkg`), pkg);
+  }
+});

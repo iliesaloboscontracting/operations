@@ -39,12 +39,14 @@ export const AUDIT_EXCEPTIONS = [
       { pkg: "postcss", maxSeverity: "high", effectsWithin: ["next"], nodes: [/^node_modules\/next\/node_modules\/postcss$/],
         ghsa: { "GHSA-qx2v-qp2m-jg93": "moderate", "GHSA-6g55-p6wh-862q": "high", "GHSA-fxqj-rqcc-2cmp": "moderate", "GHSA-r28c-9q8g-f849": "high" } },
       // next (moderate) - only as the parent of that postcss.
-      { pkg: "next", maxSeverity: "moderate", via: ["postcss"] },
-      { pkg: "source-map-js", maxSeverity: "high", ghsa: { "GHSA-68fv-2mgg-jv7q": "high" } },
+      // next, source-map-js and uuid are pinned to their one install path and to what may depend on them, like exceljs
+      // (OBS-2, Ilies 1 Nov 2026: "pin the other three packages like N-1").
+      { pkg: "next", maxSeverity: "moderate", via: ["postcss"], effectsWithin: [], nodes: [/^node_modules\/next$/] },
+      { pkg: "source-map-js", maxSeverity: "high", ghsa: { "GHSA-68fv-2mgg-jv7q": "high" }, effectsWithin: [], nodes: [/^node_modules\/source-map-js$/] },
       // Dev dependencies only today (not in the gated --omit=dev audit); listed because EX-001 names it.
       { pkg: "postcss-selector-parser", maxSeverity: "moderate", ghsa: { "GHSA-rj75-hqrm-r3gf": "moderate" } },
       // uuid < 11.1.1, only through exceljs (which calls v4 only).
-      { pkg: "uuid", maxSeverity: "moderate", effectsWithin: ["exceljs"], ghsa: { "GHSA-w5hq-g745-h8pq": "moderate" } },
+      { pkg: "uuid", maxSeverity: "moderate", effectsWithin: ["exceljs"], ghsa: { "GHSA-w5hq-g745-h8pq": "moderate" }, nodes: [/^node_modules\/uuid$/] },
       // exceljs itself: a top-level dependency that nothing else depends on, installed in one place (N-1, 1 Nov 2026).
       { pkg: "exceljs", maxSeverity: "moderate", via: ["uuid", "archiver"], effectsWithin: [], nodes: [/^node_modules\/exceljs$/] },
       // minimatch < 11.0.1, only through exceljs 4.4.0 (archiver 5 / unzipper -> glob 7). Every entry below is pinned
