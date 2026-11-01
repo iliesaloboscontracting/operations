@@ -11,10 +11,13 @@ test("known roles keep their order", () => {
 });
 
 test("an unknown role (a rollback, a typo, anything) is refused by every level", () => {
-  for (const r of ["COORDINATOR", "BOGUS", "admin", "", null, undefined, "toString", "__proto__", "constructor"]) {
+  for (const r of ["BOGUS", "admin", "coordinator", "", null, undefined, "toString", "__proto__", "constructor"]) {
     assert.equal(rankOf(r as string), UNKNOWN_RANK, String(r));
     for (const min of Object.keys(RANK)) assert.ok(!rankAtLeast(r as string, min), `${String(r)} vs ${min}`);
   }
+  // COORDINATOR is known on this build - a one-page login, below VIEWER like the others.
+  assert.equal(rankOf("COORDINATOR"), 0);
+  assert.ok(!rankAtLeast("COORDINATOR", "VIEWER"));
 });
 
 test("CO-001-R1: an unknown role never has director access, whatever its tick says; known roles unchanged", async () => {
