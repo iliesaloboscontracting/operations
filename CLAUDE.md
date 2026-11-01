@@ -98,7 +98,7 @@ business, without becoming unnecessarily complicated.
   views timesheets, sign-ins, Day Review (+ site logs, daily site report) and the calendar; works
   Tools (add, edit, move, delete, faults, toolbox checks - never create / rename / re-supervise /
   retire a toolbox) and Hire (add, extend, off-hire - no dollar figure in or out, no archiving:
-  `src/lib/coordinatorHire.ts`); raises his own purchase requests (never approves); office chat;
+  `src/lib/coordinatorHire.ts`); raises his own purchase requests and sees everyone's read-only, prices included (never approves); office chat;
   site & safety documents only, not the Assistant. Never director access. Only the owner gives, takes away or creates a COORDINATOR login (Ilies, 2 Nov 2026: "Only you (the owner)"). Outlook (phase 2) is a
   placeholder only. Release check `63-coordinator`.
   **Owner** (2026-10-23, `src/lib/owner.ts`): Iliesa's account. The directors
@@ -455,8 +455,19 @@ business, without becoming unnecessarily complicated.
   it goes STRAIGHT to the owner or a DIRECTOR login to approve (never the
   requester; every purchase, no threshold - Ilies), then accounts order it
   and may add the price (since 28 Oct 2026, Ilies: "accounts removed as it
-  has no authority to approve"; accounts no longer check / price first). The amount is
-  Accounts / Directors only; anything that can reach a link refuses $.
+  has no authority to approve"; accounts no longer check / price first). Accounts' own
+  amount and note are Accounts / Directors only. **Quotes and prices** (2 Nov 2026, Ilies:
+  "remove the $ money restriction from purchase requests to the directors ... add a bit more
+  description including pricing for the purchase or hire request ... a button that allows us
+  to add another supplier to the same request, this way they can see prices from different
+  suppliers"): a request is PURCHASE or HIRE (`kind`), `why` is the description (2000
+  chars, prices allowed), suppliers' quotes are `PurchaseQuote` rows (price ex GST, details,
+  link, optional PDF / photo file in `PURCHASE_FILE_DIR` - add it to the nightly backup -
+  served only by `/api/purchases/quotes/:id/file` or the OFFICE link's own route); the
+  approver picks the quote (`chosenQuoteId`; one quote is pre-selected, none = as before).
+  Prices are seen by the requester, the owner, DIRECTOR logins, accounts, and - Ilies (Q1):
+  "ALL requests, read-only" - every Manager, Admin and the coordinator on `/purchases`
+  (own requests editable while with the approvers). Phone alerts stay amount-free.
   **Stage 7, Tax estimates** (live 27 Oct, `/accounts/tax`,
   `docs/accounts/STAGE7-DESIGN.md`): payroll tax by month (wages from the
   Xero P&L mirror, the rate from stage 3's OnCostRate PAYROLL_TAX - one
@@ -592,8 +603,8 @@ business, without becoming unnecessarily complicated.
   asked from a personal OFFICE link or in-app -> the owner or a DIRECTOR
   login, not the requester, approves -> accounts order (and may add the
   amount). Since 28 Oct 2026 accounts no longer check before approval.
-  The amount exists only in the Accounts / Directors DTOs; a link and a
-  Manager get `requesterView()` and link-facing text refuses a dollar figure.
+  Accounts' own amount and note exist only in the Accounts / Directors DTOs; the requester and
+  a Manager get `requesterView()` + the quotes (prices included since 2 Nov 2026).
 - **Production benchmarks** (LCI 5b + Estimating 5c, live 27 Oct;
   `src/lib/production/`, `/production` Manager+, hours only): labour hours
   per unit per activity code from the daily logs against the approved budget
@@ -612,7 +623,12 @@ business, without becoming unnecessarily complicated.
   Review, the Yard) never carry dollar figures — enforced at both the
   TypeScript type level (narrow DTOs with no money fields) and via a runtime
   scan (`assertNoMoney`, `scripts/check-viewer-safety.ts`). Preserve this
-  wall when touching any operational view.
+  wall when touching any operational view. **The one link exception** (Ilies, 2 Nov 2026):
+  a personal OFFICE link's purchase-request screens (`/api/site/<token>/purchases...`,
+  `lib/purchases/quotes.ts` `linkMayCarryMoney`) carry the requester's own prices and
+  quotes. SUPERVISOR, HANDOVER, DRIVER and POSTER links, and every other OFFICE-link
+  screen, never carry a dollar figure (`linkSafe` / `assertNoMoney` unchanged; release
+  check `52-purchases-s6`).
 - Automated checks: `npx tsc --noEmit` plus `npm test` (tsx --test, unit
   tests under `src/**/*.test.ts`, added 24 Oct 2026 - Director Insights KPIs
   so far). Both must pass before a deploy. Everything else is still verified

@@ -65,18 +65,22 @@ test("amounts: accounts' typing is understood; nonsense refused", () => {
   for (const v of ["", null, "abc", "-5", 0, "99999999"]) assert.equal(parseAmount(v), null, String(v));
 });
 
-test("no money on the link: dollar figures refused in link text, and the requester view has no amount", () => {
+// 2 Nov 2026 (Ilies: "remove the $ money restriction from purchase requests"): the request's own text keeps its prices
+// for the requester - but accounts' own amount and note are never in the requester's view.
+test("the requester view: the request as written, prices included - never accounts' own amount or note", () => {
   assert.equal(linkSafeText("Jackhammer bits x4 from Sydney Tools"), true);
-  assert.equal(linkSafeText("about $240"), false);
+  assert.equal(linkSafeText("about $240"), false, "the money check itself is unchanged for everything else");
   const v = requesterView({
-    id: "x", number: 7, what: "Bits", why: "worn out", qty: "4", supplier: null, linkUrl: null, neededBy: "2026-11-02", status: "DECLINED",
+    id: "x", number: 7, what: "Bits", why: "worn out - Sydney Tools quoted $240", qty: "4", supplier: null, linkUrl: null, neededBy: "2026-11-02", status: "DECLINED",
     infoQuestion: null, infoAnswer: null, decisionNote: "Too dear at $900", requestedBy: "Alex", createdAt: "2026-10-27T00:00:00Z", version: 3,
-  });
+    ...({ amountExGst: 812.5, accountsNote: "PO 1234" } as object),
+  } as Parameters<typeof requesterView>[0]);
   assert.equal(v.ref, "P-0007");
-  assert.equal(v.decisionNote, null, "a reason with a dollar figure never reaches the link");
+  assert.equal(v.decisionNote, "Too dear at $900", "the director's reason reaches the requester, price and all");
+  assert.match(v.why ?? "", /\$240/);
   assert.equal(v.statusText, "Declined");
   const keys = Object.keys(v);
-  assert.ok(!keys.some((k) => /amount|accountsNote|total|price|cost/i.test(k)), keys.join(","));
-  assert.ok(!/\$\s?\d/.test(JSON.stringify(v)));
+  assert.ok(!keys.some((k) => /amount|accountsNote|total|cost/i.test(k)), keys.join(","));
+  assert.ok(!/812|PO 1234/.test(JSON.stringify(v)), "accounts' amount and note never come through");
   assert.equal(purchaseNo(123), "P-0123");
 });

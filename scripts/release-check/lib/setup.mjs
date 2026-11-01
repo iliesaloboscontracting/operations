@@ -46,7 +46,7 @@ export function refusals(p, { snapshot, port }) {
 }
 
 export function writeEnv(p, port) {
-  for (const d of ["tool-photos", "invoice-files", "receipt-files", "compliance-files"]) mkdirSync(path.join(p.files, d), { recursive: true });
+  for (const d of ["tool-photos", "invoice-files", "receipt-files", "compliance-files", "purchase-files"]) mkdirSync(path.join(p.files, d), { recursive: true });
   const f = (d) => JSON.stringify(path.join(p.files, d).split(path.sep).join("/"));
   const lines = [
     ENV_MARKER,
@@ -56,6 +56,7 @@ export function writeEnv(p, port) {
     `SITE_BASE_URL="http://127.0.0.1:${port}"`,
     `TOOL_PHOTO_DIR=${f("tool-photos")}`, `INVOICE_FILE_DIR=${f("invoice-files")}`,
     `RECEIPT_FILE_DIR=${f("receipt-files")}`, `COMPLIANCE_FILE_DIR=${f("compliance-files")}`,
+    `PURCHASE_FILE_DIR=${f("purchase-files")}`, // suppliers' quote files (2 Nov 2026)
     "RECEIPT_READING=off", "DAILY_LOG_REMINDER=off",
     // The daily log on for every supervisor, as in production since 29 Oct 2026. Voice stays unavailable here (no keys).
     "DAILY_LOG_PILOT_LINKS=all",

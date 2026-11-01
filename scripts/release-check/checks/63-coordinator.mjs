@@ -144,6 +144,14 @@ export default {
     if (pr) {
       t.status(await send("POST", `/api/directors/purchases/${pr.id}`, { action: "APPROVE", version: pr.version }), 403, "purchases: he can't approve");
       t.status(await send("POST", `/api/accounts/purchases/${pr.id}`, { action: "ORDERED" }), 403, "purchases: he can't mark it ordered");
+      // 2 Nov 2026 (Ilies): his own can take another supplier's quote, prices and all, while it's with the approvers.
+      if (pr.quotes) t.status(await send("POST", `/api/purchases/${pr.id}`, { action: "ADD_QUOTE", quote: { supplier: "RC Ladders", priceExGst: 289, details: "Includes delivery $25" }, version: pr.version }), 200, "purchases: he adds a supplier's quote to his own");
+    }
+    // Everyone's requests, read-only (Ilies, 2 Nov 2026) - with their prices, never accounts' own amount or note.
+    if (Array.isArray(mine.body?.others)) {
+      t.ok(mine.body.others.every((r) => r.canEdit === false), "purchases: everyone else's requests are read-only for him");
+      const theirs = mine.body.others[0];
+      if (theirs) t.status(await send("POST", `/api/purchases/${theirs.id}`, { action: "EDIT", why: "rc", version: theirs.version }), 404, "purchases: he can't change someone else's");
     }
 
     // (8) Office chat, same rules as every office login.
@@ -172,9 +180,10 @@ export default {
     if (c.links.office) t.status(await c.get(c.site(c.links.office, "/todo"), null), 200, "an OFFICE link's to-do still works");
 
     // (10) No dollar figure in anything he received - except office chat, where amounts are allowed for every office
-    // login (Ilies, 27 Oct 2026: "DOLLAR VALUES ARE APPROVED WITHIN THE OFFICE CHATS AND MESSAGES").
-    const scanned = seen.filter(([p]) => !/\/api\/messages/.test(p));
+    // login (Ilies, 27 Oct 2026: "DOLLAR VALUES ARE APPROVED WITHIN THE OFFICE CHATS AND MESSAGES"), and purchase
+    // requests, whose quotes and prices he sees like a Manager (Ilies, 2 Nov 2026 - unlike Hire's rates, on purpose).
+    const scanned = seen.filter(([p]) => !/\/api\/messages|\/api\/purchases/.test(p));
     const leaks = scanned.filter(([, text]) => !noMoney(text)).map(([p]) => p);
-    t.ok(leaks.length === 0, `no "$" + digit in any of his ${scanned.length} replies (office chat aside)`, leaks.join(", "));
+    t.ok(leaks.length === 0, `no "$" + digit in any of his ${scanned.length} replies (office chat and purchase requests aside)`, leaks.join(", "));
   },
 };
