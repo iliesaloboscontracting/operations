@@ -5,14 +5,13 @@
 // result through one of these before responding.
 import type { Role } from "./auth";
 import { PAY_RATE_FIELDS } from "./resourceFields";
-
-const RANK: Record<Role, number> = { TIMESHEETS: 0, ACCOUNTS: 0, DIRECTOR: 0, VIEWER: 1, MANAGER: 2, ADMIN: 3 };
+import { RANK, rankOf } from "./roleRank";
 
 // Pay rate fields (ordinaryRate, nightRate, payRateNotes, ...): ADMIN only.
 // dailyRateExGst/rate (plant/vehicle/hire day-rate cost fields): MANAGER or
 // ADMIN. Mutates in place and returns the same object for convenience.
 export function toPublicResource<T extends Record<string, unknown>>(resource: T, role: Role | null): T {
-  const rank = role ? RANK[role] : 0;
+  const rank = rankOf(role); // CO-001: an unknown role ranks lowest, so everything is stripped
   if (rank < RANK.ADMIN) {
     for (const f of PAY_RATE_FIELDS) delete resource[f];
   }

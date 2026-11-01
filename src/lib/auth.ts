@@ -6,6 +6,7 @@ import { promisify } from "util";
 import { prisma } from "./prisma";
 import { SESSION_COOKIE, sessionMaxAgeFor, signSession, verifySession } from "./session";
 import { isOwner } from "./owner";
+import { rankAtLeast } from "./roleRank";
 
 const scrypt = promisify(scryptCb) as (pw: string, salt: Buffer, len: number) => Promise<Buffer>;
 
@@ -20,7 +21,7 @@ const scrypt = promisify(scryptCb) as (pw: string, salt: Buffer, len: number) =>
 // below VIEWER, only guardDirector() lets it in. Only the owner sets it.
 export type Role = "ADMIN" | "MANAGER" | "VIEWER" | "TIMESHEETS" | "ACCOUNTS" | "DIRECTOR";
 export const ROLES: Role[] = ["ADMIN", "MANAGER", "VIEWER", "TIMESHEETS", "ACCOUNTS", "DIRECTOR"];
-const RANK: Record<Role, number> = { TIMESHEETS: 0, ACCOUNTS: 0, DIRECTOR: 0, VIEWER: 1, MANAGER: 2, ADMIN: 3 };
+// The ranks live in lib/roleRank.ts and fail closed (CO-001): a role the code doesn't know is refused everywhere.
 
 export interface AuthUser {
   id: string;
@@ -103,7 +104,7 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
 export async function guard(min: Role = "VIEWER"): Promise<NextResponse | null> {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
-  if (RANK[user.role] < RANK[min]) {
+  if (!rankAtLeast(user.role, min)) {
     return NextResponse.json({ error: "You don't have permission to do that" }, { status: 403 });
   }
   return null;
@@ -114,7 +115,7 @@ export async function guard(min: Role = "VIEWER"): Promise<NextResponse | null> 
 export async function guardTimesheetViewer(): Promise<NextResponse | null> {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
-  if (user.role !== "TIMESHEETS" && RANK[user.role] < RANK.MANAGER) {
+  if (user.role !== "TIMESHEETS" && !rankAtLeast(user.role, "MANAGER")) {
     return NextResponse.json({ error: "You don't have permission to do that" }, { status: 403 });
   }
   return null;
@@ -124,7 +125,7 @@ export async function guardTimesheetViewer(): Promise<NextResponse | null> {
 export async function guardInvoiceInbox(): Promise<{ denied: NextResponse } | { user: AuthUser }> {
   const user = await getCurrentUser();
   if (!user) return { denied: NextResponse.json({ error: "Not signed in" }, { status: 401 }) };
-  if (user.role !== "ACCOUNTS" && RANK[user.role] < RANK.MANAGER) {
+  if (user.role !== "ACCOUNTS" && !rankAtLeast(user.role, "MANAGER")) {
     return { denied: NextResponse.json({ error: "You don't have permission to do that" }, { status: 403 }) };
   }
   return { user };
