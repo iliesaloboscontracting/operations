@@ -45,7 +45,7 @@ export function useBoardGuard(selectedDate: string, setSelectedDate: (d: string)
 
   const refreshSent = useCallback(async () => {
     try {
-      const res = await apiFetch(`/api/board/check?date=${selectedDate}&purpose=edit`);
+      const res = await apiFetch(`/api/board/check?date=${selectedDate}&purpose=status`);
       if (res.ok) setSent((await res.json()).sent ?? null);
     } catch {
       // the banner just stays as it was

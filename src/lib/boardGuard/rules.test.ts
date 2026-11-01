@@ -2,7 +2,7 @@
 // says changed since a sheet went out. `npm test`.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { LEARN, addDaysIso, changesSince, dayLabel, editPrompt, sendPrompt, sydney, usualAhead, type BoardSnapshot, type EditStat } from "./rules";
+import { LEARN, addDaysIso, changesSince, dayLabel, editPrompt, hideMoneyLines, sendDateProblem, sendPrompt, sydney, usualAhead, type BoardSnapshot, type EditStat } from "./rules";
 
 const SUN = "2026-11-01", MON = "2026-11-02";
 const at = (h: number, m = 0) => h * 60 + m;
@@ -77,6 +77,18 @@ test("what changed since the sheet went out, in plain words", () => {
   const lines = changesSince({ jobs: [{ ...many.jobs[0], crew: [] }] }, many);
   assert.equal(lines.length, 31);
   assert.equal(lines.at(-1), "and 10 more");
+});
+
+test("BG-001/004: a send is recorded only for a real day, a week back to two weeks ahead", () => {
+  assert.equal(sendDateProblem(MON, SUN), null);
+  assert.equal(sendDateProblem(addDaysIso(SUN, -7), SUN), null);
+  assert.equal(sendDateProblem(addDaysIso(SUN, 14), SUN), null);
+  for (const bad of [addDaysIso(SUN, -8), addDaysIso(SUN, 15), "2099-01-01", "2026-02-31", "2026-13-01", "junk", 42, null]) assert.ok(sendDateProblem(bad, SUN), String(bad));
+});
+
+test("BG-003: a 'changes since' line with a dollar amount is hidden, the rest kept", () => {
+  assert.deepEqual(hideMoneyLines(["Joe added to Myers", "Test $500 job added", "Hino 500 ($90/day) taken off Bronte"]),
+    ["Joe added to Myers", "A change (details hidden)", "A change (details hidden)"]);
 });
 
 test("dates and Sydney time", () => {

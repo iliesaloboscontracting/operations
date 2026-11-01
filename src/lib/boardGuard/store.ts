@@ -3,8 +3,9 @@
 // phone alert. Recording never gets in the way: a failure to record is logged and the change goes ahead.
 import { prisma } from "../prisma";
 import { pushToUsers } from "../push";
+import { isISODate } from "../dateRules";
 import {
-  LEARN, addDaysIso, changesSince, daysBetween, dayLabel, editPrompt, sendPrompt, sydney, timeLabel,
+  LEARN, SEND_LIMITS, addDaysIso, changesSince, daysBetween, dayLabel, editPrompt, hideMoneyLines, sendDateProblem, sendPrompt, sydney, timeLabel,
   type BoardSnapshot, type EditStat, type LaterSend, type Prompt,
 } from "./rules";
 
@@ -19,9 +20,9 @@ const dayRange = (date: string) => {
 export const isoDay = (d: Date) => d.toISOString().slice(0, 10);
 export const siteName = (j: { title: string; shift: string }) => (j.shift === "NIGHT" ? `${j.title} (night)` : j.title);
 
-// One line of history for each change. Never throws.
+// One line of history for each change. Never throws (BG-004: a real calendar date only).
 export async function logBoardEdit(who: Who, date: string, action: BoardAction, detail?: string | null) {
-  if (!who || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
+  if (!who || !isISODate(date)) return;
   try {
     await prisma.boardEdit.create({ data: { date, action, detail: detail ? detail.slice(0, 200) : null, userId: who.id, by: who.name } });
   } catch (e) {
@@ -47,9 +48,17 @@ export async function snapshotFor(date: string): Promise<BoardSnapshot> {
   };
 }
 
-export async function recordSend(who: { id: string; name: string }, date: string, how: "COPY" | "EMAIL") {
+export { sendDateProblem };
+
+export async function recordSend(who: { id: string; name: string }, date: string, how: "COPY" | "EMAIL"): Promise<{ ok: true } | { error: string; status: number }> {
+  const same = await prisma.daySheetSend.findFirst({ where: { date, sentById: who.id, sentAt: { gte: new Date(Date.now() - SEND_LIMITS.sameSendMs) } }, select: { id: true } });
+  if (same) return { ok: true }; // the same send, pressed twice
+  const today = sydney().date;
+  const mine = await prisma.daySheetSend.findMany({ where: { sentById: who.id, sentAt: { gte: new Date(Date.now() - 26 * 3_600_000) } }, select: { sentAt: true } });
+  if (mine.filter((s) => sydney(s.sentAt).date === today).length >= SEND_LIMITS.perDay) return { error: "That's a lot of sheets sent today - try again tomorrow.", status: 429 };
   const snapshot = await snapshotFor(date);
-  return prisma.daySheetSend.create({ data: { date, how, sentById: who.id, sentBy: who.name, snapshot: JSON.stringify(snapshot) } });
+  await prisma.daySheetSend.create({ data: { date, how, sentById: who.id, sentBy: who.name, snapshot: JSON.stringify(snapshot) } });
+  return { ok: true };
 }
 
 const readSnap = (s: string): BoardSnapshot => {
@@ -65,10 +74,11 @@ async function editStats(userId: string): Promise<EditStat[]> {
   return rows.map((r) => { const s = sydney(r.at); return { offset: daysBetween(s.date, r.date), minutes: s.minutes }; });
 }
 
-// The latest sheet sent (by anyone) in the last 18 hours for a day after this one.
-async function laterSendAfter(date: string): Promise<LaterSend | null> {
+// The latest sheet sent (by anyone) in the last 18 hours for a day after this one - and no more than a week ahead
+// (BG-001), so a far-off send never steers today's questions.
+async function laterSendAfter(date: string, today: string): Promise<LaterSend | null> {
   const s = await prisma.daySheetSend.findFirst({
-    where: { date: { gt: date }, sentAt: { gte: new Date(Date.now() - LEARN.laterSendHours * 3_600_000) } },
+    where: { date: { gt: date, lte: addDaysIso(today, SEND_LIMITS.laterSendDaysAhead) }, sentAt: { gte: new Date(Date.now() - LEARN.laterSendHours * 3_600_000) } },
     orderBy: { sentAt: "desc" }, select: { date: true, sentAt: true, sentBy: true },
   });
   return s ?? null;
@@ -76,28 +86,32 @@ async function laterSendAfter(date: string): Promise<LaterSend | null> {
 
 export type SentInfo = { at: string; time: string; by: string; how: string; changes: string[] };
 
-// The last sheet sent for this day, and what's changed on the board since.
+// The last sheet sent for this day, and what's changed on the board since. BG-003: Viewers see this, so a line with a
+// dollar amount in it (a "$" typed into a job or tile name) is replaced, never shown.
 export async function lastSent(date: string): Promise<SentInfo | null> {
   const s = await prisma.daySheetSend.findFirst({ where: { date }, orderBy: { sentAt: "desc" } });
   if (!s) return null;
-  return { at: s.sentAt.toISOString(), time: timeLabel(s.sentAt), by: s.sentBy, how: s.how, changes: changesSince(readSnap(s.snapshot), await snapshotFor(date)) };
+  const changes = hideMoneyLines(changesSince(readSnap(s.snapshot), await snapshotFor(date)));
+  return { at: s.sentAt.toISOString(), time: timeLabel(s.sentAt), by: s.sentBy, how: s.how, changes };
 }
 
-// GET /api/board/check: before a change (edit) or a send - the question to ask, if any, and the day's last send.
-export async function boardCheck(userId: string, date: string, purpose: "edit" | "send"): Promise<{ prompt: Prompt | null; sent: SentInfo | null }> {
+// GET /api/board/check: before a change (edit) or a send - the question to ask, if any - and the day's last send.
+// BG-005: "status" (the banner, after every change) skips the question and what's been learned.
+export async function boardCheck(userId: string, date: string, purpose: "edit" | "send" | "status"): Promise<{ prompt: Prompt | null; sent: SentInfo | null }> {
+  if (purpose === "status") return { prompt: null, sent: await lastSent(date) };
   const now = sydney();
-  const laterSend = await laterSendAfter(date);
+  const laterSend = await laterSendAfter(date, now.date);
   const prompt = purpose === "send"
     ? sendPrompt({ boardDate: date, today: now.date, nowMinutes: now.minutes, laterSend })
     : editPrompt({ boardDate: date, today: now.date, nowMinutes: now.minutes, stats: date > now.date ? [] : await editStats(userId), laterSend });
   return { prompt, sent: await lastSent(date) };
 }
 
-// The evening check (from the instrumentation tick, at most every 5 minutes, 7pm to 11pm Sydney), for tomorrow's
-// last sheet sent, once each:
+// The evening check (from the instrumentation tick, at most every 5 minutes, 7pm to 11pm Sydney). For each person who
+// sent tomorrow's sheet today (their latest send - BG-002: a later export by someone else never takes their alert),
+// once each, if they have a phone set up:
 //  - tomorrow changed after it went out, and nobody has touched it for 10 minutes -> "re-send it";
 //  - an earlier day (today or before) was changed after it went out -> "were those meant for tomorrow?" (1 Nov).
-// Both go to the person who sent it.
 const globalForGuard = globalThis as unknown as { boardGuardState?: { lastRun: number } };
 const state = (globalForGuard.boardGuardState ??= { lastRun: 0 });
 export async function eveningBoardCheck() {
@@ -106,34 +120,38 @@ export async function eveningBoardCheck() {
   const now = sydney();
   if (now.minutes < 19 * 60 || now.minutes >= 23 * 60) return;
   const tomorrow = addDaysIso(now.date, 1);
-  const send = await prisma.daySheetSend.findFirst({ where: { date: tomorrow }, orderBy: { sentAt: "desc" } });
-  if (!send || sydney(send.sentAt).date !== now.date) return;
+  const sends = await prisma.daySheetSend.findMany({ where: { date: tomorrow, sentAt: { gte: new Date(Date.now() - 26 * 3_600_000) } }, orderBy: { sentAt: "desc" } });
+  const latestPerSender = new Map<string, (typeof sends)[number]>();
+  for (const s of sends) if (sydney(s.sentAt).date === now.date && !latestPerSender.has(s.sentById)) latestPerSender.set(s.sentById, s);
   const url = `/command?date=${tomorrow}`;
-  if (!send.changeAlertAt) {
-    const lastEdit = await prisma.boardEdit.findFirst({ where: { date: tomorrow, at: { gt: send.sentAt } }, orderBy: { at: "desc" }, select: { at: true } });
-    if (lastEdit && Date.now() - lastEdit.at.getTime() >= 10 * 60_000) {
-      const changes = changesSince(readSnap(send.snapshot), await snapshotFor(tomorrow));
-      if (changes.length) {
-        await prisma.daySheetSend.update({ where: { id: send.id }, data: { changeAlertAt: new Date() } });
-        await pushToUsers([send.sentById], {
-          title: `${dayLabel(tomorrow)} changed after it was sent`,
-          body: `${changes.length} change${changes.length === 1 ? "" : "s"} since the sheet went out at ${timeLabel(send.sentAt)} - send it again so the crew have the latest.`,
-          url, tag: `board-changed-${tomorrow}`,
-        });
+  for (const send of latestPerSender.values()) {
+    if (!(await prisma.pushDevice.count({ where: { userId: send.sentById } }))) continue; // no phone set up - nothing to send to
+    if (!send.changeAlertAt) {
+      const lastEdit = await prisma.boardEdit.findFirst({ where: { date: tomorrow, at: { gt: send.sentAt } }, orderBy: { at: "desc" }, select: { at: true } });
+      if (lastEdit && Date.now() - lastEdit.at.getTime() >= 10 * 60_000) {
+        const changes = changesSince(readSnap(send.snapshot), await snapshotFor(tomorrow));
+        if (changes.length) {
+          await prisma.daySheetSend.update({ where: { id: send.id }, data: { changeAlertAt: new Date() } });
+          await pushToUsers([send.sentById], {
+            title: `${dayLabel(tomorrow)} changed after it was sent`,
+            body: `${changes.length} change${changes.length === 1 ? "" : "s"} since the sheet went out at ${timeLabel(send.sentAt)} - send it again so the crew have the latest.`,
+            url, tag: `board-changed-${tomorrow}`,
+          });
+        }
       }
     }
-  }
-  if (!send.wrongDayAlertAt) {
-    const earlier = await prisma.boardEdit.findMany({ where: { date: { lte: now.date }, at: { gt: send.sentAt } }, select: { date: true, at: true } });
-    const quiet = earlier.length && Date.now() - Math.max(...earlier.map((e) => e.at.getTime())) >= 10 * 60_000;
-    if (quiet) {
-      const days = [...new Set(earlier.map((e) => e.date))].sort().map(dayLabel).join(", ");
-      await prisma.daySheetSend.update({ where: { id: send.id }, data: { wrongDayAlertAt: new Date() } });
-      await pushToUsers([send.sentById], {
-        title: `Changes made to ${days} after ${dayLabel(tomorrow)}'s sheet went out`,
-        body: `${earlier.length} change${earlier.length === 1 ? "" : "s"} to ${days} since ${timeLabel(send.sentAt)}. If they were meant for ${dayLabel(tomorrow)}, its sheet doesn't have them.`,
-        url, tag: `board-wrong-day-${tomorrow}`,
-      });
+    if (!send.wrongDayAlertAt) {
+      const earlier = await prisma.boardEdit.findMany({ where: { date: { lte: now.date }, at: { gt: send.sentAt } }, select: { date: true, at: true } });
+      const quiet = earlier.length && Date.now() - Math.max(...earlier.map((e) => e.at.getTime())) >= 10 * 60_000;
+      if (quiet) {
+        const days = [...new Set(earlier.map((e) => e.date))].sort().map(dayLabel).join(", ");
+        await prisma.daySheetSend.update({ where: { id: send.id }, data: { wrongDayAlertAt: new Date() } });
+        await pushToUsers([send.sentById], {
+          title: `Changes made to ${days} after ${dayLabel(tomorrow)}'s sheet went out`,
+          body: `${earlier.length} change${earlier.length === 1 ? "" : "s"} to ${days} since ${timeLabel(send.sentAt)}. If they were meant for ${dayLabel(tomorrow)}, its sheet doesn't have them.`,
+          url, tag: `board-wrong-day-${tomorrow}`,
+        });
+      }
     }
   }
 }

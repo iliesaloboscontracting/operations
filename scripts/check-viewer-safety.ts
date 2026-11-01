@@ -117,6 +117,7 @@ async function main() {
     await checkClean("GET /api/day-review", `/api/day-review?date=${today}`);
     await checkClean("GET /api/day-close", `/api/day-close?date=${today}`);
     await checkClean("GET /api/day-review/site-logs", `/api/day-review/site-logs?date=${today}`); // daily site log (Task K)
+    await checkClean("GET /api/board/check", `/api/board/check?date=${today}&purpose=edit`); // allocation guard (BG-003)
     await checkDenied("GET /api/tracking (should be Manager+ only)", "/api/tracking");
     // Document search (LCI phase 6): Managers and Admins only - no document text, name or link reaches a Viewer.
     await checkDenied("GET /api/documents (Managers and Admins only)", "/api/documents?q=swms");

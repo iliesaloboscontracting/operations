@@ -28,6 +28,7 @@ import { QUICK_LABOUR_HIRE_NAME, nextQuickLabourHireNumber } from "@/lib/resourc
 export const POST = withErrorHandling(async (req: NextRequest) => {
   const denied = await guard("MANAGER");
   if (denied) return denied;
+  const user = await getCurrentUser();
   const { from, to } = await req.json();
   if (!from || !to) {
     return NextResponse.json({ error: "from and to are required" }, { status: 400 });
@@ -158,6 +159,6 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
     });
     copied++;
   }
-  if (copied || merged) await logBoardEdit(await getCurrentUser(), to, "COPY", `from ${from}: ${copied} job${copied === 1 ? "" : "s"} copied, ${merged} filled in`);
+  if (copied || merged) await logBoardEdit(user, to, "COPY", `from ${from}: ${copied} job${copied === 1 ? "" : "s"} copied, ${merged} filled in`);
   return NextResponse.json({ copied, merged, skipped });
 });

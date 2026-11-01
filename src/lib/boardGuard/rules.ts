@@ -3,6 +3,8 @@
 // The plain rules, no server imports: when to ask "did you mean another day?" before a change or a send, how the board
 // learns which day each person usually works on at each time of day, and what changed since a sheet went out.
 // Every prompt is a question with one tap either way - never a block. `npm test` (rules.test.ts).
+import { isISODate } from "../dateRules";
+import { assertNoMoney } from "../moneyGuard";
 
 // What the board held when a sheet went out - and what it holds now. Names, roles, sites and times only.
 export type SnapJob = { key: string; site: string; running: boolean; start: string | null; end: string | null; crew: { id: string; name: string; role: string | null }[] };
@@ -107,6 +109,21 @@ export function sendPrompt(p: { boardDate: string; today: string; nowMinutes: nu
   if (nowMinutes >= LEARN.sendTodayFrom) return { reason: "SEND_TODAY", message: `This sheet is for ${todayWord(boardDate, today)}, and the day is well under way. Did you mean tomorrow, ${dayLabel(tomorrow)}?`, suggest: tomorrow };
   return null;
 }
+
+// BG-001 (Ilies approved 2 Nov 2026): a send is recorded only for a real day from a week back to two weeks ahead, a
+// repeat by the same person within 2 minutes is the same send, nobody records more than 30 in a Sydney day, and only a
+// send up to a week ahead can steer today's questions.
+export const SEND_LIMITS = { daysBack: 7, daysAhead: 14, sameSendMs: 2 * 60_000, perDay: 30, laterSendDaysAhead: 7 };
+export function sendDateProblem(date: unknown, today = sydney().date): string | null {
+  if (!isISODate(date)) return "date must be a real YYYY-MM-DD date";
+  if (date < addDaysIso(today, -SEND_LIMITS.daysBack) || date > addDaysIso(today, SEND_LIMITS.daysAhead))
+    return `A sheet can only be recorded for a day from ${SEND_LIMITS.daysBack} days back to ${SEND_LIMITS.daysAhead} days ahead.`;
+  return null;
+}
+
+// BG-003: Viewers see the "changes since" lines, so a line carrying a dollar amount (a "$" typed into a job or tile
+// name) is replaced, never shown.
+export const hideMoneyLines = (lines: string[]) => lines.map((l) => (assertNoMoney(l) ? l : "A change (details hidden)"));
 
 // What changed between the sheet that went out and the board now, in plain words. Capped so a cleared board stays short.
 export function changesSince(before: BoardSnapshot, after: BoardSnapshot, max = 30): string[] {

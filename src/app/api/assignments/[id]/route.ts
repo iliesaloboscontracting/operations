@@ -32,8 +32,11 @@ export const PATCH = withErrorHandling(async (
     if (!targetJob) return NextResponse.json({ error: "not found" }, { status: 404 });
     const targetLocked = await assertDateOpen(targetJob.date.toISOString().slice(0, 10));
     if (targetLocked) return targetLocked;
-    const moveNote = `${current.resource.name}: ${siteName(current.job)} -> ${siteName(targetJob)}`;
-    for (const d of new Set([isoDay(current.job.date), isoDay(targetJob.date)])) await logBoardEdit(user, d, "MOVE", moveNote);
+    // Noted once the move has gone through (BG-006), on both days when it crosses days.
+    const logMove = async () => {
+      const note = `${current.resource.name}: ${siteName(current.job)} -> ${siteName(targetJob)}`;
+      for (const d of new Set([isoDay(current.job.date), isoDay(targetJob.date)])) await logBoardEdit(user, d, "MOVE", note);
+    };
 
     // Already on the target job? Just drop the source so we don't violate the unique pair.
     const existing = await prisma.assignment.findUnique({
@@ -41,6 +44,7 @@ export const PATCH = withErrorHandling(async (
     });
     if (existing) {
       await prisma.assignment.delete({ where: { id: params.id } });
+      await logMove();
       return NextResponse.json(existing);
     }
     const moved = await prisma.assignment.update({
@@ -48,6 +52,7 @@ export const PATCH = withErrorHandling(async (
       data: { jobId: body.jobId },
       include: { resource: true },
     });
+    await logMove();
     sanitizeAssignment(moved, user?.role ?? null);
     return NextResponse.json(moved);
   }
@@ -56,13 +61,13 @@ export const PATCH = withErrorHandling(async (
   if (!roleTarget) return NextResponse.json({ error: "not found" }, { status: 404 });
   const roleLocked = await assertDateOpen(roleTarget.job.date.toISOString().slice(0, 10));
   if (roleLocked) return roleLocked;
-  await logBoardEdit(user, isoDay(roleTarget.job.date), "ROLE", `${roleTarget.resource.name} at ${siteName(roleTarget.job)}: ${roleTarget.role ?? "no role"} -> ${body.role ?? "no role"}`);
 
   const assignment = await prisma.assignment.update({
     where: { id: params.id },
     data: { role: body.role ?? null },
     include: { resource: true },
   });
+  await logBoardEdit(user, isoDay(roleTarget.job.date), "ROLE", `${roleTarget.resource.name} at ${siteName(roleTarget.job)}: ${roleTarget.role ?? "no role"} -> ${body.role ?? "no role"}`);
   sanitizeAssignment(assignment, user?.role ?? null);
   return NextResponse.json(assignment);
 });
@@ -75,11 +80,12 @@ export const DELETE = withErrorHandling(async (
   const params = await paramsP;
   const denied = await guard("MANAGER");
   if (denied) return denied;
+  const user = await getCurrentUser();
   const current = await prisma.assignment.findUnique({ where: { id: params.id }, include: { job: JOB, resource: { select: { name: true } } } });
   if (!current) return NextResponse.json({ error: "not found" }, { status: 404 });
   const locked = await assertDateOpen(current.job.date.toISOString().slice(0, 10));
   if (locked) return locked;
   await prisma.assignment.delete({ where: { id: params.id } });
-  await logBoardEdit(await getCurrentUser(), isoDay(current.job.date), "REMOVE", `${current.resource.name} off ${siteName(current.job)}`);
+  await logBoardEdit(user, isoDay(current.job.date), "REMOVE", `${current.resource.name} off ${siteName(current.job)}`);
   return NextResponse.json({ ok: true });
 });

@@ -11,6 +11,7 @@ import { logBoardEdit } from "@/lib/boardGuard/store";
 export const POST = withErrorHandling(async (req: NextRequest) => {
   const denied = await guard("MANAGER");
   if (denied) return denied;
+  const user = await getCurrentUser();
 
   const { date } = await req.json().catch(() => ({}));
   if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
@@ -27,6 +28,6 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
     prisma.job.updateMany({ where: { ...dateFilter, dayBrief: { not: null } }, data: { dayBrief: null } }),
   ]);
 
-  await logBoardEdit(await getCurrentUser(), date, "CLEAR", `${cleared} allocation${cleared === 1 ? "" : "s"}, ${briefsCleared} day brief${briefsCleared === 1 ? "" : "s"}`);
+  await logBoardEdit(user, date, "CLEAR", `${cleared} allocation${cleared === 1 ? "" : "s"}, ${briefsCleared} day brief${briefsCleared === 1 ? "" : "s"}`);
   return NextResponse.json({ cleared, briefsCleared });
 });

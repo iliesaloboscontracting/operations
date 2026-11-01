@@ -110,6 +110,7 @@ export const DELETE = withErrorHandling(async (
   const params = await paramsP;
   const denied = await guard("MANAGER");
   if (denied) return denied;
+  const user = await getCurrentUser();
   const current = await prisma.job.findUnique({ where: { id: params.id }, select: { date: true, title: true, shift: true } });
   if (!current) return NextResponse.json({ error: "not found" }, { status: 404 });
   const locked = await assertDateOpen(current.date.toISOString().slice(0, 10));
@@ -124,6 +125,6 @@ export const DELETE = withErrorHandling(async (
     );
   }
   await prisma.job.delete({ where: { id: params.id } });
-  await logBoardEdit(await getCurrentUser(), isoDay(current.date), "JOB_DELETE", siteName(current));
+  await logBoardEdit(user, isoDay(current.date), "JOB_DELETE", siteName(current));
   return NextResponse.json({ ok: true });
 });
