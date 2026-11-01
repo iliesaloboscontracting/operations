@@ -64,7 +64,7 @@ export type DocRow = {
   revision: string | null; etag: string; size: number; ext: string; status: string; why: string | null; text: string;
 };
 
-export const knownEtag = (id: string) => (openIndex().prepare("SELECT etag, level, folder_id FROM docs WHERE id = ?").get(id) as { etag: string; level: string; folder_id: string } | undefined) ?? null;
+export const knownEtag = (id: string) => (openIndex().prepare("SELECT etag, level, folder_id, status, why FROM docs WHERE id = ?").get(id) as { etag: string; level: string; folder_id: string; status: string; why: string | null } | undefined) ?? null;
 export const markSeen = (id: string, run: number) => openIndex().prepare("UPDATE docs SET seen_run = ? WHERE id = ?").run(run, id);
 
 // Insert or replace one document and its text.

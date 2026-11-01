@@ -8,8 +8,14 @@ You need: a Microsoft 365 **Global Administrator** sign-in, and the laptop.
 ## 0. First: move the passwords sheet (security review DSO-004)
 
 The app can technically read the **whole** Management site; only Operations' folder list holds it back. The library
-root holds **"Passwords sheet - Victoria .xlsx"**. Before step 4, move those logins into a password manager (or at
-least out of the Management site) and delete the sheet. Claude has never opened it and never will.
+root holds **"Passwords sheet - Victoria .xlsx"**. Before step 4:
+
+1. Move those logins into a password manager (or at least out of the Management site), then delete the sheet.
+2. Empty it from the site's **Recycle bin**, then from the **Second-stage recycle bin** (at the bottom of the recycle
+   bin page), so no copy stays behind. If the sheet had a version history, deleting it removes that too.
+3. **Change the passwords that were in it.** Anyone with access to the Management site could have opened it.
+
+Claude has never opened it and never will.
 
 ## 1. Register the app (Microsoft Entra admin centre)
 
@@ -28,8 +34,9 @@ least out of the Management site) and delete the sheet. Claude has never opened 
 1. In the app: **API permissions → Add a permission → Microsoft Graph → Application permissions.**
 2. Search **Sites.Selected**, tick it, **Add permissions**.
 3. Press **Grant admin consent for Lobos…** and confirm. The status turns green.
-4. If **User.Read** is listed, remove it (⋯ → Remove permission). Operations refuses to start if the app has any
-   permission besides Sites.Selected.
+4. If **User.Read** is listed, remove it (⋯ → Remove permission). The app needs nothing but Sites.Selected.
+   (Operations stops by itself if the app is ever given any other *application* permission, such as Sites.Read.All -
+   but it can't see *delegated* ones like User.Read, so remove those here.)
 
 > Sites.Selected on its own opens **nothing**. Step 4 is what opens the Management site, read-only.
 
@@ -45,7 +52,9 @@ least out of the Management site) and delete the sheet. Claude has never opened 
 
 1. Go to **developer.microsoft.com/graph/graph-explorer** and sign in (top right) as the admin.
 2. Press **Modify permissions**, find **Sites.FullControl.All**, press **Consent**. (This is for your admin session in
-   Graph Explorer only, to hand out the read access. It isn't given to Operations.)
+   Graph Explorer only, to hand out the read access. It isn't given to Operations.) In Microsoft's pop-up, **don't
+   tick "Consent on behalf of your organization"** - leave it for you only. If it was ticked by mistake, remove it
+   afterwards in Entra: **Enterprise applications → Graph Explorer → Permissions**.
 3. Find the site's id. Set the method to **GET** and the address to:
    `https://graph.microsoft.com/v1.0/sites/lobosdemolition.sharepoint.com:/sites/Management`
    Press **Run query**. In the answer, copy the value of **"id"** (it looks like

@@ -1,5 +1,5 @@
 // LCI phase 6: one refresh of the index from a source. Incremental: a file is downloaded and re-read only when its
-// etag (or its folder / level) changed. Only files in approved folders, never denied ones, are read at all. Files
+// etag (or its folder / level) changed, or its last read failed for a passing reason (DSO-007). Only files in approved folders, never denied ones, are read at all. Files
 // that have gone are removed - but only after a COMPLETE run, so a run stopped part-way (throttled, refused) never
 // drops documents it simply didn't reach. Design §6.
 import { FOLDERS, folderFor, revisionOf } from "./folders";
@@ -9,6 +9,13 @@ import { SourceStop, type DocSource } from "./sources/types";
 import { scrub } from "./graphSetup";
 
 export type RunResult = { seen: number; added: number; updated: number; removed: number; unreadable: number; error: string | null; complete: boolean };
+
+// DSO-007 (Ilies approved 1 Nov 2026): an unchanged file keeps its last result only when that result will be the same
+// next time - read fine, a type we don't read, too big, or a scan / no text. A passing failure (a download that broke,
+// a read that ran out of time, no memory limit on the server, a file that couldn't be opened) is tried again.
+const LASTING_WHY = new Set(["no text layer (a scan?)", "no text found"]);
+export const keepsLastResult = (status: string, why: string | null) =>
+  status === "OK" || status === "UNSUPPORTED" || status === "TOO_BIG" || (status === "UNREADABLE" && LASTING_WHY.has(why ?? ""));
 
 export async function refreshIndex(source: DocSource, approvedIds?: Set<string>): Promise<RunResult> {
   const run = startRun(source.name, approvedIds); // DS-016: purges rows today's rules no longer allow
@@ -22,7 +29,7 @@ export async function refreshIndex(source: DocSource, approvedIds?: Set<string>)
         const id = `${source.name}:${file.id}`;
         r.seen++;
         const known = knownEtag(id);
-        if (known && known.etag === file.etag && known.level === f.level && known.folder_id === f.id) { markSeen(id, run); continue; }
+        if (known && known.etag === file.etag && known.level === f.level && known.folder_id === f.id && keepsLastResult(known.status, known.why)) { markSeen(id, run); continue; }
         const base = { id, folderId: f.id, folderLabel: f.label, level: f.level, name: file.name, path: file.path, webUrl: file.webUrl, modified: file.modified, revision: revisionOf(file.name), etag: file.etag, size: file.size, ext: extOf(file.name) };
         let ex: Awaited<ReturnType<typeof extractText>>;
         if (!isSupported(file.name)) ex = { status: "UNSUPPORTED", text: "", why: `.${extOf(file.name) || "?"} files aren't read` };

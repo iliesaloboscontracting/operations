@@ -505,6 +505,48 @@ test("scope=site narrows a login's own levels to MANAGER - behaviour on a real i
   } finally { idx.closeIndex(); delete process.env.SEARCH_INDEX_PATH; rmSync(dir, { recursive: true, force: true }); }
 });
 
+test("DSO-007: a file that failed for a passing reason is read again next run; a lasting result is kept", async () => {
+  const { keepsLastResult, refreshIndex } = await import("./indexer");
+  for (const [s, w] of [["OK", null], ["UNSUPPORTED", ".dwg files aren't read"], ["TOO_BIG", "over 25 MB"], ["UNREADABLE", "no text layer (a scan?)"], ["UNREADABLE", "no text found"]] as const)
+    assert.ok(keepsLastResult(s, w), `${s} ${w}`);
+  for (const w of ["couldn't be downloaded", "took too long to read", "the server can't limit memory for reading", "the file couldn't be opened"])
+    assert.ok(!keepsLastResult("UNREADABLE", w), w);
+  const dir = mkdtempSync(path.join(tmpdir(), "dso007-"));
+  process.env.SEARCH_INDEX_PATH = path.join(dir, "search.db");
+  const idx = await import("./index");
+  try {
+    idx.closeIndex();
+    const SWMS_DIR = "01_Projects - Live/26_161 - Test Job/22_001_09_HSE & Site Management/04_SWMS";
+    const files = [
+      { id: "a", name: "Night works.txt", path: `${SWMS_DIR}/Night works.txt`, webUrl: null, modified: "2026-10-01", etag: "1", size: 60 },
+      { id: "b", name: "Plan.dwg", path: `${SWMS_DIR}/Plan.dwg`, webUrl: null, modified: "2026-10-01", etag: "1", size: 60 },
+    ];
+    let broken = true;
+    const downloads: string[] = [];
+    const source = {
+      name: "local" as const,
+      async *listFiles(pattern: string) { if (pattern.endsWith("04_SWMS")) yield* files; },
+      async download(f: { id: string }) {
+        downloads.push(f.id);
+        if (broken) throw new Error("network blip");
+        return Buffer.from("Night works SWMS: exclusion zone around the crane lift, spotter on the excavator.");
+      },
+    };
+    const only = new Set(["proj-swms"]);
+    const r1 = await refreshIndex(source, only);
+    assert.equal(r1.unreadable, 2, "first run: the download broke, and the .dwg isn't read");
+    broken = false;
+    downloads.length = 0;
+    const r2 = await refreshIndex(source, only);
+    assert.deepEqual(downloads, ["a"], "same etags: only the failed download is fetched again, never the .dwg");
+    assert.equal(r2.updated, 1);
+    assert.deepEqual(idx.search("crane lift", ["MANAGER"], only).hits.map((h) => h.name), ["Night works.txt"], "now searchable");
+    downloads.length = 0;
+    await refreshIndex(source, only);
+    assert.deepEqual(downloads, [], "third run: nothing changed, nothing fetched");
+  } finally { idx.closeIndex(); delete process.env.SEARCH_INDEX_PATH; rmSync(dir, { recursive: true, force: true }); }
+});
+
 test("DSO-002: the refresh lock is one per process (globalThis), shared by the nightly tick and Refresh now", async () => {
   const svc = await import("./service");
   const g = globalThis as unknown as { docIndexState?: { running: boolean } };
