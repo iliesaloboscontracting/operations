@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { guard, getCurrentUser } from "@/lib/auth";
+import { getCurrentUser, guardOrCoordinator } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { createTool } from "@/lib/toolCreate";
 
 export const GET = withErrorHandling(async () => {
-  const denied = await guard("VIEWER");
+  const denied = await guardOrCoordinator("VIEWER");
   if (denied) return denied;
   const tools = await prisma.tool.findMany({
     orderBy: { tag: "asc" },
@@ -25,7 +25,7 @@ export const GET = withErrorHandling(async () => {
 // rules as every other way in (lib/toolCreate.ts): a serial or "plate not
 // readable", and never the same serial twice.
 export const POST = withErrorHandling(async (req: NextRequest) => {
-  const denied = await guard("MANAGER");
+  const denied = await guardOrCoordinator("MANAGER");
   if (denied) return denied;
   const user = await getCurrentUser();
   const body = await req.json();

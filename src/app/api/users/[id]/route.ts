@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser, guard, hashPassword, MIN_PASSWORD, ROLES } from "@/lib/auth";
+import { NO_DIRECTOR_ACCESS_ROLES } from "@/lib/roles";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { isOwner } from "@/lib/owner";
 import { BUILDING_AGENT_EMAIL } from "@/lib/session";
@@ -72,8 +73,8 @@ export const PATCH = withErrorHandling(async (
       return NextResponse.json({ error: "Only Iliesa can change director access." }, { status: 403 });
     }
     const role = (data.role as string | undefined) ?? target.role;
-    if (body.directorAccess && (role === "TIMESHEETS" || role === "ACCOUNTS")) {
-      return NextResponse.json({ error: "Timesheets and Accounts logins can't have director access" }, { status: 400 });
+    if (body.directorAccess && NO_DIRECTOR_ACCESS_ROLES.includes(role)) {
+      return NextResponse.json({ error: "Timesheets, Accounts and Coordinator logins can't have director access" }, { status: 400 });
     }
     data.directorAccess = Boolean(body.directorAccess);
   }

@@ -1,5 +1,6 @@
-// LCI phase 6: who may use document search - Manager and Admin logins (D6-1). Viewers, Timesheets, DIRECTOR and
-// ACCOUNTS logins are refused; no site link reaches it (links never carry a login).
+// LCI phase 6: who may use document search - Manager and Admin logins (D6-1), and the COORDINATOR login for the
+// site & safety folders only (2 Nov 2026, folders.ts levelsFor). Viewers, Timesheets, DIRECTOR and ACCOUNTS logins
+// are refused; no site link reaches it (links never carry a login).
 import { NextResponse } from "next/server";
 import { getCurrentUser, type AuthUser } from "../auth";
 import { canSearch, levelsFor, type Level } from "./folders";

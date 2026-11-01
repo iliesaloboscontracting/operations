@@ -33,5 +33,5 @@ export function safeNext(next: string | null | undefined, origin: string, fallba
 }
 
 // The homes the login route may send someone to (lib/auth.ts homeFor).
-export const HOMES = ["/command", "/timesheets", "/accounts", "/directors"] as const;
+export const HOMES = ["/command", "/timesheets", "/accounts", "/directors", "/coordinator"] as const;
 export const safeHome = (h: unknown) => (HOMES as readonly string[]).includes(String(h)) ? String(h) : "/command";

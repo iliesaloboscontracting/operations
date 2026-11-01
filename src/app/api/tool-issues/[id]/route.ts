@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { guard, getCurrentUser } from "@/lib/auth";
+import { getCurrentUser, guardOrCoordinator } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { moveTool } from "@/lib/toolMoves";
 
@@ -16,7 +16,7 @@ const NEXT: Record<string, string[]> = {
 // tool leaves the toolbox marked "Swapped out" (with Hilti).
 export const PATCH = withErrorHandling(async (req: NextRequest, { params: paramsP }: { params: Promise<{ id: string }> }) => {
   const params = await paramsP;
-  const denied = await guard("MANAGER");
+  const denied = await guardOrCoordinator("MANAGER");
   if (denied) return denied;
   const user = await getCurrentUser();
   const body = await req.json().catch(() => ({}));

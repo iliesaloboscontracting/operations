@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { guard } from "@/lib/auth";
+import { guardOrCoordinator } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { readToolPhotos, VisionNotConfigured } from "@/lib/toolVision";
 import { normSerial } from "@/lib/toolboxCheck";
@@ -10,7 +10,7 @@ import { normSerial } from "@/lib/toolboxCheck";
 // Reads the two registration photos and returns a SUGGESTION for the form.
 // Nothing is saved here - the person checks it and saves the tool themselves.
 export const POST = withErrorHandling(async (req: NextRequest) => {
-  const denied = await guard("MANAGER");
+  const denied = await guardOrCoordinator("MANAGER");
   if (denied) return denied;
   const body = await req.json().catch(() => ({}));
   const ids = [body.platePhotoId, body.conditionPhotoId].filter((x): x is string => typeof x === "string" && !!x);

@@ -6,22 +6,14 @@ import { promisify } from "util";
 import { prisma } from "./prisma";
 import { SESSION_COOKIE, sessionMaxAgeFor, signSession, verifySession } from "./session";
 import { isOwner } from "./owner";
+import { coordinatorOr, NO_DIRECTOR_ACCESS_ROLES, type Role } from "./roles";
 import { UNKNOWN_RANK, rankAtLeast, rankOf } from "./roleRank";
 
 const scrypt = promisify(scryptCb) as (pw: string, salt: Buffer, len: number) => Promise<Buffer>;
 
-// TIMESHEETS (22 Oct 2026): review-only access to the weekly timesheets and
-// nothing else (Alex). It ranks below VIEWER, so every guard() in the app
-// refuses it; only guardTimesheetViewer() below lets it in.
-// ACCOUNTS (24 Oct 2026): the invoices inbox and nothing else - accounts
-// upload supplier invoices. Same idea: below VIEWER, only guardInvoiceInbox()
-// lets it in.
-// DIRECTOR (25 Oct 2026, Ilies: directors get their own screen and no
-// Operations access): the Directors pages and nothing else. Same pattern -
-// below VIEWER, only guardDirector() lets it in. Only the owner sets it.
-export type Role = "ADMIN" | "MANAGER" | "VIEWER" | "TIMESHEETS" | "ACCOUNTS" | "DIRECTOR";
-export const ROLES: Role[] = ["ADMIN", "MANAGER", "VIEWER", "TIMESHEETS", "ACCOUNTS", "DIRECTOR"];
-// The ranks live in lib/roleRank.ts and fail closed (CO-001): a role the code doesn't know is refused everywhere.
+// The roles and the one-page logins (TIMESHEETS, ACCOUNTS, DIRECTOR, COORDINATOR) are in lib/roles.ts; their ranks in
+// lib/roleRank.ts, which fail closed (CO-001): a role the code doesn't know is refused everywhere.
+export { ROLES, homeFor, type Role } from "./roles";
 
 export interface AuthUser {
   id: string;
@@ -36,7 +28,7 @@ export interface AuthUser {
 // (CO-001-R1, Ilies approved 2 Nov 2026).
 export function hasDirectorAccess(u: { email: string; role: string; directorAccess: boolean }) {
   if (rankOf(u.role) === UNKNOWN_RANK) return false;
-  if (u.role === "TIMESHEETS" || u.role === "ACCOUNTS") return false;
+  if (NO_DIRECTOR_ACCESS_ROLES.includes(u.role)) return false;
   return u.role === "DIRECTOR" || isOwner(u.email) || u.directorAccess;
 }
 
@@ -112,12 +104,24 @@ export async function guard(min: Role = "VIEWER"): Promise<NextResponse | null> 
   return null;
 }
 
+// The coordinator's pages (2 Nov 2026): `min` and up, as guard(min) does, plus the COORDINATOR login - for the
+// routes in lib/roles.ts COORDINATOR_PAGES only, never by loosening guard() itself. Where he may only look, this
+// guards the GET and the writes keep guard("MANAGER").
+export async function guardOrCoordinator(min: Role): Promise<NextResponse | null> {
+  const user = await getCurrentUser();
+  if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+  if (!coordinatorOr(user.role, min)) {
+    return NextResponse.json({ error: "You don't have permission to do that" }, { status: 403 });
+  }
+  return null;
+}
+
 // Looking at timesheets: Managers and Admins, plus the review-only
-// TIMESHEETS role. Approving, reopening and exporting stay guard("MANAGER").
+// TIMESHEETS role and the COORDINATOR login (2 Nov 2026). Approving, reopening and exporting stay guard("MANAGER").
 export async function guardTimesheetViewer(): Promise<NextResponse | null> {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
-  if (user.role !== "TIMESHEETS" && !rankAtLeast(user.role, "MANAGER")) {
+  if (user.role !== "TIMESHEETS" && !coordinatorOr(user.role, "MANAGER")) {
     return NextResponse.json({ error: "You don't have permission to do that" }, { status: 403 });
   }
   return null;
@@ -177,11 +181,6 @@ export async function guardAccounts(): Promise<{ denied: NextResponse } | { user
     return { denied: NextResponse.json({ error: "You don't have permission to do that" }, { status: 403 }) };
   }
   return { user };
-}
-
-// Where a role lands after signing in - the limited roles only have one page.
-export function homeFor(role: Role) {
-  return role === "TIMESHEETS" ? "/timesheets" : role === "ACCOUNTS" ? "/accounts" : role === "DIRECTOR" ? "/directors" : "/command";
 }
 
 export function normaliseEmail(email: string) {

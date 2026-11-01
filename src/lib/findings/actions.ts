@@ -7,7 +7,7 @@
 //
 // Who: the owner and director-access users act; Managers see OPERATIONAL and
 // COMMERCIAL findings but can't act yet; Viewers see OPERATIONAL only;
-// Timesheets / Accounts logins see none (the accounts login answers queries
+// Timesheets / Accounts / Coordinator logins see none (the accounts login answers queries
 // on her Invoices page, not findings).
 import { isOwner } from "../owner";
 import { screenFor } from "./config";
@@ -20,7 +20,7 @@ const OPENISH = ["OPEN", "ACKNOWLEDGED", "ACTIONED"];
 // ---------- who sees and who acts ----------
 
 export function audiencesFor(u: Pick<Actor, "email" | "role" | "directorAccess">): string[] {
-  if (u.role === "TIMESHEETS" || u.role === "ACCOUNTS") return [];
+  if (u.role === "TIMESHEETS" || u.role === "ACCOUNTS" || u.role === "COORDINATOR") return [];
   if (isOwner(u.email) || u.directorAccess || u.role === "DIRECTOR") return ["OPERATIONAL", "COMMERCIAL", "DIRECTOR"];
   if (u.role === "ADMIN" || u.role === "MANAGER") return ["OPERATIONAL", "COMMERCIAL"];
   if (u.role === "VIEWER") return ["OPERATIONAL"];
@@ -30,7 +30,7 @@ export const canSeeFinding = (u: Pick<Actor, "email" | "role" | "directorAccess"
 
 // Acting on findings and raising queries: the owner and director-access users.
 export function canActOnFindings(u: Pick<Actor, "email" | "role" | "directorAccess">): boolean {
-  if (u.role === "TIMESHEETS" || u.role === "ACCOUNTS") return false;
+  if (u.role === "TIMESHEETS" || u.role === "ACCOUNTS" || u.role === "COORDINATOR") return false;
   return isOwner(u.email) || u.directorAccess || u.role === "DIRECTOR";
 }
 

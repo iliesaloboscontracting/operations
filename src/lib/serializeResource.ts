@@ -3,7 +3,7 @@
 // views never carry money" at the API layer, not just in the UI. Every route
 // that returns a resource, directly or nested under assignments, must run its
 // result through one of these before responding.
-import type { Role } from "./auth";
+import type { Role } from "./roles";
 import { PAY_RATE_FIELDS } from "./resourceFields";
 import { RANK, rankOf } from "./roleRank";
 

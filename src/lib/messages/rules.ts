@@ -9,8 +9,9 @@ import { OPERATIONS_AI_NAME, isOperationsAi, overAiLimit } from "../infoRequests
 import { looksLikeTfnOrBank } from "../compliance/rules";
 import { audiencesFor } from "../findings/actions";
 
-// Office logins: the owner and Admins, Managers, accounts and the directors. Viewers and Timesheets logins don't chat.
-export const OFFICE_ROLES = ["ADMIN", "MANAGER", "ACCOUNTS", "DIRECTOR"];
+// Office logins: the owner and Admins, Managers, accounts, the directors and the coordinator (Alex, 2 Nov 2026).
+// Viewers and Timesheets logins don't chat.
+export const OFFICE_ROLES = ["ADMIN", "MANAGER", "ACCOUNTS", "DIRECTOR", "COORDINATOR"];
 export const canMessage = (role: string) => OFFICE_ROLES.includes(role);
 
 // The one shared group room every office login reads and posts in.
@@ -89,7 +90,7 @@ export const isSubjectType = (t: unknown): t is SubjectType => typeof t === "str
 
 // Who may start a thread about which kind of record - the people who already work on that record's screen.
 const SUBJECT_ROLES: Record<SubjectType, string[]> = {
-  NONE: ["ACCOUNTS", "DIRECTOR", "ADMIN", "MANAGER"],
+  NONE: ["ACCOUNTS", "DIRECTOR", "ADMIN", "MANAGER", "COORDINATOR"],
   PURCHASE: ["ACCOUNTS", "DIRECTOR", "ADMIN"],
   REIMBURSEMENT: ["ACCOUNTS", "ADMIN"],
   PAY_WEEK: ["ACCOUNTS", "ADMIN"],

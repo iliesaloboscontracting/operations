@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { guard, getCurrentUser } from "@/lib/auth";
+import { getCurrentUser, guardOrCoordinator } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { costAllocation } from "@/lib/costAllocation";
 import { liveJobFields } from "@/lib/jobs";
@@ -14,14 +14,14 @@ import type { ResourceType, DayReviewRowDTO } from "@/lib/types";
 // signal (rate missing/unconfirmed), not a cost view. See Project Tracking
 // for money.
 export const GET = withErrorHandling(async (req: NextRequest) => {
-  const denied = await guard("VIEWER");
+  const denied = await guardOrCoordinator("VIEWER");
   if (denied) return denied;
   const date = req.nextUrl.searchParams.get("date");
   if (!date) return NextResponse.json({ error: "date is required" }, { status: 400 });
   // Bring the day's sign-in hours into the hours boxes first (Manager+ only -
-  // a Viewer opening the page never writes anything).
+  // a Viewer or the coordinator (view only, 2 Nov 2026) opening the page never writes anything).
   const viewer = await getCurrentUser();
-  if (viewer && viewer.role !== "VIEWER") {
+  if (viewer && (viewer.role === "MANAGER" || viewer.role === "ADMIN")) {
     const ids = await prisma.job.findMany({ where: { date: new Date(date + "T00:00:00.000Z") }, select: { id: true } });
     await syncSignInActuals(ids.map((j) => j.id));
   }

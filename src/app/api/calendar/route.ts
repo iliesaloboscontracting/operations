@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { guard } from "@/lib/auth";
+import { guardOrCoordinator } from "@/lib/auth";
 import { addDays } from "@/lib/dates";
 import { CalendarJobDTO } from "@/lib/types";
 import { withErrorHandling } from "@/lib/apiHandler";
@@ -8,7 +8,7 @@ import { liveJobFields } from "@/lib/jobs";
 
 // GET /api/calendar?from=YYYY-MM-DD&to=YYYY-MM-DD -> every job in the range, with staffing summary
 export const GET = withErrorHandling(async (req: NextRequest) => {
-  const denied = await guard("VIEWER");
+  const denied = await guardOrCoordinator("VIEWER");
   if (denied) return denied;
   const from = req.nextUrl.searchParams.get("from");
   const to = req.nextUrl.searchParams.get("to");

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { guard, getCurrentUser } from "@/lib/auth";
+import { guard, getCurrentUser, guardOrCoordinator } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { isISODate } from "@/lib/dateRules";
 import { attendanceForDate } from "@/lib/attendanceView";
@@ -12,7 +12,7 @@ import { syncSignInActualsQuietly } from "@/lib/signInActuals";
 // GET /api/attendance?date=YYYY-MM-DD -> that date's jobs with sign-ins,
 // hours, no-shows and flags; plus the active site posters and hand-overs.
 export const GET = withErrorHandling(async (req: NextRequest) => {
-  const denied = await guard("MANAGER");
+  const denied = await guardOrCoordinator("MANAGER");
   if (denied) return denied;
   const q = req.nextUrl.searchParams.get("date");
   const date = q && isISODate(q) ? q : todaySydney();

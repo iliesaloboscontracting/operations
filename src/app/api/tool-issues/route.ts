@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { guard } from "@/lib/auth";
+import { guardOrCoordinator } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
 
 // GET /api/tool-issues -> open faults (reported or waiting on a Hilti swap), oldest first.
 export const GET = withErrorHandling(async () => {
-  const denied = await guard("VIEWER");
+  const denied = await guardOrCoordinator("VIEWER");
   if (denied) return denied;
   const issues = await prisma.toolIssue.findMany({
     where: { status: { in: ["REPORTED", "SWAP_REQUESTED"] } },

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { guard } from "@/lib/auth";
+import { guardOrCoordinator } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { offHireAlert } from "@/lib/hireEstimate";
 import { todaySydney } from "@/lib/today";
@@ -9,7 +9,7 @@ import { todaySydney } from "@/lib/today";
 // the expected finish), finishing today, or within 3 days (21 Oct 2026).
 // Names, suppliers, projects and dates only - no money.
 export const GET = withErrorHandling(async () => {
-  const denied = await guard("VIEWER");
+  const denied = await guardOrCoordinator("VIEWER");
   if (denied) return denied;
   const today = todaySydney();
   const items = await prisma.resource.findMany({

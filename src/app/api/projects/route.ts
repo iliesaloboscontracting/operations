@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { guard, getCurrentUser } from "@/lib/auth";
+import { guard, getCurrentUser, guardOrCoordinator } from "@/lib/auth";
 import { pickProject } from "@/lib/pickProject";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { addDays } from "@/lib/dates";
@@ -13,7 +13,7 @@ import { boardDatesByProject, dateExceptions } from "@/lib/dateExceptions";
 // Each project comes with today's assigned counts (crew / plant / attachments / trucks / hire),
 // and how much of its Project File is filled in (lib/projectFile.ts).
 export const GET = withErrorHandling(async (req: NextRequest) => {
-  const denied = await guard("VIEWER");
+  const denied = await guardOrCoordinator("VIEWER");
   if (denied) return denied;
   // Cost-to-date and the contract value are financial figures - Phase 2b:
   // this route was Viewer-accessible and returning both unfiltered, the

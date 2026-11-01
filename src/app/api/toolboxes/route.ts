@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { guard } from "@/lib/auth";
+import { guard, guardOrCoordinator } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { checkSupervisor } from "@/lib/toolboxServer";
 
 // GET /api/toolboxes -> active toolboxes with their supervisor, tools and last check.
 export const GET = withErrorHandling(async () => {
-  const denied = await guard("VIEWER");
+  const denied = await guardOrCoordinator("VIEWER");
   if (denied) return denied;
   const boxes = await prisma.toolbox.findMany({
     where: { active: true },

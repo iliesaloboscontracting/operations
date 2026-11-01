@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser, guard } from "@/lib/auth";
+import { getCurrentUser, guardOrCoordinator } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { siteLogsForDate } from "@/lib/dailyLog/store";
 
@@ -14,7 +14,7 @@ import { siteLogsForDate } from "@/lib/dailyLog/store";
 // a Viewer's reply has neither. The all-logs summary is for everyone who
 // sees Day Review. No dollars.
 export const GET = withErrorHandling(async (req: NextRequest) => {
-  const denied = await guard("VIEWER");
+  const denied = await guardOrCoordinator("VIEWER");
   if (denied) return denied;
   const date = req.nextUrl.searchParams.get("date") ?? "";
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return NextResponse.json({ error: "date is required" }, { status: 400 });

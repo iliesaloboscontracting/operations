@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { guard, getCurrentUser } from "@/lib/auth";
+import { getCurrentUser, guardOrCoordinator } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { VisionNotConfigured } from "@/lib/toolVision";
 import { runToolboxCheck } from "@/lib/toolboxCheckRun";
@@ -11,7 +11,7 @@ import { runToolboxCheck } from "@/lib/toolboxCheckRun";
 // box, or marking one missing, is a separate step the person chooses.
 export const POST = withErrorHandling(async (req: NextRequest, { params: paramsP }: { params: Promise<{ id: string }> }) => {
   const params = await paramsP;
-  const denied = await guard("MANAGER");
+  const denied = await guardOrCoordinator("MANAGER");
   if (denied) return denied;
   const user = await getCurrentUser();
   const body = await req.json().catch(() => ({}));

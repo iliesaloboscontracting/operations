@@ -70,13 +70,15 @@ export function folderFor(path: string, approvedIds?: Set<string>): Folder | nul
 }
 
 // Which levels a login may see. The page itself is Managers and Admins only (D6-1); COMMERCIAL is Admins, and
-// Managers with director access.
+// Managers with director access. The COORDINATOR login (Alex, 2 Nov 2026) gets the MANAGER (site & safety) folders
+// only, never COMMERCIAL - and not the Assistant, which stays Manager+.
 export function levelsFor(user: { role: string; directorAccess?: boolean }): Level[] {
   if (user.role === "ADMIN") return ["MANAGER", "COMMERCIAL"];
   if (user.role === "MANAGER") return user.directorAccess ? ["MANAGER", "COMMERCIAL"] : ["MANAGER"];
+  if (user.role === "COORDINATOR") return ["MANAGER"];
   return [];
 }
-export const canSearch = (user: { role: string }) => user.role === "ADMIN" || user.role === "MANAGER";
+export const canSearch = (user: { role: string }) => user.role === "ADMIN" || user.role === "MANAGER" || user.role === "COORDINATOR";
 // "scope=site" (the Assistant's search, 1 Nov 2026): the login's own levels cut down to MANAGER - it can only narrow.
 export const narrowLevels = (levels: Level[], scope: string | null): Level[] => (scope === "site" ? levels.filter((l) => l === "MANAGER") : levels);
 

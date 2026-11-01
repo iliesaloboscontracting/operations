@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { guard } from "@/lib/auth";
+import { guardOrCoordinator } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { mediaTypeOf, readPhoto } from "@/lib/toolPhotos";
 import { logPhotoFile } from "@/lib/dailyLog/store";
@@ -8,7 +8,7 @@ import { logPhotoFile } from "@/lib/dailyLog/store";
 // daily log (the day, a delay or a tip docket), Viewer+ as Day Review. Only a
 // file that log holds.
 export const GET = withErrorHandling(async (req: NextRequest) => {
-  const denied = await guard("VIEWER");
+  const denied = await guardOrCoordinator("VIEWER");
   if (denied) return denied;
   const file = await logPhotoFile(req.nextUrl.searchParams.get("log") ?? "", req.nextUrl.searchParams.get("file") ?? "");
   if (!file) return NextResponse.json({ error: "not found" }, { status: 404 });
