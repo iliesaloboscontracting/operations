@@ -134,6 +134,54 @@ export async function lockedWeekFor(date: string) {
 
 export const weekHasEnded = (weekStart: string) => todaySydney() > weekEnd(weekStart);
 
+// The week as the Timesheets screens show it (GET /api/timesheets, and read-only on the Accounts screen -
+// GET /api/accounts/timesheets, 2 Nov 2026): the people's lines, the week's approval (if any), what changed since
+// it was approved, its approval history and accounts' decision per person. An approved week shows exactly what was
+// approved; anything that differs in the live sign-ins since then is counted so nothing slips by unseen.
+export async function timesheetWeek(weekStart: string) {
+  const [lines, approval, history, accounts] = await Promise.all([
+    timesheetLines(weekStart),
+    activeApproval(weekStart),
+    prisma.timesheetWeek.findMany({
+      where: { weekStart },
+      orderBy: { approvedAt: "desc" },
+      select: { id: true, approvedBy: true, approvedAt: true, totalHours: true, people: true, reopenedBy: true, reopenedAt: true, reopenReason: true },
+    }),
+    // Accounts stage 2: Victoria's decision per person (status and note only). Imported here, not at the top, so
+    // payroll/store.ts (which imports this file) and this file never load each other in a loop at start-up.
+    import("./payroll/store").then((m) => m.accountsStatusForWeek(weekStart)),
+  ]);
+  const approvedLines = approval ? (JSON.parse(approval.snapshot) as TimesheetSnapshot).lines : null;
+  const shown = approvedLines ?? lines;
+  const key = (l: { attendanceId: string; in: string; out: string | null; hours: number | null; status: string }) =>
+    `${l.attendanceId}|${l.in}|${l.out}|${l.hours}|${l.status}`;
+  const changedSinceApproval = approvedLines
+    ? lines.filter((l) => !approvedLines.some((a) => key(a) === key(l))).length +
+      approvedLines.filter((a) => !lines.some((l) => l.attendanceId === a.attendanceId)).length
+    : 0;
+  return {
+    weekStart,
+    weekEnd: weekEnd(weekStart),
+    days: weekDates(weekStart),
+    today: todaySydney(),
+    weekEnded: weekHasEnded(weekStart),
+    people: peopleOf(weekStart, shown),
+    totalHours: Math.round(shown.reduce((n, l) => n + (l.hours ?? 0), 0) * 4) / 4,
+    issues: lines.filter((l) => lineIssues(l).length > 0).length,
+    approval: approval && { approvedBy: approval.approvedBy, approvedAt: approval.approvedAt },
+    changedSinceApproval,
+    history,
+    accounts,
+  };
+}
+
+// The lines a week's export sends: exactly what was approved, else the live sign-ins (a DRAFT).
+export async function exportLines(weekStart: string) {
+  const approval = await activeApproval(weekStart);
+  const lines = approval ? (JSON.parse(approval.snapshot) as TimesheetSnapshot).lines : await timesheetLines(weekStart);
+  return { approval, lines };
+}
+
 // Spreadsheet for accounts: one line per sign-in, then each person's total.
 export function timesheetCsv(weekStart: string, lines: TimesheetLine[], approval: { approvedBy: string; approvedAt: Date } | null) {
   // SEC-012 (27 Oct 2026): the same cell writer as the payroll exports - a name or note starting with = + - @ can't

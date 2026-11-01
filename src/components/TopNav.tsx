@@ -99,6 +99,7 @@ const ACCOUNTS = [
   { href: "/accounts/questions", label: "Questions" },
   { href: "/accounts/calendar", label: "Due dates" },
   { href: "/accounts/payroll", label: "Payroll" },
+  { href: "/accounts/timesheets", label: "Timesheets" }, // view only + export (2 Nov 2026)
   { href: "/accounts/reimbursements", label: "Reimbursements" },
   { href: "/accounts/labour-cost", label: "Labour cost" },
   { href: "/accounts/invoice-checks", label: "Invoice checks" },

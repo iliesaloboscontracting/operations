@@ -15,6 +15,9 @@ export const MAY_ANSWER = {
     /^\/api\/info-requests(\/|$)/, /^\/api\/changes(\/|$)/, /^\/api\/lessons(\/|$)/, /^\/api\/messages(\/|$)/], // + office chat (27 Oct)
   // ACCOUNTS (Victoria): the Accounts screen and the invoices inbox; compliance records; the Xero mirror; own queries;
   // purchases; her own phone alerts (/api/push, since 26 Oct); office chat (/api/messages, 27 Oct).
+  // Timesheets, view + export (2 Nov 2026): the new GET routes are /api/accounts/timesheets and
+  // /api/accounts/timesheets/export - inside the /api/accounts pattern below, so nothing is added here. The Operations
+  // /api/timesheets routes are deliberately NOT on this list: the matrix proves they still refuse ACCOUNTS.
   ACCOUNTS: [/^\/api\/auth\//, /^\/api\/accounts(\/|$)/, /^\/api\/invoice-inbox(\/|$)/, /^\/api\/compliance\/(workers|documents)(\/|$)/,
     /^\/api\/xero(\/|$)/, /^\/api\/queries$/, /^\/api\/purchases$/, /^\/api\/info-requests(\/|$)/, /^\/api\/push$/,
     /^\/api\/messages(\/|$)/],

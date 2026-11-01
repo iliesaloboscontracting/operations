@@ -6,10 +6,9 @@ import { withErrorHandling } from "@/lib/apiHandler";
 import { isISODate } from "@/lib/dateRules";
 import { todaySydney } from "@/lib/today";
 import {
-  activeApproval, lineIssues, peopleOf, timesheetLines, weekDates, weekEnd, weekHasEnded, weekStartOf,
+  activeApproval, lineIssues, timesheetLines, timesheetWeek, weekHasEnded, weekStartOf,
   type TimesheetSnapshot,
 } from "@/lib/timesheets";
-import { accountsStatusForWeek } from "@/lib/payroll/store";
 
 // GET /api/timesheets?week=YYYY-MM-DD (any date in the week) -> Lobos staff
 // hours for that Monday-Sunday week from site sign-ins, the week's approval
@@ -19,41 +18,7 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
   if (denied) return denied;
   const q = req.nextUrl.searchParams.get("week");
   const weekStart = weekStartOf(q && isISODate(q) ? q : todaySydney());
-  const [lines, approval, history, accounts] = await Promise.all([
-    timesheetLines(weekStart),
-    activeApproval(weekStart),
-    prisma.timesheetWeek.findMany({
-      where: { weekStart },
-      orderBy: { approvedAt: "desc" },
-      select: { id: true, approvedBy: true, approvedAt: true, totalHours: true, people: true, reopenedBy: true, reopenedAt: true, reopenReason: true },
-    }),
-    accountsStatusForWeek(weekStart), // Accounts stage 2: Victoria's decision per person (status and note only)
-  ]);
-  // An approved week shows exactly what was approved; anything that differs
-  // in the live sign-ins since then is listed so nothing slips by unseen.
-  const approvedLines = approval ? (JSON.parse(approval.snapshot) as TimesheetSnapshot).lines : null;
-  const shown = approvedLines ?? lines;
-  const key = (l: { attendanceId: string; in: string; out: string | null; hours: number | null; status: string }) =>
-    `${l.attendanceId}|${l.in}|${l.out}|${l.hours}|${l.status}`;
-  const changedSinceApproval = approvedLines
-    ? lines.filter((l) => !approvedLines.some((a) => key(a) === key(l))).length +
-      approvedLines.filter((a) => !lines.some((l) => l.attendanceId === a.attendanceId)).length
-    : 0;
-  const issues = lines.filter((l) => lineIssues(l).length > 0).length;
-  return viewJson({
-    weekStart,
-    weekEnd: weekEnd(weekStart),
-    days: weekDates(weekStart),
-    today: todaySydney(),
-    weekEnded: weekHasEnded(weekStart),
-    people: peopleOf(weekStart, shown),
-    totalHours: Math.round(shown.reduce((n, l) => n + (l.hours ?? 0), 0) * 4) / 4,
-    issues,
-    approval: approval && { approvedBy: approval.approvedBy, approvedAt: approval.approvedAt },
-    changedSinceApproval,
-    history,
-    accounts,
-  });
+  return viewJson(await timesheetWeek(weekStart));
 });
 
 // POST /api/timesheets { week, action: "approve" | "reopen", reason? }

@@ -2059,3 +2059,15 @@ model MessageVersion {
 
   @@index([messageId, at])
 }
+
+// One-time notices a login has dismissed with "Got it" (2 Nov 2026, Ilies: the accounts login gets a "how the
+// timesheets work" notice once). One row per login and notice, written the first time only - never updated or
+// deleted. A plain user id, no relation (like User.personnelId). Notice keys live in code (lib/accountsTimesheets.ts).
+model NoticeSeen {
+  id     String   @id @default(cuid())
+  userId String
+  notice String // e.g. ACCOUNTS_TIMESHEETS_V1
+  seenAt DateTime @default(now())
+
+  @@unique([userId, notice])
+}
