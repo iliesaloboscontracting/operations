@@ -6,7 +6,7 @@ import { withErrorHandling } from "@/lib/apiHandler";
 import { isISODate } from "@/lib/dateRules";
 import { todaySydney } from "@/lib/today";
 import {
-  activeApproval, lineIssues, timesheetLines, timesheetWeek, weekHasEnded, weekStartOf,
+  activeApproval, lineIssues, liveTravel, timesheetLines, timesheetWeek, weekHasEnded, weekStartOf,
   type TimesheetSnapshot,
 } from "@/lib/timesheets";
 
@@ -43,7 +43,8 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
       const names = [...new Set(open.map((l) => `${l.name} (${l.date})`))].slice(0, 6).join(", ");
       return bad(`Sort these out first on the Sign-ins page - no sign-out or waiting for the supervisor: ${names}${open.length > 6 ? "…" : ""}`);
     }
-    const snapshot: TimesheetSnapshot = { weekStart, lines };
+    // Regional travel (2 Nov 2026) is locked in with the week, like the sign-ins.
+    const snapshot: TimesheetSnapshot = { weekStart, lines, travel: await liveTravel(weekStart) };
     await prisma.timesheetWeek.create({
       data: {
         weekStart,

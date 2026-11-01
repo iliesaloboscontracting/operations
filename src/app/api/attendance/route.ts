@@ -9,6 +9,7 @@ import { todaySydney } from "@/lib/today";
 import { parseTime } from "@/lib/signin";
 import { lockedWeekFor } from "@/lib/timesheets";
 import { syncSignInActualsQuietly } from "@/lib/signInActuals";
+import { travelLinesForDate } from "@/lib/travel/store";
 
 // GET /api/attendance?date=YYYY-MM-DD -> that date's jobs with sign-ins,
 // hours, no-shows and flags; plus the active site posters and hand-overs.
@@ -17,7 +18,7 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
   if (denied) return denied;
   const q = req.nextUrl.searchParams.get("date");
   const date = q && isISODate(q) ? q : todaySydney();
-  const [view, posters, handovers] = await Promise.all([
+  const [view, posters, handovers, travel] = await Promise.all([
     attendanceForDate(date),
     prisma.siteLink.findMany({
       where: { kind: "POSTER", revokedAt: null },
@@ -27,8 +28,9 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
       where: { kind: "HANDOVER", revokedAt: null, expiresAt: { gt: new Date() } },
       select: { id: true, jobId: true, expiresAt: true, createdBy: true, resource: { select: { name: true } } },
     }),
+    travelLinesForDate(date), // regional travel legs for this day's jobs (2 Nov 2026) - times and hours, no GPS
   ]);
-  return viewJson({ date, today: todaySydney(), jobs: view.jobs, points: view.points, posters, handovers });
+  return viewJson({ date, today: todaySydney(), jobs: view.jobs, points: view.points, posters, handovers, travel });
 });
 
 // POST /api/attendance - the office adds a sign-in that was missed.

@@ -7,6 +7,8 @@ import { prisma } from "./prisma";
 import { jobLabel, POINT_BREAK_MINUTES, signedHours, STILL_ON_HOURS, sydneyTime } from "./signin";
 import { todaySydney } from "./today";
 import { csvCell } from "./payroll/rules";
+import type { TravelLine } from "./travel/store";
+import { FLAG_LABEL, needsOffice } from "./travel/rules";
 
 export type TimesheetIssue = "NO_SIGN_OUT" | "TO_CONFIRM";
 
@@ -33,11 +35,19 @@ export type TimesheetPerson = {
   name: string;
   role: string | null;
   days: Record<string, TimesheetLine[]>;
-  total: number;
+  total: number; // site hours - travel is never in here
   issues: number;
+  // Regional travel (2 Nov 2026): its own column - out and home legs per day, and the week's travel hours.
+  travel: Record<string, TravelLine[]>;
+  travelTotal: number;
 };
 
-export type TimesheetSnapshot = { weekStart: string; lines: TimesheetLine[] };
+export type { TravelLine };
+// travel: the week's travel legs as approved (weeks approved before travel existed have none).
+export type TimesheetSnapshot = { weekStart: string; lines: TimesheetLine[]; travel?: TravelLine[] };
+
+// The week's live travel legs (lib/travel/store.ts - loaded here on demand, as it imports this file).
+export const liveTravel = (weekStart: string) => import("./travel/store").then((m) => m.travelLinesForWeek(weekStart));
 
 const iso = (d: Date) => d.toISOString().slice(0, 10);
 const addDays = (date: string, n: number) => iso(new Date(new Date(date + "T00:00:00.000Z").getTime() + n * 86_400_000));
@@ -104,22 +114,37 @@ export const lineIssues = (l: TimesheetLine): TimesheetIssue[] => [
   ...(l.status === "TO_CONFIRM" ? (["TO_CONFIRM"] as const) : []),
 ];
 
-// One row per person with their lines by day and a weekly total.
-export function peopleOf(weekStart: string, lines: TimesheetLine[]): TimesheetPerson[] {
+// One row per person with their lines by day and a weekly total, plus their travel (its own total).
+export function peopleOf(weekStart: string, lines: TimesheetLine[], travel: TravelLine[] = []): TimesheetPerson[] {
   const byPerson = new Map<string, TimesheetPerson>();
-  for (const l of lines) {
-    const p = byPerson.get(l.resourceId) ?? {
-      resourceId: l.resourceId, name: l.name, role: l.role,
+  const personFor = (resourceId: string, name: string, role: string | null) => {
+    const p = byPerson.get(resourceId) ?? {
+      resourceId, name, role,
       days: Object.fromEntries(weekDates(weekStart).map((d) => [d, [] as TimesheetLine[]])),
       total: 0, issues: 0,
+      travel: Object.fromEntries(weekDates(weekStart).map((d) => [d, [] as TravelLine[]])),
+      travelTotal: 0,
     };
+    byPerson.set(resourceId, p);
+    return p;
+  };
+  for (const l of lines) {
+    const p = personFor(l.resourceId, l.name, l.role);
     (p.days[l.date] ??= []).push(l);
     p.total += l.hours ?? 0;
     p.issues += lineIssues(l).length;
-    byPerson.set(l.resourceId, p);
   }
-  return [...byPerson.values()].map((p) => ({ ...p, total: Math.round(p.total * 4) / 4 })).sort((a, b) => a.name.localeCompare(b.name));
+  for (const t of travel) {
+    const p = personFor(t.resourceId, t.name, t.role);
+    (p.travel[t.date] ??= []).push(t);
+    p.travelTotal += t.hours ?? 0;
+  }
+  const q = (n: number) => Math.round(n * 4) / 4;
+  return [...byPerson.values()].map((p) => ({ ...p, total: q(p.total), travelTotal: q(p.travelTotal) })).sort((a, b) => a.name.localeCompare(b.name));
 }
+
+// Travel legs the office has to look at (never ended, or over the cap) - information, they don't block approval.
+export const travelIssues = (travel: TravelLine[]) => travel.filter((t) => needsOffice(t.flag)).length;
 
 // The current approval for a week (latest one that hasn't been reopened).
 export function activeApproval(weekStart: string) {
@@ -139,7 +164,7 @@ export const weekHasEnded = (weekStart: string) => todaySydney() > weekEnd(weekS
 // it was approved, its approval history and accounts' decision per person. An approved week shows exactly what was
 // approved; anything that differs in the live sign-ins since then is counted so nothing slips by unseen.
 export async function timesheetWeek(weekStart: string) {
-  const [lines, approval, history, accounts] = await Promise.all([
+  const [lines, approval, history, accounts, travelNow] = await Promise.all([
     timesheetLines(weekStart),
     activeApproval(weekStart),
     prisma.timesheetWeek.findMany({
@@ -150,14 +175,19 @@ export async function timesheetWeek(weekStart: string) {
     // Accounts stage 2: Victoria's decision per person (status and note only). Imported here, not at the top, so
     // payroll/store.ts (which imports this file) and this file never load each other in a loop at start-up.
     import("./payroll/store").then((m) => m.accountsStatusForWeek(weekStart)),
+    liveTravel(weekStart),
   ]);
-  const approvedLines = approval ? (JSON.parse(approval.snapshot) as TimesheetSnapshot).lines : null;
+  const snap = approval ? (JSON.parse(approval.snapshot) as TimesheetSnapshot) : null;
+  const approvedLines = snap ? snap.lines : null;
   const shown = approvedLines ?? lines;
+  const shownTravel = snap ? snap.travel ?? [] : travelNow;
+  const tkey = (t: TravelLine) => `${t.legId}|${t.start}|${t.end}|${t.hours}`;
   const key = (l: { attendanceId: string; in: string; out: string | null; hours: number | null; status: string }) =>
     `${l.attendanceId}|${l.in}|${l.out}|${l.hours}|${l.status}`;
   const changedSinceApproval = approvedLines
     ? lines.filter((l) => !approvedLines.some((a) => key(a) === key(l))).length +
-      approvedLines.filter((a) => !lines.some((l) => l.attendanceId === a.attendanceId)).length
+      approvedLines.filter((a) => !lines.some((l) => l.attendanceId === a.attendanceId)).length +
+      travelNow.filter((t) => !shownTravel.some((a) => tkey(a) === tkey(t))).length
     : 0;
   return {
     weekStart,
@@ -165,8 +195,10 @@ export async function timesheetWeek(weekStart: string) {
     days: weekDates(weekStart),
     today: todaySydney(),
     weekEnded: weekHasEnded(weekStart),
-    people: peopleOf(weekStart, shown),
+    people: peopleOf(weekStart, shown, shownTravel),
     totalHours: Math.round(shown.reduce((n, l) => n + (l.hours ?? 0), 0) * 4) / 4,
+    travelHours: Math.round(shownTravel.reduce((n, t) => n + (t.hours ?? 0), 0) * 4) / 4,
+    travelIssues: travelIssues(travelNow),
     issues: lines.filter((l) => lineIssues(l).length > 0).length,
     approval: approval && { approvedBy: approval.approvedBy, approvedAt: approval.approvedAt },
     changedSinceApproval,
@@ -178,12 +210,14 @@ export async function timesheetWeek(weekStart: string) {
 // The lines a week's export sends: exactly what was approved, else the live sign-ins (a DRAFT).
 export async function exportLines(weekStart: string) {
   const approval = await activeApproval(weekStart);
-  const lines = approval ? (JSON.parse(approval.snapshot) as TimesheetSnapshot).lines : await timesheetLines(weekStart);
-  return { approval, lines };
+  const snap = approval ? (JSON.parse(approval.snapshot) as TimesheetSnapshot) : null;
+  const [lines, travel] = snap ? [snap.lines, snap.travel ?? []] : await Promise.all([timesheetLines(weekStart), liveTravel(weekStart)]);
+  return { approval, lines, travel };
 }
 
-// Spreadsheet for accounts: one line per sign-in, then each person's total.
-export function timesheetCsv(weekStart: string, lines: TimesheetLine[], approval: { approvedBy: string; approvedAt: Date } | null) {
+// Spreadsheet for accounts: one line per sign-in, one per travel leg (regional jobs, 2 Nov 2026 - its own
+// "Travel (h)" column, never in Hours), then each person's week total.
+export function timesheetCsv(weekStart: string, lines: TimesheetLine[], approval: { approvedBy: string; approvedAt: Date } | null, travel: TravelLine[] = []) {
   // SEC-012 (27 Oct 2026): the same cell writer as the payroll exports - a name or note starting with = + - @ can't
   // become a formula when accounts open the file.
   const cell = csvCell;
@@ -192,9 +226,9 @@ export function timesheetCsv(weekStart: string, lines: TimesheetLine[], approval
     [`Lobos Contracting - staff timesheet, week ${weekStart} to ${weekEnd(weekStart)}`],
     [approval ? `APPROVED by ${approval.approvedBy} on ${approval.approvedAt.toLocaleString("en-AU", { timeZone: "Australia/Sydney" })}` : "DRAFT - not approved yet"],
     [],
-    ["Employee", "Role", "Date", "Day", "Site / place", "Sign in", "Sign out", "Unpaid break (min)", "Hours", "Status", "Notes"],
+    ["Employee", "Role", "Date", "Day", "Site / place", "Sign in", "Sign out", "Unpaid break (min)", "Hours", "Travel (h)", "Status", "Notes"],
   ];
-  for (const p of peopleOf(weekStart, lines)) {
+  for (const p of peopleOf(weekStart, lines, travel)) {
     for (const d of weekDates(weekStart)) {
       for (const l of p.days[d] ?? []) {
         const notes = [
@@ -203,10 +237,14 @@ export function timesheetCsv(weekStart: string, lines: TimesheetLine[], approval
           ...(l.allocated ? [] : ["Not on the allocation"]),
           ...(l.changedByOffice ? ["Office changed: " + l.changedByOffice] : []),
         ].join("; ");
-        out.push([p.name, p.role, l.date, dayName(l.date), l.site, l.in, l.out, l.breakMinutes, l.hours, l.status === "CONFIRMED" ? "Confirmed" : "To confirm", notes]);
+        out.push([p.name, p.role, l.date, dayName(l.date), l.site, l.in, l.out, l.breakMinutes, l.hours, "", l.status === "CONFIRMED" ? "Confirmed" : "To confirm", notes]);
+      }
+      for (const t of p.travel[d] ?? []) {
+        const notes = [...(t.flag && t.flag !== "ON_THE_WAY" ? [FLAG_LABEL[t.flag]] : t.flag ? ["Still travelling"] : []), ...(t.changedByOffice ? ["Office changed: " + t.changedByOffice] : [])].join("; ");
+        out.push([p.name, p.role, t.date, dayName(t.date), `${t.direction === "OUT" ? "Travel out to" : "Travel home from"} ${t.site}`, t.start, t.end, "", "", t.hours, "Travel", notes]);
       }
     }
-    out.push([p.name, p.role, "", "WEEK TOTAL", "", "", "", "", p.total, "", ""]);
+    out.push([p.name, p.role, "", "WEEK TOTAL", "", "", "", "", p.total, p.travelTotal, "", ""]);
   }
   return out.map((r) => r.map(cell).join(",")).join("\r\n") + "\r\n";
 }

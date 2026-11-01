@@ -108,9 +108,10 @@ export default function AccountsTimesheetsPage() {
             </div>
           )}
 
-          <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-4">
+          <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-5">
             <Tile label="People" value={data.people.length} />
             <Tile label="Total hours" value={hrs(data.totalHours)} />
+            <Tile label="Travel (regional)" value={hrs(data.travelHours ?? 0)} tone={data.travelIssues ? "text-amber-400" : "text-sky-200"} />
             <Tile label="Need sorting" value={data.issues} tone={data.issues ? "text-amber-400" : ""} />
             <Tile label="Status" value={data.approval ? "Locked" : "Draft"} tone={data.approval ? "text-emerald-400" : "text-gray-300"} />
           </div>

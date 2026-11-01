@@ -6,6 +6,7 @@ import PageShell from "@/components/PageShell";
 import { useAuth } from "@/components/AuthProvider";
 import AttendanceJobCard from "@/components/attendance/AttendanceJobCard";
 import PosterPanel from "@/components/attendance/PosterPanel";
+import TravelLegs from "@/components/attendance/TravelLegs";
 import type { AttendanceData } from "@/components/attendance/types";
 import { apiFetch } from "@/lib/apiFetch";
 import { localISODate } from "@/lib/resource";
@@ -101,6 +102,7 @@ export default function AttendancePage() {
               {data.jobs.map((j) => {
                 const h = data.handovers.find((x) => x.jobId === j.id);
                 return (
+                  <div key={j.id}>
                   <AttendanceJobCard
                     key={j.id}
                     job={j}
@@ -111,8 +113,13 @@ export default function AttendancePage() {
                     handover={h ? { name: h.resource?.name ?? "someone", expiresAt: h.expiresAt } : null}
                     onChanged={load}
                   />
+                  {/* Regional travel legs for this job (2 Nov 2026) */}
+                  <TravelLegs legs={(data.travel ?? []).filter((t) => t.jobId === j.id)} canEdit={canEdit} onChanged={load} />
+                  </div>
                 );
               })}
+              {/* Travel for a job not listed here (e.g. since completed) */}
+              <TravelLegs legs={(data.travel ?? []).filter((t) => !data.jobs.some((j) => j.id === t.jobId))} canEdit={canEdit} onChanged={load} />
             </div>
             <PosterPanel projects={projects} vehicles={vehicles} posters={data.posters} canEdit={canEdit} onChanged={load} />
           </div>

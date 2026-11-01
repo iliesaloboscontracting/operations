@@ -1,6 +1,6 @@
 "use client";
 
-import type { TimesheetLine, TimesheetPerson } from "@/lib/timesheets";
+import type { TimesheetLine, TimesheetPerson, TravelLine } from "@/lib/timesheets";
 
 // The weekly timesheet grids (21 Oct 2026), shared by the Operations Timesheets page (/timesheets) and the
 // read-only copy on the Accounts screen (/accounts/timesheets, 2 Nov 2026). Display only - no actions in here.
@@ -13,6 +13,8 @@ export type TimesheetData = {
   weekEnded: boolean;
   people: TimesheetPerson[];
   totalHours: number;
+  travelHours?: number; // regional travel (2 Nov 2026) - its own total, never in totalHours
+  travelIssues?: number;
   issues: number;
   approval: { approvedBy: string; approvedAt: string } | null;
   changedSinceApproval: number;
@@ -61,6 +63,22 @@ function Entry({ l, today, showSite = true }: { l: TimesheetLine; today: string;
   );
 }
 
+// Regional travel (2 Nov 2026): one leg - out (to site) or home - with its own hours.
+const TRAVEL_FLAG: Record<string, string> = { ON_THE_WAY: "on the way", NOT_ENDED: "never ended - no hours", OVER_CAP: "over 8h - not counted" };
+function TravelChip({ t }: { t: TravelLine }) {
+  const warn = t.flag === "NOT_ENDED" || t.flag === "OVER_CAP";
+  return (
+    <div className={`rounded-md border px-1.5 py-1 ${warn ? "border-amber-500/50 bg-amber-500/10" : "border-sky-500/40 bg-sky-500/10"}`} title={[t.site, t.changedByOffice ? "Office changed: " + t.changedByOffice : null].filter(Boolean).join("\n")}>
+      <div className="flex items-baseline justify-between gap-1">
+        <span className="whitespace-nowrap text-[10px] text-sky-300">{t.direction === "OUT" ? "Travel out" : "Travel home"}</span>
+        <span className="text-xs font-semibold text-sky-200">{hrs(t.hours)}</span>
+      </div>
+      <div className="whitespace-nowrap text-[10px] text-gray-500">{t.start}–{t.end ?? "?"}</div>
+      {(t.flag || t.changedByOffice) && <div className="text-[10px] leading-tight text-amber-400">{[t.flag && TRAVEL_FLAG[t.flag], t.changedByOffice && "office changed"].filter(Boolean).join(" · ")}</div>}
+    </div>
+  );
+}
+
 // Accounts stage 2: Victoria's latest decision on this person's week, if any.
 function AccountsNote({ a }: { a?: { status: string; note: string | null } }) {
   if (!a) return null;
@@ -73,17 +91,26 @@ export function SiteView({ data, search }: { data: TimesheetData; search: string
   const lines = data.people.flatMap((p) => Object.values(p.days).flat());
   const sites = new Map<string, TimesheetLine[]>();
   for (const l of lines) sites.set(l.site, [...(sites.get(l.site) ?? []), l]);
+  // Regional travel goes with the site it was to / from.
+  const travel = data.people.flatMap((p) => Object.values(p.travel ?? {}).flat());
+  for (const t of travel) if (!sites.has(t.site)) sites.set(t.site, []);
   const groups = [...sites.entries()]
     .map(([site, ls]) => {
       const people = new Map<string, TimesheetLine[]>();
       for (const l of ls) people.set(l.resourceId, [...(people.get(l.resourceId) ?? []), l]);
+      const tl = travel.filter((t) => t.site === site);
+      const names = new Map(tl.map((t) => [t.resourceId, { name: t.name, role: t.role }]));
+      for (const t of tl) if (!people.has(t.resourceId)) people.set(t.resourceId, []);
       return {
         site,
         point: ls.some((l) => l.point),
         total: Math.round(ls.reduce((n, l) => n + (l.hours ?? 0), 0) * 4) / 4,
         issues: ls.filter((l) => (!l.out && !l.onSite) || l.status === "TO_CONFIRM").length,
-        people: [...people.values()]
-          .map((pl) => ({ id: pl[0].resourceId, name: pl[0].name, role: pl[0].role, lines: pl, total: Math.round(pl.reduce((n, l) => n + (l.hours ?? 0), 0) * 4) / 4 }))
+        people: [...people.entries()]
+          .map(([id, pl]) => {
+            const pt = tl.filter((t) => t.resourceId === id);
+            return { id, name: pl[0]?.name ?? names.get(id)!.name, role: pl[0]?.role ?? names.get(id)!.role, lines: pl, travel: pt, total: Math.round(pl.reduce((n, l) => n + (l.hours ?? 0), 0) * 4) / 4, travelTotal: Math.round(pt.reduce((n, t) => n + (t.hours ?? 0), 0) * 4) / 4 };
+          })
           .filter((p) => !search || p.name.toLowerCase().includes(search.toLowerCase()))
           .sort((a, b) => a.name.localeCompare(b.name)),
       };
@@ -113,6 +140,7 @@ export function SiteView({ data, search }: { data: TimesheetData; search: string
                   {data.days.map((d) => (
                     <th key={d} className={`px-2 py-1.5 ${d === data.today ? "text-brand-300" : ""}`}>{dayHead(d)}</th>
                   ))}
+                  <th className="px-3 py-1.5 text-right">Travel</th>
                   <th className="px-3 py-1.5 text-right">Hours</th>
                 </tr>
               </thead>
@@ -129,8 +157,10 @@ export function SiteView({ data, search }: { data: TimesheetData; search: string
                         {p.lines.filter((l) => l.date === d).map((l) => (
                           <Entry key={l.attendanceId} l={l} today={data.today} showSite={false} />
                         ))}
+                        {p.travel.filter((t) => t.date === d).map((t) => <TravelChip key={t.legId} t={t} />)}
                       </td>
                     ))}
+                    <td className="px-3 py-2 text-right text-sky-200">{p.travelTotal ? hrs(p.travelTotal) : ""}</td>
                     <td className="px-3 py-2 text-right font-bold text-gray-100">{hrs(p.total)}</td>
                   </tr>
                 ))}
@@ -157,6 +187,7 @@ export function PersonView({ data, search }: { data: TimesheetData; search: stri
             {data.days.map((d) => (
               <th key={d} className={`px-2 py-2 ${d === data.today ? "text-brand-300" : ""}`}>{dayHead(d)}</th>
             ))}
+            <th className="px-3 py-2 text-right">Travel</th>
             <th className="px-3 py-2 text-right">Week</th>
           </tr>
         </thead>
@@ -173,8 +204,10 @@ export function PersonView({ data, search }: { data: TimesheetData; search: stri
                   {(p.days[d] ?? []).map((l) => (
                     <Entry key={l.attendanceId} l={l} today={data.today} />
                   ))}
+                  {(p.travel?.[d] ?? []).map((t) => <TravelChip key={t.legId} t={t} />)}
                 </td>
               ))}
+              <td className="px-3 py-2 text-right text-sm text-sky-200">{p.travelTotal ? hrs(p.travelTotal) : ""}</td>
               <td className={`px-3 py-2 text-right text-base font-bold ${p.issues ? "text-amber-400" : "text-gray-100"}`}>{hrs(p.total)}</td>
             </tr>
           ))}
@@ -185,6 +218,7 @@ export function PersonView({ data, search }: { data: TimesheetData; search: stri
             {dayTotals.map((t, i) => (
               <td key={i} className="px-2 py-2 font-semibold">{t ? hrs(Math.round(t * 4) / 4) : ""}</td>
             ))}
+            <td className="px-3 py-2 text-right text-sm font-semibold text-sky-200">{data.travelHours ? hrs(data.travelHours) : ""}</td>
             <td className="px-3 py-2 text-right text-sm font-bold text-gray-100">{hrs(data.totalHours)}</td>
           </tr>
         </tfoot>

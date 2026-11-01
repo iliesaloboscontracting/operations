@@ -5,6 +5,7 @@ import { accountsTimesheetCsv, AMOUNT_REMOVED, TIMESHEETS_EXPLAINER, TIMESHEETS_
 import { fileIsSafe } from "./payroll/rules";
 import { POINT_BREAK_MINUTES, STILL_ON_HOURS } from "./signin";
 import type { TimesheetLine } from "./timesheets";
+import { HOME_OFFER_HOURS, TRAVEL_CAP_HOURS } from "./travel/rules";
 
 // Timesheets on the Accounts screen (2 Nov 2026): view + export for the ACCOUNTS login, every write refused.
 const src = (rel: string) => readFileSync(new URL(rel, import.meta.url), "utf8");
@@ -71,7 +72,7 @@ test("the export is hours only - fileIsSafe passes and no $ gets through", () =>
   assert.ok(csv!.includes(AMOUNT_REMOVED));
   assert.ok(csv!.includes("12 Grand Pde job"), "ordinary words that look like money stay");
   // Same columns as the Managers' export (timesheetCsv).
-  assert.ok(csv!.includes("Employee,Role,Date,Day,Site / place,Sign in,Sign out,Unpaid break (min),Hours,Status,Notes"));
+  assert.ok(csv!.includes("Employee,Role,Date,Day,Site / place,Sign in,Sign out,Unpaid break (min),Hours,Travel (h),Status,Notes"));
   assert.ok(csv!.includes("APPROVED by Alex"));
   assert.ok(csv!.includes("WEEK TOTAL"));
 });
@@ -88,6 +89,8 @@ test("the explainer says the rules the code uses, and no money", () => {
   assert.ok(text.includes(`last ${STILL_ON_HOURS} hours`), "on-site-now window is the code's constant");
   assert.match(text, /nearest quarter hour/);
   assert.match(text, /no short-shift exception/);
+  assert.ok(text.includes(`longer than ${TRAVEL_CAP_HOURS} hours`), "travel cap from the code");
+  assert.ok(text.includes(`offered for ${HOME_OFFER_HOURS} hours`), "home-leg window from the code");
   assert.doesNotMatch(text, /\$/);
   for (const s of TIMESHEETS_EXPLAINER.sections) assert.ok(s.bullets.length >= 1 && s.bullets.length <= 5, s.heading);
 });

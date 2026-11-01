@@ -52,8 +52,10 @@ export const inPayRun = (group: Group, reviewStatus: string | null) => group ===
 
 // ---------- files (hours only) ----------
 
-export const TRAVEL_HOOK = "rule to be agreed"; // driver / passenger and regional rule - waits on a session with Victoria
-export const EXPORT_COLUMNS = ["Employee", "Email", "Earnings Rate", "Date", "Hours", "Site", "Travel"] as const; // Draft: match Xero's import template
+export const TRAVEL_HOOK = "rule to be agreed"; // how travel is PAID (driver / passenger, regional) - waits on a session with Victoria
+// Draft: match Xero's import template. "Travel hours" (2 Nov 2026): regional travel legs (lib/travel/), hours only - not
+// a pay item; whether and how travel is paid is still to be agreed (TRAVEL_HOOK).
+export const EXPORT_COLUMNS = ["Employee", "Email", "Earnings Rate", "Date", "Hours", "Site", "Travel hours"] as const;
 export const csvCell = (v: string | number | null | undefined) => {
   const s = v == null ? "" : String(v);
   // No spreadsheet formulas: a cell starting with = + - @ (or a tab / CR, SEC-012) is quoted and prefixed with '.
@@ -63,19 +65,36 @@ export const toCsv = (rows: (string | number | null)[][]) => rows.map((r) => r.m
 
 const q4 = (n: number) => Math.round(n * 4) / 4;
 
-// One row per person, pay item and day - hours summed (several sign-ins in a day add up).
-export function payRunRows(lines: PayLine[], approved: Set<string>, emails: Map<string, string | null>): (string | number | null)[][] {
-  const acc = new Map<string, { name: string; email: string | null; item: string; date: string; hours: number; sites: Set<string> }>();
+// One row per person, pay item and day - hours summed (several sign-ins in a day add up). Travel hours (keyed
+// "<personKey>|<date>") go on that person's first row of the day; a day with travel and no site hours gets its own row
+// (no earnings rate, 0 hours).
+export const travelKey = (personKey: string, date: string) => `${personKey}|${date}`;
+export function payRunRows(lines: PayLine[], approved: Set<string>, emails: Map<string, string | null>, travel: Map<string, { hours: number; site: string; name: string }> = new Map()): (string | number | null)[][] {
+  const acc = new Map<string, { key: string; name: string; email: string | null; item: string; date: string; hours: number; sites: Set<string> }>();
   for (const l of lines) {
     if (!approved.has(l.personKey) || l.hours == null || l.hours <= 0) continue;
     const item = PAY_ITEMS[payTierOf(l)];
     const k = `${l.personKey}|${item}|${l.date}`;
-    const v = acc.get(k) ?? { name: l.personName, email: emails.get(l.personKey) ?? null, item, date: l.date, hours: 0, sites: new Set<string>() };
+    const v = acc.get(k) ?? { key: l.personKey, name: l.personName, email: emails.get(l.personKey) ?? null, item, date: l.date, hours: 0, sites: new Set<string>() };
     v.hours += l.hours; v.sites.add(l.site);
     acc.set(k, v);
   }
   const rows = [...acc.values()].sort((a, b) => a.name.localeCompare(b.name) || a.date.localeCompare(b.date) || a.item.localeCompare(b.item));
-  return [[...EXPORT_COLUMNS], ...rows.map((v) => [v.name, v.email, v.item, v.date, q4(v.hours), [...v.sites].join(" / "), TRAVEL_HOOK])];
+  const out: (string | number | null)[][] = [];
+  const used = new Set<string>();
+  for (const v of rows) {
+    const k = travelKey(v.key, v.date);
+    const t = !used.has(k) ? travel.get(k) : undefined;
+    used.add(k);
+    out.push([v.name, v.email, v.item, v.date, q4(v.hours), [...v.sites].join(" / "), t && t.hours > 0 ? q4(t.hours) : ""]);
+  }
+  for (const [k, t] of travel) {
+    const [personKey, date] = k.split("|");
+    if (used.has(k) || !approved.has(personKey) || !(t.hours > 0)) continue;
+    out.push([t.name, emails.get(personKey) ?? null, "", date, 0, t.site, q4(t.hours)]);
+  }
+  out.sort((a, b) => String(a[0]).localeCompare(String(b[0])) || String(a[3]).localeCompare(String(b[3])));
+  return [[...EXPORT_COLUMNS], ...out];
 }
 
 export type SummaryPerson = { personKey: string; name: string; group: Group; company: string | null; hours: number; byItem: Record<string, number>; days: number; review: string | null };

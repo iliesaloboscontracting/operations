@@ -38,7 +38,7 @@ export default {
     const csv = await ex.text();
     t.ok(ex.status === 200 && /text\/csv/.test(ex.headers.get("content-type") ?? "") && /attachment/.test(ex.headers.get("content-disposition") ?? ""), "ACCOUNTS downloads the CSV", ex.status);
     t.ok(!unsafe(csv), "export passes the payroll file check (no $, BSB, TFN, ABA, rates)");
-    t.ok(csv.includes("Employee,Role,Date,Day,Site / place,Sign in,Sign out,Unpaid break (min),Hours,Status,Notes"), "the timesheet export's columns");
+    t.ok(csv.includes("Employee,Role,Date,Day,Site / place,Sign in,Sign out,Unpaid break (min),Hours,Travel (h),Status,Notes"), "the timesheet export's columns");
     const opsCsv = await (await c.get(`/api/timesheets/export?week=${week}`, "MANAGER")).text();
     t.ok(opsCsv.split("\n").length === csv.split("\n").length, "same rows as the Managers' export", `${opsCsv.split("\n").length} vs ${csv.split("\n").length}`);
     if (opsCsv !== csv) t.note("the accounts export differs from the Managers' (a $ amount was taken out of a note)");

@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { nameWithoutAmounts } from "@/lib/dailyLog/money";
-import { jobLabel, makeOdometerToken, openJob, pointOf, readTicket, sydneyTime, takesSignIns } from "@/lib/signin";
+import { jobLabel, makeOdometerToken, makeTravelPass, openJob, pointOf, readTicket, sydneyTime, takesSignIns } from "@/lib/signin";
+import { endOutOnSignIn, hasRegionalWork, homeOffered } from "@/lib/travel/store";
 import { todaySydney } from "@/lib/today";
 import { syncSignInActualsQuietly } from "@/lib/signInActuals";
 import { parseGps } from "@/lib/payroll/rules";
@@ -129,9 +130,12 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
     });
     // Anywhere they were just moved off now has their hours.
     await syncSignInActualsQuietly(elsewhere.map((e) => e.jobId));
+    // Regional travel (2 Nov 2026): arriving on site ends their outward travel to this project.
+    const travelEnded = where.jobId ? await endOutOnSignIn(who.resourceId, where.projectId, signedIn.id, now) : null;
     return NextResponse.json({
       ok: true,
-      message: `Signed in at ${sydneyTime(now)} - ${where.label}.${toConfirm ? " Your supervisor will confirm it." : ""}`,
+      message: `Signed in at ${sydneyTime(now)} - ${where.label}.${toConfirm ? " Your supervisor will confirm it." : ""}${travelEnded ? " " + travelEnded : ""}`,
+      ...(await travelFor(who.resourceId, deviceId, where.date)),
       // On a truck: the next screen asks for an odometer photo (Receipts R1).
       ...(where.place === "VEHICLE" ? { odometer: makeOdometerToken(signedIn.id) } : {}),
     });
@@ -144,11 +148,23 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
       data: { signOutAt: now, signOutMethod: ticket.method, ...(toConfirm ? { status: "TO_CONFIRM" } : {}) },
     });
     await syncSignInActualsQuietly([open.jobId]);
-    return NextResponse.json({ ok: true, message: `Signed out at ${sydneyTime(now)} - ${where.label}. See you next time.` });
+    return NextResponse.json({
+      ok: true,
+      message: `Signed out at ${sydneyTime(now)} - ${where.label}. See you next time.`,
+      ...(await travelFor(who.resourceId, deviceId, where.date)),
+      // Regional job: "Travelling home" comes next on the phone.
+      ...(open.jobId && (await homeOffered(who.resourceId, where.projectId)) ? { travelHome: true } : {}),
+    });
   }
   return bad("Unknown request.");
 });
 
 const bad = (error: string, status = 400) => NextResponse.json({ error }, { status });
+// Regional travel (2 Nov 2026): a Labour-register person's phone gets its travel pass with every real sign-in /
+// sign-out, and is told whether they have a regional job coming up (the phone then shows the travel page link).
+async function travelFor(resourceId: string | null, deviceId: string | null, date: string) {
+  if (!resourceId || !deviceId) return {};
+  return { travelPass: makeTravelPass(resourceId, deviceId), travelLink: await hasRegionalWork(resourceId, date) };
+}
 // A hire worker's typed name / company: never an amount in it (SEC-010) - it's shown on the log screen and the report.
 const clean = (v: unknown) => (typeof v === "string" ? nameWithoutAmounts(v.replace(/\s+/g, " ").trim()).slice(0, 60) : "");

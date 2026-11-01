@@ -133,9 +133,10 @@ export default function TimesheetsPage() {
             </div>
           )}
 
-          <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-4">
+          <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-5">
             <Tile label="People" value={data.people.length} />
             <Tile label="Total hours" value={hrs(data.totalHours)} />
+            <Tile label="Travel (regional)" value={hrs(data.travelHours ?? 0)} tone={data.travelIssues ? "text-amber-400" : "text-sky-200"} />
             <Tile label="Need sorting" value={data.issues} tone={data.issues ? "text-amber-400" : ""} />
             <Tile label="Status" value={data.approval ? "Approved" : "Draft"} tone={data.approval ? "text-emerald-400" : "text-gray-300"} />
           </div>
@@ -154,7 +155,7 @@ export default function TimesheetsPage() {
 
           <ApprovalHistory history={data.history} />
           <p className="mt-4 text-[11px] text-gray-500">
-            Hours = signed in to signed out, less the site&apos;s unpaid break (office, yard and trucks: 30 min), to the nearest quarter hour. Lobos staff only - hire and subcontractor workers are on the Sign-ins page. To fix a time, use the Sign-ins page (the change and reason are kept).
+            Hours = signed in to signed out, less the site&apos;s unpaid break (office, yard and trucks: 30 min), to the nearest quarter hour. Travel (regional jobs only) is its own column: start travel to the site sign-in, and travelling home to arrived - no break, not in Hours, legs over 8h or never ended count nothing. Lobos staff only - hire and subcontractor workers are on the Sign-ins page. To fix a time, use the Sign-ins page (the change and reason are kept).
           </p>
         </>
       )}

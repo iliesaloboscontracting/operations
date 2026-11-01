@@ -15,8 +15,8 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
   if ("denied" in g) return g.denied;
   const q = req.nextUrl.searchParams.get("week");
   const weekStart = weekStartOf(q && isISODate(q) ? q : todaySydney());
-  const { approval, lines } = await exportLines(weekStart);
-  const csv = accountsTimesheetCsv(weekStart, lines, approval);
+  const { approval, lines, travel } = await exportLines(weekStart);
+  const csv = accountsTimesheetCsv(weekStart, lines, approval, travel);
   if (csv == null) return NextResponse.json({ error: "This week's timesheet has something that looks like bank, tax or rate details in a note - not sent. Ask the office to check it." }, { status: 409 });
   return new NextResponse("﻿" + csv, {
     headers: {

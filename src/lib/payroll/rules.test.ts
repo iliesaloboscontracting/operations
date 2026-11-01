@@ -42,7 +42,7 @@ test("who Victoria can approve, and who goes in the pay-run file", () => {
   assert.equal(groupOf("r1", null), "EMPLOYEE", "not set yet counts as an employee (flagged on screen)");
 });
 
-test("the pay-run file: approved employees only, hours per person, pay item and day, summed; travel hook", () => {
+test("the pay-run file: approved employees only, hours per person, pay item and day, summed; travel hours column", () => {
   const lines = [
     L({ attendanceId: "a1", hours: 4, site: "Myers" }), L({ attendanceId: "a2", hours: 3.5, site: "Bronte" }), // same day, two sites
     L({ attendanceId: "a3", date: "2026-10-31", hours: 6 }),
@@ -50,11 +50,25 @@ test("the pay-run file: approved employees only, hours per person, pay item and 
     L({ attendanceId: "a5", hours: null, out: null }), // no sign-out - nothing to pay
   ];
   const rows = payRunRows(lines, new Set(["r1"]), new Map([["r1", "sam@example.com"]]));
-  assert.deepEqual(rows[0], ["Employee", "Email", "Earnings Rate", "Date", "Hours", "Site", "Travel"]);
+  assert.deepEqual(rows[0], ["Employee", "Email", "Earnings Rate", "Date", "Hours", "Site", "Travel hours"]);
   assert.deepEqual(rows.slice(1), [
-    ["Sam Smith", "sam@example.com", "Ordinary Hours", "2026-10-27", 7.5, "Myers / Bronte", "rule to be agreed"],
-    ["Sam Smith", "sam@example.com", "Saturday Hours", "2026-10-31", 6, "Myers", "rule to be agreed"],
+    ["Sam Smith", "sam@example.com", "Ordinary Hours", "2026-10-27", 7.5, "Myers / Bronte", ""],
+    ["Sam Smith", "sam@example.com", "Saturday Hours", "2026-10-31", 6, "Myers", ""],
   ]);
+  // Regional travel (2 Nov 2026): on the person's first row of the day; a travel-only day gets its own row; never
+  // for someone not approved; never added into Hours.
+  const travel = new Map([
+    ["r1|2026-10-27", { hours: 2.5, site: "Orange", name: "Sam Smith" }],
+    ["r1|2026-10-28", { hours: 3, site: "Orange", name: "Sam Smith" }],
+    ["r2|2026-10-27", { hours: 4, site: "Orange", name: "Not Approved" }],
+  ]);
+  const withTravel = payRunRows(lines, new Set(["r1"]), new Map([["r1", "sam@example.com"]]), travel);
+  assert.deepEqual(withTravel.slice(1), [
+    ["Sam Smith", "sam@example.com", "Ordinary Hours", "2026-10-27", 7.5, "Myers / Bronte", 2.5],
+    ["Sam Smith", "sam@example.com", "", "2026-10-28", 0, "Orange", 3],
+    ["Sam Smith", "sam@example.com", "Saturday Hours", "2026-10-31", 6, "Myers", ""],
+  ]);
+  assert.ok(fileIsSafe(toCsv(withTravel)));
   const csv = toCsv(rows);
   assert.ok(fileIsSafe(csv));
   assert.equal(fileIsSafe(csv + "Rate $45\r\n"), false);

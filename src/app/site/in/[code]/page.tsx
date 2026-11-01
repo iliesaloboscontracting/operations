@@ -2,9 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState, use } from "react";
 import SiteBrand from "@/components/site/SiteBrand";
-import { Camera, Loader2, LogIn, LogOut } from "lucide-react";
+import { Camera, Car, Home, Loader2, LogIn, LogOut } from "lucide-react";
 import { serverErrorMessage } from "@/lib/apiFetch";
 import { resizePhoto } from "@/lib/imageResize";
+import { deviceId, ME_KEY, PASS_KEY, store, useQuietGps } from "@/lib/signinDevice";
 
 // Crew sign-in: the page a worker's phone opens after scanning the
 // supervisor's QR or the site poster. First time they pick their name (or
@@ -17,27 +18,9 @@ type Job = { id: string; label: string; times: string | null; crew: Person[] };
 type Scan = { method: "SUPERVISOR_QR" | "POSTER" | "POINT"; ticket: string; jobs: Job[] };
 type Me = { resourceId: string; name: string } | { hire: { name: string; company: string } };
 
-const ME_KEY = "lobos-signin-me";
-const DEVICE_KEY = "lobos-signin-device";
 const input =
   "w-full rounded-lg border border-edge bg-panel2 px-3 py-2.5 text-base text-gray-200 placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500";
 const big = "flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-5 text-lg font-semibold text-white disabled:opacity-50";
-
-function store<T>(key: string, value?: T | null): T | null {
-  try {
-    if (value === null) localStorage.removeItem(key);
-    else if (value !== undefined) localStorage.setItem(key, JSON.stringify(value));
-    const raw = localStorage.getItem(key);
-    return raw ? (JSON.parse(raw) as T) : null;
-  } catch {
-    return null;
-  }
-}
-function deviceId() {
-  let id = store<string>(DEVICE_KEY);
-  if (!id) id = store(DEVICE_KEY, `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`);
-  return id ?? "";
-}
 
 export default function CrewSignInPage({ params: paramsP }: { params: Promise<{ code: string }> }) {
   const params = use(paramsP);
@@ -51,6 +34,8 @@ export default function CrewSignInPage({ params: paramsP }: { params: Promise<{ 
   const [done, setDone] = useState<string | null>(null);
   // Signed in on a truck: the odometer photo comes next (Receipts R1).
   const [odometer, setOdometer] = useState<string | null>(null);
+  // Regional travel (2 Nov 2026): after a sign-in / sign-out the phone may be offered the travel page or "Travelling home".
+  const [travel, setTravel] = useState<{ link: boolean; home: boolean }>({ link: false, home: false });
   // Accounts stage 2 (Ilies: GPS "with sign in", "do not change the way the current sign in works"): the
   // phone's position is asked for once, quietly, while the Sign in button shows, and sent with the sign-in
   // only. Never tracked; a refusal or no fix never holds the sign-in up.
@@ -108,6 +93,8 @@ export default function CrewSignInPage({ params: paramsP }: { params: Promise<{ 
       const r = await send(action, me!, action === "IN" ? { gps: gps.current ?? { status: "TIMEOUT" } } : {});
       setDone(r.message);
       if (typeof r.odometer === "string") setOdometer(r.odometer);
+      if (typeof r.travelPass === "string") store(PASS_KEY, r.travelPass);
+      setTravel({ link: !!r.travelLink, home: !!r.travelHome });
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -132,7 +119,8 @@ export default function CrewSignInPage({ params: paramsP }: { params: Promise<{ 
       ) : done ? (
         <div className="space-y-4 text-center">
           <div className="rounded-2xl bg-emerald-500/15 px-4 py-6 text-lg font-semibold text-emerald-300">✓ {done}</div>
-          <p className="text-sm text-gray-500">You can close this page.</p>
+          {travel.home ? <TravellingHome /> : <p className="text-sm text-gray-500">You can close this page.</p>}
+          {travel.link && !travel.home && <TravelLink />}
         </div>
       ) : !jobId ? (
         <div className="space-y-3">
@@ -183,6 +171,47 @@ export default function CrewSignInPage({ params: paramsP }: { params: Promise<{ 
       )}
     </div>
   );
+}
+
+// Regional travel (2 Nov 2026): the travel page - saved to the home screen, it starts travel with no scan.
+function TravelLink() {
+  return (
+    <a href="/site/in/travel" className="flex items-center justify-center gap-2 rounded-xl border border-edge bg-panel px-4 py-3 text-sm text-brand-300">
+      <Car size={16} /> Travelling to a regional job? Open the travel page (save it to your home screen)
+    </a>
+  );
+}
+
+// Signed out of a regional job: one tap starts the trip home (one quiet GPS point, at most 1.5 s).
+function TravellingHome() {
+  const take = useQuietGps(true);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  async function go() {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/site/in/travel", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pass: store<string>(PASS_KEY), deviceId: deviceId(), action: "START_HOME", gps: await take() }) });
+      if (!res.ok) throw new Error(await serverErrorMessage(res, "Couldn't send - check your signal and try again."));
+      setMsg((await res.json()).message);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  if (msg) return <div className="space-y-2"><div className="rounded-xl bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">✓ {msg}</div><TravelLinkArrived /></div>;
+  return (
+    <div className="space-y-2">
+      <button className={`${big} bg-brand-600`} disabled={busy} onClick={go}>{busy ? <Loader2 className="animate-spin" /> : <Home />} Travelling home</button>
+      {error && <div className="rounded-lg bg-red-900/30 px-3 py-2 text-sm text-red-300">{error}</div>}
+      <p className="text-xs text-gray-500">Not going home now? You can close this page.</p>
+    </div>
+  );
+}
+function TravelLinkArrived() {
+  return <a href="/site/in/travel" className="block text-sm text-brand-300 underline">Tap Arrived on the travel page when you get home</a>;
 }
 
 // After signing in on a truck's QR: a photo of the odometer, or "Can't now".

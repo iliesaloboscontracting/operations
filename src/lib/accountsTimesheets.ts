@@ -5,8 +5,9 @@
 // guard("MANAGER") / guard("ADMIN") and refuse the ACCOUNTS login. The only write is the "Got it" on the notice.
 import { prisma } from "./prisma";
 import { POINT_BREAK_MINUTES, STILL_ON_HOURS } from "./signin";
-import { timesheetCsv, type TimesheetLine } from "./timesheets";
+import { timesheetCsv, type TimesheetLine, type TravelLine } from "./timesheets";
 import { fileIsSafe } from "./payroll/rules";
+import { HOME_OFFER_HOURS, TRAVEL_CAP_HOURS } from "./travel/rules";
 
 // ---------- the one-time notice ----------
 
@@ -54,6 +55,18 @@ export const TIMESHEETS_EXPLAINER: Explainer = {
       ],
     },
     {
+      // lib/travel/rules.ts (legHours, TRAVEL_CAP_HOURS, HOME_OFFER_HOURS, outRefusal); lib/travel/store.ts (regional jobs
+      // only, endOutOnSignIn, startHome / arrive, editTravelLeg); lib/timesheets.ts (Travel column); lib/payroll/rules.ts TRAVEL_HOOK
+      heading: "Travel (regional jobs)",
+      bullets: [
+        "Only for jobs on a project marked Regional - local jobs are exactly as before. Travel is its own column and is never added to site hours.",
+        "Travel out: the worker taps Start travel on their phone; it ends when they sign in on site at that project.",
+        `Travel home: after signing out of a regional job they tap Travelling home (offered for ${HOME_OFFER_HOURS} hours after the sign-out), then Arrived.`,
+        `Travel hours = start to end, to the nearest quarter hour, with no break taken off. A leg never ended, or longer than ${TRAVEL_CAP_HOURS} hours, counts no hours and is flagged - only the office can correct it, with a reason.`,
+        "How travel is paid is still to be agreed - the exports show the travel hours only.",
+      ],
+    },
+    {
       // app/api/attendance/[id]/route.ts PATCH (Manager+, reason); lib/attendanceEdits.ts; lib/timesheets.ts changedByOffice; lib/signin.ts (posters)
       heading: "Changes and checks",
       bullets: [
@@ -75,7 +88,7 @@ export const TIMESHEETS_EXPLAINER: Explainer = {
       // app/api/accounts/timesheets/export/route.ts; lib/timesheets.ts timesheetCsv
       heading: "Export",
       bullets: [
-        "Export downloads the week as a spreadsheet - hours only, one line per sign-in plus each person's week total.",
+        "Export downloads the week as a spreadsheet - hours only, one line per sign-in and per travel leg, plus each person's week total.",
         "A locked week exports exactly what the Manager approved. A week not locked yet is marked DRAFT.",
       ],
     },
@@ -102,8 +115,9 @@ export const AMOUNT_REMOVED = "(amount removed)";
 const noDollar = (s: string) => s.replace(/[$＄﹩]\s?\d(?:[\d,]*\d)?(?:\.\d+)?/g, AMOUNT_REMOVED);
 const noDollarOrNull = (s: string | null) => (s == null ? null : noDollar(s));
 
-export function accountsTimesheetCsv(weekStart: string, lines: TimesheetLine[], approval: { approvedBy: string; approvedAt: Date } | null): string | null {
+export function accountsTimesheetCsv(weekStart: string, lines: TimesheetLine[], approval: { approvedBy: string; approvedAt: Date } | null, travel: TravelLine[] = []): string | null {
   const clean = lines.map((l) => ({ ...l, name: noDollar(l.name), role: noDollarOrNull(l.role), site: noDollar(l.site), changedByOffice: noDollarOrNull(l.changedByOffice) }));
-  const csv = timesheetCsv(weekStart, clean, approval && { approvedBy: noDollar(approval.approvedBy), approvedAt: approval.approvedAt });
+  const cleanTravel = travel.map((t) => ({ ...t, name: noDollar(t.name), role: noDollarOrNull(t.role), site: noDollar(t.site), changedByOffice: noDollarOrNull(t.changedByOffice) }));
+  const csv = timesheetCsv(weekStart, clean, approval && { approvedBy: noDollar(approval.approvedBy), approvedAt: approval.approvedAt }, cleanTravel);
   return fileIsSafe(csv) ? csv : null;
 }

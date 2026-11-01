@@ -1,4 +1,5 @@
 // Shapes of /api/attendance (lib/attendanceView.ts) used by the Sign-ins page.
+import type { TravelLine } from "@/lib/travel/store";
 export type AttendanceEditRow = { field: string; before: string | null; after: string | null; reason: string; editedBy: string; editedAt: string };
 export type AttendanceRow = {
   id: string;
@@ -44,6 +45,7 @@ export type AttendanceData = {
   points: AttendanceJob[];
   posters: { id: string; projectId: string | null; place: string | null; resourceId: string | null; createdAt: string; createdBy: string | null }[];
   handovers: { id: string; jobId: string | null; expiresAt: string; createdBy: string | null; resource: { name: string } | null }[];
+  travel?: TravelLine[]; // regional travel legs (2 Nov 2026)
 };
 
 export const FLAG_LABEL: Record<string, string> = {

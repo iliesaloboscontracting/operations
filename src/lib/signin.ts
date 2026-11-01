@@ -84,6 +84,22 @@ export function readOdometerToken(token: unknown, now = Date.now()): string | nu
   return kind === "O" && attendanceId && Number(exp) >= now ? attendanceId : null;
 }
 
+// --- the travel pass: this phone is this worker (regional travel, 2 Nov 2026) --
+// Travel starts before anyone is at a site QR, so the phone needs to say who it is without a scan. A real sign-in
+// or sign-out (a scan) gives a Labour-register person's phone this pass, tied to the person and the phone's device
+// id; the travel page sends it back. Same strength as today's "phone remembers your name", but nobody can start
+// travel for someone else without that person's phone having signed in as them. 120 days, renewed on every scan.
+const PASS_MS = 120 * 86_400_000;
+export function makeTravelPass(resourceId: string, deviceId: string, now = Date.now()) {
+  return sign(`P|${resourceId}|${deviceId}|${now + PASS_MS}`);
+}
+export function readTravelPass(pass: unknown, deviceId: unknown, now = Date.now()): string | null {
+  const p = unsign(pass);
+  if (!p || typeof deviceId !== "string" || !deviceId) return null;
+  const [kind, resourceId, dev, exp] = p.split("|");
+  return kind === "P" && resourceId && dev === deviceId.slice(0, 64) && Number(exp) >= now ? resourceId : null;
+}
+
 // --- which jobs are open for sign-in -----------------------------------------
 // Today's running jobs, plus last night's night shift (crew sign out after
 // midnight). Stood-down / inactive / completed jobs don't take sign-ins.
@@ -95,7 +111,7 @@ export function signinDates(today = todaySydney()) {
   const yesterday = new Date(d.getTime() - 86_400_000).toISOString().slice(0, 10);
   return { today, yesterday };
 }
-const jobDateWhere = () => {
+export const jobDateWhere = () => {
   const { today, yesterday } = signinDates();
   return {
     status: "ACTIVE",
