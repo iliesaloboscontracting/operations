@@ -46,9 +46,16 @@ test("SEC-BA-004: removed photos only on Manager+ responses - Day Review (office
   const linkView = store.slice(store.indexOf("export async function linkLogView"), store.indexOf("// Weekly % forms"));
   assert.match(linkView, /beforeAfterFor\(jobs\.map\(\(j\) => j\.id\)\)/, "the link's log: shown photos only");
   assert.match(read("./beforeAfterLink.ts"), /beforeAfterFor\(\[jobId\]\)\)/, "the link's add / remove replies: shown photos only");
-  assert.match(read("../../app/api/daily-report/[jobId]/route.ts"), /guard\("MANAGER"\)[\s\S]*reportResponse\(\(await paramsP\)\.jobId, \{ removed: true \}\)/, "the office's report (Manager+) asks for them");
+  // The coordinator (2 Nov 2026) reads the office's report and photo route too, but like the directors' copy gets
+  // shown photos only - `office` is false for him.
+  const coordinatorNot = /const office = \(await getCurrentUser\(\)\)\?\.role !== "COORDINATOR";/;
+  const report = read("../../app/api/daily-report/[jobId]/route.ts");
+  assert.match(report, /guardOrCoordinator\("MANAGER"\)[\s\S]*reportResponse\(\(await paramsP\)\.jobId, \{ removed: office \}\)/, "the office's report (Manager+) asks for them");
+  assert.match(report, coordinatorNot, "...but not for the coordinator");
   assert.match(read("../../app/api/directors/daily-report/[jobId]/route.ts"), /reportResponse\(\(await paramsP\)\.jobId\);/, "the directors' copy doesn't");
-  assert.match(read("../../app/api/day-review/site-logs/before-after/route.ts"), /guard\("MANAGER"\)[\s\S]*allowRemoved: true/, "the office's photo route serves a removed photo, Manager+");
+  const photoRoute = read("../../app/api/day-review/site-logs/before-after/route.ts");
+  assert.match(photoRoute, /guardOrCoordinator\("MANAGER"\)[\s\S]*allowRemoved: office/, "the office's photo route serves a removed photo, Manager+");
+  assert.match(photoRoute, coordinatorNot, "...but not to the coordinator");
   assert.doesNotMatch(read("../../app/api/directors/daily-report/before-after/route.ts"), /allowRemoved/, "the directors' photo route never does");
   assert.doesNotMatch(read("../../app/api/site/[token]/log/photos/route.ts"), /withRemoved|allowRemoved/, "nor the link's");
 });

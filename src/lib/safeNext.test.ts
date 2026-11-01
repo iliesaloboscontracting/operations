@@ -14,7 +14,8 @@ test("SEC-006: only same-site paths survive", () => {
   }
 });
 
-test("SEC-006: the login home is one of the four homes", () => {
+test("SEC-006: the login home is one of the five homes", () => {
+  assert.equal(safeHome("/coordinator"), "/coordinator");
   assert.equal(safeHome("/accounts"), "/accounts");
   assert.equal(safeHome("/directors"), "/directors");
   assert.equal(safeHome("/timesheets"), "/timesheets");

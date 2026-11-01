@@ -91,6 +91,16 @@ business, without becoming unnecessarily complicated.
   shown as plain text (`directorHref()`). Only the owner creates, sets or
   removes a DIRECTOR login. Yoel gets DIRECTOR only; Nick gets a DIRECTOR
   login plus a separate ADMIN login to run Operations when Ilies is away.
+  `COORDINATOR` (2 Nov 2026, Ilies "approve phase 1"; Alex, the project coordinator, moved off
+  TIMESHEETS by Ilies on the Users page) works the same way - below VIEWER, its own
+  dashboard `/coordinator`, the pages in `src/lib/roles.ts` `COORDINATOR_PAGES` and only routes
+  that name it (`guardOrCoordinator()`, `guardTimesheetViewer()`, purchases, messages, documents):
+  views timesheets, sign-ins, Day Review (+ site logs, daily site report) and the calendar; works
+  Tools (add, edit, move, delete, faults, toolbox checks - never create / rename / re-supervise /
+  retire a toolbox) and Hire (add, extend, off-hire - no dollar figure in or out, no archiving:
+  `src/lib/coordinatorHire.ts`); raises his own purchase requests (never approves); office chat;
+  site & safety documents only, not the Assistant. Never director access. Outlook (phase 2) is a
+  placeholder only. Release check `63-coordinator`.
   **Owner** (2026-10-23, `src/lib/owner.ts`): Iliesa's account. The directors
   (Yoel, Nick) are full Admins, but only the owner can change the owner's
   account (role, password, name, active). Code, builds and deploys are done

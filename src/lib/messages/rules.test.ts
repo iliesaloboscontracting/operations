@@ -14,7 +14,7 @@ import {
 const AI = "iliesa+agent@loboscontracting.com.au";
 
 test("office logins chat; Viewers and Timesheets logins don't", () => {
-  for (const r of ["ADMIN", "MANAGER", "ACCOUNTS", "DIRECTOR"]) assert.equal(canMessage(r), true, r);
+  for (const r of ["ADMIN", "MANAGER", "ACCOUNTS", "DIRECTOR", "COORDINATOR"]) assert.equal(canMessage(r), true, r);
   for (const r of ["VIEWER", "TIMESHEETS", ""]) assert.equal(canMessage(r), false, r);
 });
 

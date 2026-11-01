@@ -50,6 +50,10 @@ test("each role sees only its levels", () => {
     assert.deepEqual(levelsFor({ role, directorAccess: true }), [], role);
     assert.equal(canSearch({ role }), false, role);
   }
+  // The coordinator (2 Nov 2026): site & safety folders only, never COMMERCIAL - even with the director tick.
+  assert.equal(canSearch({ role: "COORDINATOR" }), true);
+  assert.deepEqual(levelsFor({ role: "COORDINATOR" }), ["MANAGER"]);
+  assert.deepEqual(levelsFor({ role: "COORDINATOR", directorAccess: true }), ["MANAGER"]);
   assert.equal(folderFor(CONTRACT, ALL)?.level, "COMMERCIAL");
   assert.equal(folderFor(SWMS, ALL)?.level, "MANAGER");
 });

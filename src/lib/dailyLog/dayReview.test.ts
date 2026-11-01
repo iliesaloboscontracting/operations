@@ -40,7 +40,7 @@ test("what was said: the transcript and its tidied text, with any amount taken o
 
 test("the raw transcripts are a Manager / Admin field only: the route decides, the store adds them only for the office", () => {
   const route = readFileSync(new URL("../../app/api/day-review/site-logs/route.ts", import.meta.url), "utf8");
-  assert.match(route, /guard\("VIEWER"\)/, "Day Review stays Viewer+");
+  assert.match(route, /guardOrCoordinator\("VIEWER"\)/, "Day Review stays Viewer+ (plus the coordinator, view only - 2 Nov 2026)");
   assert.match(route, /const office = !!user && \(user\.role === "MANAGER" \|\| user\.role === "ADMIN"\);/);
   const store = readFileSync(new URL("./store.ts", import.meta.url), "utf8");
   assert.match(store, /\.\.\.\(office \? \{ transcripts:/, "transcripts are only put on the DTO for the office");

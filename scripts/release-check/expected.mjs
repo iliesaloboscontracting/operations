@@ -18,6 +18,14 @@ export const MAY_ANSWER = {
   ACCOUNTS: [/^\/api\/auth\//, /^\/api\/accounts(\/|$)/, /^\/api\/invoice-inbox(\/|$)/, /^\/api\/compliance\/(workers|documents)(\/|$)/,
     /^\/api\/xero(\/|$)/, /^\/api\/queries$/, /^\/api\/purchases$/, /^\/api\/info-requests(\/|$)/, /^\/api\/push$/,
     /^\/api\/messages(\/|$)/],
+  // COORDINATOR (Alex, 2 Nov 2026, Ilies "approve phase 1"): his own screen - timesheets (not the export), sign-ins,
+  // Day Review with its site logs / dockets / photos, the calendar (+ the project list it reads), the Hire register
+  // (type=HIRE only, money-free) with its alerts and site checks, tools / toolboxes / faults, his own purchase
+  // requests, office chat, the site & safety documents, his own queries. checks/63-coordinator.mjs looks closer.
+  COORDINATOR: [/^\/api\/auth\//, /^\/api\/timesheets$/, /^\/api\/attendance$/, /^\/api\/day-review$/, /^\/api\/day-review\/dockets$/,
+    /^\/api\/day-review\/site-logs(\/photo|\/before-after)?$/, /^\/api\/calendar$/, /^\/api\/projects$/, /^\/api\/resources$/,
+    /^\/api\/hire-(alerts|checks)$/, /^\/api\/tools$/, /^\/api\/toolboxes$/, /^\/api\/tool-issues$/, /^\/api\/purchases$/,
+    /^\/api\/messages(\/|$)/, /^\/api\/documents(\/|$)/, /^\/api\/queries$/],
 };
 
 // Routes that answer ANY signed-in login with a redirect back into the app: the owner-only Xero connect / callback
