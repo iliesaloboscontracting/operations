@@ -4,6 +4,8 @@ import { withErrorHandling } from "@/lib/apiHandler";
 import { resolveLink } from "@/lib/siteLinks";
 import { LINK_WHERE, linkVisible } from "@/lib/siteRequests";
 import { answerQuery, assigneeView, ANSWERABLE } from "@/lib/findings/queries";
+import { readJsonBody } from "@/lib/jsonBody";
+import { UPLOAD_TOO_LARGE } from "@/lib/uploadLimits";
 
 // Questions from the office on a person's own site link (Phase 2, 25 Oct
 // 2026): only queries asked of this register person, only operational and
@@ -34,7 +36,10 @@ export const POST = withErrorHandling(async (req: NextRequest, { params: paramsP
   const params = await paramsP;
   const link = await personFor(params.token);
   if (!link) return NextResponse.json({ error: "This link isn't active." }, { status: 404 });
-  const body = await req.json().catch(() => ({}));
+  // A body too big to read (over Next's 10 MB limit) is 413 "Too large (7 MB per file)" (2 Nov 2026).
+  const read = await readJsonBody(req, UPLOAD_TOO_LARGE);
+  if ("denied" in read) return read.denied;
+  const body = read.b;
   const r = typeof body.id === "string" ? await prisma.siteRequest.findUnique({ where: { id: body.id } }) : null;
   if (!r || r.kind !== "QUERY" || r.assigneeId !== link.person.id || !linkVisible(r)) return NextResponse.json({ error: "Not found." }, { status: 404 });
   const out = await answerQuery(r, body, { name: link.person.name });

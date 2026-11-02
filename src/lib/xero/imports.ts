@@ -7,6 +7,7 @@
 // job-match fields, when a person decides (XeroJobMatch). Server-only.
 import { prisma } from "../prisma";
 import { readInvoiceFile, saveInvoiceFile } from "../invoiceFiles";
+import { UPLOAD_FILE_MAX, UPLOAD_TOO_LARGE } from "../uploadLimits";
 import { readSheetGrids } from "../invoiceSheet";
 import { todaySydney } from "../today";
 import type { AuthUser } from "../auth";
@@ -38,7 +39,8 @@ export async function importXeroFile(
   if (asAt > today) return { error: "The export date can't be in the future.", status: 400 };
   const name = typeof body.originalName === "string" ? body.originalName : "";
   if (!/\.(csv|xlsx)$/i.test(name)) return { error: "Upload the Xero export as .csv or .xlsx.", status: 400 };
-  const saved = await saveInvoiceFile(body.dataUrl, name);
+  // 7 MB a file (2 Nov 2026, Ilies "Yes, both"): the most one save can carry under Next's 10 MB request limit.
+  const saved = await saveInvoiceFile(body.dataUrl, name, { maxBytes: UPLOAD_FILE_MAX, tooLarge: UPLOAD_TOO_LARGE });
   if ("error" in saved) return { error: saved.error, status: 400 };
 
   const imp = await prisma.xeroImport.create({

@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Loader2, Upload } from "lucide-react";
 import { apiFetch, serverErrorMessage } from "@/lib/apiFetch";
+import { fileTooLarge, UPLOAD_TOO_LARGE } from "@/lib/uploadLimits";
 import JobPicker from "@/components/JobPicker";
 import { fmtDay } from "@/lib/dates";
 import { NO_SITE, siteOf } from "@/lib/xero/siteGroup";
@@ -77,6 +78,8 @@ function UploadForm({ onDone }: { onDone: () => void }) {
     setBusy(true);
     setMsg(null);
     try {
+      // 7 MB a file (2 Nov 2026) - the most one save can carry; checked here before it's sent, and on the server.
+      if (fileTooLarge(f.size)) throw new Error(UPLOAD_TOO_LARGE);
       const res = await apiFetch("/api/xero/imports", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dataUrl: await readAsDataUrl(f), originalName: f.name, kind, asAt }) });
       if (!res.ok) throw new Error(await serverErrorMessage(res, "Upload failed."));
       const r = (await res.json()) as { status: string; rows: number; error: string | null };

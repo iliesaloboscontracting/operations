@@ -8,6 +8,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Loader2, Paperclip } from "lucide-react";
 import { apiFetch, serverErrorMessage } from "@/lib/apiFetch";
 import { whenText } from "@/lib/requestTypes";
+import { fileTooLarge, UPLOAD_TOO_LARGE } from "@/lib/uploadLimits";
 import type { AssigneeQueryView } from "@/lib/findings/queries";
 
 // Accounts -> Questions adds who it was to (when someone else is reading) and the full history.
@@ -63,6 +64,8 @@ function QueryCard({ q, onChange }: { q: QuestionRow; onChange: () => void }) {
     setError(null);
     try {
       const body: Record<string, unknown> = read ? { action: "READ" } : { answer };
+      // 7 MB a file (2 Nov 2026) - the most one save can carry; checked here before it's sent, and on the server.
+      if (!read && file && fileTooLarge(file.size)) throw new Error(UPLOAD_TOO_LARGE);
       if (!read && file) { body.file = await readAsDataUrl(file); body.fileName = file.name; }
       const res = await apiFetch(`/api/queries/${q.id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       if (!res.ok) throw new Error(await serverErrorMessage(res, "Couldn't send your answer."));

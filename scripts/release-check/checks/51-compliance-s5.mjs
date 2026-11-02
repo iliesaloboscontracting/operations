@@ -41,6 +41,16 @@ export default {
     t.ok(invOver.status === 400 && (await errOf(invOver)) === TOO_LARGE, "invoices inbox: one byte over 7 MB is refused, in plain words", invOver.status);
     const invHuge = await c.post("/api/invoice-inbox", "ACCOUNTS", { dataUrl: pdf(8 * MB), name: "rc-invoice-huge.pdf" });
     t.ok(invHuge.status === 413 && (await errOf(invHuge)) === TOO_LARGE, "invoices inbox: a body over 10 MB is 413 'Too large', never 'No file was sent'", invHuge.status);
+    // Xero export uploads (2 Nov 2026, Ilies "Yes, both"): the same 7 MB. A 7 MB .csv is taken (it isn't a real export,
+    // so it's kept as a FAILED import with the reason - nothing is added); one byte over 400; a body over 10 MB 413.
+    const csv = (n) => `data:text/csv;base64,${Buffer.alloc(n, 0x41).toString("base64")}`;
+    const xero = (n, name) => c.post("/api/xero/imports", "ACCOUNTS", { dataUrl: csv(n), originalName: name, kind: "INVOICES", asAt: c.today });
+    const xAt = await xero(7 * MB, "rc-export.csv");
+    t.ok(xAt.status === 200 && ["DONE", "FAILED"].includes((await xAt.json().catch(() => ({}))).status), "Xero export: a 7 MB file (at the limit) is taken and read", xAt.status);
+    const xOver = await xero(7 * MB + 1, "rc-export-over.csv");
+    t.ok(xOver.status === 400 && (await errOf(xOver)) === TOO_LARGE, "Xero export: one byte over 7 MB is refused, in plain words", xOver.status);
+    const xHuge = await xero(8 * MB, "rc-export-huge.csv");
+    t.ok(xHuge.status === 413 && (await errOf(xHuge)) === TOO_LARGE, "Xero export: a body over 10 MB is 413 'Too large', not a 500", xHuge.status);
     const flags = (await c.text("/api/compliance/flags", "MANAGER")).text;
     t.ok(flags.includes(w.id) && !flags.includes(num), "the board flag shows for that worker, without the ticket number");
     const todo = (await c.text("/api/accounts/pending", "ACCOUNTS")).text + (await c.text("/api/accounts/items", "ACCOUNTS")).text;

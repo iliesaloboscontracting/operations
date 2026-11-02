@@ -249,7 +249,7 @@ business, without becoming unnecessarily complicated.
   period takes those days out of the item's estimate (`hireEstimate`), so
   invoice and estimate are never both counted.
   **Upload limits** (2 Nov 2026, Ilies: "yes queue those two"; `src/lib/uploadLimits.ts`): Next cuts any request body
-  to 10 MB when middleware runs and files travel base64 in JSON, so quote, compliance and invoice-inbox files are
+  to 10 MB when middleware runs and files travel base64 in JSON, so quote, compliance, invoice-inbox, question-answer and Xero-export files are
   7 MB each, one per save; a body too big to read is 413 "Too large (7 MB per file)" (`src/lib/jsonBody.ts`).
   **Invoices inbox** (`/invoices`, 2026-10-24, `src/lib/invoiceInbox.ts`):
   accounts (the ACCOUNTS role; Managers/Admins too) upload invoice PDFs /

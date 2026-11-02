@@ -15,6 +15,7 @@ import { assertNoMoney } from "../moneyGuard";
 import { insertRequest, addEvent } from "../siteRequests";
 import { notifyNewRequest, notifyRequestUpdate } from "../requestAlerts";
 import { ANSWER_EXTS, saveInvoiceFile } from "../invoiceFiles";
+import { UPLOAD_FILE_MAX, UPLOAD_TOO_LARGE } from "../uploadLimits";
 import { QUERY_TYPE, requestNo, type Priority } from "../requestTypes";
 import type { Actor } from "./actions";
 import { askedByAiUser, isOperationsAi } from "../infoRequests/rules";
@@ -158,8 +159,9 @@ export async function answerQuery(
   if (answer.length < 2) return { error: "Type your answer." };
   let answerFile: string | null = r.answerFile;
   if (body.file) {
-    // The usual office files (Task I), checked to be what they say they are.
-    const saved = await saveInvoiceFile(body.file, body.fileName ?? "answer", { allow: ANSWER_EXTS, checkContent: true });
+    // The usual office files (Task I), checked to be what they say they are. 7 MB a file (2 Nov 2026, Ilies "Yes,
+    // both"): the most one save can carry under Next's 10 MB request limit (lib/uploadLimits.ts).
+    const saved = await saveInvoiceFile(body.file, body.fileName ?? "answer", { allow: ANSWER_EXTS, checkContent: true, maxBytes: UPLOAD_FILE_MAX, tooLarge: UPLOAD_TOO_LARGE });
     if ("error" in saved) return { error: saved.error };
     answerFile = saved.fileName;
   }

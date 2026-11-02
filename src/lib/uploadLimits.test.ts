@@ -38,15 +38,32 @@ test("the invoices inbox: 7 MB for every file it takes; other callers keep their
   assert.deepEqual(await saveInvoiceFile(pdf(UPLOAD_FILE_MAX + 1), "inv.pdf", cap), { error: UPLOAD_TOO_LARGE });
   const csv = `data:text/csv;base64,${Buffer.alloc(UPLOAD_FILE_MAX + 1, 0x41).toString("base64")}`;
   assert.deepEqual(await saveInvoiceFile(csv, "register.csv", cap), { error: UPLOAD_TOO_LARGE }, "a register spreadsheet too");
-  assert.ok("fileName" in (await saveInvoiceFile(pdf(UPLOAD_FILE_MAX + 1), "answer.pdf")), "without the cap, the type's own limit applies (answers to questions)");
+  assert.ok("fileName" in (await saveInvoiceFile(pdf(UPLOAD_FILE_MAX + 1), "other.pdf")), "a caller without the cap keeps the type's own limit");
+});
+
+test("answers to questions and Xero exports: 7 MB too (Ilies, 2 Nov 2026: 'Yes, both')", async () => {
+  const read = (p: string) => readFileSync(new URL(p, import.meta.url), "utf8");
+  // Both pass the 7 MB cap and the plain words to saveInvoiceFile.
+  assert.match(read("./findings/queries.ts"), /saveInvoiceFile\([^)]*maxBytes: UPLOAD_FILE_MAX, tooLarge: UPLOAD_TOO_LARGE/);
+  assert.match(read("./xero/imports.ts"), /saveInvoiceFile\(body\.dataUrl, name, \{ maxBytes: UPLOAD_FILE_MAX, tooLarge: UPLOAD_TOO_LARGE \}\)/);
+  // An answer file as they're saved: at the limit kept, one byte over refused in plain words.
+  const answer = { allow: ["pdf"], checkContent: true, maxBytes: UPLOAD_FILE_MAX, tooLarge: UPLOAD_TOO_LARGE };
+  assert.ok("fileName" in (await saveInvoiceFile(pdf(UPLOAD_FILE_MAX), "answer.pdf", answer)));
+  assert.deepEqual(await saveInvoiceFile(pdf(UPLOAD_FILE_MAX + 1), "answer.pdf", answer), { error: UPLOAD_TOO_LARGE });
+  // And an export as it's saved: a 7 MB .csv is kept, one byte over refused.
+  const csv = (n: number) => `data:text/csv;base64,${Buffer.alloc(n, 0x41).toString("base64")}`;
+  const xero = { maxBytes: UPLOAD_FILE_MAX, tooLarge: UPLOAD_TOO_LARGE };
+  assert.ok("fileName" in (await saveInvoiceFile(csv(UPLOAD_FILE_MAX), "export.csv", xero)));
+  assert.deepEqual(await saveInvoiceFile(csv(UPLOAD_FILE_MAX + 1), "export.csv", xero), { error: UPLOAD_TOO_LARGE });
 });
 
 test("the upload routes answer an unreadable body with 413 'Too large', never a validation message", () => {
   const read = (p: string) => readFileSync(new URL(p, import.meta.url), "utf8");
-  for (const p of ["../app/api/compliance/files/route.ts", "../app/api/invoice-inbox/route.ts"]) {
+  for (const p of ["../app/api/compliance/files/route.ts", "../app/api/invoice-inbox/route.ts", "../app/api/queries/[id]/route.ts", "../app/api/site/[token]/queries/route.ts", "../app/api/xero/imports/route.ts"]) {
     const src = read(p);
     assert.match(src, /readJsonBody\(req, UPLOAD_TOO_LARGE\)/, p);
-    assert.doesNotMatch(src.slice(src.indexOf("export const POST")), /req\.json\(\)\.catch\(\(\) => \(\{\}\)\)/, `${p}: no silent {}`);
+    const post = src.slice(src.indexOf("export const POST"));
+    assert.doesNotMatch(post, /req\.json\(\)/, `${p}: no other read of the body`);
   }
   assert.match(read("./jsonBody.ts"), /status: 413/);
 });

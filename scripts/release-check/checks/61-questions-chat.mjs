@@ -25,6 +25,18 @@ export default {
     const accList = JSON.stringify((await c.json("/api/accounts/questions", "ACCOUNTS")).body);
     t.ok(!!askId && accList.includes(askId), "accounts see the owner's question on their tab");
     if (askId) t.status(await c.post(`/api/queries/${askId}`, "OWNER", { answer: "owner tries to answer" }), 404, "the owner can't answer it (read-only - only the assignee answers)");
+    // Answer files (2 Nov 2026, Ilies "Yes, both"): 7 MB a file - one byte over is refused in plain words, a body over
+    // Next's 10 MB limit is 413, and a file at the limit goes with the answer.
+    if (t.ok(!!askId, "the owner's question to accounts is there to answer")) {
+      const MB = 1024 * 1024, TOO_LARGE = "Too large (7 MB per file) - send big files one at a time.";
+      const pdf = (n) => `data:application/pdf;base64,${Buffer.concat([Buffer.from("%PDF"), Buffer.alloc(n - 4)]).toString("base64")}`;
+      const errOf = async (r) => (await r.json().catch(() => ({}))).error ?? "";
+      const over = await c.post(`/api/queries/${askId}`, "ACCOUNTS", { answer: "Release check answer", file: pdf(7 * MB + 1), fileName: "rc-answer-over.pdf" });
+      t.ok(over.status === 400 && (await errOf(over)) === TOO_LARGE, "an answer file one byte over 7 MB is refused, in plain words", over.status);
+      const huge = await c.post(`/api/queries/${askId}`, "ACCOUNTS", { answer: "Release check answer", file: pdf(8 * MB), fileName: "rc-answer-huge.pdf" });
+      t.ok(huge.status === 413 && (await errOf(huge)) === TOO_LARGE, "an answer body over 10 MB is 413 'Too large', not 'Type your answer'", huge.status);
+      t.status(await c.post(`/api/queries/${askId}`, "ACCOUNTS", { answer: "Release check answer: the ANZ feed", file: pdf(7 * MB), fileName: "rc-answer.pdf" }), 200, "accounts answer with a 7 MB file (at the limit)");
+    }
 
     // (b) Operations AI questions.
     const targets = [["ACCOUNTS", accountsUser.id], ["DIRECTOR", U.DIRECTOR.id], ["ADMIN", U.ADMIN_PLAIN.id], ["MANAGER", U.MANAGER.id], ["OWNER", U.OWNER.id]];
