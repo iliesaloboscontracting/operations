@@ -149,7 +149,7 @@ export default {
     // (9) Turning regional off keeps every leg; travel is no longer offered for it.
     const before = await db.travelLeg.count({ where: { projectId: reg.id } });
     t.status(await c.patch(`/api/projects/${reg.id}`, "MANAGER", { regional: false }), 200, "a Manager marks it local again");
-    t.ok((await db.travelLeg.count({ where: { projectId: reg.id } })) === before && before === 2, "its travel legs are all kept", `${before}`);
+    t.ok((await db.travelLeg.count({ where: { projectId: reg.id } })) === before && before === 3, "its travel legs are all kept (out, home, the payroll-week one)", `${before}`);
     const st2 = await travel({ pass, action: "STATUS" });
     t.ok(st2.status === 200 && !st2.body.outJobs?.some((j) => j.jobId === regJob.id && !j.leg), "not offered once it's local");
 
