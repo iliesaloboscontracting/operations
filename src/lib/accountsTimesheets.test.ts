@@ -91,7 +91,9 @@ test("the explainer says the rules the code uses, and no money", () => {
   const text = JSON.stringify(TIMESHEETS_EXPLAINER);
   assert.equal(TIMESHEETS_NOTICE, "ACCOUNTS_TIMESHEETS_V2", "bumped with the once-a-day break rule");
   assert.ok(text.includes(`${POINT_BREAK_MINUTES} minutes at the office, yard and trucks`), "the sign-in point break is the code's constant");
-  assert.match(text, /One unpaid break per person per day, and only when their day's total is over 5 hours/);
+  assert.match(text, /One unpaid break per person per day, and only when their day's total is over 5 hours - and the break never takes the day below 5 hours/);
+  assert.match(text, /rounded once/);
+  assert.match(text, /applies from Monday 26 October 2026/);
   assert.match(text, /overlap - counted once/);
   assert.ok(text.includes(`last ${STILL_ON_HOURS} hours`), "on-site-now window is the code's constant");
   assert.match(text, /nearest quarter hour/);

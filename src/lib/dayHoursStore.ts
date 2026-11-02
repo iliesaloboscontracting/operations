@@ -15,17 +15,19 @@ export async function dayHoursFor(rows: Who[]): Promise<Map<string, LineHours>> 
   if (!rows.length) return new Map();
   const dates = [...new Set(rows.map((r) => r.date))];
   const staff = [...new Set(rows.map((r) => r.resourceId).filter((x): x is string => !!x))];
-  const hireNames = [...new Set(rows.filter((r) => !r.resourceId).map((r) => r.workerName))];
+  const anyHire = rows.some((r) => !r.resourceId);
+  // Hire workers are matched on the tidied name + company (TF-005, the same key payroll uses), so every hire row of
+  // those days is loaded and filtered below - "Sam  Smith" and "sam smith" are the same person.
   const all = await prisma.siteAttendance.findMany({
     where: {
       date: { in: dates }, status: { not: "REJECTED" },
-      OR: [...(staff.length ? [{ resourceId: { in: staff } }] : []), ...(hireNames.length ? [{ resourceId: null, workerName: { in: hireNames } }] : [])],
+      OR: [...(staff.length ? [{ resourceId: { in: staff } }] : []), ...(anyHire ? [{ resourceId: null }] : [])],
     },
-    select: { id: true, date: true, resourceId: true, workerName: true, company: true, signInAt: true, signOutAt: true, jobId: true, job: { select: { project: { select: { unpaidBreakMinutes: true } } } } },
+    select: { id: true, date: true, resourceId: true, workerName: true, company: true, deviceId: true, signInAt: true, signOutAt: true, jobId: true, job: { select: { project: { select: { unpaidBreakMinutes: true } } } } },
   });
   const wanted = new Set(rows.map((r) => `${personKeyFor(r.resourceId, r.workerName, r.company)}|${r.date}`));
   const lines: DayLine[] = all
-    .map((a) => ({ id: a.id, personKey: personKeyFor(a.resourceId, a.workerName, a.company), date: a.date, start: a.signInAt, end: a.signOutAt, breakMinutes: breakOf(a) }))
+    .map((a) => ({ id: a.id, personKey: personKeyFor(a.resourceId, a.workerName, a.company), date: a.date, start: a.signInAt, end: a.signOutAt, breakMinutes: breakOf(a), deviceId: a.deviceId }))
     .filter((l) => wanted.has(`${l.personKey}|${l.date}`));
   return dayHours(lines);
 }

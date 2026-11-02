@@ -30,7 +30,7 @@ export async function payLines(weekStart: string): Promise<PayLine[]> {
     where: { date: { gte: weekStart, lte: weekEnd(weekStart) }, status: { not: "REJECTED" } },
     orderBy: [{ workerName: "asc" }, { signInAt: "asc" }],
     select: {
-      id: true, date: true, jobId: true, resourceId: true, workerName: true, company: true, signInAt: true, signOutAt: true, status: true,
+      id: true, date: true, jobId: true, resourceId: true, workerName: true, company: true, deviceId: true, signInAt: true, signOutAt: true, status: true,
       placeLabel: true, place: true, gpsLat: true, gpsLng: true, gpsAccuracyM: true, gpsStatus: true,
       resource: { select: { id: true, name: true, type: true, engagement: true } },
       job: { select: { title: true, shift: true, project: { select: { name: true, unpaidBreakMinutes: true } } } },
@@ -45,7 +45,7 @@ export async function payLines(weekStart: string): Promise<PayLine[]> {
   }
   const kept = rows.filter((r) => !r.resource || r.resource.type === "PERSONNEL");
   // One break per person per day over 5 h, overlaps counted once (lib/dayHours.ts, Ilies 2 Nov 2026).
-  const day = dayHours(kept.map((r) => ({ id: r.id, personKey: personKeyOf(r.resourceId, r.resource?.name ?? r.workerName, r.company), date: r.date, start: r.signInAt, end: r.signOutAt, breakMinutes: r.job ? r.job.project?.unpaidBreakMinutes ?? 0 : POINT_BREAK_MINUTES })));
+  const day = dayHours(kept.map((r) => ({ id: r.id, personKey: personKeyOf(r.resourceId, r.resource?.name ?? r.workerName, r.company), date: r.date, start: r.signInAt, end: r.signOutAt, breakMinutes: r.job ? r.job.project?.unpaidBreakMinutes ?? 0 : POINT_BREAK_MINUTES, deviceId: r.deviceId })));
   return kept.map((r) => {
     const name = r.resource?.name ?? r.workerName;
     return {
