@@ -84,8 +84,10 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   // used to sit there unnoticed. Today's can stay open (they're still on site).
   if (!signOutAt && date !== todaySydney()) return bad("Enter the sign-out time too - only today's sign-ins can be left open (still on site).");
   const by = user?.name ?? "Office";
-  // Fix 1: they can't be signed in twice - any other sign-in still open from before this one ends at its start.
-  const ended = await endOpenElsewhere({ who, at: signInAt, here: job ? { jobId: job.id } : { jobId: null, place: point!.place, vehicleId: point!.vehicleId }, label: job ? "another job (added by the office)" : point!.placeLabel, by });
+  // Fix 1: they can't be signed in twice - any other sign-in still open from before this one ends at its start. TF-006:
+  // a line added WITH its sign-out (filling in the past) only does that when the office ticks "end their other open
+  // sign-in" (endOpen: true); an open line (still on site today) always does.
+  const ended = signOutAt && body.endOpen !== true ? [] : await endOpenElsewhere({ who, at: signInAt, here: job ? { jobId: job.id } : { jobId: null, place: point!.place, vehicleId: point!.vehicleId }, label: job ? "another job (added by the office)" : point!.placeLabel, by });
   const created = await prisma.siteAttendance.create({
     data: {
       jobId: job?.id ?? null,

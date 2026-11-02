@@ -56,6 +56,7 @@ export default function AttendanceJobCard({
   const [outAt, setOutAt] = useState("");
   const [outReason, setOutReason] = useState("Forgot to sign out");
   const [outNote, setOutNote] = useState<string | null>(null);
+  const [addNote, setAddNote] = useState<string | null>(null); // TF-006: how many other open sign-ins an add ended
   const stillIn = job.rows.filter((r) => !r.signOutAt && r.status !== "REJECTED");
   const toggle = (id: string) =>
     setPicked((p) => {
@@ -182,7 +183,8 @@ export default function AttendanceJobCard({
         </div>
       )}
 
-      {adding && canEdit && <AddMissed job={job} date={date} people={people} onSave={(b) => send("/api/attendance", "POST", b).then((o) => o && setAdding(false))} />}
+      {adding && canEdit && <AddMissed job={job} date={date} people={people} onSave={(b) => send("/api/attendance", "POST", b).then((o) => { if (!o) return o; setAdding(false); setAddNote(o.ended ? null : "Added."); if (o.ended) setAddNote(`Added - and ended ${o.ended} other open sign-in${o.ended === 1 ? "" : "s"} of theirs at this sign-in time (kept with a note).`); return o; })} />}
+      {addNote && <div className="border-b border-edge/70 px-3.5 py-1.5 text-xs text-gray-400">{addNote}</div>}
 
       {job.rows.length === 0 ? (
         <div className="px-3.5 py-3 text-xs text-gray-600">Nobody has signed in.</div>
@@ -333,7 +335,7 @@ function MoveToStaff({ row, people, onSave }: { row: AttendanceRow; people: Reso
 }
 
 function AddMissed({ job, date, people, onSave }: { job: AttendanceJob; date: string; people: ResourceDTO[]; onSave: (body: Record<string, unknown>) => Promise<unknown> }) {
-  const [v, setV] = useState({ who: "", hireName: "", company: "", in: `${date}T07:00`, out: "", reason: "" });
+  const [v, setV] = useState({ who: "", hireName: "", company: "", in: `${date}T07:00`, out: "", reason: "", endOpen: false });
   const hire = v.who === "HIRE";
   const allocatedIds = new Set(job.allocated.map((p) => p.id));
   // Fix 2a (2 Nov 2026): an earlier day needs its sign-out too - only today's can be left open (still on site).
@@ -361,6 +363,12 @@ function AddMissed({ job, date, people, onSave }: { job: AttendanceJob; date: st
         Reason
         <input className={inp} value={v.reason} onChange={(e) => setV({ ...v, reason: e.target.value })} placeholder="e.g. phone flat - supervisor confirmed" />
       </label>
+      {/* TF-006: with a sign-out filled in, ending another open sign-in is the office's choice (an open one always ends it). */}
+      {v.out && (
+        <label className="flex items-center gap-1.5 text-gray-300" title="If they still have a sign-in open somewhere else, it ends at this sign-in time (kept with a note).">
+          <input type="checkbox" checked={v.endOpen} onChange={(e) => setV({ ...v, endOpen: e.target.checked })} /> End their other open sign-in
+        </label>
+      )}
       <button
         className={btn}
         disabled={!v.who || !v.in || (needsOut && !v.out) || v.reason.trim().length < 3 || (hire && (!v.hireName.trim() || !v.company.trim()))}
@@ -371,6 +379,7 @@ function AddMissed({ job, date, people, onSave }: { job: AttendanceJob; date: st
             signInAt: fromLocal(v.in),
             signOutAt: fromLocal(v.out),
             reason: v.reason,
+            ...(v.out && v.endOpen ? { endOpen: true } : {}),
           })
         }
       >
