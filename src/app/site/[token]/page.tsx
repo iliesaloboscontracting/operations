@@ -195,9 +195,12 @@ export default function SitePhotosPage({ params: paramsP }: { params: Promise<{ 
             {info.kind === "OFFICE" && !info.shared && (
               <Big icon={<ListChecks size={22} />} title="My to-do" text={info.todo ? `${info.todo} to action` : "Requests the office hands you"} count={info.todo} onClick={() => { setFlash(null); setMode("todo"); }} />
             )}
-            {/* Stage 6: purchase requests - personal office link only, never an amount. */}
+            {/* Stage 6: purchase and hire requests - personal office link only. Since 2 Nov 2026 (Ilies) the one link
+                screen that may show prices: the person's own requests, description and suppliers' quotes
+                (lib/purchases/quotes.ts linkMayCarryMoney). Accounts' own amount never shows; every other screen
+                of every link stays money-free. */}
             {info.kind === "OFFICE" && !info.shared && (
-              <Big icon={<ShoppingCart size={22} />} title="Ask to buy something" text="And see your purchase requests" onClick={() => { setFlash(null); setMode("purchases"); }} />
+              <Big icon={<ShoppingCart size={22} />} title="Ask to buy or hire something" text="With suppliers' quotes, and see your requests" onClick={() => { setFlash(null); setMode("purchases"); }} />
             )}
             {(info.kind === "OFFICE" || hasTools) && (<>
             <Big icon={<Camera size={22} />} title="Add a tool" text="Photos and/or type the details" onClick={() => { setFlash(null); setMode("register"); }} />
