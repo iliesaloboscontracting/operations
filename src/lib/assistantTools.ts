@@ -86,6 +86,20 @@ export function documentHits(data: unknown): unknown {
   };
 }
 
+// What the projects list hands the model. PP-006 (Ilies approved 3 Nov 2026, "drop"): the notes scratchpad and the
+// contract value notes are free text that can carry rates and prices, so the model never gets them. The contract
+// value itself stays, as before.
+const PROJECT_FIELDS_NOT_FOR_MODEL = ["notes", "contractValueNotes"];
+export function projectsForModel(data: unknown): unknown {
+  if (!Array.isArray(data)) return data;
+  return data.map((p) => {
+    if (!p || typeof p !== "object") return p;
+    const out = { ...(p as Record<string, unknown>) };
+    for (const k of PROJECT_FIELDS_NOT_FOR_MODEL) delete out[k];
+    return out;
+  });
+}
+
 // Executes a tool call by hitting our own API route with the caller's session
 // cookie forwarded - so it's gated by the exact same guard() check and returns
 // the exact same shape the real page renders from, nothing more.
@@ -101,5 +115,8 @@ export async function runTool(
     headers: cookie ? { cookie } : undefined,
   });
   const data = await res.json().catch(() => ({ error: "Non-JSON response" }));
-  return { ok: res.ok, data: name === "search_documents" && res.ok ? documentHits(data) : data };
+  if (!res.ok) return { ok: false, data };
+  if (name === "search_documents") return { ok: true, data: documentHits(data) };
+  if (name === "get_projects") return { ok: true, data: projectsForModel(data) };
+  return { ok: true, data };
 }
