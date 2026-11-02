@@ -317,7 +317,7 @@ function EditRow({ row, onSave }: { row: AttendanceRow; onSave: (body: Record<st
 function MoveToStaff({ row, people, onSave }: { row: AttendanceRow; people: ResourceDTO[]; onSave: (body: Record<string, unknown>) => Promise<unknown> }) {
   const suggested = row.staffLike ?? [];
   const others = people.filter((p) => p.active !== false && !suggested.some((s) => s.id === p.id)).sort((a, b) => a.name.localeCompare(b.name));
-  const [who, setWho] = useState(suggested[0]?.id ?? "");
+  const [who, setWho] = useState(suggested.find((s) => s.exact)?.id ?? ""); // TF-009: pre-selected on a full-name match only
   const [reason, setReason] = useState(`Signed in as hire ("${row.name}${row.company ? ` / ${row.company}` : ""}") - is staff`);
   return (
     <div className="mt-1 flex flex-wrap items-end gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 p-2 text-xs">

@@ -20,7 +20,7 @@ export type AttendanceRow = {
   flags: string[];
   edits: AttendanceEditRow[];
   breakTaken?: number; // the day's one unpaid break, if it came off this line (2 Nov 2026)
-  staffLike?: { id: string; name: string }[] | null; // fix 4: a hire sign-in that looks like these staff
+  staffLike?: { id: string; name: string; exact: boolean }[] | null; // fix 4: a hire sign-in that looks like these staff
 };
 // A job on the board, or a fixed sign-in point (office / yard / truck).
 export type AttendanceJob = {

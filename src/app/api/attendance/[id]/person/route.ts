@@ -18,7 +18,8 @@ export const POST = withErrorHandling(async (req: NextRequest, { params: paramsP
   if (typeof body.resourceId !== "string" || !body.resourceId) return NextResponse.json({ error: "Pick the staff member." }, { status: 400 });
   const a = await prisma.siteAttendance.findUnique({ where: { id: params.id } });
   if (!a) return NextResponse.json({ error: "not found" }, { status: 404 });
-  const out = await moveToStaff(a, body.resourceId, reason, user?.name ?? "Office");
+  const login = user ? await prisma.user.findUnique({ where: { id: user.id }, select: { personnelId: true } }) : null;
+  const out = await moveToStaff(a, body.resourceId, reason, user?.name ?? "Office", user ? { email: user.email, personnelId: login?.personnelId ?? null } : undefined);
   if ("error" in out) return NextResponse.json({ error: out.error }, { status: 400 });
   await syncSignInActualsQuietly([a.jobId]);
   await syncPersonDayQuietly(body.resourceId, a.date);
