@@ -4,14 +4,11 @@
 import { NextResponse } from "next/server";
 import { readQuoteFile } from "./files";
 import { BODY_TOO_LARGE } from "./quotes";
+import { readJsonBody } from "../jsonBody";
 
 // The body of a purchase POST (in-app and the OFFICE link). One the server can't read - in practice one over Next's
 // 10 MB request limit, which arrives cut short - is 413 with plain words, never "Say what you need" (option A, 2 Nov 2026).
-export async function purchaseBody(req: Request): Promise<{ b: Record<string, unknown> } | { denied: NextResponse }> {
-  const body = await req.json().catch(() => undefined);
-  if (body === undefined) return { denied: NextResponse.json({ error: BODY_TOO_LARGE }, { status: 413 }) };
-  return { b: body && typeof body === "object" ? (body as Record<string, unknown>) : {} };
-}
+export const purchaseBody = (req: Request) => readJsonBody(req, BODY_TOO_LARGE);
 
 export async function quoteFileReply(q: { fileName: string | null; fileMime: string | null; fileOriginalName: string | null }) {
   if (!q.fileName) return NextResponse.json({ error: "not found" }, { status: 404 });

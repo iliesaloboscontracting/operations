@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { FileText, Paperclip } from "lucide-react";
 import { apiFetch, serverErrorMessage } from "@/lib/apiFetch";
 import { resizePhoto } from "@/lib/imageResize";
+import { dataUrlBytes, fileTooLarge, UPLOAD_TOO_LARGE } from "@/lib/uploadLimits";
 
 // Shared bits for the Accounts compliance pages (stage 5, 26 Oct 2026).
 export const input = "w-full rounded-lg border border-edge bg-panel2 px-3 py-2 text-sm text-gray-200 placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40";
@@ -35,12 +36,15 @@ export function Files({ files, owner, onChanged }: { files: FileDTO[]; owner: { 
     setBusy(true);
     setError(null);
     try {
+      // 7 MB a file (2 Nov 2026) - the most one save can carry; a photo is checked after it's been made smaller.
+      if (!file.type.startsWith("image/") && fileTooLarge(file.size)) { setError(UPLOAD_TOO_LARGE); setBusy(false); if (ref.current) ref.current.value = ""; return; }
       const dataUrl = file.type.startsWith("image/") ? await resizePhoto(file, 2200, 0.88) : await new Promise<string>((ok, no) => {
         const r = new FileReader();
         r.onload = () => ok(String(r.result));
         r.onerror = () => no(r.error);
         r.readAsDataURL(file);
       });
+      if (fileTooLarge(dataUrlBytes(dataUrl))) { setError(UPLOAD_TOO_LARGE); setBusy(false); if (ref.current) ref.current.value = ""; return; }
       const res = await apiFetch("/api/compliance/files", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...owner, dataUrl, originalName: file.name }) });
       if (!res.ok) setError(await serverErrorMessage(res, "Couldn't attach the file."));
       else onChanged();

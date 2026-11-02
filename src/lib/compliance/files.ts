@@ -6,12 +6,15 @@ import fs from "fs/promises";
 import path from "path";
 import { randomBytes } from "crypto";
 import { contentMatches } from "../invoiceFiles";
+import { UPLOAD_FILE_MAX, UPLOAD_TOO_LARGE } from "../uploadLimits";
 
+// 7 MB a file (2 Nov 2026, Ilies: "yes queue those two"): the most one save can carry under Next's 10 MB request
+// limit (lib/uploadLimits.ts) - the old 15 / 10 MB caps could never be reached.
 const TYPES: Record<string, { ext: string; max: number }> = {
-  "application/pdf": { ext: "pdf", max: 15 * 1024 * 1024 },
-  "image/jpeg": { ext: "jpg", max: 10 * 1024 * 1024 },
-  "image/png": { ext: "png", max: 10 * 1024 * 1024 },
-  "image/webp": { ext: "webp", max: 10 * 1024 * 1024 },
+  "application/pdf": { ext: "pdf", max: UPLOAD_FILE_MAX },
+  "image/jpeg": { ext: "jpg", max: UPLOAD_FILE_MAX },
+  "image/png": { ext: "png", max: UPLOAD_FILE_MAX },
+  "image/webp": { ext: "webp", max: UPLOAD_FILE_MAX },
 };
 const BY_EXT = Object.fromEntries(Object.entries(TYPES).map(([mime, t]) => [t.ext, mime]));
 // webp isn't in invoiceFiles' content check; a RIFF header is enough here.
@@ -31,7 +34,7 @@ export async function saveComplianceFile(dataUrl: unknown, originalName: unknown
   const t = TYPES[mime];
   const bytes = Buffer.from(m[2], "base64");
   if (bytes.length === 0) return { error: "The file is empty." };
-  if (bytes.length > t.max) return { error: `The file is too large (max ${Math.round(t.max / 1024 / 1024)} MB).` };
+  if (bytes.length > t.max) return { error: UPLOAD_TOO_LARGE };
   if (!looksRight(t.ext, bytes)) return { error: `That file doesn't look like a real .${t.ext} - save it again and re-send.` };
   const fileName = `${Date.now()}-${randomBytes(8).toString("hex")}.${t.ext}`;
   await fs.mkdir(complianceFileDir(), { recursive: true });

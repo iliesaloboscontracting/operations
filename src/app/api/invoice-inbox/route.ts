@@ -4,6 +4,8 @@ import { guardInvoiceInbox } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { saveInvoiceFile } from "@/lib/invoiceFiles";
 import { processInBackground } from "@/lib/invoiceInbox";
+import { readJsonBody } from "@/lib/jsonBody";
+import { UPLOAD_FILE_MAX, UPLOAD_TOO_LARGE } from "@/lib/uploadLimits";
 
 // GET /api/invoice-inbox -> uploads, invoices found in them, and the job /
 // hire-item lists for matching. Accounts (ACCOUNTS role), Managers, Admins.
@@ -66,11 +68,15 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
 
 // POST /api/invoice-inbox { dataUrl, name } -> the new upload. Reading
 // happens in the background; the page checks back for the result.
+// 2 Nov 2026: 7 MB a file, one file per save; a body too big to read (over Next's 10 MB limit) is 413 "Too large
+// (7 MB per file)", never "No file was sent". Spreadsheets keep their own parser limits once read.
 export const POST = withErrorHandling(async (req: NextRequest) => {
   const g = await guardInvoiceInbox();
   if ("denied" in g) return g.denied;
-  const body = await req.json().catch(() => ({}));
-  const saved = await saveInvoiceFile(body.dataUrl, body.name);
+  const read = await readJsonBody(req, UPLOAD_TOO_LARGE);
+  if ("denied" in read) return read.denied;
+  const body = read.b;
+  const saved = await saveInvoiceFile(body.dataUrl, body.name, { maxBytes: UPLOAD_FILE_MAX, tooLarge: UPLOAD_TOO_LARGE });
   if ("error" in saved) return NextResponse.json({ error: saved.error }, { status: 400 });
   const upload = await prisma.invoiceUpload.create({
     data: { fileName: saved.fileName, originalName: String(body.name).slice(0, 200), kind: saved.kind, uploadedBy: g.user.name },

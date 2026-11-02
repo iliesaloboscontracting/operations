@@ -248,6 +248,9 @@ business, without becoming unnecessarily complicated.
   approved scripts). A plant-hire invoice linked to a hire-register item and
   period takes those days out of the item's estimate (`hireEstimate`), so
   invoice and estimate are never both counted.
+  **Upload limits** (2 Nov 2026, Ilies: "yes queue those two"; `src/lib/uploadLimits.ts`): Next cuts any request body
+  to 10 MB when middleware runs and files travel base64 in JSON, so quote, compliance and invoice-inbox files are
+  7 MB each, one per save; a body too big to read is 413 "Too large (7 MB per file)" (`src/lib/jsonBody.ts`).
   **Invoices inbox** (`/invoices`, 2026-10-24, `src/lib/invoiceInbox.ts`):
   accounts (the ACCOUNTS role; Managers/Admins too) upload invoice PDFs /
   photos or their invoice register spreadsheet (`.xlsx`/`.csv`, read with
@@ -430,7 +433,7 @@ business, without becoming unnecessarily complicated.
   **Stage 5, Compliance & HR** (live 27 Oct; date of birth not collected; `/accounts/compliance`, `src/lib/compliance/`,
   design `docs/accounts/STAGE5-DESIGN.md`): `WorkerTicket` per Labour-register
   person, `WorkerOnboarding` (apart from pay), `ComplianceDocument` (company /
-  subcontractor) and their files in `COMPLIANCE_FILE_DIR` (served only via
+  subcontractor) and their files in `COMPLIANCE_FILE_DIR` (7 MB a file since 2 Nov 2026 - see Upload limits; served only via
   `guardAccounts`, never on a link). Each expiry keeps one linked
   `AccountsItem` (`sourceType`/`sourceId`, 30 days ahead) - the only reminder
   system. TFN and bank details are refused everywhere (`looksLikeTfnOrBank`);

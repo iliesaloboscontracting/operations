@@ -55,10 +55,12 @@ function mimeFor(given: string, originalName: string) {
 
 // Takes a data URL + the original file name from the browser, checks type and
 // size, and writes it under a random name. Returns the stored name and kind.
+// opts.maxBytes (2 Nov 2026, the invoices inbox): a lower cap than the type's own - 7 MB, the most one save can carry
+// under Next's 10 MB request limit (lib/uploadLimits.ts) - refused with `tooLarge` in plain words.
 export async function saveInvoiceFile(
   dataUrl: unknown,
   originalName: unknown,
-  opts: { allow?: string[]; checkContent?: boolean } = {},
+  opts: { allow?: string[]; checkContent?: boolean; maxBytes?: number; tooLarge?: string } = {},
 ): Promise<{ fileName: string; kind: InvoiceFileKind } | { error: string }> {
   const allow = opts.allow ?? INBOX_EXTS;
   if (typeof dataUrl !== "string" || typeof originalName !== "string") return { error: "No file was sent." };
@@ -72,6 +74,7 @@ export async function saveInvoiceFile(
   const bytes = Buffer.from(m[2], "base64");
   if (bytes.length === 0) return { error: "The file is empty." };
   if (opts.checkContent && !contentMatches(t.ext, bytes)) return { error: `That file doesn't look like a real .${t.ext} - save it again and re-send.` };
+  if (opts.maxBytes != null && bytes.length > opts.maxBytes) return { error: opts.tooLarge ?? `The file is too large (max ${Math.round(opts.maxBytes / 1024 / 1024)} MB).` };
   if (bytes.length > t.max) return { error: `The file is too large (max ${Math.round(t.max / 1024 / 1024)} MB).` };
   const fileName = `${Date.now()}-${randomBytes(8).toString("hex")}.${t.ext}`;
   await fs.mkdir(invoiceFileDir(), { recursive: true });

@@ -1,8 +1,10 @@
 // Accounts stage 5, compliance (was s5check.mjs): access, an expired ticket shows on the board as label + date only,
-// a reminder exists, a TFN is refused, nothing leaks to links or /api/resources. WRITES one synthetic ticket.
+// a reminder exists, a TFN is refused, nothing leaks to links or /api/resources. Since 2 Nov 2026 also the upload
+// limits of compliance files and the invoices inbox (7 MB a file, 413 for a body too big to read).
+// WRITES one synthetic ticket, its files and synthetic invoice-inbox uploads.
 export default {
-  id: "compliance-s5", title: "Compliance: access, board flag only, TFN refused, no leak",
-  writes: true,
+  id: "compliance-s5", title: "Compliance: access, board flag only, TFN refused, no leak, upload limits",
+  writes: true, timeoutMs: 180_000,
   async run(t, c) {
     for (const p of ["/api/compliance/workers", "/api/compliance/documents"]) {
       t.status(await c.get(p, "ACCOUNTS"), 200, `${p} as accounts`);
@@ -16,7 +18,29 @@ export default {
     const w = (workers?.workers ?? workers?.people ?? (Array.isArray(workers) ? workers : []))[0];
     if (!w) return t.block("no workers on the snapshot");
     const num = `RC-WC-${Date.now() % 100000}`;
-    t.status(await c.post("/api/compliance/tickets", "ACCOUNTS", { resourceId: w.id, kind: "WHITE_CARD", number: num, issueDate: "2020-01-01", expiryDate: "2026-01-01" }), [200, 201], "a ticket with a past expiry is saved");
+    const made = await c.post("/api/compliance/tickets", "ACCOUNTS", { resourceId: w.id, kind: "WHITE_CARD", number: num, issueDate: "2020-01-01", expiryDate: "2026-01-01" });
+    t.status(made, [200, 201], "a ticket with a past expiry is saved");
+    const ticketId = (await made.json().catch(() => ({}))).id;
+
+    // Upload limits (2 Nov 2026, Ilies: "yes queue those two"): 7 MB a file - the most one save carries under Next's
+    // 10 MB body limit; one byte over is refused in plain words; a body too big to read is 413, never "No file was sent".
+    const MB = 1024 * 1024, TOO_LARGE = "Too large (7 MB per file) - send big files one at a time.";
+    const pdf = (n) => `data:application/pdf;base64,${Buffer.concat([Buffer.from("%PDF"), Buffer.alloc(n - 4)]).toString("base64")}`;
+    const errOf = async (r) => (await r.json().catch(() => ({}))).error ?? "";
+    if (t.ok(!!ticketId, "the new ticket's id comes back")) {
+      t.status(await c.post("/api/compliance/files", "ACCOUNTS", { ticketId, dataUrl: pdf(7 * MB), originalName: "rc-card.pdf" }), 201, "compliance: a 7 MB file (at the limit) is kept");
+      const over = await c.post("/api/compliance/files", "ACCOUNTS", { ticketId, dataUrl: pdf(7 * MB + 1), originalName: "rc-card-over.pdf" });
+      t.ok(over.status === 400 && (await errOf(over)) === TOO_LARGE, "compliance: one byte over 7 MB is refused, in plain words", over.status);
+      const huge = await c.post("/api/compliance/files", "ACCOUNTS", { ticketId, dataUrl: pdf(8 * MB), originalName: "rc-card-huge.pdf" });
+      t.ok(huge.status === 413 && (await errOf(huge)) === TOO_LARGE, "compliance: a body over 10 MB is 413 'Too large', not a validation message", huge.status);
+    }
+    // The invoices inbox (its upload screen was removed 28 Oct 2026; the API still takes files). No AI key on the copy,
+    // so an accepted file is just stored and marked "not set up" - nothing goes out.
+    t.status(await c.post("/api/invoice-inbox", "ACCOUNTS", { dataUrl: pdf(7 * MB), name: "rc-invoice.pdf" }), 201, "invoices inbox: a 7 MB file (at the limit) is taken");
+    const invOver = await c.post("/api/invoice-inbox", "ACCOUNTS", { dataUrl: pdf(7 * MB + 1), name: "rc-invoice-over.pdf" });
+    t.ok(invOver.status === 400 && (await errOf(invOver)) === TOO_LARGE, "invoices inbox: one byte over 7 MB is refused, in plain words", invOver.status);
+    const invHuge = await c.post("/api/invoice-inbox", "ACCOUNTS", { dataUrl: pdf(8 * MB), name: "rc-invoice-huge.pdf" });
+    t.ok(invHuge.status === 413 && (await errOf(invHuge)) === TOO_LARGE, "invoices inbox: a body over 10 MB is 413 'Too large', never 'No file was sent'", invHuge.status);
     const flags = (await c.text("/api/compliance/flags", "MANAGER")).text;
     t.ok(flags.includes(w.id) && !flags.includes(num), "the board flag shows for that worker, without the ticket number");
     const todo = (await c.text("/api/accounts/pending", "ACCOUNTS")).text + (await c.text("/api/accounts/items", "ACCOUNTS")).text;
