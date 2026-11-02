@@ -39,14 +39,16 @@ export function checkQuoteFile(dataUrl: unknown, originalName: unknown): { bytes
   return { bytes, mime, ext: t.ext, name: originalName.trim().slice(0, 120) };
 }
 
-export async function saveQuoteFile(f: { bytes: Buffer; ext: string }): Promise<string> {
-  const fileName = `${Date.now()}-${randomBytes(8).toString("hex")}.${f.ext}`;
+// PQ-001 (2 Nov 2026): the name is chosen first and recorded with the quote; the file is written only once the
+// version-guarded save has gone through, so a request that lost a race never leaves a file behind.
+export const quoteFileName = (ext: string) => `${Date.now()}-${randomBytes(8).toString("hex")}.${ext}`;
+export async function writeQuoteFile(fileName: string, bytes: Buffer): Promise<void> {
+  if (!isStoredName(fileName)) throw new Error("Bad purchase file name");
   await fs.mkdir(purchaseFileDir(), { recursive: true });
-  await fs.writeFile(path.join(purchaseFileDir(), fileName), f.bytes);
-  return fileName;
+  await fs.writeFile(path.join(purchaseFileDir(), fileName), bytes, { flag: "wx" }); // never over an existing file
 }
 
-// Stored names are only ever ones saveQuoteFile made - anything else is refused, so a name can never point outside.
+// Stored names are only ever ones quoteFileName made - anything else is refused, so a name can never point outside.
 export const isStoredName = (fileName: string) => /^\d+-[0-9a-f]{16}\.(pdf|jpg|png|webp)$/.test(fileName);
 export async function readQuoteFile(fileName: string): Promise<Buffer> {
   if (!isStoredName(fileName)) throw new Error("Bad purchase file name");

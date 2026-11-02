@@ -3,7 +3,36 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { alertBody, chosenQuote, canEditOwn, kindOf, linkMayCarryMoney, maySeeQuoteFile, parseQuote, SEES_ALL_REQUESTS } from "./quotes";
+import {
+  alertBody, chosenQuote, canEditOwn, dailyUploadsError, fileBudgetError, kindOf, linkMayCarryMoney, maySeeQuoteFile, parseQuote, REQUEST_FILE_BUDGET,
+  SEES_ALL_REQUESTS, TOO_LARGE, TOO_MANY, uploaderKey,
+} from "./quotes";
+
+test("PQ-001: 30 MB over a request's whole life, 20 quote files a day per link or login, plain words", () => {
+  const MB = 1024 * 1024;
+  assert.equal(fileBudgetError(0, 30 * MB), null, "exactly 30 MB fits");
+  assert.equal(fileBudgetError(29 * MB, 2 * MB), TOO_LARGE, "files already on it (or replaced) count");
+  assert.equal(fileBudgetError(REQUEST_FILE_BUDGET, 0), null, "no new file - nothing to refuse");
+  assert.equal(dailyUploadsError(19, 1), null);
+  assert.equal(dailyUploadsError(20, 1), TOO_MANY);
+  assert.equal(dailyUploadsError(18, 3), TOO_MANY, "a request with several files counts them all");
+  assert.equal(dailyUploadsError(500, 0), null, "no file - no cap");
+  assert.match(TOO_LARGE, /^Too large/);
+  assert.match(TOO_MANY, /^Too many/);
+  assert.equal(uploaderKey({ linkId: "l1" }), "LINK:l1");
+  assert.equal(uploaderKey({ userId: "u1" }), "USER:u1");
+  // A file is written only after the save it belongs to has gone through - never before (no orphan on a conflict).
+  const store = readFileSync(new URL("./store.ts", import.meta.url), "utf8").replace(/\r\n/g, "\n");
+  assert.doesNotMatch(store, /saveQuoteFile/, "the old write-first helper is gone");
+  for (const fn of ["export async function createRequest", "export async function editOwnRequest"]) {
+    const start = store.indexOf(fn);
+    assert.ok(start >= 0 && store.indexOf("\n}\n", start) > start, `${fn} found`);
+    const body = store.slice(start, store.indexOf("\n}\n", start));
+    const writes = [...body.matchAll(/writePending\(/g)].map((m) => m.index!);
+    assert.ok(writes.length > 0, `${fn}: writes its files`);
+    for (const w of writes) assert.ok(body.lastIndexOf("$transaction(", w) !== -1 && body.lastIndexOf("$transaction(", w) < w, `${fn}: every write comes after a transaction`);
+  }
+});
 import { checkQuoteFile, isStoredName } from "./files";
 
 test("PQ-004: a phone alert's body has no free text - nothing from what was asked, no price", () => {

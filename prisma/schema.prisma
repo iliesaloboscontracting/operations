@@ -1949,6 +1949,8 @@ model PurchaseRequest {
   chosenBy          String?
   chosenAt          DateTime?
   quotes            PurchaseQuote[]
+  // PQ-001 (2 Nov 2026): every quote file ever stored on this request, replaced ones included - the 30 MB budget.
+  fileBytes         Int                    @default(0)
 
   @@index([status])
   @@index([siteLinkId])
@@ -1988,8 +1990,12 @@ model PurchaseRequestEvent {
   by        String
   at        DateTime        @default(now())
   note      String?
+  // PQ-001 (2 Nov 2026): who sent it (LINK:<site link id> | USER:<login id>) and how many quote files - the 20-a-day cap.
+  byKey     String?
+  files     Int             @default(0)
 
   @@index([requestId])
+  @@index([byKey, at])
 }
 
 // Accounts stage 7 (docs/accounts/STAGE7-DESIGN.md): Victoria's settings for the tax estimates - which P&L

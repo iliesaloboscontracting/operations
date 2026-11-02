@@ -13,6 +13,18 @@ export const KIND_LABEL: Record<Kind, string> = { PURCHASE: "Purchase", HIRE: "H
 export const DESCRIPTION_MAX = 2000;
 export const MAX_QUOTES = 10;
 
+// PQ-001 (Ilies approved, 2 Nov 2026): the disk. A request's quote files over its whole life - those on it now, the
+// ones already replaced and the new one - stay within 30 MB; one link or login sends at most 20 quote files a Sydney
+// day. Plain words when it's too much.
+export const REQUEST_FILE_BUDGET = 30 * 1024 * 1024;
+export const DAILY_FILE_UPLOADS = 20;
+export const TOO_LARGE = "Too large: this request's quote files would come to more than 30 MB. Leave the big file off, or put a link to the quote instead.";
+export const TOO_MANY = "Too many files today: you can attach up to 20 quote files a day. Add the rest tomorrow, or put a link to the quote instead.";
+export const fileBudgetError = (usedBytes: number, newBytes: number) => (usedBytes + newBytes > REQUEST_FILE_BUDGET ? TOO_LARGE : null);
+export const dailyUploadsError = (sentToday: number, adding: number) => (adding > 0 && sentToday + adding > DAILY_FILE_UPLOADS ? TOO_MANY : null);
+// Who is sending, for the daily count: a link or a login.
+export const uploaderKey = (who: { linkId?: string | null; userId?: string | null }) => (who.linkId ? `LINK:${who.linkId}` : `USER:${who.userId}`);
+
 // PQ-004 (Ilies approved, 2 Nov 2026): a phone alert shows on a lock screen through Apple's / Google's servers, so its
 // body carries no free text at all - not what was asked, not a price - only who asked, the kind and the ref.
 export const alertBody = (name: string, kind: unknown, ref: string) => `${name} asked for a ${kindOf(kind) === "HIRE" ? "hire" : "purchase"} (${ref})`;

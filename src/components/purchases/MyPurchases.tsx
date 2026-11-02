@@ -27,7 +27,7 @@ const TONE: Record<string, string> = {
 };
 const post = (url: string, body: unknown) => fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 
-function AskForm({ base, projects, onDone, onCancel }: { base: string; projects: Project[]; onDone: (ref: string) => void; onCancel: () => void }) {
+function AskForm({ base, projects, onDone, onCancel }: { base: string; projects: Project[]; onDone: (ref: string, warning?: string) => void; onCancel: () => void }) {
   const [f, setF] = useState({ kind: "PURCHASE", what: "", why: "", qty: "", linkUrl: "", neededBy: "", projectId: "" });
   const [quotes, setQuotes] = useState<QuoteDraft[]>([emptyQuote()]);
   const [busy, setBusy] = useState(false);
@@ -41,7 +41,8 @@ function AskForm({ base, projects, onDone, onCancel }: { base: string; projects:
     setBusy(false);
     if (!res) return setError("Couldn't send - check your signal.");
     if (!res.ok) return setError(await serverErrorMessage(res, "Couldn't send it."));
-    onDone((await res.json()).ref);
+    const d = (await res.json()) as { ref: string; warning?: string };
+    onDone(d.ref, d.warning);
   }
   const hire = f.kind === "HIRE";
   return (
@@ -95,9 +96,12 @@ function Card({ r, base, onChanged }: { r: Row; base: string; onChanged: () => v
     const res = await post(`${base}/${r.id}`, { ...body, version: r.version }).catch(() => null);
     setBusy(false);
     if (!res?.ok) return setError(res ? await serverErrorMessage(res, "Couldn't save.") : "Couldn't save - check your signal.");
+    // Saved, but the disk refused a quote file (PQ-001) - say so; the rest is in.
+    const warning = ((await res.json().catch(() => ({}))) as { warning?: string }).warning;
     setAnswer("");
     setEditing(null);
     onChanged();
+    if (warning) setError(warning);
   }
   const canCancel = r.canEdit && (r.status === "REQUESTED" || r.status === "NEEDS_INFO");
   return (
@@ -171,7 +175,7 @@ export default function MyPurchases({ base }: { base: string }) {
     <div className="space-y-3">
       {flash && <p className="rounded-xl bg-emerald-950/50 px-3 py-2 text-sm text-emerald-200">{flash}</p>}
       {asking ? (
-        <AskForm base={base} projects={projects} onCancel={() => setAsking(false)} onDone={(ref) => { setAsking(false); setFlash(`Sent to the directors as ${ref}.`); load(); }} />
+        <AskForm base={base} projects={projects} onCancel={() => setAsking(false)} onDone={(ref, warning) => { setAsking(false); setFlash(`Sent to the directors as ${ref}.${warning ? ` ${warning}` : ""}`); load(); }} />
       ) : (
         <button onClick={() => { setFlash(null); setAsking(true); }} className={primary}><Plus size={18} /> Ask to buy or hire something</button>
       )}

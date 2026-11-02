@@ -15,8 +15,10 @@ import { pushToSiteLinks, pushToUsers, type PushMessage } from "../push";
 import { todaySydney } from "../today";
 import { addDays, isIsoDate } from "../accounts/calendar";
 import { approverIds, check, OPEN, parseAmount, purchaseNo, requesterView, STATUS_FOR_REQUESTER, type Action, type Actor, type Status } from "./rules";
-import { alertBody, canEditOwn, chosenQuote, DESCRIPTION_MAX, kindOf, KIND_LABEL, MAX_QUOTES, parseQuote, type QuoteInput } from "./quotes";
-import { checkQuoteFile, saveQuoteFile } from "./files";
+import {
+  alertBody, canEditOwn, chosenQuote, dailyUploadsError, DESCRIPTION_MAX, fileBudgetError, kindOf, KIND_LABEL, MAX_QUOTES, parseQuote, TOO_MANY, uploaderKey, type QuoteInput,
+} from "./quotes";
+import { checkQuoteFile, quoteFileName, writeQuoteFile } from "./files";
 
 type Problem = { error: string; status: number };
 const bad = (error: string, status = 400): Problem => ({ error, status });
@@ -67,12 +69,33 @@ function quoteIn(b: unknown): { quote: QuoteIn } | { error: string } {
   if ("error" in c) return { error: `${p.quote.supplier}: ${c.error}` };
   return { quote: { ...p.quote, file: c } };
 }
-async function quoteData(q: QuoteIn, by: { name: string; userId?: string | null }) {
-  const fileName = q.file ? await saveQuoteFile(q.file) : null;
-  return {
+// The quote's row, with its file's name chosen but nothing written yet (PQ-001): `pending` is written by
+// writePending() only after the save it belongs to has gone through.
+type Pending = { fileName: string; bytes: Buffer };
+function quoteData(q: QuoteIn, by: { name: string; userId?: string | null }) {
+  const fileName = q.file ? quoteFileName(q.file.ext) : null;
+  const data = {
     supplier: q.supplier, priceExGst: q.priceExGst, details: q.details, linkUrl: q.linkUrl, createdBy: by.name, createdByUserId: by.userId ?? null,
     ...(q.file ? { fileName, fileMime: q.file.mime, fileOriginalName: q.file.name, fileSize: q.file.bytes.length } : {}),
   };
+  return { data, pending: q.file && fileName ? ({ fileName, bytes: q.file.bytes } as Pending) : null };
+}
+// Write the files of a save that went through. False (logged) when the disk refused one - the caller then takes the
+// file off its quote so nothing points at a missing file.
+async function writePending(files: Pending[]): Promise<string[]> {
+  const failed: string[] = [];
+  for (const f of files) await writeQuoteFile(f.fileName, f.bytes).catch((e) => { console.error("quote file write failed", e); failed.push(f.fileName); });
+  return failed;
+}
+const FILE_NOT_STORED = "Saved, but a quote file couldn't be stored - attach it again with Change.";
+const NO_FILE = { fileName: null, fileMime: null, fileOriginalName: null, fileSize: null };
+
+// PQ-001: quote files this link or login has sent today (Sydney), for the 20-a-day cap.
+const sydneyDay = (d: Date) => d.toLocaleDateString("en-CA", { timeZone: "Australia/Sydney" });
+async function filesSentToday(key: string) {
+  const rows = await prisma.purchaseRequestEvent.findMany({ where: { byKey: key, files: { gt: 0 }, at: { gte: new Date(Date.now() - 26 * 3600_000) } }, select: { at: true, files: true } });
+  const today = todaySydney();
+  return rows.filter((e) => sydneyDay(e.at) === today).reduce((n, e) => n + e.files, 0);
 }
 
 function parseNew(b: Record<string, unknown>) {
@@ -92,8 +115,9 @@ function parseNew(b: Record<string, unknown>) {
     if ("error" in one) return { error: one.error };
     quotes.push(one.quote);
   }
-  // One request's files together stay a sensible size (each is capped in files.ts).
-  if (quotes.reduce((n, q) => n + (q.file?.bytes.length ?? 0), 0) > 30 * 1024 * 1024) return { error: "The quote files come to more than 30 MB - send the big ones one at a time with Add another supplier." };
+  // PQ-001: one request's files together stay within its 30 MB budget (each is capped in files.ts too).
+  const tooLarge = fileBudgetError(0, quotes.reduce((n, q) => n + (q.file?.bytes.length ?? 0), 0));
+  if (tooLarge) return { error: tooLarge };
   // An older form's single "supplier" becomes the first quote.
   if (!quotes.length && supplier) quotes.push({ supplier, priceExGst: null, details: null, linkUrl: null, file: null });
   return { data: { what, why, qty, linkUrl, neededBy, projectId, kind: kindOf(b.kind) }, quotes };
@@ -117,7 +141,7 @@ async function tellRequester(r: { siteLinkId: string | null; requestedByUserId: 
   else if (r.requestedByUserId) await alert(pushToUsers([r.requestedByUserId], { ...msg, url: "/purchases" }));
 }
 
-export async function createRequest(who: Requester, b: Record<string, unknown>): Promise<{ id: string; ref: string } | Problem> {
+export async function createRequest(who: Requester, b: Record<string, unknown>): Promise<{ id: string; ref: string; warning?: string } | Problem> {
   // PUR-001 (27 Oct 2026): the Building Agent login never raises a purchase request - on any route.
   if (who.kind === "APP") {
     const u = await prisma.user.findUnique({ where: { id: who.userId }, select: { email: true } });
@@ -127,24 +151,31 @@ export async function createRequest(who: Requester, b: Record<string, unknown>):
   if ("error" in p) return bad(p.error!);
   if (p.data.projectId && !(await prisma.project.findUnique({ where: { id: p.data.projectId }, select: { id: true } }))) return bad("Pick the job again.");
   const by = { name: who.name, userId: who.kind === "APP" ? who.userId : null };
-  const quotes: Awaited<ReturnType<typeof quoteData>>[] = [];
-  for (const q of p.quotes) quotes.push(await quoteData(q, by));
+  const key = uploaderKey(who.kind === "LINK" ? { linkId: who.linkId } : { userId: who.userId });
+  const files = p.quotes.filter((q) => q.file).length;
+  const tooMany = files ? dailyUploadsError(await filesSentToday(key), files) : null;
+  if (tooMany) return bad(tooMany, 429);
+  const built = p.quotes.map((q) => quoteData(q, by));
+  const fileBytes = p.quotes.reduce((n, q) => n + (q.file?.bytes.length ?? 0), 0);
   for (let attempt = 0; ; attempt++) {
     try {
       const row = await prisma.$transaction(async (tx) => {
         const number = await nextNumber(tx);
         return tx.purchaseRequest.create({
           data: {
-            ...p.data, number, requestedBy: who.name, source: who.kind,
+            ...p.data, number, requestedBy: who.name, source: who.kind, fileBytes,
             siteLinkId: who.kind === "LINK" ? who.linkId : null, requestedByUserId: who.kind === "APP" ? who.userId : null,
-            events: { create: { action: "ASK", status: "REQUESTED", by: who.name } },
-            quotes: { create: quotes },
+            events: { create: { action: "ASK", status: "REQUESTED", by: who.name, byKey: key, files } },
+            quotes: { create: built.map((x) => x.data) },
           },
         });
       });
+      // PQ-001: the files only now the request is saved; one the disk refused comes off its quote.
+      const failed = await writePending(built.flatMap((x) => (x.pending ? [x.pending] : [])));
+      if (failed.length) await prisma.purchaseQuote.updateMany({ where: { requestId: row.id, fileName: { in: failed } }, data: NO_FILE });
       // Straight to the approvers (28 Oct 2026) - not accounts.
       await alert(pushToUsers(await approversFor(row.requestedByUserId), { title: `${KIND_LABEL[kindOf(row.kind)]} request ${purchaseNo(row.number)} to approve`, body: alertBody(who.name, row.kind, purchaseNo(row.number)), url: "/directors/purchases", tag: "purchase-approve" }));
-      return { id: row.id, ref: purchaseNo(row.number) };
+      return { id: row.id, ref: purchaseNo(row.number), ...(failed.length ? { warning: FILE_NOT_STORED } : {}) };
     } catch (e) {
       // Two requests at the same moment took the same number - take the next one.
       if (attempt < 3 && e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") continue;
@@ -157,19 +188,26 @@ export async function createRequest(who: Requester, b: Record<string, unknown>):
 // supplier's quote, or a correction to one of the quotes. Nothing is deleted; each change is an event.
 export type EditAction = "EDIT" | "ADD_QUOTE" | "EDIT_QUOTE";
 export const isEditAction = (a: unknown): a is EditAction => a === "EDIT" || a === "ADD_QUOTE" || a === "EDIT_QUOTE";
-export async function editOwnRequest(id: string, action: EditAction, who: { name: string; linkId?: string; userId?: string }, b: Record<string, unknown>): Promise<{ ok: true } | Problem> {
+export async function editOwnRequest(id: string, action: EditAction, who: { name: string; linkId?: string; userId?: string }, b: Record<string, unknown>): Promise<{ ok: true; warning?: string } | Problem> {
   const r = await prisma.purchaseRequest.findUnique({ where: { id }, include: { quotes: true } });
   const mine = r && ((who.linkId && r.siteLinkId === who.linkId) || (who.userId && r.requestedByUserId === who.userId));
   if (!r || !mine) return bad("Not found.", 404);
   if (!canEditOwn(r.status)) return bad(`It's ${STATUS_FOR_REQUESTER[r.status as Status]?.toLowerCase() ?? r.status} - it can't be changed now.`, 409);
   if (b.version !== undefined && Number(b.version) !== r.version) return bad("Someone else has just changed this - reload and try again.", 409);
   const by = { name: who.name, userId: who.userId ?? null };
+  const key = uploaderKey(who);
   // PQ-003 (Ilies approved, 2 Nov 2026): the version bump, the quote and the event are one transaction - the request
   // never shows a new version without its change, nor a change under the old version an approver already saw.
   const STALE = "stale";
   const commit = (tx: Prisma.TransactionClient, data: Prisma.PurchaseRequestUpdateManyMutationInput = {}) =>
     tx.purchaseRequest.updateMany({ where: { id, version: r.version, status: r.status }, data: { ...data, version: r.version + 1 } }).then((d) => { if (!d.count) throw new Error(STALE); });
-  const event = (tx: Prisma.TransactionClient, note: string) => tx.purchaseRequestEvent.create({ data: { requestId: id, action, status: r.status, by: who.name, note } });
+  const event = (tx: Prisma.TransactionClient, note: string, files = 0) => tx.purchaseRequestEvent.create({ data: { requestId: id, action, status: r.status, by: who.name, note, byKey: key, files } });
+  // PQ-001: a new file must fit the request's lifetime budget (every file it has ever had) and today's 20.
+  const fileLimits = async (q: QuoteIn) => {
+    if (!q.file) return null;
+    return fileBudgetError(r.fileBytes, q.file.bytes.length) ?? dailyUploadsError(await filesSentToday(key), 1);
+  };
+  let warning: string | undefined;
   try {
     if (action === "EDIT") {
       const data: Prisma.PurchaseRequestUpdateManyMutationInput = {};
@@ -183,32 +221,49 @@ export async function editOwnRequest(id: string, action: EditAction, who: { name
       if (r.quotes.length >= MAX_QUOTES) return bad(`Up to ${MAX_QUOTES} quotes on one request.`);
       const q = quoteIn(b.quote);
       if ("error" in q) return bad(q.error);
-      const data = await quoteData(q.quote, by);
-      await prisma.$transaction(async (tx) => {
-        await commit(tx);
-        await tx.purchaseQuote.create({ data: { ...data, requestId: id } });
-        await event(tx, `Quote added: ${q.quote.supplier}`);
+      const limit = await fileLimits(q.quote);
+      if (limit) return bad(limit, limit === TOO_MANY ? 429 : 400);
+      const { data, pending } = quoteData(q.quote, by);
+      const quote = await prisma.$transaction(async (tx) => {
+        await commit(tx, { fileBytes: { increment: q.quote.file?.bytes.length ?? 0 } });
+        const made = await tx.purchaseQuote.create({ data: { ...data, requestId: id } });
+        await event(tx, `Quote added: ${q.quote.supplier}`, pending ? 1 : 0);
+        return made;
       });
+      // PQ-001: the file only now the save went through; if the disk refuses it, it comes off the quote.
+      if (pending && (await writePending([pending])).length) {
+        await prisma.purchaseQuote.update({ where: { id: quote.id }, data: NO_FILE });
+        warning = FILE_NOT_STORED;
+      }
     } else {
       const existing = r.quotes.find((x) => x.id === b.quoteId);
       if (!existing) return bad("That quote isn't on this request - reload and try again.", 404);
       const sent = (b.quote && typeof b.quote === "object" ? b.quote : {}) as Record<string, unknown>;
       const q = quoteIn({ supplier: existing.supplier, priceExGst: existing.priceExGst, details: existing.details, linkUrl: existing.linkUrl, ...sent });
       if ("error" in q) return bad(q.error);
-      const data = await quoteData(q.quote, by);
-      // A new file replaces the shown one; the old file stays on disk (nothing is deleted).
+      const limit = await fileLimits(q.quote);
+      if (limit) return bad(limit, limit === TOO_MANY ? 429 : 400);
+      const { data, pending } = quoteData(q.quote, by);
+      // A new file replaces the shown one; the old file stays on disk (nothing is deleted) and stays in the budget.
       const { createdBy: _c, createdByUserId: _u, ...change } = data;
       await prisma.$transaction(async (tx) => {
-        await commit(tx);
+        await commit(tx, { fileBytes: { increment: q.quote.file?.bytes.length ?? 0 } });
         await tx.purchaseQuote.update({ where: { id: existing.id }, data: { ...change, editedBy: by.name, editedAt: new Date() } });
-        await event(tx, `Quote changed: ${q.quote.supplier}`);
+        await event(tx, `Quote changed: ${q.quote.supplier}`, pending ? 1 : 0);
       });
+      // If the disk refuses the new file, the quote keeps the file it had.
+      if (pending && (await writePending([pending])).length) {
+        await prisma.purchaseQuote.update({
+          where: { id: existing.id }, data: { fileName: existing.fileName, fileMime: existing.fileMime, fileOriginalName: existing.fileOriginalName, fileSize: existing.fileSize },
+        });
+        warning = FILE_NOT_STORED;
+      }
     }
   } catch (e) {
     if (e instanceof Error && e.message === STALE) return bad("Someone else has just changed this - reload and try again.", 409);
     throw e;
   }
-  return { ok: true };
+  return { ok: true, ...(warning ? { warning } : {}) };
 }
 
 // One step on a request. The route decides who the actor is; ownership of REQUESTER steps is checked here.
