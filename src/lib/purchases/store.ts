@@ -16,7 +16,7 @@ import { todaySydney } from "../today";
 import { addDays, isIsoDate } from "../accounts/calendar";
 import { approverIds, check, OPEN, parseAmount, purchaseNo, requesterView, STATUS_FOR_REQUESTER, type Action, type Actor, type Status } from "./rules";
 import {
-  alertBody, canEditOwn, chosenQuote, dailyUploadsError, DESCRIPTION_MAX, fileBudgetError, kindOf, KIND_LABEL, MAX_QUOTES, parseQuote, TOO_MANY, uploaderKey, type QuoteInput,
+  alertBody, canEditOwn, chosenQuote, dailyUploadsError, DESCRIPTION_MAX, fileBudgetError, kindOf, KIND_LABEL, MAX_QUOTES, parseQuote, quoteChangeNote, TOO_MANY, uploaderKey, type QuoteInput,
 } from "./quotes";
 import { checkQuoteFile, quoteFileName, writeQuoteFile } from "./files";
 
@@ -249,7 +249,8 @@ export async function editOwnRequest(id: string, action: EditAction, who: { name
       await prisma.$transaction(async (tx) => {
         await commit(tx, { fileBytes: { increment: q.quote.file?.bytes.length ?? 0 } });
         await tx.purchaseQuote.update({ where: { id: existing.id }, data: { ...change, editedBy: by.name, editedAt: new Date() } });
-        await event(tx, `Quote changed: ${q.quote.supplier}`, pending ? 1 : 0);
+        // PQ-002: what changed, before -> after.
+        await event(tx, quoteChangeNote(existing, { supplier: q.quote.supplier, priceExGst: q.quote.priceExGst, fileOriginalName: q.quote.file?.name ?? existing.fileOriginalName }), pending ? 1 : 0);
       });
       // If the disk refuses the new file, the quote keeps the file it had.
       if (pending && (await writePending([pending])).length) {

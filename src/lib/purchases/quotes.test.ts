@@ -5,8 +5,17 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
   alertBody, chosenQuote, canEditOwn, dailyUploadsError, fileBudgetError, kindOf, linkMayCarryMoney, maySeeQuoteFile, parseQuote, REQUEST_FILE_BUDGET,
-  SEES_ALL_REQUESTS, TOO_LARGE, TOO_MANY, uploaderKey,
+  quoteChangeNote, SEES_ALL_REQUESTS, TOO_LARGE, TOO_MANY, uploaderKey,
 } from "./quotes";
+
+test("PQ-002: a changed quote's history says what changed, before -> after", () => {
+  const before = { supplier: "Sydney Tools", priceExGst: 1180, fileOriginalName: "quote-a.pdf" };
+  assert.equal(quoteChangeNote(before, { supplier: "Sydney Tools Pty Ltd", priceExGst: 1095.5, fileOriginalName: "quote-b.pdf" }),
+    "Quote changed (Sydney Tools Pty Ltd): supplier Sydney Tools -> Sydney Tools Pty Ltd; price $1,180.00 -> $1,095.50; file quote-a.pdf -> quote-b.pdf");
+  assert.equal(quoteChangeNote(before, { ...before, priceExGst: null }), "Quote changed (Sydney Tools): price $1,180.00 -> no price");
+  assert.equal(quoteChangeNote({ ...before, fileOriginalName: null }, { ...before }), "Quote changed (Sydney Tools): file none -> quote-a.pdf");
+  assert.equal(quoteChangeNote(before, { ...before }), "Quote changed (Sydney Tools): details or link");
+});
 
 test("PQ-001: 30 MB over a request's whole life, 20 quote files a day per link or login, plain words", () => {
   const MB = 1024 * 1024;

@@ -25,6 +25,18 @@ export const dailyUploadsError = (sentToday: number, adding: number) => (adding 
 // Who is sending, for the daily count: a link or a login.
 export const uploaderKey = (who: { linkId?: string | null; userId?: string | null }) => (who.linkId ? `LINK:${who.linkId}` : `USER:${who.userId}`);
 
+// PQ-002 (Ilies approved, 2 Nov 2026): a changed quote's history says what changed - supplier, price, file - before
+// and after, in the event's note (no new table). Prices may show here: it's the request's own history.
+type QuoteFace = { supplier: string; priceExGst: number | null; fileOriginalName: string | null };
+const price = (n: number | null) => (n == null ? "no price" : `$${n.toLocaleString("en-AU", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
+export function quoteChangeNote(before: QuoteFace, after: QuoteFace): string {
+  const parts: string[] = [];
+  if (before.supplier !== after.supplier) parts.push(`supplier ${before.supplier} -> ${after.supplier}`);
+  if (before.priceExGst !== after.priceExGst) parts.push(`price ${price(before.priceExGst)} -> ${price(after.priceExGst)}`);
+  if (before.fileOriginalName !== after.fileOriginalName) parts.push(`file ${before.fileOriginalName ?? "none"} -> ${after.fileOriginalName ?? "none"}`);
+  return `Quote changed (${after.supplier}): ${parts.length ? parts.join("; ") : "details or link"}`.slice(0, 600);
+}
+
 // PQ-004 (Ilies approved, 2 Nov 2026): a phone alert shows on a lock screen through Apple's / Google's servers, so its
 // body carries no free text at all - not what was asked, not a price - only who asked, the kind and the ref.
 export const alertBody = (name: string, kind: unknown, ref: string) => `${name} asked for a ${kindOf(kind) === "HIRE" ? "hire" : "purchase"} (${ref})`;
