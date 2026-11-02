@@ -102,9 +102,10 @@ export default function AccountsTimesheetsPage() {
               )}
             </div>
           ) : (
-            <div className={`mb-4 rounded-xl border p-3 text-sm ${data.issues ? "border-amber-500/40 bg-amber-500/10 text-amber-300" : "border-edge bg-panel text-gray-400"}`}>
+            <div className={`mb-4 rounded-xl border p-3 text-sm ${data.issues + (data.travelIssues ?? 0) ? "border-amber-500/40 bg-amber-500/10 text-amber-300" : "border-edge bg-panel text-gray-400"}`}>
               Not approved by a Manager yet{!data.weekEnded ? " - this week is still running" : ""}. The export is a DRAFT until the week is locked.
               {data.issues > 0 && ` ${data.issues} sign-in${data.issues === 1 ? "" : "s"} still need the office (no sign-out, or waiting for the supervisor).`}
+              {(data.travelIssues ?? 0) > 0 && ` ${data.travelIssues} regional travel leg${data.travelIssues === 1 ? "" : "s"} still need the office (never ended, over 8h or still travelling).`}
             </div>
           )}
 
@@ -112,7 +113,7 @@ export default function AccountsTimesheetsPage() {
             <Tile label="People" value={data.people.length} />
             <Tile label="Total hours" value={hrs(data.totalHours)} />
             <Tile label="Travel (regional)" value={hrs(data.travelHours ?? 0)} tone={data.travelIssues ? "text-amber-400" : "text-sky-200"} />
-            <Tile label="Need sorting" value={data.issues} tone={data.issues ? "text-amber-400" : ""} />
+            <Tile label="Need sorting" value={data.issues + (data.travelIssues ?? 0)} tone={data.issues + (data.travelIssues ?? 0) ? "text-amber-400" : ""} />
             <Tile label="Status" value={data.approval ? "Locked" : "Draft"} tone={data.approval ? "text-emerald-400" : "text-gray-300"} />
           </div>
 

@@ -86,9 +86,9 @@ export default function TimesheetsPage() {
           )}
           {data && !data.approval && canEdit && (
             <button
-              disabled={busy || !data.weekEnded || data.issues > 0 || data.people.length === 0}
+              disabled={busy || !data.weekEnded || data.issues + (data.travelIssues ?? 0) > 0 || data.people.length === 0}
               onClick={() => act("approve")}
-              title={!data.weekEnded ? "The week hasn't finished yet" : data.issues > 0 ? "Sort out the flagged sign-ins first" : undefined}
+              title={!data.weekEnded ? "The week hasn't finished yet" : data.issues + (data.travelIssues ?? 0) > 0 ? "Sort out the flagged sign-ins and travel first" : undefined}
               className="flex items-center gap-1.5 rounded-lg bg-brand-600 px-3.5 py-2 text-sm font-medium text-white hover:bg-brand-500 disabled:cursor-not-allowed disabled:opacity-40"
             >
               <Lock size={14} /> Approve week
@@ -119,11 +119,11 @@ export default function TimesheetsPage() {
               )}
             </div>
           ) : (
-            <div className={`mb-4 rounded-xl border p-3 text-sm ${data.issues ? "border-amber-500/40 bg-amber-500/10 text-amber-300" : "border-edge bg-panel text-gray-400"}`}>
-              {data.issues > 0 ? (
+            <div className={`mb-4 rounded-xl border p-3 text-sm ${data.issues + (data.travelIssues ?? 0) ? "border-amber-500/40 bg-amber-500/10 text-amber-300" : "border-edge bg-panel text-gray-400"}`}>
+              {data.issues + (data.travelIssues ?? 0) > 0 ? (
                 <>
                   <TriangleAlert size={14} className="mr-1.5 inline" />
-                  {data.issues} sign-in{data.issues === 1 ? "" : "s"} need sorting on the Sign-ins page (no sign-out, or waiting for the supervisor) before this week can be approved.
+                  {[data.issues > 0 && `${data.issues} sign-in${data.issues === 1 ? "" : "s"} (no sign-out, or waiting for the supervisor)`, (data.travelIssues ?? 0) > 0 && `${data.travelIssues} regional travel leg${data.travelIssues === 1 ? "" : "s"} (never ended, over 8h or still travelling)`].filter(Boolean).join(" and ")} need sorting on the Sign-ins page before this week can be approved.
                 </>
               ) : !data.weekEnded ? (
                 "This week is still running - it can be approved from Monday."
@@ -137,7 +137,7 @@ export default function TimesheetsPage() {
             <Tile label="People" value={data.people.length} />
             <Tile label="Total hours" value={hrs(data.totalHours)} />
             <Tile label="Travel (regional)" value={hrs(data.travelHours ?? 0)} tone={data.travelIssues ? "text-amber-400" : "text-sky-200"} />
-            <Tile label="Need sorting" value={data.issues} tone={data.issues ? "text-amber-400" : ""} />
+            <Tile label="Need sorting" value={data.issues + (data.travelIssues ?? 0)} tone={data.issues + (data.travelIssues ?? 0) ? "text-amber-400" : ""} />
             <Tile label="Status" value={data.approval ? "Approved" : "Draft"} tone={data.approval ? "text-emerald-400" : "text-gray-300"} />
           </div>
 

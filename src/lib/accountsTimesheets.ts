@@ -62,7 +62,7 @@ export const TIMESHEETS_EXPLAINER: Explainer = {
         "Only for jobs on a project marked Regional - local jobs are exactly as before. Travel is its own column and is never added to site hours.",
         "Travel out: the worker taps Start travel on their phone; it ends when they sign in on site at that project.",
         `Travel home: after signing out of a regional job they tap Travelling home (offered for ${HOME_OFFER_HOURS} hours after the sign-out), then Arrived.`,
-        `Travel hours = start to end, to the nearest quarter hour, with no break taken off. A leg never ended, or longer than ${TRAVEL_CAP_HOURS} hours, counts no hours and is flagged - only the office can correct it, with a reason.`,
+        `Travel hours = start to end, to the nearest quarter hour, with no break taken off. A leg never ended, or longer than ${TRAVEL_CAP_HOURS} hours, counts no hours and is flagged - only the office can correct it, with a reason. Until it's fixed, the Manager can't approve that week.`,
         "How travel is paid is still to be agreed - the exports show the travel hours only.",
       ],
     },
@@ -80,7 +80,7 @@ export const TIMESHEETS_EXPLAINER: Explainer = {
       heading: "Approvals, in order",
       bullets: [
         "1. The site supervisor approves the crew's hours for each job and day on their link (\"Approve hours\"). Office, yard and truck sign-ins have no supervisor step.",
-        "2. A Manager approves the week from the Monday after, once every sign-in has a sign-out and is confirmed. That locks it: its sign-ins can't change unless an Admin reopens the week, with a reason.",
+        "2. A Manager approves the week from the Monday after, once every sign-in has a sign-out and is confirmed, and every regional travel leg is ended and under 8 hours. That locks it: its sign-ins can't change unless an Admin reopens the week, with a reason.",
         "3. Then you approve or query each person's week in Payroll. Staff can only be approved once the Manager has locked the week. The pay-run file has the employees you approved.",
       ],
     },

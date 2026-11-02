@@ -143,8 +143,21 @@ export function peopleOf(weekStart: string, lines: TimesheetLine[], travel: Trav
   return [...byPerson.values()].map((p) => ({ ...p, total: q(p.total), travelTotal: q(p.travelTotal) })).sort((a, b) => a.name.localeCompare(b.name));
 }
 
-// Travel legs the office has to look at (never ended, or over the cap) - information, they don't block approval.
-export const travelIssues = (travel: TravelLine[]) => travel.filter((t) => needsOffice(t.flag)).length;
+// Travel legs that stop the week being approved (Ilies, 2 Nov 2026: "YES" - like a missing sign-out): never ended,
+// over the cap, or still on the way (not ended yet - approving would lock it in with no hours). The office fixes
+// them on Sign-ins with a reason.
+export const travelBlocks = (t: TravelLine) => needsOffice(t.flag) || t.flag === "ON_THE_WAY";
+export const travelIssues = (travel: TravelLine[]) => travel.filter(travelBlocks).length;
+const TRAVEL_REASON: Record<string, string> = { NOT_ENDED: "travel never ended", OVER_CAP: "travel over 8h", ON_THE_WAY: "still travelling" };
+
+// What stops a Manager approving the week: sign-ins with no sign-out or waiting for the supervisor, and travel legs
+// (above). Each as "Name (date: why)"; empty = nothing in the way.
+export function approvalBlockers(lines: TimesheetLine[], travel: TravelLine[] = []): string[] {
+  return [
+    ...lines.filter((l) => lineIssues(l).length > 0).map((l) => `${l.name} (${l.date}: ${lineIssues(l).map((i) => (i === "NO_SIGN_OUT" ? "no sign-out" : "waiting for the supervisor")).join(", ")})`),
+    ...travel.filter(travelBlocks).map((t) => `${t.name} (${t.date}: ${TRAVEL_REASON[t.flag!]})`),
+  ];
+}
 
 // The current approval for a week (latest one that hasn't been reopened).
 export function activeApproval(weekStart: string) {
@@ -199,7 +212,7 @@ export async function timesheetWeek(weekStart: string) {
     totalHours: Math.round(shown.reduce((n, l) => n + (l.hours ?? 0), 0) * 4) / 4,
     travelHours: Math.round(shownTravel.reduce((n, t) => n + (t.hours ?? 0), 0) * 4) / 4,
     travelIssues: travelIssues(travelNow),
-    issues: lines.filter((l) => lineIssues(l).length > 0).length,
+    issues: lines.filter((l) => lineIssues(l).length > 0).length, // sign-ins; travelIssues (above) counts the travel legs
     approval: approval && { approvedBy: approval.approvedBy, approvedAt: approval.approvedAt },
     changedSinceApproval,
     history,

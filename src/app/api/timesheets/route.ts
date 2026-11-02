@@ -6,7 +6,7 @@ import { withErrorHandling } from "@/lib/apiHandler";
 import { isISODate } from "@/lib/dateRules";
 import { todaySydney } from "@/lib/today";
 import {
-  activeApproval, lineIssues, liveTravel, timesheetLines, timesheetWeek, weekHasEnded, weekStartOf,
+  activeApproval, approvalBlockers, liveTravel, timesheetLines, timesheetWeek, weekHasEnded, weekStartOf,
   type TimesheetSnapshot,
 } from "@/lib/timesheets";
 
@@ -22,8 +22,8 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
 });
 
 // POST /api/timesheets { week, action: "approve" | "reopen", reason? }
-// Approve: Manager+, once the week has ended and every sign-in has a sign-out
-// and is confirmed. Reopen: Admin only, with a reason. Approvals are never
+// Approve: Manager+, once the week has ended, every sign-in has a sign-out
+// and is confirmed, and no regional travel leg is unended or over 8h. Reopen: Admin only, with a reason. Approvals are never
 // deleted - reopening marks the approval, re-approving adds a new one.
 export const POST = withErrorHandling(async (req: NextRequest) => {
   const denied = await guard("MANAGER");
@@ -37,14 +37,15 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   if (body.action === "approve") {
     if (current) return bad("This week is already approved.");
     if (!weekHasEnded(weekStart)) return bad("The week hasn't finished yet - approve it from Monday.");
-    const lines = await timesheetLines(weekStart);
-    const open = lines.filter((l) => lineIssues(l).length > 0);
-    if (open.length) {
-      const names = [...new Set(open.map((l) => `${l.name} (${l.date})`))].slice(0, 6).join(", ");
-      return bad(`Sort these out first on the Sign-ins page - no sign-out or waiting for the supervisor: ${names}${open.length > 6 ? "…" : ""}`);
+    const [lines, travel] = await Promise.all([timesheetLines(weekStart), liveTravel(weekStart)]);
+    // Sign-ins with no sign-out or waiting for the supervisor, and (Ilies, 2 Nov 2026) regional travel never ended,
+    // over 8h or still on the way - all sorted on the Sign-ins page first (lib/timesheets.ts approvalBlockers).
+    const blockers = [...new Set(approvalBlockers(lines, travel))];
+    if (blockers.length) {
+      return bad(`Sort these out first on the Sign-ins page: ${blockers.slice(0, 6).join(", ")}${blockers.length > 6 ? "…" : ""}`);
     }
     // Regional travel (2 Nov 2026) is locked in with the week, like the sign-ins.
-    const snapshot: TimesheetSnapshot = { weekStart, lines, travel: await liveTravel(weekStart) };
+    const snapshot: TimesheetSnapshot = { weekStart, lines, travel };
     await prisma.timesheetWeek.create({
       data: {
         weekStart,

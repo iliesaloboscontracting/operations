@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { correctionError, homeFrom, HOME_OFFER_HOURS, legHours, needsOffice, outRefusal, stillOpen, TRAVEL_CAP_HOURS } from "./rules";
 import { makeTravelPass, readTravelPass } from "../signin";
-import { timesheetCsv, peopleOf, type TravelLine } from "../timesheets";
+import { approvalBlockers, timesheetCsv, peopleOf, travelIssues, type TravelLine } from "../timesheets";
 import { fileIsSafe } from "../payroll/rules";
 
 // Regional travel (2 Nov 2026, Ilies): out (Start travel -> site sign-in) and home (Travelling home -> Arrived).
@@ -95,4 +95,14 @@ test("the link answers carry no money, and site hours / JobActual are never touc
   const route = readFileSync(new URL("../../app/api/site/in/travel/route.ts", import.meta.url), "utf8");
   assert.match(route, /assertNoMoney\(JSON\.stringify\(x\)\)/);
   assert.match(route, /readTravelPass\(body\.pass, deviceId\)/, "the phone's own pass, nobody else's");
+});
+
+test("approval is blocked by travel never ended, over 8h or still on the way - not by a normal leg (Ilies, 2 Nov 2026)", () => {
+  const line = { attendanceId: "a1", date: "2026-11-02", resourceId: "r1", name: "Sam Smith", role: null, site: "Orange", in: "8:30 am", out: "5:00 pm", breakMinutes: 30, hours: 8, status: "CONFIRMED", allocated: true, changedByOffice: null };
+  assert.deepEqual(approvalBlockers([line], [tl({})]), [], "an ended leg under 8h doesn't block");
+  assert.deepEqual(approvalBlockers([line], [tl({ flag: "NOT_ENDED", hours: null })]), ["Sam Smith (2026-11-02: travel never ended)"]);
+  assert.deepEqual(approvalBlockers([line], [tl({ flag: "OVER_CAP", hours: null })]), ["Sam Smith (2026-11-02: travel over 8h)"]);
+  assert.deepEqual(approvalBlockers([line], [tl({ flag: "ON_THE_WAY", hours: null })]), ["Sam Smith (2026-11-02: still travelling)"]);
+  assert.deepEqual(approvalBlockers([{ ...line, out: null, hours: null }], []), ["Sam Smith (2026-11-02: no sign-out)"], "a missing sign-out still blocks as before");
+  assert.equal(travelIssues([tl({}), tl({ flag: "NOT_ENDED" }), tl({ flag: "OVER_CAP" })]), 2);
 });

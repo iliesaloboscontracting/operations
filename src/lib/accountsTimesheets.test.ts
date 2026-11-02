@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { accountsTimesheetCsv, AMOUNT_REMOVED, TIMESHEETS_EXPLAINER, TIMESHEETS_NOTICE } from "./accountsTimesheets";
 import { fileIsSafe } from "./payroll/rules";
+import { rankAtLeast } from "./roleRank";
 import { POINT_BREAK_MINUTES, STILL_ON_HOURS } from "./signin";
 import type { TimesheetLine } from "./timesheets";
 import { HOME_OFFER_HOURS, TRAVEL_CAP_HOURS } from "./travel/rules";
@@ -34,10 +35,14 @@ test("ACCOUNTS reads and exports through guardAccounts - GET only, nothing writt
 });
 
 test("every timesheet write still refuses ACCOUNTS (and TIMESHEETS)", () => {
-  // The one-page roles rank below VIEWER, so guard("MANAGER") / guard("ADMIN") refuse them.
+  // The one-page roles rank below VIEWER, so guard("MANAGER") / guard("ADMIN") refuse them (lib/roleRank.ts, CO-001).
+  for (const role of ["ACCOUNTS", "TIMESHEETS", "COORDINATOR"]) {
+    assert.equal(rankAtLeast(role, "MANAGER"), false, `${role} is refused by guard("MANAGER")`);
+    assert.equal(rankAtLeast(role, "ADMIN"), false, `${role} is refused by guard("ADMIN")`);
+  }
+  assert.equal(rankAtLeast("MANAGER", "MANAGER"), true);
   const auth = src("./auth.ts");
-  assert.match(auth, /const RANK: Record<Role, number> = \{[^}]*ACCOUNTS: 0[^}]*MANAGER: 2/);
-  assert.match(auth, /TIMESHEETS: 0/);
+  assert.match(auth, /export async function guard\(min[\s\S]*?rankAtLeast\(user\.role, min\)/, "guard() checks the rank");
   // Approve / reopen the week; the Managers' export.
   const ts = src("../app/api/timesheets/route.ts");
   assert.deepEqual(handlers(ts).sort(), ["GET", "POST"]);

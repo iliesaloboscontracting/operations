@@ -126,6 +126,13 @@ export default {
       t.ok(r.status === 200 && /Travel hours/.test(csv) && noMoney(csv) && !/\bBSB\b|\bTFN\b|\bABA\b/i.test(csv), `payroll ${f} file: Travel hours column, no money`, `${r.status} ${csv.slice(0, 160)}`);
       if (f === "summary") t.ok(csv.split("\n").some((l) => l.startsWith(person.name) && /,2\r?$/.test(l)), "summary: the person's 2h travel in Travel hours", csv.slice(0, 300));
     }
+    // (7b) Ilies (2 Nov 2026): a leg never ended blocks the week's approval until the office fixes it with a reason.
+    const blockLeg = await db.travelLeg.create({ data: { direction: "OUT", resourceId: person.id, workerName: person.name, jobId: `rc-block-${tag}`, projectId: reg.id, siteLabel: reg.name, date: "2020-02-05", startAt: new Date("2020-02-04T19:00:00Z") } });
+    const refused = await c.post("/api/timesheets", "MANAGER", { week: payWeek, action: "approve" });
+    const refusedBody = await refused.json().catch(() => ({}));
+    t.ok(refused.status === 400 && /travel never ended/.test(refusedBody.error ?? ""), "approve refused while a travel leg was never ended", `${refused.status} ${refusedBody.error ?? ""}`);
+    t.status(await c.patch(`/api/attendance/travel/${blockLeg.id}`, "MANAGER", { endAt: "2020-02-04T21:30:00.000Z", reason: "Release check - arrival time from the supervisor" }), 200, "the office ends it with a reason");
+    t.status(await c.post("/api/timesheets", "MANAGER", { week: payWeek, action: "approve" }), 200, "approve allowed once the leg is fixed");
     const thisWeekPay = await c.get(`/api/accounts/payroll/export?week=${week}&file=summary`, "ACCOUNTS");
     if (thisWeekPay.status !== 200) t.note(`this week's payroll summary answers ${thisWeekPay.status} on the copy - earlier checks seed $ names this week (pre-existing fileIsSafe refusal, not travel)`);
     // GPS: accounts / Admins only (the payroll week), never the Sign-ins page.
@@ -137,6 +144,14 @@ export default {
     // (8) Office corrections: Manager+, a reason, kept; a locked week refuses.
     t.status(await c.patch(`/api/attendance/travel/${never.id}`, "ACCOUNTS", { endAt: new Date().toISOString(), reason: "rc" }), 403, "ACCOUNTS can't correct travel");
     t.status(await c.patch(`/api/attendance/travel/${never.id}`, "VIEWER", { endAt: new Date().toISOString(), reason: "rc" }), 403, "a Viewer can't correct travel");
+    if (c.users.COORDINATOR) {
+      t.status(await c.patch(`/api/attendance/travel/${never.id}`, "COORDINATOR", { endAt: new Date().toISOString(), reason: "rc" }), 403, "the COORDINATOR can't correct travel (view only)");
+      t.status(await c.patch(`/api/projects/${reg.id}`, "COORDINATOR", { regional: false }), 403, "the COORDINATOR can't change the Regional flag");
+      const cw = (await c.json(`/api/timesheets?week=${week}`, "COORDINATOR")).body;
+      t.ok(Object.values(cw?.people?.find((x) => x.resourceId === person.id)?.travel ?? {}).flat().length === 4, "the COORDINATOR sees the Travel column (view only)");
+      const ca = (await c.json(`/api/attendance?date=${today}`, "COORDINATOR")).body;
+      t.ok(ca?.travel?.some((l) => l.legId === s1.body.leg.id) && !/gps/i.test(JSON.stringify(ca?.travel ?? [])), "the COORDINATOR sees the travel legs on Sign-ins, without GPS");
+    } else t.note("no COORDINATOR test login on this build - its travel checks skipped");
     t.status(await c.patch(`/api/attendance/travel/${never.id}`, "MANAGER", { endAt: new Date().toISOString() }), 400, "a correction needs a reason");
     t.status(await c.patch(`/api/attendance/travel/${never.id}`, "MANAGER", { endAt: new Date(Date.now() - 6 * HOUR).toISOString(), reason: "Release check - forgot to sign in on site" }), 200, "a Manager corrects a travel time with a reason");
     const fixed = await db.travelLeg.findUnique({ where: { id: never.id }, include: { edits: true } });
