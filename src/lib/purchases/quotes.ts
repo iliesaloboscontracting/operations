@@ -27,14 +27,21 @@ export const uploaderKey = (who: { linkId?: string | null; userId?: string | nul
 
 // PQ-002 (Ilies approved, 2 Nov 2026): a changed quote's history says what changed - supplier, price, file - before
 // and after, in the event's note (no new table). Prices may show here: it's the request's own history.
-type QuoteFace = { supplier: string; priceExGst: number | null; fileOriginalName: string | null };
+// PQ-010 (Ilies approved, 2 Nov 2026: "Fix it first"): a replaced file is always recorded by its original AND stored
+// name, before -> after - even when the names it was sent with match - and the old details and link text are kept
+// (about 200 characters each), so the history always says which file and words were there before.
+type QuoteFace = { supplier: string; priceExGst: number | null; details: string | null; linkUrl: string | null; fileOriginalName: string | null; fileName: string | null };
 const price = (n: number | null) => (n == null ? "no price" : `$${n.toLocaleString("en-AU", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
-export function quoteChangeNote(before: QuoteFace, after: QuoteFace): string {
+const cut = (s: string | null) => (s == null || s === "" ? "none" : `"${s.replace(/\s+/g, " ").trim().slice(0, 200)}${s.length > 200 ? "..." : ""}"`);
+const fileFace = (q: QuoteFace) => (q.fileName ? `${q.fileOriginalName ?? "quote"} (${q.fileName})` : "none");
+export function quoteChangeNote(before: QuoteFace, after: QuoteFace, newFile: boolean): string {
   const parts: string[] = [];
   if (before.supplier !== after.supplier) parts.push(`supplier ${before.supplier} -> ${after.supplier}`);
   if (before.priceExGst !== after.priceExGst) parts.push(`price ${price(before.priceExGst)} -> ${price(after.priceExGst)}`);
-  if (before.fileOriginalName !== after.fileOriginalName) parts.push(`file ${before.fileOriginalName ?? "none"} -> ${after.fileOriginalName ?? "none"}`);
-  return `Quote changed (${after.supplier}): ${parts.length ? parts.join("; ") : "details or link"}`.slice(0, 600);
+  if (newFile) parts.push(`file ${fileFace(before)} -> ${fileFace(after)}`);
+  if ((before.details ?? "") !== (after.details ?? "")) parts.push(`details ${cut(before.details)} -> ${cut(after.details)}`);
+  if ((before.linkUrl ?? "") !== (after.linkUrl ?? "")) parts.push(`link ${cut(before.linkUrl)} -> ${cut(after.linkUrl)}`);
+  return `Quote changed (${after.supplier}): ${parts.length ? parts.join("; ") : "nothing visible changed"}`.slice(0, 1500);
 }
 
 // PQ-004 (Ilies approved, 2 Nov 2026): a phone alert shows on a lock screen through Apple's / Google's servers, so its

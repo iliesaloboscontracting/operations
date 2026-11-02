@@ -8,13 +8,27 @@ import {
   quoteChangeNote, SEES_ALL_REQUESTS, TOO_LARGE, TOO_MANY, uploaderKey,
 } from "./quotes";
 
-test("PQ-002: a changed quote's history says what changed, before -> after", () => {
-  const before = { supplier: "Sydney Tools", priceExGst: 1180, fileOriginalName: "quote-a.pdf" };
-  assert.equal(quoteChangeNote(before, { supplier: "Sydney Tools Pty Ltd", priceExGst: 1095.5, fileOriginalName: "quote-b.pdf" }),
-    "Quote changed (Sydney Tools Pty Ltd): supplier Sydney Tools -> Sydney Tools Pty Ltd; price $1,180.00 -> $1,095.50; file quote-a.pdf -> quote-b.pdf");
-  assert.equal(quoteChangeNote(before, { ...before, priceExGst: null }), "Quote changed (Sydney Tools): price $1,180.00 -> no price");
-  assert.equal(quoteChangeNote({ ...before, fileOriginalName: null }, { ...before }), "Quote changed (Sydney Tools): file none -> quote-a.pdf");
-  assert.equal(quoteChangeNote(before, { ...before }), "Quote changed (Sydney Tools): details or link");
+test("PQ-002 / PQ-010: a changed quote's history says what changed, before -> after", () => {
+  const A = "1730500000000-0123456789abcdef.pdf", B = "1730500000001-fedcba9876543210.pdf";
+  const before = { supplier: "Sydney Tools", priceExGst: 1180, details: "Two TE 1000s", linkUrl: null, fileOriginalName: "quote-a.pdf", fileName: A };
+  assert.equal(quoteChangeNote(before, { ...before, supplier: "Sydney Tools Pty Ltd", priceExGst: 1095.5, fileOriginalName: "quote-b.pdf", fileName: B }, true),
+    `Quote changed (Sydney Tools Pty Ltd): supplier Sydney Tools -> Sydney Tools Pty Ltd; price $1,180.00 -> $1,095.50; file quote-a.pdf (${A}) -> quote-b.pdf (${B})`);
+  assert.equal(quoteChangeNote(before, { ...before, priceExGst: null }, false), "Quote changed (Sydney Tools): price $1,180.00 -> no price");
+  assert.equal(quoteChangeNote({ ...before, fileOriginalName: null, fileName: null }, { ...before }, true), `Quote changed (Sydney Tools): file none -> quote-a.pdf (${A})`);
+  assert.equal(quoteChangeNote(before, { ...before }, false), "Quote changed (Sydney Tools): nothing visible changed");
+  // The old details and link are kept (about 200 characters).
+  const long = "x".repeat(300);
+  const n = quoteChangeNote({ ...before, details: long, linkUrl: "https://a.test/q" }, { ...before, details: "Now includes delivery", linkUrl: "https://b.test/q" }, false);
+  assert.match(n, /details "x{200}\.\.\." -> "Now includes delivery"/);
+  assert.match(n, /link "https:\/\/a\.test\/q" -> "https:\/\/b\.test\/q"/);
+});
+
+test("PQ-010: a same-name replacement is still recorded - by both stored names", () => {
+  const A = "1730500000000-0123456789abcdef.pdf", B = "1730500000001-fedcba9876543210.pdf";
+  const before = { supplier: "Kennards", priceExGst: 990, details: null, linkUrl: null, fileOriginalName: "quote.pdf", fileName: A };
+  const note = quoteChangeNote(before, { ...before, fileName: B }, true);
+  assert.equal(note, `Quote changed (Kennards): file quote.pdf (${A}) -> quote.pdf (${B})`);
+  assert.ok(note.includes(A) && note.includes(B), "which stored file was there before, and which is there now");
 });
 
 test("PQ-001: 30 MB over a request's whole life, 20 quote files a day per link or login, plain words", () => {

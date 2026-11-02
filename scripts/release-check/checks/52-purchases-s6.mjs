@@ -97,7 +97,9 @@ export default {
     t.status(await c.post(`/api/directors/purchases/${id}`, "DIRECTOR", { action: "APPROVE", chosenQuoteId: pick.id, version: drow.version }), 409, "PQ-003: approving the version seen before that change is refused (stale)");
     const fresh = Object.values((await c.json("/api/directors/purchases", "DIRECTOR")).body ?? {}).flat().find((r) => r?.id === id);
     const changed = (fresh?.events ?? []).find((e) => e.action === "EDIT_QUOTE");
-    t.ok(changed && /price \$1,180\.00 -> \$1,150\.00/.test(changed.note ?? "") && /file quote-a\.pdf -> quote-a2\.pdf/.test(changed.note ?? ""), "PQ-002: the history says what changed, before -> after", changed?.note);
+    const stored = String.raw`\d+-[0-9a-f]{16}\.pdf`;
+    t.ok(changed && /price \$1,180\.00 -> \$1,150\.00/.test(changed.note ?? "") && new RegExp(`file quote-a\\.pdf \\(${stored}\\) -> quote-a2\\.pdf \\(${stored}\\)`).test(changed.note ?? ""),
+      "PQ-002 / PQ-010: the history says what changed, before -> after - the file by its original and stored names", changed?.note);
     t.status(await c.post(`/api/directors/purchases/${id}`, "DIRECTOR", { action: "APPROVE", version: fresh?.version }), 400, "two quotes: approving without picking one is refused");
     t.status(await c.post(`/api/directors/purchases/${id}`, "DIRECTOR", { action: "APPROVE", chosenQuoteId: "not-a-quote", version: fresh?.version }), 400, "a quote from elsewhere is refused");
     t.status(await c.post(`/api/directors/purchases/${id}`, "DIRECTOR", { action: "APPROVE", chosenQuoteId: pick.id, note: "ok up to $2,300", version: fresh?.version }), 200, "the director picks a quote and approves (a $ in the note is fine now)");

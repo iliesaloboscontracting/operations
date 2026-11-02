@@ -249,8 +249,12 @@ export async function editOwnRequest(id: string, action: EditAction, who: { name
       await prisma.$transaction(async (tx) => {
         await commit(tx, { fileBytes: { increment: q.quote.file?.bytes.length ?? 0 } });
         await tx.purchaseQuote.update({ where: { id: existing.id }, data: { ...change, editedBy: by.name, editedAt: new Date() } });
-        // PQ-002: what changed, before -> after.
-        await event(tx, quoteChangeNote(existing, { supplier: q.quote.supplier, priceExGst: q.quote.priceExGst, fileOriginalName: q.quote.file?.name ?? existing.fileOriginalName }), pending ? 1 : 0);
+        // PQ-002 / PQ-010: what changed, before -> after - a new file always by its original and stored names.
+        const after = {
+          supplier: q.quote.supplier, priceExGst: q.quote.priceExGst, details: q.quote.details, linkUrl: q.quote.linkUrl,
+          fileOriginalName: q.quote.file?.name ?? existing.fileOriginalName, fileName: pending?.fileName ?? existing.fileName,
+        };
+        await event(tx, quoteChangeNote(existing, after, !!pending), pending ? 1 : 0);
       });
       // If the disk refuses the new file, the quote keeps the file it had.
       if (pending && (await writePending([pending])).length) {
