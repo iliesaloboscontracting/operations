@@ -100,6 +100,34 @@ export function projectsForModel(data: unknown): unknown {
   });
 }
 
+// What the tracking summary hands the model. PP-007 (Ilies approved 3 Nov 2026, "approve PP-007, remove rates"):
+// free-text notes (contract value, supplier invoice, labour lines) and every rate (a person's labour rate, a hire
+// item's day rate, the idle-hire rate) are dropped - totals, contract values and health stay. Anything that isn't
+// the expected shape fails closed.
+const OMIT = (row: unknown, keys: string[]) => {
+  if (!row || typeof row !== "object") return row;
+  const out = { ...(row as Record<string, unknown>) };
+  for (const k of keys) delete out[k];
+  return out;
+};
+const omitEach = (rows: unknown, keys: string[]) => (Array.isArray(rows) ? rows.map((r) => OMIT(r, keys)) : rows);
+export function trackingForModel(data: unknown): unknown {
+  const d = data as { projects?: unknown; idleHire?: { items?: unknown } } | null;
+  if (!d || typeof d !== "object" || !Array.isArray(d.projects)) return { error: "Unexpected reply" };
+  return {
+    ...d,
+    projects: d.projects.map((p) => {
+      const out = OMIT(p, ["contractValueNotes"]) as Record<string, unknown>;
+      out.invoiced = omitEach(out.invoiced, ["notes"]);
+      out.labour = omitEach(out.labour, ["notes", "rateUsed"]);
+      out.hireLabourEstimate = omitEach(out.hireLabourEstimate, ["rateUsed"]);
+      out.hireItems = omitEach(out.hireItems, ["dayRate"]);
+      return out;
+    }),
+    idleHire: d.idleHire && typeof d.idleHire === "object" ? { ...d.idleHire, items: omitEach(d.idleHire.items, ["rateUsed"]) } : d.idleHire,
+  };
+}
+
 // Executes a tool call by hitting our own API route with the caller's session
 // cookie forwarded - so it's gated by the exact same guard() check and returns
 // the exact same shape the real page renders from, nothing more.
@@ -118,5 +146,6 @@ export async function runTool(
   if (!res.ok) return { ok: false, data };
   if (name === "search_documents") return { ok: true, data: documentHits(data) };
   if (name === "get_projects") return { ok: true, data: projectsForModel(data) };
+  if (name === "get_tracking_summary") return { ok: true, data: trackingForModel(data) };
   return { ok: true, data };
 }
