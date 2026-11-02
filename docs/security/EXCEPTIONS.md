@@ -70,3 +70,37 @@ event named, or as soon as the reason stops being true - whichever comes first.
   (blank = 20, max 1000), set to 300 on the server. Residual risk: more phone alerts (still at most one every 2
   minutes) and a larger approval queue; masking (SEC-001, SEC-009..012) is unaffected. Put it back by removing the
   line from `.env` and restarting.
+
+## EX-003 - owner-accepted findings from the 2 Nov 2026 releases (COORDINATOR, regional travel, purchase quotes)
+
+Ilies (owner) declined these fixes or accepted these risks when they were put to him by ID on 2 Nov 2026. Each was
+reviewed by lobos-security-assurance. Review all of them by **2 February 2027**, or earlier at the trigger shown.
+
+- **CO-002 (Medium, accepted):** the COORDINATOR login's money stripping only catches amounts written with a plain
+  "$". Free-text amounts like "450/day", "48,500 ex GST", "4500$" or a full-width dollar sign can reach Alex's screens
+  from project / hire / Day Review / tool notes.
+  - Ilies: "alex can see figures this is okay".
+  - Review trigger: a role change for Alex, or a second COORDINATOR login.
+- **CO-003..CO-006 (Low, not approved):**
+  - CO-003: document search names and snippets aren't stripped for COORDINATOR.
+  - CO-004: a non-owner Admin's role change on a login with director access leaves a stale directorAccess tick.
+  - CO-005: tool deletes keep no record of who deleted what.
+  - CO-006: release check 63 doesn't cover every money shape.
+- **Rollback note for COORDINATOR (d27a253 / 45fab23):** before rolling back to anything older than d27a253, switch
+  every COORDINATOR login to TIMESHEETS (or deactivate it). Older builds fail open on an unknown role.
+- **AT-002..AT-004, AT-006, AT-007 (Low, not approved), regional travel:**
+  - AT-002: a crafted device id can make a travel pass never expire. With AT-001 in place, a pass is only ever issued
+    after a genuine supervisor-QR sign-in by an allocated person; a crafted one can only be killed by rotating
+    AUTH_SECRET.
+  - AT-003: a leaver's pass keeps working for Start travel / Arrived.
+  - AT-004: a worker's own travel taps aren't refused for an already-approved week, and payroll files read live legs.
+  - AT-006: the public travel route has no rate limit.
+  - AT-007: gaps in release checks 65 / 66.
+- **AT-005 (Medium, deferred):** travel times are self-declared (up to about 16 h a day) with no sense check.
+  - Ilies: "Later, before travel is paid".
+  - It **must** be resolved before any travel pay is applied from the pay-run file's Travel hours column.
+- **PQ-007 (Info, accepted):** the Building Agent login (a Manager) sees all supplier quotes and prices.
+  - Ilies: "Yes, like any Manager".
+  - Quote files are untrusted data for any Claude session.
+- **PQ-011 (Info):** the 20-quote-files-a-day cap can be slightly exceeded by simultaneous sends. Each request is still
+  capped at 30 MB.
