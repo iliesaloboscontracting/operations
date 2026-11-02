@@ -108,3 +108,34 @@ test("a hire worker's key: same person and company, however they typed it", () =
   assert.notEqual(personKeyOf(null, "Joe Bloggs", "StaffCo"), personKeyOf(null, "Joe Bloggs", "OtherCo"));
   assert.equal(personKeyOf("r1", "Sam", null), "r1");
 });
+
+// Ilies, 2 Nov 2026: "yes fix the payroll $ names" - a "$5 Labour" company or a "$" in a typed worker name used to
+// make the whole week's pay files refuse (500). Names, companies and sites now lose the amount first.
+test("payroll files with '$5 Labour' and a '$' in a worker name are made, with no $ in them", async () => {
+  const { noAmounts } = await import("./store");
+  assert.equal(noAmounts("$5 Labour", "Company"), "Labour");
+  assert.equal(noAmounts("Hire Worker $40", "Unnamed"), "Hire Worker");
+  assert.equal(noAmounts("$$$5 5 5", "Company").includes("$"), false);
+  assert.equal(noAmounts("$5", "Company"), "Company", "nothing left - the fallback");
+  const lines = [
+    L({ attendanceId: "h1", personKey: "hire:hire worker $40|$5 labour", personName: noAmounts("Hire Worker $40", "Unnamed"), resourceId: null, company: noAmounts("$5 Labour", "Company"), group: "HIRE", hours: 8, site: noAmounts("$5 Bins RC stage 2", "Site") }),
+    L({ attendanceId: "s1", hours: 7.5 }),
+  ];
+  const payRun = toCsv(payRunRows(lines, new Set(["r1"]), new Map([["r1", "sam@example.com"]])));
+  const s = summarise(lines, new Map());
+  const summary = toCsv([["Person", "Company", "Hours"], ...s.people.map((p) => [p.name, p.company, p.hours]), ...Object.entries(s.bySite).map(([k, v]) => [`Site: ${k}`, v]), ...Object.entries(s.byAgency).map(([k, v]) => [`Labour hire: ${k}`, v])]);
+  for (const csv of [payRun, summary]) {
+    assert.ok(fileIsSafe(csv), csv);
+    assert.doesNotMatch(csv, /\$/);
+  }
+  assert.match(summary, /Hire Worker,Labour,8/);
+  // The store cleans every name, company and site it puts in a file, and refuses with a reason instead of throwing.
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("./store.ts", import.meta.url), "utf8");
+  assert.match(src, /personName: noAmounts\(name, "Unnamed"\)/);
+  assert.match(src, /company: r\.company == null \? null : noAmounts\(r\.company, "Company"\)/);
+  assert.match(src, /site: noAmounts\(r\.job \? jobLabel/);
+  assert.doesNotMatch(src, /throw new Error\("A payroll file/);
+  const route = readFileSync(new URL("../../app/api/accounts/payroll/export/route.ts", import.meta.url), "utf8");
+  assert.match(route, /status: 409/);
+});

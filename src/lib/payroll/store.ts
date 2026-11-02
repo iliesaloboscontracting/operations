@@ -19,6 +19,8 @@ import {
 } from "./rules";
 
 type Problem = { error: string; status: number };
+// Any "$" amount out of a name / company / site for the payroll files and screen; the fallback if nothing is left.
+export const noAmounts = (s: string, fallback: string) => nameWithoutAmounts(s) || fallback;
 const parse = <T,>(s: string, fallback: T): T => { try { return JSON.parse(s) as T; } catch { return fallback; } };
 
 // ---------- the week's lines ----------
@@ -47,9 +49,12 @@ export async function payLines(weekStart: string): Promise<PayLine[]> {
   return kept.map((r) => {
     const name = r.resource?.name ?? r.workerName;
     return {
-      attendanceId: r.id, date: r.date, personKey: personKeyOf(r.resourceId, name, r.company), personName: name,
-      resourceId: r.resourceId, company: r.company, group: groupOf(r.resourceId, r.resource?.engagement ?? null), engagementSet: !r.resourceId || !!r.resource?.engagement,
-      jobId: r.jobId, shift: (r.job?.shift === "NIGHT" ? "NIGHT" : "DAY") as "DAY" | "NIGHT", site: r.job ? jobLabel(r.job) : r.placeLabel ?? r.place ?? "Sign-in point", point: !r.jobId,
+      // Names, companies and sites with any "$" amount taken out (Ilies, 2 Nov 2026: "yes fix the payroll $ names") - a
+      // hire worker typed "$5 Labour" once, and the whole week's files were refused. The key keeps the raw text so the
+      // same person still groups together.
+      attendanceId: r.id, date: r.date, personKey: personKeyOf(r.resourceId, name, r.company), personName: noAmounts(name, "Unnamed"),
+      resourceId: r.resourceId, company: r.company == null ? null : noAmounts(r.company, "Company"), group: groupOf(r.resourceId, r.resource?.engagement ?? null), engagementSet: !r.resourceId || !!r.resource?.engagement,
+      jobId: r.jobId, shift: (r.job?.shift === "NIGHT" ? "NIGHT" : "DAY") as "DAY" | "NIGHT", site: noAmounts(r.job ? jobLabel(r.job) : r.placeLabel ?? r.place ?? "Sign-in point", "Site"), point: !r.jobId,
       in: sydneyTime(r.signInAt)!, out: sydneyTime(r.signOutAt), hours: day.get(r.id)!.hours, overlap: day.get(r.id)!.overlap, status: r.status, tile: tileOf.get(r.id) ?? null,
       gps: r.gpsLat != null && r.gpsLng != null ? { lat: r.gpsLat, lng: r.gpsLng, accuracyM: r.gpsAccuracyM } : null, gpsStatus: r.gpsStatus,
     };
@@ -66,7 +71,7 @@ async function payTravel(weekStart: string): Promise<PayTravel[]> {
   const legs = await prisma.travelLeg.findMany({ where: { date: { gte: weekStart, lte: weekEnd(weekStart) } }, orderBy: { startAt: "asc" } });
   const pt = (lat: number | null, lng: number | null, acc: number | null) => (lat != null && lng != null ? { lat, lng, accuracyM: acc } : null);
   return legs.map((l) => ({
-    legId: l.id, personKey: l.resourceId, name: l.workerName, date: l.date, direction: l.direction, site: l.siteLabel,
+    legId: l.id, personKey: l.resourceId, name: noAmounts(l.workerName, "Unnamed"), date: l.date, direction: l.direction, site: noAmounts(l.siteLabel, "Site"),
     start: sydneyTime(l.startAt)!, end: sydneyTime(l.endAt), ...legHours(l.startAt, l.endAt),
     gps: { start: pt(l.startGpsLat, l.startGpsLng, l.startGpsAccuracyM), end: pt(l.endGpsLat, l.endGpsLng, l.endGpsAccuracyM) },
   }));
@@ -175,7 +180,7 @@ export async function reviewPerson(who: { id: string; name: string }, b: Record<
 }
 
 // The pay-run file (employees Victoria approved) and the weekly summary. Hours only.
-export async function payrollFiles(weekStart: string): Promise<{ payRun: string; summary: string }> {
+export async function payrollFiles(weekStart: string): Promise<{ payRun: string; summary: string } | { error: string }> {
   const week = await payrollWeek(weekStart);
   const lines = Object.values(week.people).flatMap((p) => Object.values(p.days).flat());
   const approved = new Set(week.people.filter((p) => p.inPayRun).map((p) => p.personKey));
@@ -204,7 +209,10 @@ export async function payrollFiles(weekStart: string): Promise<{ payRun: string;
     ...Object.entries(s.bySite).sort((a, b) => b[1] - a[1]).map(([k, v]) => [`Site: ${k}`, v]),
     ...Object.entries(s.byAgency).map(([k, v]) => [`Labour hire: ${k}`, v]),
   ]);
-  if (!fileIsSafe(payRun) || !fileIsSafe(summary)) throw new Error("A payroll file looked like it had money in it - not sent.");
+  // Still the last check: anything that looks like money, bank or tax details is refused - with a reason, never a 500.
+  for (const [what, csv] of [["pay-run", payRun], ["summary", summary]] as const) {
+    if (!fileIsSafe(csv)) return { error: `The ${what} file for this week has something that looks like a dollar figure, bank or tax details (BSB, TFN, ABA, account number) in a name, site or note - not sent. Ask the office to check the week's sign-ins.` };
+  }
   return { payRun, summary };
 }
 
