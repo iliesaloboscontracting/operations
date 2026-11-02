@@ -164,41 +164,50 @@ export async function editOwnRequest(id: string, action: EditAction, who: { name
   if (!canEditOwn(r.status)) return bad(`It's ${STATUS_FOR_REQUESTER[r.status as Status]?.toLowerCase() ?? r.status} - it can't be changed now.`, 409);
   if (b.version !== undefined && Number(b.version) !== r.version) return bad("Someone else has just changed this - reload and try again.", 409);
   const by = { name: who.name, userId: who.userId ?? null };
-  let note: string;
-  if (action === "EDIT") {
-    const data: Prisma.PurchaseRequestUpdateManyMutationInput = {};
-    if ("what" in b) { const what = text(b.what, 200); if (!what || what.length < 3) return bad("Say what you need."); data.what = what; }
-    if ("why" in b) data.why = text(b.why, DESCRIPTION_MAX);
-    if ("qty" in b) data.qty = text(b.qty, 40);
-    if ("kind" in b) data.kind = kindOf(b.kind);
-    if ("neededBy" in b) { const d = text(b.neededBy, 10); if (d && !isIsoDate(d)) return bad("Pick the date it's needed by."); data.neededBy = d; }
-    const done = await prisma.purchaseRequest.updateMany({ where: { id, version: r.version, status: r.status }, data: { ...data, version: r.version + 1 } });
-    if (!done.count) return bad("Someone else has just changed this - reload and try again.", 409);
-    note = "Description changed";
-  } else if (action === "ADD_QUOTE") {
-    if (r.quotes.length >= MAX_QUOTES) return bad(`Up to ${MAX_QUOTES} quotes on one request.`);
-    const q = quoteIn(b.quote);
-    if ("error" in q) return bad(q.error);
-    const data = await quoteData(q.quote, by);
-    const done = await prisma.purchaseRequest.updateMany({ where: { id, version: r.version, status: r.status }, data: { version: r.version + 1 } });
-    if (!done.count) return bad("Someone else has just changed this - reload and try again.", 409);
-    await prisma.purchaseQuote.create({ data: { ...data, requestId: id } });
-    note = `Quote added: ${q.quote.supplier}`;
-  } else {
-    const existing = r.quotes.find((x) => x.id === b.quoteId);
-    if (!existing) return bad("That quote isn't on this request - reload and try again.", 404);
-    const sent = (b.quote && typeof b.quote === "object" ? b.quote : {}) as Record<string, unknown>;
-    const q = quoteIn({ supplier: existing.supplier, priceExGst: existing.priceExGst, details: existing.details, linkUrl: existing.linkUrl, ...sent });
-    if ("error" in q) return bad(q.error);
-    const data = await quoteData(q.quote, by);
-    const done = await prisma.purchaseRequest.updateMany({ where: { id, version: r.version, status: r.status }, data: { version: r.version + 1 } });
-    if (!done.count) return bad("Someone else has just changed this - reload and try again.", 409);
-    // A new file replaces the shown one; the old file stays on disk (nothing is deleted).
-    const { createdBy: _c, createdByUserId: _u, ...change } = data;
-    await prisma.purchaseQuote.update({ where: { id: existing.id }, data: { ...change, editedBy: by.name, editedAt: new Date() } });
-    note = `Quote changed: ${q.quote.supplier}`;
+  // PQ-003 (Ilies approved, 2 Nov 2026): the version bump, the quote and the event are one transaction - the request
+  // never shows a new version without its change, nor a change under the old version an approver already saw.
+  const STALE = "stale";
+  const commit = (tx: Prisma.TransactionClient, data: Prisma.PurchaseRequestUpdateManyMutationInput = {}) =>
+    tx.purchaseRequest.updateMany({ where: { id, version: r.version, status: r.status }, data: { ...data, version: r.version + 1 } }).then((d) => { if (!d.count) throw new Error(STALE); });
+  const event = (tx: Prisma.TransactionClient, note: string) => tx.purchaseRequestEvent.create({ data: { requestId: id, action, status: r.status, by: who.name, note } });
+  try {
+    if (action === "EDIT") {
+      const data: Prisma.PurchaseRequestUpdateManyMutationInput = {};
+      if ("what" in b) { const what = text(b.what, 200); if (!what || what.length < 3) return bad("Say what you need."); data.what = what; }
+      if ("why" in b) data.why = text(b.why, DESCRIPTION_MAX);
+      if ("qty" in b) data.qty = text(b.qty, 40);
+      if ("kind" in b) data.kind = kindOf(b.kind);
+      if ("neededBy" in b) { const d = text(b.neededBy, 10); if (d && !isIsoDate(d)) return bad("Pick the date it's needed by."); data.neededBy = d; }
+      await prisma.$transaction(async (tx) => { await commit(tx, data); await event(tx, "Description changed"); });
+    } else if (action === "ADD_QUOTE") {
+      if (r.quotes.length >= MAX_QUOTES) return bad(`Up to ${MAX_QUOTES} quotes on one request.`);
+      const q = quoteIn(b.quote);
+      if ("error" in q) return bad(q.error);
+      const data = await quoteData(q.quote, by);
+      await prisma.$transaction(async (tx) => {
+        await commit(tx);
+        await tx.purchaseQuote.create({ data: { ...data, requestId: id } });
+        await event(tx, `Quote added: ${q.quote.supplier}`);
+      });
+    } else {
+      const existing = r.quotes.find((x) => x.id === b.quoteId);
+      if (!existing) return bad("That quote isn't on this request - reload and try again.", 404);
+      const sent = (b.quote && typeof b.quote === "object" ? b.quote : {}) as Record<string, unknown>;
+      const q = quoteIn({ supplier: existing.supplier, priceExGst: existing.priceExGst, details: existing.details, linkUrl: existing.linkUrl, ...sent });
+      if ("error" in q) return bad(q.error);
+      const data = await quoteData(q.quote, by);
+      // A new file replaces the shown one; the old file stays on disk (nothing is deleted).
+      const { createdBy: _c, createdByUserId: _u, ...change } = data;
+      await prisma.$transaction(async (tx) => {
+        await commit(tx);
+        await tx.purchaseQuote.update({ where: { id: existing.id }, data: { ...change, editedBy: by.name, editedAt: new Date() } });
+        await event(tx, `Quote changed: ${q.quote.supplier}`);
+      });
+    }
+  } catch (e) {
+    if (e instanceof Error && e.message === STALE) return bad("Someone else has just changed this - reload and try again.", 409);
+    throw e;
   }
-  await prisma.purchaseRequestEvent.create({ data: { requestId: id, action, status: r.status, by: who.name, note } });
   return { ok: true };
 }
 
@@ -214,6 +223,9 @@ export async function actOnRequest(
   }
   const ok = check(action, r, actor);
   if ("error" in ok) return bad(ok.error, actor.kind === "DIRECTOR" ? 403 : 409);
+  // PQ-003 (Ilies approved, 2 Nov 2026): an approver decides on exactly the request they saw - approving, declining or
+  // asking without its version is refused, so a change made since (another quote, a new price) can't slip through.
+  if (actor.kind === "DIRECTOR" && (b.version === undefined || b.version === null || b.version === "")) return bad("Reload the page and try again - this request has changed or the page is out of date.", 400);
   if (b.version !== undefined && Number(b.version) !== r.version) return bad("Someone else has just changed this - reload and try again.", 409);
 
   const data: Prisma.PurchaseRequestUpdateInput = { status: ok.to, version: { increment: 1 } };
