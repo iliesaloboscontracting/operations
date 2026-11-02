@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Camera, Check, Loader2, Minus, Plus, Search, X } from "lucide-react";
+import { Camera, Check, ImagePlus, Loader2, Minus, Plus, Search, X } from "lucide-react";
 import { resizePhoto } from "@/lib/imageResize";
 import { serverErrorMessage } from "@/lib/apiFetch";
 import { fmtDay } from "@/lib/dates";
@@ -389,11 +389,20 @@ function CodePicker({ suggested, taken, onPick }: { suggested: LogJobDTO["sugges
 }
 
 function Photos({ photos, max, label = "Add a photo (optional)", onChange }: { photos: string[]; max: number; label?: string; onChange: (p: string[]) => void }) {
-  const ref = useRef<HTMLInputElement>(null);
+  const camera = useRef<HTMLInputElement>(null);
+  const gallery = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<string | null>(null);
-  async function pick(f: File | undefined) {
-    if (!f) return;
-    try { onChange([...photos, await resizePhoto(f)].slice(0, max)); setError(null); } catch { setError("Couldn't use that photo - try another."); }
+  // The camera input forces the camera on Android, so the gallery has its own input (several at once, up to max).
+  async function pick(files: FileList | null) {
+    const picked = Array.from(files ?? []).slice(0, Math.max(0, max - photos.length));
+    if (picked.length === 0) return;
+    const added: string[] = [];
+    let failed = false;
+    for (const f of picked) {
+      try { added.push(await resizePhoto(f)); } catch { failed = true; }
+    }
+    if (added.length > 0) onChange([...photos, ...added].slice(0, max));
+    setError(failed ? "Couldn't use a photo - try another." : null);
   }
   return (
     <div>
@@ -408,9 +417,13 @@ function Photos({ photos, max, label = "Add a photo (optional)", onChange }: { p
         </div>
       )}
       {photos.length < max && (
-        <button className="flex items-center gap-2 text-sm text-gray-300 underline" onClick={() => ref.current?.click()}><Camera size={16} /> {label}</button>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+          <button className="flex items-center gap-2 text-sm text-gray-300 underline" onClick={() => camera.current?.click()}><Camera size={16} /> {label}</button>
+          <button className="flex items-center gap-2 text-sm text-gray-300 underline" onClick={() => gallery.current?.click()}><ImagePlus size={16} /> From gallery</button>
+        </div>
       )}
-      <input ref={ref} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => { pick(e.target.files?.[0]); e.target.value = ""; }} />
+      <input ref={camera} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => { pick(e.target.files); e.target.value = ""; }} />
+      <input ref={gallery} type="file" accept="image/*" multiple className="hidden" onChange={(e) => { pick(e.target.files); e.target.value = ""; }} />
       {error && <p className="mt-1 text-xs text-red-300">{error}</p>}
     </div>
   );
