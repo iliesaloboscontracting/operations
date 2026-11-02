@@ -6,7 +6,8 @@ import { syncPersonDayQuietly, syncSignInActualsQuietly } from "@/lib/signInActu
 import { endOpenElsewhere } from "@/lib/signinOverlap";
 import { fromSydneyLocal } from "@/lib/shiftTimes";
 import { todaySydney } from "@/lib/today";
-import { createHandover, jobLabel, openJob, openJobsFor, ROTATE_SECONDS, rotatingCode, sydneyTime, takesSignIns } from "@/lib/signin";
+import { createHandover, jobLabel, openJob, openJobsFor, ROTATE_SECONDS, rotatingCode, STILL_ON_HOURS, sydneyTime, takesSignIns } from "@/lib/signin";
+import { lockedWeekFor } from "@/lib/timesheets";
 
 // The supervisor's side of crew sign-in, through their own link (or a
 // stand-in's one-day hand-over link). Supervisors confirm or reject poster
@@ -117,15 +118,23 @@ export const POST = withErrorHandling(async (req: NextRequest, { params: paramsP
       const open = await prisma.siteAttendance.findFirst({ where: { jobId: job.id, resourceId: person.id, signOutAt: null, status: { not: "REJECTED" } } });
       if (open) return bad(`${person.name} is already signed in since ${sydneyTime(open.signInAt)}.`);
       // Fix 1 (2 Nov 2026): ticking someone in ends any other sign-in they still have open (a truck QR, another site).
+      // TF-002: only for this job's own crew - a supervisor can't pull someone off another site by ticking them in;
+      // that open line goes to its own supervisor to confirm.
       const now = new Date();
-      const ended = await endOpenElsewhere({ who: { resourceId: person.id, workerName: person.name, company: null }, at: now, here: { jobId: job.id }, label: jobLabel(job), by });
+      const allocated = job.assignments.some((a) => a.resource.id === person.id);
+      const elsewhere = await prisma.siteAttendance.findFirst({
+        where: { resourceId: person.id, signOutAt: null, status: { not: "REJECTED" }, removedAt: null, signInAt: { gte: new Date(now.getTime() - STILL_ON_HOURS * 3_600_000) }, OR: [{ jobId: null }, { jobId: { not: job.id } }] },
+        select: { placeLabel: true, job: { select: { title: true, shift: true, project: { select: { name: true } } } } },
+      });
+      if (elsewhere && !allocated) return bad(`${person.name} is signed in at ${elsewhere.job ? jobLabel(elsewhere.job) : elsewhere.placeLabel ?? "another place"}. They can scan your QR, or ask the office.`);
+      const ended = await endOpenElsewhere({ who: { resourceId: person.id, workerName: person.name, company: null }, at: now, here: { jobId: job.id }, label: jobLabel(job), by, siteToConfirm: true });
       await prisma.siteAttendance.create({
         data: {
           jobId: job.id,
           date: job.date.toISOString().slice(0, 10),
           resourceId: person.id,
           workerName: person.name,
-          allocated: job.assignments.some((a) => a.resource.id === person.id),
+          allocated,
           signInAt: now,
           signInMethod: "MANUAL",
           status: "CONFIRMED",
@@ -139,10 +148,14 @@ export const POST = withErrorHandling(async (req: NextRequest, { params: paramsP
     case "MANUAL_OUT_AT": {
       if (!attendance) return bad("That sign-in isn't on your jobs.");
       if (attendance.signOutAt) return bad("Already signed out - the office can change the time.");
+      // TF-003: never their own time, never over 16 h, never an old or removed line, never a locked week.
+      if (attendance.resourceId && attendance.resourceId === link.person.id) return bad("The office sets your own sign-out time.");
       const at = timeToday(body.time);
       if (!at) return bad("Pick a time earlier today.");
       if (at <= attendance.signInAt) return bad(`That's before they signed in (${sydneyTime(attendance.signInAt)}).`);
       if (at > new Date()) return bad("That time hasn't happened yet.");
+      const why = await outRefusal(attendance, at);
+      if (why) return bad(why);
       await prisma.siteAttendance.update({
         where: { id: attendance.id },
         data: { signOutAt: at, signOutMethod: "MANUAL", edits: { create: { field: "signOutAt", before: null, after: at.toISOString(), reason: `Sign-out time set by ${link.person.name} on their link`, editedBy: by } } },
@@ -153,6 +166,8 @@ export const POST = withErrorHandling(async (req: NextRequest, { params: paramsP
     case "MANUAL_OUT": {
       if (!attendance) return bad("That sign-in isn't on your jobs.");
       if (attendance.signOutAt) return bad("Already signed out - the office can change the time.");
+      const whyNow = await outRefusal(attendance, new Date()); // TF-003: the same limits as a chosen time
+      if (whyNow) return bad(whyNow);
       await prisma.siteAttendance.update({ where: { id: attendance.id }, data: { signOutAt: new Date(), signOutMethod: "MANUAL" } });
       await syncSignInActualsQuietly([attendance.jobId]);
       return NextResponse.json({ ok: true });
@@ -161,9 +176,14 @@ export const POST = withErrorHandling(async (req: NextRequest, { params: paramsP
       const ids = Array.isArray(body.attendanceIds) ? body.attendanceIds.filter((x: unknown): x is string => typeof x === "string").slice(0, 100) : [];
       const rows = await prisma.siteAttendance.findMany({ where: { id: { in: ids }, jobId: { in: jobIds }, signOutAt: null, status: { not: "REJECTED" } } });
       if (!rows.length) return bad("Nobody picked is still signed in.");
-      await prisma.siteAttendance.updateMany({ where: { id: { in: rows.map((x) => x.id) } }, data: { signOutAt: new Date(), signOutMethod: "MANUAL" } });
-      await syncSignInActualsQuietly([...new Set(rows.map((x) => x.jobId))]);
-      return NextResponse.json({ ok: true, signedOut: rows.length });
+      // TF-003: anyone over the limits is left for the office (and said so); the rest are signed out now.
+      const nowMany = new Date();
+      const ok: typeof rows = [], left: string[] = [];
+      for (const x of rows) ((await outRefusal(x, nowMany)) ? left.push(x.workerName) : ok.push(x));
+      if (!ok.length) return bad(`The office has to set ${left.length === 1 ? "this time" : "these times"} (over 16 hours, or an old sign-in): ${left.join(", ")}.`);
+      await prisma.siteAttendance.updateMany({ where: { id: { in: ok.map((x) => x.id) } }, data: { signOutAt: nowMany, signOutMethod: "MANUAL" } });
+      await syncSignInActualsQuietly([...new Set(ok.map((x) => x.jobId))]);
+      return NextResponse.json({ ok: true, signedOut: ok.length, ...(left.length ? { leftForOffice: left } : {}) });
     }
     case "HANDOVER": {
       if (link.kind !== "SUPERVISOR") return bad("Only the supervisor can hand over.");
@@ -182,6 +202,16 @@ export const POST = withErrorHandling(async (req: NextRequest, { params: paramsP
 });
 
 const bad = (error: string) => NextResponse.json({ error }, { status: 400 });
+// TF-003: what a supervisor may not do to a sign-out - the office does these (with a reason, on Sign-ins).
+const MAX_LINE_HOURS = 16;
+async function outRefusal(a: { signInAt: Date; status: string; removedAt: Date | null; date: string }, at: Date): Promise<string | null> {
+  if (a.status === "REJECTED" || a.removedAt) return "That sign-in has been removed.";
+  if (Date.now() - a.signInAt.getTime() > STILL_ON_HOURS * 3_600_000) return "That sign-in is too old - the office sets the time.";
+  if (at.getTime() - a.signInAt.getTime() > MAX_LINE_HOURS * 3_600_000) return `That would be over ${MAX_LINE_HOURS} hours - the office sets this time.`;
+  if (await lockedWeekFor(a.date)) return "That week's timesheet has been approved - the office would have to reopen it.";
+  return null;
+}
+
 // "HH:MM" today, Sydney time -> the moment; null for anything else (fix 2b).
 function timeToday(v: unknown): Date | null {
   if (typeof v !== "string" || !/^\d{1,2}:\d{2}$/.test(v.trim())) return null;
