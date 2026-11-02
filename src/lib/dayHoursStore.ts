@@ -11,7 +11,8 @@ type Who = { id: string; date: string; resourceId: string | null; workerName: st
 export const breakOf = (r: { jobId: string | null; job?: { project: { unpaidBreakMinutes: number | null } | null } | null }) =>
   r.jobId ? r.job?.project?.unpaidBreakMinutes ?? 0 : POINT_BREAK_MINUTES;
 
-export async function dayHoursFor(rows: Who[]): Promise<Map<string, LineHours>> {
+// openUntil (TF-010, the daily log): someone still signed in counts up to that moment instead of no hours.
+export async function dayHoursFor(rows: Who[], opts: { openUntil?: Date } = {}): Promise<Map<string, LineHours>> {
   if (!rows.length) return new Map();
   const dates = [...new Set(rows.map((r) => r.date))];
   const staff = [...new Set(rows.map((r) => r.resourceId).filter((x): x is string => !!x))];
@@ -27,7 +28,7 @@ export async function dayHoursFor(rows: Who[]): Promise<Map<string, LineHours>> 
   });
   const wanted = new Set(rows.map((r) => `${personKeyFor(r.resourceId, r.workerName, r.company)}|${r.date}`));
   const lines: DayLine[] = all
-    .map((a) => ({ id: a.id, personKey: personKeyFor(a.resourceId, a.workerName, a.company), date: a.date, start: a.signInAt, end: a.signOutAt, breakMinutes: breakOf(a), deviceId: a.deviceId }))
+    .map((a) => ({ id: a.id, personKey: personKeyFor(a.resourceId, a.workerName, a.company), date: a.date, start: a.signInAt, end: a.signOutAt ?? (opts.openUntil ? (opts.openUntil > a.signInAt ? opts.openUntil : a.signInAt) : null), breakMinutes: breakOf(a), deviceId: a.deviceId }))
     .filter((l) => wanted.has(`${l.personKey}|${l.date}`));
   return dayHours(lines);
 }

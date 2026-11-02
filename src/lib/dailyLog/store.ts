@@ -4,6 +4,7 @@
 // the job pages. Crew hours come from sign-ins (the same signedHours() Day
 // Review and timesheets use); allocations, JobActual, sign-ins and costs are
 // never touched. Rules: ./rules.ts and ./checks.ts.
+import { dayHoursFor } from "../dayHoursStore";
 import { prisma } from "../prisma";
 import type { ResolvedLink } from "../siteLinks";
 import { savePhoto } from "../toolPhotos";
@@ -90,13 +91,16 @@ export async function crewFor(jobId: string, now: Date): Promise<LogJobDTO["crew
   const rows = await prisma.siteAttendance.findMany({
     where: { jobId, status: { not: "REJECTED" } },
     orderBy: { signInAt: "asc" },
-    select: { resourceId: true, workerName: true, company: true, signInAt: true, signOutAt: true, job: { select: { project: { select: { unpaidBreakMinutes: true } } } } },
+    select: { id: true, date: true, resourceId: true, workerName: true, company: true, signInAt: true, signOutAt: true, job: { select: { project: { select: { unpaidBreakMinutes: true } } } } },
   });
+  // TF-010: the same once-a-day break and overlap rule as timesheets (lib/dayHours.ts) - each person's whole day,
+  // anyone still signed in counted up to now.
+  const day = await dayHoursFor(rows, { openUntil: now });
   // Names read back without any amount (SEC-010: a hire worker could type "$5 Labour" at sign-in).
   const people = rows.map((r) => ({
     name: nameWithoutAmounts(r.workerName), company: r.resourceId ? null : r.company ? nameWithoutAmounts(r.company) : r.company, staff: !!r.resourceId,
     in: sydneyTime(r.signInAt), out: sydneyTime(r.signOutAt), stillOn: !r.signOutAt,
-    hours: signedHours(r.signInAt, r.signOutAt ?? (now > r.signInAt ? now : r.signInAt), r.job?.project?.unpaidBreakMinutes) ?? 0,
+    hours: day.get(r.id)?.hours ?? 0,
   }));
   const sum = (xs: typeof people) => r2(xs.reduce((s, p) => s + p.hours, 0));
   const staff = people.filter((p) => p.staff), hire = people.filter((p) => !p.staff);
