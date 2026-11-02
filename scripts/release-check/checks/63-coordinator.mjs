@@ -6,6 +6,7 @@
 // do is refused, the ones he may do work, and none of his replies carries a "$" + digit.
 // WRITES a hire item, a tool (deleted again), a fault, a purchase request and a chat thread to the copy.
 import { noMoney } from "../lib/context.mjs";
+import { AMOUNT as ACCOUNTS_AMOUNT } from "./52-purchases-s6.mjs";
 
 const PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
 
@@ -140,18 +141,20 @@ export default {
     t.status(await send("POST", "/api/purchases", { what: WHAT, why: "release check", qty: "1" }), 201, "purchases: he raises one");
     const mine = await read("/api/purchases");
     const pr = (mine.body?.requests ?? []).find((r) => r.what === WHAT);
-    t.ok(!!pr && !/amountExGst|accountsNote/.test(mine.text), "purchases: he sees his own, without the amount");
-    if (pr) {
+    // PQ-005: no silent passes - his own request, its quotes and everyone else's list must all be there.
+    // Accounts' own amount and note never reach him - not the field names, and not the amount 52-purchases-s6 set.
+    t.ok(!/amountExGst|accountsNote/.test(mine.text) && !mine.text.includes(String(ACCOUNTS_AMOUNT)), "purchases: no accounts' amount or note anywhere in his list");
+    if (t.ok(!!pr && Array.isArray(pr.quotes), "purchases: he sees his own, with its quotes")) {
       t.status(await send("POST", `/api/directors/purchases/${pr.id}`, { action: "APPROVE", version: pr.version }), 403, "purchases: he can't approve");
       t.status(await send("POST", `/api/accounts/purchases/${pr.id}`, { action: "ORDERED" }), 403, "purchases: he can't mark it ordered");
       // 2 Nov 2026 (Ilies): his own can take another supplier's quote, prices and all, while it's with the approvers.
-      if (pr.quotes) t.status(await send("POST", `/api/purchases/${pr.id}`, { action: "ADD_QUOTE", quote: { supplier: "RC Ladders", priceExGst: 289, details: "Includes delivery $25" }, version: pr.version }), 200, "purchases: he adds a supplier's quote to his own");
+      t.status(await send("POST", `/api/purchases/${pr.id}`, { action: "ADD_QUOTE", quote: { supplier: "RC Ladders", priceExGst: 289, details: "Includes delivery $25" }, version: pr.version }), 200, "purchases: he adds a supplier's quote to his own");
     }
     // Everyone's requests, read-only (Ilies, 2 Nov 2026) - with their prices, never accounts' own amount or note.
-    if (Array.isArray(mine.body?.others)) {
-      t.ok(mine.body.others.every((r) => r.canEdit === false), "purchases: everyone else's requests are read-only for him");
-      const theirs = mine.body.others[0];
-      if (theirs) t.status(await send("POST", `/api/purchases/${theirs.id}`, { action: "EDIT", why: "rc", version: theirs.version }), 404, "purchases: he can't change someone else's");
+    const others = mine.body?.others;
+    if (t.ok(Array.isArray(others) && others.length > 0, "purchases: he sees everyone else's requests (52-purchases-s6 made some)")) {
+      t.ok(others.every((r) => r.canEdit === false && Array.isArray(r.quotes)), "purchases: everyone else's requests are read-only for him, with their quotes");
+      t.status(await send("POST", `/api/purchases/${others[0].id}`, { action: "EDIT", why: "rc", version: others[0].version }), 404, "purchases: he can't change someone else's");
     }
 
     // (8) Office chat, same rules as every office login.
