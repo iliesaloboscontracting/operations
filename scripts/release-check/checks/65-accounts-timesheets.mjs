@@ -66,6 +66,27 @@ export default {
     t.ok((await c.db.noticeSeen.count({ where: { userId: c.users.ACCOUNTS.id } })) === 1, "one NoticeSeen row for the login");
     for (const who of ["MANAGER", "TIMESHEETS"]) t.status(await c.post("/api/accounts/timesheets/explainer", who, {}), 403, `${who} can't record the accounts notice`);
 
+    // (5b) 2 Nov 2026 (Ilies, "Turori ... not recorded"): someone on a site AND a truck in one week - the week's data
+    // has both places and their all-places total, for every timesheet view; ?week= with any date opens that week.
+    const who = await c.db.resource.findFirst({ where: { type: "PERSONNEL", active: true }, select: { id: true, name: true } });
+    if (who) {
+      const proj = await c.db.project.create({ data: { name: `RC all-places ${Date.now().toString(36)}`, status: "ACTIVE", unpaidBreakMinutes: 30 } });
+      const job = await c.db.job.create({ data: { projectId: proj.id, title: proj.name, date: new Date("2020-03-03T00:00:00.000Z"), shift: "DAY", status: "ACTIVE" } });
+      await c.db.siteAttendance.create({ data: { jobId: job.id, date: "2020-03-03", resourceId: who.id, workerName: who.name, signInAt: new Date("2020-03-02T20:00:00Z"), signOutAt: new Date("2020-03-03T04:30:00Z"), signInMethod: "OFFICE", status: "CONFIRMED" } });
+      await c.db.siteAttendance.create({ data: { place: "VEHICLE", placeLabel: "Tipper - RC01", date: "2020-03-04", resourceId: who.id, workerName: who.name, signInAt: new Date("2020-03-03T20:00:00Z"), signOutAt: new Date("2020-03-04T05:00:00Z"), signInMethod: "POINT", status: "CONFIRMED" } });
+      for (const [k, path] of [["MANAGER", "/api/timesheets?week=2020-03-04"], ["TIMESHEETS", "/api/timesheets?week=2020-03-04"], ["ACCOUNTS", "/api/accounts/timesheets?week=2020-03-04"]]) {
+        const w = (await c.json(path, k)).body;
+        const p = w?.people?.find((x) => x.resourceId === who.id);
+        const sites = new Set(Object.values(p?.days ?? {}).flat().map((l) => l.site));
+        t.ok(w?.weekStart === "2020-03-02" && p?.total === 16.5 && sites.has(proj.name) && sites.has("Tipper - RC01"),
+          `${k}: a site day and a truck day in one week -> one person, both places, all-places total 16.5h (any date opens its week)`, `${w?.weekStart} ${p?.total} ${[...sites].join("|")}`);
+      }
+      for (const [k, page] of [["MANAGER", "/timesheets?week=2020-03-04"], ["ACCOUNTS", "/accounts/timesheets?week=2020-03-04"]]) {
+        const r = await c.text(page, k);
+        t.ok(r.status === 200 && !/Application error/.test(r.text), `page ${page} as ${k}`, r.status);
+      }
+    } else t.note("no active Labour-register person on the copy - the all-places check was skipped");
+
     // (6) Managers and TIMESHEETS unchanged.
     t.status(await c.get(`/api/timesheets/export?week=${week}`, "MANAGER"), 200, "a Manager still exports");
     t.status(await c.get(`/api/timesheets?week=${week}`, "TIMESHEETS"), 200, "TIMESHEETS still reads /api/timesheets");

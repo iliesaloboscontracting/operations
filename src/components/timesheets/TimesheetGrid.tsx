@@ -1,6 +1,8 @@
 "use client";
 
+import { useCallback, useEffect, useState } from "react";
 import type { TimesheetLine, TimesheetPerson, TravelLine } from "@/lib/timesheets";
+import { allPlaces, mondayOf } from "@/lib/timesheetView";
 
 // The weekly timesheet grids (21 Oct 2026), shared by the Operations Timesheets page (/timesheets) and the
 // read-only copy on the Accounts screen (/accounts/timesheets, 2 Nov 2026). Display only - no actions in here.
@@ -85,6 +87,41 @@ function AccountsNote({ a }: { a?: { status: string; note: string | null } }) {
   return <div className={`text-[11px] ${a.status === "QUERY" ? "text-amber-300" : "text-emerald-400"}`}>{a.status === "QUERY" ? `Accounts query: ${a.note ?? ""}` : "Approved by accounts"}</div>;
 }
 
+// Under a name in a "By site" box (2 Nov 2026): the person's whole week across every place, and where else - so a
+// box's row (one site, one truck) is never read as their week.
+function WholeWeek({ person, site }: { person?: TimesheetPerson; site: string }) {
+  if (!person) return null;
+  const w = allPlaces(person, site);
+  return (
+    <div className="text-[11px] text-sky-300" data-testid="whole-week">
+      Week, all places: {hrs(w.total)}{w.travelTotal ? ` + ${hrs(w.travelTotal)} travel` : ""}
+      {w.also.length > 0 && <span className="text-gray-400"> (also: {w.also.join(", ")})</span>}
+    </div>
+  );
+}
+
+// ?week=YYYY-MM-DD in the address bar (2 Nov 2026, like the board's ?date=): opens that week (any date -> its Monday),
+// and the week shown is kept there, so a link or a refresh lands on the same week. `ready` is false until the
+// address bar has been read - load nothing before then.
+export function useWeekInUrl(today: () => string) {
+  const [week, setWeekState] = useState<string>(today);
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    const w = mondayOf(new URLSearchParams(window.location.search).get("week"));
+    if (w) setWeekState(w);
+    setReady(true);
+  }, []);
+  const setWeek = useCallback((w: string) => setWeekState(w), []);
+  // Called with the Monday the server answered for: written back to the address bar.
+  const shown = useCallback((weekStart: string) => {
+    const url = new URL(window.location.href);
+    if (url.searchParams.get("week") === weekStart) return;
+    url.searchParams.set("week", weekStart);
+    window.history.replaceState(window.history.state, "", url);
+  }, []);
+  return { week, setWeek, ready, shown };
+}
+
 // By site (21 Oct 2026, Ilies): each project (then office, yard, trucks) as
 // its own tile with the people who worked there under it, Monday-Sunday.
 export function SiteView({ data, search }: { data: TimesheetData; search: string }) {
@@ -140,8 +177,8 @@ export function SiteView({ data, search }: { data: TimesheetData; search: string
                   {data.days.map((d) => (
                     <th key={d} className={`px-2 py-1.5 ${d === data.today ? "text-brand-300" : ""}`}>{dayHead(d)}</th>
                   ))}
-                  <th className="px-3 py-1.5 text-right">Travel</th>
-                  <th className="px-3 py-1.5 text-right">Hours</th>
+                  <th className="px-3 py-1.5 text-right">Travel here</th>
+                  <th className="px-3 py-1.5 text-right">Hours here</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-edge/60 bg-panel/60 align-top">
@@ -150,6 +187,7 @@ export function SiteView({ data, search }: { data: TimesheetData; search: string
                     <td className="sticky left-0 z-10 bg-panel px-3 py-2">
                       <div className="font-medium text-gray-100">{p.name}</div>
                       <div className="text-[11px] text-gray-500">{p.role ?? ""}</div>
+                      <WholeWeek person={data.people.find((x) => x.resourceId === p.id)} site={g.site} />
                       <AccountsNote a={data.accounts?.[p.id]} />
                     </td>
                     {data.days.map((d) => (

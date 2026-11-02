@@ -7,7 +7,7 @@ import TimesheetsExplainer from "@/components/accounts/TimesheetsExplainer";
 import { useAuth } from "@/components/AuthProvider";
 import { apiFetch } from "@/lib/apiFetch";
 import { localISODate } from "@/lib/resource";
-import { ApprovalHistory, hrs, longDate, PersonView, SiteView, Tile, ViewToggle, when, type TimesheetData } from "@/components/timesheets/TimesheetGrid";
+import { ApprovalHistory, hrs, longDate, PersonView, SiteView, Tile, useWeekInUrl, ViewToggle, when, type TimesheetData } from "@/components/timesheets/TimesheetGrid";
 import type { Explainer } from "@/lib/accountsTimesheets";
 
 // Accounts -> Timesheets (2 Nov 2026, Ilies: "accounts dash needs access to the time sheets no changes just export
@@ -25,7 +25,8 @@ const shiftDate = (iso: string, days: number) => {
 
 export default function AccountsTimesheetsPage() {
   const { accountsOnly, isAdmin, loading } = useAuth();
-  const [week, setWeek] = useState(() => localISODate());
+  // ?week= in the address bar opens that week and keeps the one shown (2 Nov 2026).
+  const { week, setWeek, ready, shown } = useWeekInUrl(() => localISODate());
   const [data, setData] = useState<Data | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -38,11 +39,13 @@ export default function AccountsTimesheetsPage() {
     const res = await apiFetch(`/api/accounts/timesheets?week=${week}`);
     if (!res.ok) return setError(res.status === 403 ? "This screen is for accounts." : "Couldn't load timesheets.");
     setError(null);
-    setData(await res.json());
-  }, [week]);
+    const d = await res.json();
+    setData(d);
+    shown(d.weekStart);
+  }, [week, shown]);
   useEffect(() => {
-    load();
-  }, [load]);
+    if (ready) load();
+  }, [load, ready]);
 
   // Comes up by itself once, for the accounts login only (Admins open it from the link).
   useEffect(() => {

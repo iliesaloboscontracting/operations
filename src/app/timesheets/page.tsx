@@ -6,7 +6,7 @@ import PageShell from "@/components/PageShell";
 import { useAuth } from "@/components/AuthProvider";
 import { apiFetch } from "@/lib/apiFetch";
 import { localISODate } from "@/lib/resource";
-import { ApprovalHistory, hrs, longDate, PersonView, SiteView, Tile, ViewToggle, when, type TimesheetData as Data } from "@/components/timesheets/TimesheetGrid";
+import { ApprovalHistory, hrs, longDate, PersonView, SiteView, Tile, useWeekInUrl, ViewToggle, when, type TimesheetData as Data } from "@/components/timesheets/TimesheetGrid";
 
 // Timesheets (21 Oct 2026): Lobos staff hours for a Monday-Sunday week from
 // site sign-ins, across every site, office, yard and truck. A Manager
@@ -24,22 +24,26 @@ export default function TimesheetsPage() {
   const { canEdit, isAdmin, timesheetsOnly: reviewer, coordinatorOnly } = useAuth();
   // The TIMESHEETS login and the coordinator (2 Nov 2026) look only - no approve, reopen or export.
   const timesheetsOnly = reviewer || coordinatorOnly;
-  const [week, setWeek] = useState(() => localISODate());
+  // ?week= in the address bar opens that week and keeps the one shown (2 Nov 2026).
+  const { week, setWeek, ready, shown } = useWeekInUrl(() => localISODate());
   const [data, setData] = useState<Data | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [search, setSearch] = useState("");
-  const [view, setView] = useState<"site" | "person">("site");
+  // Opens "By person" (2 Nov 2026): one row per person with every site, truck, yard and office line.
+  const [view, setView] = useState<"site" | "person">("person");
 
   const load = useCallback(async () => {
     const res = await apiFetch(`/api/timesheets?week=${week}`);
     if (!res.ok) return setError(res.status === 403 ? "Timesheets are for managers." : "Couldn't load timesheets.");
     setError(null);
-    setData(await res.json());
-  }, [week]);
+    const d = await res.json();
+    setData(d);
+    shown(d.weekStart);
+  }, [week, shown]);
   useEffect(() => {
-    load();
-  }, [load]);
+    if (ready) load();
+  }, [load, ready]);
 
   const act = async (action: "approve" | "reopen") => {
     let reason: string | null = null;
