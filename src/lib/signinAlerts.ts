@@ -73,13 +73,15 @@ export async function openFromYesterday(today = todaySydney()) {
   return rows.map((r) => ({ id: r.id, name: r.workerName, company: r.company, site: r.job?.project?.name ?? r.job?.title ?? r.placeLabel ?? "Sign-in point" }));
 }
 
-// Fix 5a for today: running jobs an hour past their start with allocated staff not signed in there.
+// Fix 5a: running jobs an hour past their start with allocated staff not signed in there. Yesterday's jobs too, so a
+// job that started late last night (a night shift at 11:30pm) is caught after midnight; the 1-4 h window keeps it
+// from ever picking up an old job.
 export async function notSignedInToday(now = new Date()) {
   const today = todaySydney();
   const jobs = await prisma.job.findMany({
-    where: { date: at(today), status: RUNNING, notRunning: false },
+    where: { date: { in: [at(addDays(today, -1)), at(today)] }, status: RUNNING, notRunning: false },
     select: {
-      id: true, title: true, shift: true, startTime: true, endTime: true,
+      id: true, date: true, title: true, shift: true, startTime: true, endTime: true,
       project: { select: { name: true, dayStart: true, dayEnd: true, nightStart: true, nightEnd: true } },
       assignments: { where: { resource: { type: "PERSONNEL" } }, select: { resource: { select: { id: true, name: true } } } },
       attendances: { where: { status: { not: "REJECTED" } }, select: { resourceId: true } },
@@ -89,7 +91,7 @@ export async function notSignedInToday(now = new Date()) {
   for (const j of jobs) {
     const t = effectiveTimes(j, j.project);
     const s = parseClock(t.start);
-    const start = s == null ? null : fromSydneyLocal(`${today}T${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`);
+    const start = s == null ? null : fromSydneyLocal(`${j.date.toISOString().slice(0, 10)}T${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`);
     if (!notSignedInWindow(start, now)) continue;
     const signed = new Set(j.attendances.map((a) => a.resourceId));
     const missing = j.assignments.map((a) => a.resource).filter((r) => !signed.has(r.id));
