@@ -5,7 +5,7 @@
 // 2 Nov 2026 (Ilies): a request is a purchase or a hire, its description may carry prices, and it can have several
 // suppliers' quotes (price, details, link, file); the approver picks the one to go with. Prices are seen by the
 // requester (app or OFFICE link), every Manager / Admin / the coordinator on /purchases, the directors and accounts.
-// Phone alerts never carry an amount (D2).
+// Phone alerts carry no free text - who asked, the kind and the ref only (D2, PQ-004).
 // Design: docs/accounts/STAGE6-DESIGN.md §3.
 import { Prisma } from "@prisma/client";
 import { BUILDING_AGENT_EMAIL } from "../session";
@@ -14,9 +14,8 @@ import { isOwner, OWNER_EMAIL } from "../owner";
 import { pushToSiteLinks, pushToUsers, type PushMessage } from "../push";
 import { todaySydney } from "../today";
 import { addDays, isIsoDate } from "../accounts/calendar";
-import { stripMoney } from "../dailyLog/money";
 import { approverIds, check, OPEN, parseAmount, purchaseNo, requesterView, STATUS_FOR_REQUESTER, type Action, type Actor, type Status } from "./rules";
-import { canEditOwn, chosenQuote, DESCRIPTION_MAX, kindOf, KIND_LABEL, MAX_QUOTES, parseQuote, type QuoteInput } from "./quotes";
+import { alertBody, canEditOwn, chosenQuote, DESCRIPTION_MAX, kindOf, KIND_LABEL, MAX_QUOTES, parseQuote, type QuoteInput } from "./quotes";
 import { checkQuoteFile, saveQuoteFile } from "./files";
 
 type Problem = { error: string; status: number };
@@ -55,8 +54,6 @@ export function accountsView(r: Row) {
 }
 
 const text = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice(0, max) || null : null);
-// D2: a phone alert shows on a lock screen through Apple's / Google's servers - never an amount in it.
-const alertText = (s: string) => stripMoney(s).text.replace(/[$＄﹩]/g, "").replace(/\s+/g, " ").trim();
 
 type FileIn = { bytes: Buffer; mime: string; ext: string; name: string };
 type QuoteIn = QuoteInput & { file: FileIn | null };
@@ -146,7 +143,7 @@ export async function createRequest(who: Requester, b: Record<string, unknown>):
         });
       });
       // Straight to the approvers (28 Oct 2026) - not accounts.
-      await alert(pushToUsers(await approversFor(row.requestedByUserId), { title: `${KIND_LABEL[kindOf(row.kind)]} request ${purchaseNo(row.number)} to approve`, body: alertText(`${who.name}: ${row.what}`).slice(0, 140), url: "/directors/purchases", tag: "purchase-approve" }));
+      await alert(pushToUsers(await approversFor(row.requestedByUserId), { title: `${KIND_LABEL[kindOf(row.kind)]} request ${purchaseNo(row.number)} to approve`, body: alertBody(who.name, row.kind, purchaseNo(row.number)), url: "/directors/purchases", tag: "purchase-approve" }));
       return { id: row.id, ref: purchaseNo(row.number) };
     } catch (e) {
       // Two requests at the same moment took the same number - take the next one.
@@ -274,7 +271,7 @@ export async function actOnRequest(
   // 28 Oct 2026: an answered question goes back to the approvers; approved goes to accounts to order; the requester
   // hears about a question, approved, declined and ordered. No amount in any alert (D2).
   if (ok.to === "REQUESTED") await alert(pushToUsers(await approversFor(r.requestedByUserId), { title: `Purchase ${purchaseNo(r.number)} answered`, body: `${r.requestedBy} answered the question.`, url: "/directors/purchases", tag: "purchase-approve" }));
-  if (ok.to === "APPROVED") await alert(pushToUsers(await roleUsers("ACCOUNTS"), { title: `Purchase ${purchaseNo(r.number)} approved - to order`, body: alertText(r.what).slice(0, 140), url: "/accounts/purchases", tag: "purchase-decided" }));
+  if (ok.to === "APPROVED") await alert(pushToUsers(await roleUsers("ACCOUNTS"), { title: `Purchase ${purchaseNo(r.number)} approved - to order`, body: alertBody(r.requestedBy, r.kind, purchaseNo(r.number)), url: "/accounts/purchases", tag: "purchase-decided" }));
   if (["NEEDS_INFO", "APPROVED", "DECLINED", "ORDERED"].includes(ok.to)) await tellRequester(r, ok.to);
   return { ok: true, status: ok.to };
 }

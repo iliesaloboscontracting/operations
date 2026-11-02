@@ -2,8 +2,24 @@
 // quote as typed, the quote picked on approval, the narrow money exception for links, and the quote-file checks.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { chosenQuote, canEditOwn, kindOf, linkMayCarryMoney, maySeeQuoteFile, parseQuote, SEES_ALL_REQUESTS } from "./quotes";
+import { readFileSync } from "node:fs";
+import { alertBody, chosenQuote, canEditOwn, kindOf, linkMayCarryMoney, maySeeQuoteFile, parseQuote, SEES_ALL_REQUESTS } from "./quotes";
 import { checkQuoteFile, isStoredName } from "./files";
+
+test("PQ-004: a phone alert's body has no free text - nothing from what was asked, no price", () => {
+  const r = { requestedBy: "Alex", kind: "HIRE", what: "Scissor lift 19ft x 3, $1,450/wk from Kennards 0412 345 678", ref: "P-0042" };
+  const body = alertBody(r.requestedBy, r.kind, r.ref);
+  assert.equal(body, "Alex asked for a hire (P-0042)");
+  const digitsInWhat = r.what.match(/\d+/g) ?? [];
+  for (const d of digitsInWhat) assert.ok(!body.replace(r.ref, "").includes(d), `the body has no "${d}" from what`);
+  assert.ok(!/\$/.test(body));
+  assert.equal(alertBody("Iliesa", "PURCHASE", "P-0001"), "Iliesa asked for a purchase (P-0001)");
+  // And the store never puts the request's own text into a push body.
+  const store = readFileSync(new URL("./store.ts", import.meta.url), "utf8");
+  const pushes = store.split("\n").filter((l) => /pushTo(Users|SiteLinks)\(/.test(l));
+  assert.ok(pushes.length >= 3, "the alerts are found");
+  for (const l of pushes) assert.doesNotMatch(l, /\.(what|why|details|supplier|infoQuestion|infoAnswer|decisionNote)\b/, l.trim().slice(0, 80));
+});
 
 test("Q1 (Ilies, 2 Nov 2026): Managers, Admins and the coordinator see every request; a quote file follows who sees it", () => {
   assert.deepEqual([...SEES_ALL_REQUESTS].sort(), ["ADMIN", "COORDINATOR", "MANAGER"]);

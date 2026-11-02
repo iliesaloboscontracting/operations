@@ -13,6 +13,10 @@ export const KIND_LABEL: Record<Kind, string> = { PURCHASE: "Purchase", HIRE: "H
 export const DESCRIPTION_MAX = 2000;
 export const MAX_QUOTES = 10;
 
+// PQ-004 (Ilies approved, 2 Nov 2026): a phone alert shows on a lock screen through Apple's / Google's servers, so its
+// body carries no free text at all - not what was asked, not a price - only who asked, the kind and the ref.
+export const alertBody = (name: string, kind: unknown, ref: string) => `${name} asked for a ${kindOf(kind) === "HIRE" ? "hire" : "purchase"} (${ref})`;
+
 // The money exception (Ilies, 2 Nov 2026), kept narrow on purpose: a dollar figure may reach a site link ONLY on a
 // personal OFFICE link's purchase-request screens (/api/site/<token>/purchases...). Every other link kind (SUPERVISOR,
 // HANDOVER, DRIVER, POSTER) and every other OFFICE-link screen stays money-free (linkSafe / assertNoMoney).
