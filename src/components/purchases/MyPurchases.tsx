@@ -5,6 +5,7 @@ import { Loader2, Plus } from "lucide-react";
 import { serverErrorMessage } from "@/lib/apiFetch";
 import type { RequesterView } from "@/lib/purchases/rules";
 import { QuoteFields, QuoteList, emptyQuote, fromQuote, isBlank, quoteBody, type QuoteDTO, type QuoteDraft } from "./Quotes";
+import ProjectSelect from "@/components/ProjectSelect";
 
 // Purchase and hire requests for the person asking (stage 6): Alex on his OFFICE link (`base` = /api/site/<link>/purchases)
 // or anyone in-app (`base` = /api/purchases). Ask to buy or hire something with a description and one or more
@@ -14,7 +15,7 @@ import { QuoteFields, QuoteList, emptyQuote, fromQuote, isBlank, quoteBody, type
 type Row = RequesterView & {
   projectName: string | null; kind: string; kindLabel: string; quotes: QuoteDTO[]; chosenQuoteId: string | null; canEdit: boolean;
 };
-type Project = { id: string; name: string; jobNo: string | null };
+type Project = { id: string; name: string; jobNo: string | null; status?: string };
 
 const input =
   "w-full rounded-lg border border-edge bg-panel2 px-3 py-2.5 text-base text-gray-200 placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500";
@@ -78,10 +79,10 @@ function AskForm({ base, projects, onDone, onCancel }: { base: string; projects:
         <label className="text-xs text-gray-400">Needed by<input type="date" className={input} value={f.neededBy} onChange={set("neededBy")} /></label>
       </div>
       <input className={input} placeholder="A link to it (optional)" value={f.linkUrl} onChange={set("linkUrl")} inputMode="url" />
-      <select className={input} value={f.projectId} onChange={set("projectId")}>
-        <option value="">Not for a particular job</option>
-        {projects.map((p) => <option key={p.id} value={p.id}>{[p.jobNo, p.name].filter(Boolean).join(" ")}</option>)}
-      </select>
+      {/* In the app every project, grouped, a Completed one asked about (components/ProjectSelect.tsx); on the
+          OFFICE link the server sends the active ones only, so nothing is asked there. */}
+      <ProjectSelect className={input} ariaLabel="Job" value={f.projectId} onChange={(id) => setF((x) => ({ ...x, projectId: id }))}
+        noneLabel="Not for a particular job" projects={projects} optionLabel={(p) => [p.jobNo, p.name].filter(Boolean).join(" ")} />
       <div className="space-y-2">
         <p className="text-sm font-semibold text-gray-200">Suppliers and prices</p>
         {quotes.map((q, i) => <QuoteFields key={i} n={i + 1} q={q} input={input} onChange={(nq) => setQuotes((qs) => qs.map((x, j) => (j === i ? nq : x)))} />)}

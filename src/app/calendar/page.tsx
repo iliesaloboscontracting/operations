@@ -443,6 +443,7 @@ export default function CalendarPage() {
             await load();
           }}
           onClose={() => setAddingJob(null)}
+          onProjectReactivated={() => { load(); }}
         />
       )}
     </PageShell>

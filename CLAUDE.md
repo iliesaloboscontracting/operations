@@ -612,6 +612,18 @@ business, without becoming unnecessarily complicated.
   amount). Since 28 Oct 2026 accounts no longer check before approval.
   Accounts' own amount and note exist only in the Accounts / Directors DTOs; the requester and
   a Manager get `requesterView()` + the quotes (prices included since 2 Nov 2026).
+- **Project pickers** (2 Nov 2026, Ilies: lists include inactive and completed
+  jobs; a completed one asks): office dropdowns that attach a record to a
+  project use `components/ProjectSelect.tsx` (FormModal field type
+  `"project"`; rules in `lib/projectPicker.ts`) - Active, then Inactive, then
+  Completed, status in the label. Picking a Completed project asks "active
+  again or still completed?": "Active again" = the ordinary project PATCH
+  `{ status: "ACTIVE" }` (Manager+; the coordinator and below only get "Still
+  completed" / Cancel). Used by the Hire form, the new-job form and in-app
+  purchases (`projectChoices({ allStatuses: true })`). Site-link pickers
+  (including the OFFICE link's purchases) stay active-only. A new job on a
+  still-Completed or Inactive project keeps the date-check warning. Release
+  check `67-project-pickers`.
 - **Production benchmarks** (LCI 5b + Estimating 5c, live 27 Oct;
   `src/lib/production/`, `/production` Manager+, hours only): labour hours
   per unit per activity code from the daily logs against the approved budget

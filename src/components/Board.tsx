@@ -634,6 +634,7 @@ export default function Board() {
             setFromInactiveProject(false);
           }}
           onDelete={editing === "new" ? undefined : deleteJob}
+          onProjectReactivated={() => { refresh(); }}
         />
       )}
 

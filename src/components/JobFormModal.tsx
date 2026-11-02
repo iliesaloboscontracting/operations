@@ -23,6 +23,7 @@ export default function JobFormModal({
   onSaved,
   onClose,
   onDelete,
+  onProjectReactivated,
 }: {
   editing: JobDTO | "new";
   projects: ProjectDTO[];
@@ -40,6 +41,8 @@ export default function JobFormModal({
   onSaved: (job: JobDTO | null, info: SavedJobInfo) => void | Promise<void>;
   onClose: () => void;
   onDelete?: () => Promise<void>;
+  // A Completed project picked and set back to Active from the question - the page reloads its project list.
+  onProjectReactivated?: (projectId: string) => void;
 }) {
   const isNew = editing === "new";
   // Job / site name, Client, Job number and Address are site identity, not a
@@ -57,17 +60,21 @@ export default function JobFormModal({
     ...(isNew && !knownProject
       ? ([
           {
+            // Active, Inactive and Completed projects (Ilies, 2 Nov 2026; components/ProjectSelect.tsx). A Completed
+            // one asks "active again or still completed?"; kept completed (or Inactive), the job save still shows
+            // the existing "<project> is marked ..." date check (lib/dateRules.ts) to confirm.
             key: "projectId",
             label: "Project",
-            type: "select",
+            type: "project",
             full: true,
             section: "Job details",
-            options: [
-              { value: "", label: "— pick a project (or type a one-off below) —" },
-              ...projects
-                .filter((p) => p.status === "ACTIVE")
-                .map((p) => ({ value: p.id, label: p.client ? `${p.name} — ${p.client}` : p.name })),
-            ],
+            noneLabel: "— pick a project (or type a one-off below) —",
+            projects,
+            projectLabel: (p) => {
+              const c = projects.find((x) => x.id === p.id)?.client;
+              return c ? `${p.name} — ${c}` : p.name;
+            },
+            onProjectReactivated: onProjectReactivated,
           },
         ] as FieldDef[])
       : []),
