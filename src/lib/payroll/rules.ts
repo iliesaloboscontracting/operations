@@ -11,7 +11,7 @@ export type DayState = "APPROVED" | "FLAGGED" | "CHANGED" | "NOT_APPROVED" | "NO
 export type PayLine = {
   attendanceId: string; date: string; personKey: string; personName: string; resourceId: string | null; company: string | null;
   group: Group; engagementSet: boolean; jobId: string | null; shift: "DAY" | "NIGHT"; site: string; point: boolean;
-  in: string; out: string | null; hours: number | null; overlap?: boolean; status: string; tile: string | null; // labour hire: the board tile it fills
+  in: string; out: string | null; hours: number | null; overlap?: boolean; toCheck?: string[]; status: string; tile: string | null; // labour hire: the board tile it fills
   gps: { lat: number; lng: number; accuracyM: number | null } | null; gpsStatus: string | null;
 };
 export type ApprovalSnapshotLine = { attendanceId: string; name: string; company: string | null; in: string; out: string | null; hours: number | null; flag?: string };

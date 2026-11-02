@@ -14,7 +14,8 @@ import type { DayState, Group } from "@/lib/payroll/rules";
 
 type Week = {
   weekStart: string; weekEnd: string; days: string[]; weekEnded: boolean; managerLock: { by: string; at: string } | null;
-  people: PayPersonDTO[]; engagementUnset: number; abnHints: { id: string; name: string }[]; travel: string;
+  people: PayPersonDTO[]; engagementUnset: number;
+  namesToCheck?: { attendanceId: string; date: string; site: string; fields: string[] }[]; abnHints: { id: string; name: string }[]; travel: string;
   summary: { byItem: Record<string, number>; bySite: Record<string, number>; byAgency: Record<string, number>; total: number };
 };
 const GROUP: Record<Group, string> = { EMPLOYEE: "Employees", ABN: "ABN workers", HIRE: "Labour hire" };
@@ -93,6 +94,12 @@ export default function PayrollPage() {
           {data.engagementUnset > 0 && ` Engagement (Employee / ABN) isn't set on the Labour register yet for ${data.engagementUnset} of this week's staff - they count as employees until it is.`}
           {" "}✓ supervisor approved · ⚑ flagged · ≠ changed since approved · · not approved · – office / yard / truck · 📍 location at sign-in. Travel / regional: {data.travel} with Victoria.
         </p>
+      )}
+      {/* TF-004: a name, company or site that looked like bank / tax details is shown as "Name to check" - the office fixes it on Sign-ins. */}
+      {data?.namesToCheck && data.namesToCheck.length > 0 && (
+        <div className="mb-3 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">
+          {data.namesToCheck.length} sign-in{data.namesToCheck.length === 1 ? "" : "s"} show as &ldquo;Name to check&rdquo; (the {[...new Set(data.namesToCheck.flatMap((n) => n.fields))].join(" / ")} looked like bank or tax details): {data.namesToCheck.map((n) => `${n.date} - ${n.site}`).join("; ")}. Ask the office to check them on Sign-ins.
+        </div>
       )}
       {flash && <div className="mb-3 rounded-lg bg-emerald-500/15 px-3 py-2 text-sm text-emerald-300">{flash}</div>}
       {error && <div className="mb-3 rounded-lg bg-red-900/30 px-3 py-2 text-sm text-red-300">{error}</div>}

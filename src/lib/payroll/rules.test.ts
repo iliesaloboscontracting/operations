@@ -132,10 +132,21 @@ test("payroll files with '$5 Labour' and a '$' in a worker name are made, with n
   // The store cleans every name, company and site it puts in a file, and refuses with a reason instead of throwing.
   const { readFileSync } = await import("node:fs");
   const src = readFileSync(new URL("./store.ts", import.meta.url), "utf8");
-  assert.match(src, /personName: noAmounts\(name, "Unnamed"\)/);
-  assert.match(src, /company: r\.company == null \? null : noAmounts\(r\.company, "Company"\)/);
-  assert.match(src, /site: noAmounts\(r\.job \? jobLabel/);
+  assert.match(src, /personName: payText\(name, "Unnamed"/);
+  assert.match(src, /company: r\.company == null \? null : payText\(r\.company, "Company"/);
+  assert.match(src, /site: payText\(r\.job \? jobLabel/);
   assert.doesNotMatch(src, /throw new Error\("A payroll file/);
   const route = readFileSync(new URL("../../app/api/accounts/payroll/export/route.ts", import.meta.url), "utf8");
   assert.match(route, /status: 409/);
+});
+// TF-004: a name that trips the file check's words ("Aba" - the ABA bank file) becomes "Name to check" and is listed.
+test("a name that looks like bank / tax words is swapped for 'Name to check (Sign-ins <date>)'", async () => {
+  const { payText, NAME_TO_CHECK } = await import("./store");
+  const chk: string[] = [];
+  assert.equal(payText("Aba", "Unnamed", "2026-11-02", chk, "name"), NAME_TO_CHECK("2026-11-02"));
+  assert.equal(payText("TFN Labour", "Company", "2026-11-02", chk, "company"), NAME_TO_CHECK("2026-11-02"));
+  assert.equal(payText("Abasi", "Unnamed", "2026-11-02", chk, "name"), "Abasi", "only the whole word");
+  assert.deepEqual(chk, ["name", "company"]);
+  const csv = toCsv([["Employee"], [NAME_TO_CHECK("2026-11-02")]]);
+  assert.ok(fileIsSafe(csv), "the placeholder itself passes the file check");
 });
