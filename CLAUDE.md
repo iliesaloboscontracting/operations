@@ -184,6 +184,23 @@ business, without becoming unnecessarily complicated.
   Lobos-owned truck (POSTER link with `place`; SiteAttendance with `place`
   and no job). Office lists Personnel category "Office" — no board
   allocation needed; these count straight away and odd ones are flagged.
+  **Regional travel** (2 Nov 2026, Ilies; `src/lib/travel/`): `Project.regional`
+  (Managers / Admins set it on the project page or the board's job row - one flag
+  for every day of the project; everyone sees the "Regional" badge). Labour-register
+  staff only, on their own phone: "Start travel" (regional jobs they're on today /
+  last night's night shift) is ended by their site sign-in on that project;
+  "Travelling home" (offered 8 h after a regional sign-out) is ended by "Arrived"
+  (`/site/in/travel`, `/api/site/in/travel` - rides the photos tunnel, no $).
+  The phone proves who it is with a travel pass a real sign-in scan gives it
+  (`makeTravelPass`, HMAC with AUTH_SECRET, person + device, 120 days). `TravelLeg`
+  (append-only, plain ids, one leg each way per job) + `TravelEdit` (office
+  corrections, Manager+, reason; locked weeks refuse). One quiet GPS point at the
+  start / Arrived, accounts / Admins only. Hours = start to end, quarter hours, no
+  break; never ended or over 8 h counts nothing, is flagged and BLOCKS the week's
+  approval until fixed (Ilies). Its own Travel column on Sign-ins, Timesheets
+  (locked into the snapshot) and the CSVs / payroll files - never site hours,
+  JobActual or cost; how travel is paid is still to be agreed. Turning regional
+  off keeps every leg. Release check `66-regional-travel`.
 - **Site requests** (added 2026-10-21, `/requests`, `src/lib/siteRequests.ts`,
   `requestTypes.ts`; since 25 Oct 2026 the queries and actions to and from
   the directors and accounts (`OFFICE_KINDS`) have their own board,
@@ -396,7 +413,8 @@ business, without becoming unnecessarily complicated.
   `Resource.engagement` (EMPLOYEE / ABN) is a pay field, Admin only. GPS:
   one quiet position at crew sign-in (`SiteAttendance.gps*`, IN only, waits
   ≤1.5 s, refusal never blocks), visible to accounts / Admins only. Travel
-  rule and emails from accounts@ still to come.
+  hours are recorded (see Regional travel); the travel pay rule and emails
+  from accounts@ are still to come.
   **Reimbursements and labour cost** (stage 3, live 27 Oct,
   `docs/accounts/STAGE3-DESIGN.md`): `/accounts/reimbursements`
   (`Reimbursement`, append-only; no double claim - same receipt, same photo
@@ -445,6 +463,16 @@ business, without becoming unnecessarily complicated.
   "Estimate - Xero and the accountant are the record". No new Xero scope
   (PAYG W needs payroll.payruns.read - not added). Directors' Cash tile shows
   one tax line. Bank / card tracking waits on the Xero bank-feeds decision.
+  **Timesheets tab** (2 Nov 2026, Ilies: "no changes just export button for her
+  pay roll"; `/accounts/timesheets`, `src/lib/accountsTimesheets.ts`): the same
+  weekly timesheets as `/timesheets`, view only, via `guardAccounts()`
+  (`/api/accounts/timesheets` + `/export`). Export = the timesheet CSV with "$"
+  amounts taken out, then `fileIsSafe`. Every timesheet / sign-in write still
+  refuses ACCOUNTS; `guardTimesheetViewer()` doesn't admit it. "How timesheets
+  work" (`TIMESHEETS_EXPLAINER`, every rule from the code - wording approved by
+  Ilies) comes up once per ACCOUNTS login until "Got it" (`NoticeSeen`, one row,
+  never changed), and from the page's link any time.
+  Release check `65-accounts-timesheets`.
 - **Release ops-20261027** (live 27 Oct ~23:30, main 5529e1a; package and
   runbook in `operations-agent-log/releases/ops-20261027/`, security record
   `operations-agent-log/security/2026-10-27-release-review.md`):
