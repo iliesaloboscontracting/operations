@@ -8,8 +8,10 @@ import { attendanceForDate } from "@/lib/attendanceView";
 import { todaySydney } from "@/lib/today";
 import { parseTime } from "@/lib/signin";
 import { lockedWeekFor } from "@/lib/timesheets";
-import { syncSignInActualsQuietly } from "@/lib/signInActuals";
+import { syncPersonDayQuietly, syncSignInActualsQuietly } from "@/lib/signInActuals";
+import { endOpenElsewhere } from "@/lib/signinOverlap";
 import { travelLinesForDate } from "@/lib/travel/store";
+import { notSignedInToday, openFromYesterday } from "@/lib/signinAlerts";
 
 // GET /api/attendance?date=YYYY-MM-DD -> that date's jobs with sign-ins,
 // hours, no-shows and flags; plus the active site posters and hand-overs.
@@ -30,7 +32,12 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
     }),
     travelLinesForDate(date), // regional travel legs for this day's jobs (2 Nov 2026) - times and hours, no GPS
   ]);
-  return viewJson({ date, today: todaySydney(), jobs: view.jobs, points: view.points, posters, handovers, travel });
+  // The office banner (fixes 2c and 5a, 2 Nov 2026), on today's page only: yesterday's sign-ins with no sign-out, and
+  // allocated crew not signed in an hour after their job started. Names and sites only.
+  const gaps = date === todaySydney()
+    ? { noSignOutYesterday: await openFromYesterday(date), notSignedIn: (await notSignedInToday()).map((j) => ({ jobId: j.jobId, site: j.site, names: j.missing.map((m) => m.name) })) }
+    : null;
+  return viewJson({ date, today: todaySydney(), jobs: view.jobs, points: view.points, posters, handovers, travel, gaps });
 });
 
 // POST /api/attendance - the office adds a sign-in that was missed.
@@ -73,7 +80,12 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   }
   const date = job ? job.date.toISOString().slice(0, 10) : sydneyDate(signInAt);
   if (await lockedWeekFor(date)) return bad("That week's timesheet has been approved - an Admin has to reopen it (Timesheets page) before its sign-ins can change.");
+  // Fix 2a (2 Nov 2026): an added sign-in for an earlier day needs its sign-out too - an open one counts no hours and
+  // used to sit there unnoticed. Today's can stay open (they're still on site).
+  if (!signOutAt && date !== todaySydney()) return bad("Enter the sign-out time too - only today's sign-ins can be left open (still on site).");
   const by = user?.name ?? "Office";
+  // Fix 1: they can't be signed in twice - any other sign-in still open from before this one ends at its start.
+  const ended = await endOpenElsewhere({ who, at: signInAt, here: job ? { jobId: job.id } : { jobId: null, place: point!.place, vehicleId: point!.vehicleId }, label: job ? "another job (added by the office)" : point!.placeLabel, by });
   const created = await prisma.siteAttendance.create({
     data: {
       jobId: job?.id ?? null,
@@ -92,8 +104,9 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
       edits: { create: { field: "added", before: null, after: `${signInAt.toISOString()} - ${signOutAt?.toISOString() ?? "open"}`, reason, editedBy: by } },
     },
   });
-  await syncSignInActualsQuietly([created.jobId]);
-  return NextResponse.json({ id: created.id }, { status: 201 });
+  await syncSignInActualsQuietly([created.jobId, ...ended.map((e) => e.jobId)]);
+  await syncPersonDayQuietly(who.resourceId, date);
+  return NextResponse.json({ id: created.id, ...(ended.length ? { ended: ended.length } : {}) }, { status: 201 });
 });
 
 const sydneyDate = (d: Date) =>

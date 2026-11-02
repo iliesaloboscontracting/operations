@@ -13,6 +13,39 @@ const primary = "flex w-full items-center justify-center gap-2 rounded-xl bg-bra
 const sydneyDay = (offset = 0) => new Date(Date.now() + offset * 86_400_000).toLocaleDateString("en-CA", { timeZone: "Australia/Sydney" });
 const dayLabel = (d: string) => new Date(`${d}T00:00:00`).toLocaleDateString("en-AU", { weekday: "long", day: "numeric", month: "short" });
 
+// Fix 2b (2 Nov 2026): before approving today, anyone still signed in - sign them all out now, or one at the time
+// they left (earlier today). Never a time in the future; the office still changes anything else.
+function StillSignedIn({ api, crew, onChanged }: { api: string; crew: DayHoursDTO["jobs"][number]["crew"]; onChanged: () => void }) {
+  const [times, setTimes] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  async function send(body: Record<string, unknown>) {
+    setBusy(true); setError(null);
+    const res = await fetch(`${api}/signin`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).catch(() => null);
+    setBusy(false);
+    if (!res?.ok) return setError(res ? await serverErrorMessage(res, "Couldn't sign out.") : "Couldn't send - check your signal.");
+    onChanged();
+  }
+  return (
+    <div className="mt-3 rounded-xl border border-amber-500/50 bg-amber-500/10 p-3">
+      <p className="text-sm font-semibold text-amber-200">{crew.length} {crew.length === 1 ? "person is" : "people are"} still signed in</p>
+      <ul className="mt-2 space-y-2">
+        {crew.map((c) => (
+          <li key={c.attendanceId} className="flex flex-wrap items-center gap-2 text-sm text-gray-200">
+            <span className="min-w-0 flex-1">{c.name} <span className="text-gray-500">in {c.in}</span></span>
+            <input type="time" aria-label={`Time ${c.name} left`} className="rounded-lg border border-edge bg-panel2 px-2 py-1 text-sm text-gray-200" value={times[c.attendanceId] ?? ""} onChange={(e) => setTimes({ ...times, [c.attendanceId]: e.target.value })} />
+            <button disabled={busy || !times[c.attendanceId]} onClick={() => send({ action: "MANUAL_OUT_AT", attendanceId: c.attendanceId, time: times[c.attendanceId] })} className="rounded-lg border border-edge px-2.5 py-1 text-xs text-gray-200 disabled:opacity-40">Out at that time</button>
+          </li>
+        ))}
+      </ul>
+      <button disabled={busy} onClick={() => send({ action: "MANUAL_OUT_MANY", attendanceIds: crew.map((c) => c.attendanceId) })} className={`${primary} mt-3 bg-amber-600`}>
+        {busy ? <Loader2 size={18} className="animate-spin" /> : null} Sign {crew.length === 1 ? "them" : "all"} out now
+      </button>
+      {error && <p className="mt-2 text-sm text-red-300">{error}</p>}
+    </div>
+  );
+}
+
 export default function ApproveHours({ api, onDone }: { api: string; onDone: (message: string) => void }) {
   const [date, setDate] = useState(sydneyDay());
   const [data, setData] = useState<DayHoursDTO | null>(null);
@@ -71,6 +104,8 @@ export default function ApproveHours({ api, onDone }: { api: string; onDone: (me
                       <span className="text-sm tabular-nums text-gray-300">{c.in} - {c.out ?? <span className="text-amber-300">not out</span>}{c.hours != null && <b className="ml-2 text-gray-100">{c.hours} h</b>}</span>
                     </div>
                     {c.toConfirm && <div className="text-xs text-amber-300">Poster sign-in - confirm it on Sign in crew first</div>}
+                    {c.notOnBoard && <div className="text-xs text-amber-300">Not on the board - confirm they worked (or tap Not right?)</div>}
+                    {c.overlap && <div className="text-xs text-gray-400">Also signed in somewhere else at the same time - counted once</div>}
                     {editing === c.attendanceId || flags[c.attendanceId] ? (
                       <input className="mt-1 w-full rounded-lg border border-amber-500/50 bg-panel2 px-3 py-2 text-sm text-gray-200" placeholder="What's not right? e.g. left at 1pm" autoFocus={editing === c.attendanceId}
                         value={flags[c.attendanceId] ?? ""} onChange={(e) => setFlags({ ...flags, [c.attendanceId]: e.target.value })} />
@@ -81,7 +116,8 @@ export default function ApproveHours({ api, onDone }: { api: string; onDone: (me
                 ))}
               </ul>
               {/* Today: sign them out / confirm first. A past day can't be fixed here, so it's sent flagged to the office. */}
-              {open > 0 && <p className="mt-2 text-sm text-amber-300">{open} not signed out{isToday ? " yet - sign them out on Sign in crew first." : " - you can still approve; the office will set their time."}</p>}
+              {open > 0 && isToday && <StillSignedIn api={api} crew={j.crew.filter((c) => !c.out)} onChanged={load} />}
+              {open > 0 && !isToday && <p className="mt-2 text-sm text-amber-300">{open} not signed out - you can still approve; the office will set their time.</p>}
               {toConfirm > 0 && <p className="mt-1 text-sm text-amber-300">{toConfirm} poster sign-in{toConfirm === 1 ? "" : "s"} not confirmed{isToday ? " - confirm on Sign in crew first." : " - you can still approve; the office will check."}</p>}
               <button className={`${primary} mt-3`} disabled={(isToday && (open > 0 || toConfirm > 0)) || busy === j.jobId} onClick={() => approve(j.jobId)}>
                 {busy === j.jobId ? <Loader2 size={18} className="animate-spin" /> : <Check size={18} />} {j.approved ? "Approve again" : "Approve the day"}

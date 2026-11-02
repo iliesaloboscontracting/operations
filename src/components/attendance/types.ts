@@ -19,6 +19,8 @@ export type AttendanceRow = {
   hours: number | null;
   flags: string[];
   edits: AttendanceEditRow[];
+  breakTaken?: number; // the day's one unpaid break, if it came off this line (2 Nov 2026)
+  staffLike?: { id: string; name: string }[] | null; // fix 4: a hire sign-in that looks like these staff
 };
 // A job on the board, or a fixed sign-in point (office / yard / truck).
 export type AttendanceJob = {
@@ -46,6 +48,8 @@ export type AttendanceData = {
   posters: { id: string; projectId: string | null; place: string | null; resourceId: string | null; createdAt: string; createdBy: string | null }[];
   handovers: { id: string; jobId: string | null; expiresAt: string; createdBy: string | null; resource: { name: string } | null }[];
   travel?: TravelLine[]; // regional travel legs (2 Nov 2026)
+  // Today's page only (fixes 2c / 5a): yesterday's open sign-ins, crew not signed in an hour after the start.
+  gaps?: { noSignOutYesterday: { id: string; name: string; company: string | null; site: string }[]; notSignedIn: { jobId: string; site: string; names: string[] }[] } | null;
 };
 
 export const FLAG_LABEL: Record<string, string> = {
@@ -59,6 +63,8 @@ export const FLAG_LABEL: Record<string, string> = {
   SHARED_PHONE: "Phone shared",
   ODD_HOURS: "Odd hours",
   LONG_DAY: "Over 14h",
+  OVERLAP: "Overlap - counted once",
+  LOOKS_LIKE_STAFF: "Looks like Lobos staff",
 };
 export const METHOD_LABEL: Record<string, string> = {
   SUPERVISOR_QR: "Supervisor QR",

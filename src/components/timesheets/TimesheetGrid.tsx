@@ -56,9 +56,9 @@ function Entry({ l, today, showSite = true }: { l: TimesheetLine; today: string;
         </span>
         <span className="text-xs font-semibold text-gray-100">{hrs(l.hours)}</span>
       </div>
-      {(onNow || noOut || pending || zero || l.changedByOffice || !l.allocated) && (
+      {(onNow || noOut || pending || zero || l.overlap || l.changedByOffice || !l.allocated) && (
         <div className="text-[10px] leading-tight text-amber-400">
-          {[onNow && "on site now", noOut && "no sign-out", pending && "to confirm", zero && "check: 0h", l.changedByOffice && "office changed", !l.allocated && "not allocated"].filter(Boolean).join(" · ")}
+          {[onNow && "on site now", noOut && "no sign-out", pending && "to confirm", zero && !l.overlap && "check: 0h", l.overlap && "overlap - counted once", l.breakMinutes > 0 && `less ${l.breakMinutes} min break`, l.changedByOffice && "office changed", !l.allocated && "not allocated"].filter(Boolean).join(" · ")}
         </div>
       )}
     </div>

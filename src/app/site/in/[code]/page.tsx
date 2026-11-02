@@ -6,6 +6,7 @@ import { Camera, Car, Home, Loader2, LogIn, LogOut } from "lucide-react";
 import { serverErrorMessage } from "@/lib/apiFetch";
 import { resizePhoto } from "@/lib/imageResize";
 import { deviceId, ME_KEY, PASS_KEY, store, useQuietGps } from "@/lib/signinDevice";
+import { looksLikeLobos } from "@/lib/staffMatch";
 
 // Crew sign-in: the page a worker's phone opens after scanning the
 // supervisor's QR or the site poster. First time they pick their name (or
@@ -259,6 +260,8 @@ function WhoAreYou({ job, ticket, onPick }: { job: Job; ticket: string; onPick: 
   const [q, setQ] = useState("");
   const [found, setFound] = useState<Person[]>([]);
   const [hire, setHire] = useState({ name: "", company: "" });
+  // Fix 4 (2 Nov 2026): Lobos staff must pick their own name - a "hire" sign-in never reaches the staff timesheet.
+  const [staffNote, setStaffNote] = useState(false);
 
   useEffect(() => {
     if (mode !== "search" || q.trim().length < 3) return setFound([]);
@@ -288,6 +291,7 @@ function WhoAreYou({ job, ticket, onPick }: { job: Job; ticket: string; onPick: 
       )}
       {mode === "search" && (
         <>
+          {staffNote && <div className="rounded-lg border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">You&apos;re Lobos staff - pick your name. (Hire is only for workers from another company.)</div>}
           <input className={input} autoFocus placeholder="Type your name" value={q} onChange={(e) => setQ(e.target.value)} />
           {found.map(person)}
           {q.trim().length >= 3 && found.length === 0 && <p className="text-sm text-gray-500">No match. If you&apos;re from a hire company, use the option below.</p>}
@@ -302,7 +306,10 @@ function WhoAreYou({ job, ticket, onPick }: { job: Job; ticket: string; onPick: 
           <button
             className={`${big} bg-brand-600`}
             disabled={hire.name.trim().length < 2 || hire.company.trim().length < 2}
-            onClick={() => onPick({ hire: { name: hire.name.replace(/\s+/g, " ").trim(), company: hire.company.replace(/\s+/g, " ").trim() } })}
+            onClick={() => {
+              if (looksLikeLobos(hire.company)) { setStaffNote(true); setQ(hire.name.trim()); setMode("search"); return; }
+              onPick({ hire: { name: hire.name.replace(/\s+/g, " ").trim(), company: hire.company.replace(/\s+/g, " ").trim() } });
+            }}
           >
             Continue
           </button>

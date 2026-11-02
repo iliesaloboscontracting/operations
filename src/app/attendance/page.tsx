@@ -91,6 +91,18 @@ export default function AttendancePage() {
             <Tile label="Expected, not signed in" value={groups.reduce((n, j) => n + j.noShows.length, 0)} tone="text-amber-500" />
             <Tile label="Other flags" value={has("NOT_ALLOCATED") + has("SHARED_PHONE") + has("MOVED") + has("ODD_HOURS") + has("LONG_DAY")} tone="text-amber-500" />
           </div>
+          {/* Fixes 2c / 5a (2 Nov 2026): what still needs the office this morning. */}
+          {data.gaps && data.gaps.noSignOutYesterday.length > 0 && (
+            <div className="mb-3 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-200">
+              <b>{data.gaps.noSignOutYesterday.length} sign-in{data.gaps.noSignOutYesterday.length === 1 ? "" : "s"} from yesterday with no sign-out</b> - they count no hours until a time is set (go back a day to fix them):{" "}
+              {data.gaps.noSignOutYesterday.map((o) => `${o.name}${o.company ? ` (${o.company})` : ""} - ${o.site}`).join("; ")}
+            </div>
+          )}
+          {data.gaps && data.gaps.notSignedIn.length > 0 && (
+            <div className="mb-3 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-200">
+              <b>Not signed in an hour after the start:</b> {data.gaps.notSignedIn.map((j) => `${j.site}: ${j.names.join(", ")}`).join("; ")}
+            </div>
+          )}
           <div className="grid gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
             <div className="min-w-0 space-y-3">
               <h2 className="text-sm font-semibold text-gray-200">Office, yard &amp; trucks</h2>

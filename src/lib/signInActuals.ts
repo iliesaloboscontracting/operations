@@ -55,8 +55,29 @@ export async function syncSignInActuals(jobIds: string[]) {
   }
 }
 
+// A line's hours depend on that person's other lines the same day (one break per day over 5 h, overlaps counted
+// once - lib/dayHours.ts, 2 Nov 2026), so a change on one job (or a truck / office / yard point) refreshes every job
+// those people signed in on that day.
+async function sameDayJobs(where: { jobIds?: string[]; people?: { resourceId: string; date: string }[] }) {
+  const seeds = [
+    ...(where.jobIds?.length ? await prisma.siteAttendance.findMany({ where: { jobId: { in: where.jobIds }, resourceId: { not: null } }, select: { resourceId: true, date: true } }) : []),
+    ...(where.people ?? []),
+  ].filter((s): s is { resourceId: string; date: string } => !!s.resourceId);
+  if (!seeds.length) return where.jobIds ?? [];
+  const more = await prisma.siteAttendance.findMany({
+    where: { OR: seeds.map((s) => ({ resourceId: s.resourceId, date: s.date })), jobId: { not: null } },
+    select: { jobId: true },
+  });
+  return [...new Set([...(where.jobIds ?? []), ...more.map((m) => m.jobId!)])];
+}
+
 // For the sign-in routes: never let a Day Review refresh break a sign-in.
 export function syncSignInActualsQuietly(jobIds: (string | null | undefined)[]) {
   const ids = jobIds.filter((x): x is string => !!x);
-  return syncSignInActuals(ids).catch((e) => console.error("Day Review sign-in hours sync failed", e));
+  return sameDayJobs({ jobIds: ids }).then(syncSignInActuals).catch((e) => console.error("Day Review sign-in hours sync failed", e));
+}
+// A person's sign-in at an office / yard / truck point changed: their site jobs that day may change too.
+export function syncPersonDayQuietly(resourceId: string | null | undefined, date: string) {
+  if (!resourceId) return Promise.resolve();
+  return sameDayJobs({ people: [{ resourceId, date }] }).then(syncSignInActuals).catch((e) => console.error("Day Review sign-in hours sync failed", e));
 }

@@ -159,7 +159,7 @@ export default function TimesheetsPage() {
 
           <ApprovalHistory history={data.history} />
           <p className="mt-4 text-[11px] text-gray-500">
-            Hours = signed in to signed out, less the site&apos;s unpaid break (office, yard and trucks: 30 min), to the nearest quarter hour. Travel (regional jobs only) is its own column: start travel to the site sign-in, and travelling home to arrived - no break, not in Hours, legs over 8h or never ended count nothing. Lobos staff only - hire and subcontractor workers are on the Sign-ins page. To fix a time, use the Sign-ins page (the change and reason are kept).
+            Hours = signed in to signed out; one unpaid break per person per day, only when the day is over 5h (the largest break of that day&apos;s places - office, yard and trucks: 30 min), off their longest line; time signed in at two places at once counts once; to the nearest quarter hour. Travel (regional jobs only) is its own column: start travel to the site sign-in, and travelling home to arrived - no break, not in Hours, legs over 8h or never ended count nothing. Lobos staff only - hire and subcontractor workers are on the Sign-ins page. To fix a time, use the Sign-ins page (the change and reason are kept).
           </p>
         </>
       )}

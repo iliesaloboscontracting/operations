@@ -3,7 +3,9 @@
 // weekly lock, and Victoria's final approve / query - plus the pay-run and summary files. Reads sign-ins
 // only; writes HoursApproval and PayWeekReview rows. Hours only, never money.
 import { prisma } from "../prisma";
-import { jobLabel, POINT_BREAK_MINUTES, signedHours, sydneyTime } from "../signin";
+import { jobLabel, POINT_BREAK_MINUTES, sydneyTime } from "../signin";
+import { dayHours } from "../dayHours";
+import { dayHoursFor } from "../dayHoursStore";
 import { matchHireSignIns } from "../labourHireMatch";
 import { activeApproval, weekDates, weekEnd, weekHasEnded } from "../timesheets";
 import { assertNoMoney } from "../moneyGuard";
@@ -39,14 +41,16 @@ export async function payLines(weekStart: string): Promise<PayLine[]> {
   for (const jobId of jobIds) {
     matchHireSignIns(tiles.filter((t) => t.jobId === jobId).map((t) => t.resource), rows.filter((r) => r.jobId === jobId && !r.resourceId)).forEach((t, id) => tileOf.set(id, t.name));
   }
-  return rows.filter((r) => !r.resource || r.resource.type === "PERSONNEL").map((r) => {
-    const breakMinutes = r.job ? r.job.project?.unpaidBreakMinutes ?? 0 : POINT_BREAK_MINUTES;
+  const kept = rows.filter((r) => !r.resource || r.resource.type === "PERSONNEL");
+  // One break per person per day over 5 h, overlaps counted once (lib/dayHours.ts, Ilies 2 Nov 2026).
+  const day = dayHours(kept.map((r) => ({ id: r.id, personKey: personKeyOf(r.resourceId, r.resource?.name ?? r.workerName, r.company), date: r.date, start: r.signInAt, end: r.signOutAt, breakMinutes: r.job ? r.job.project?.unpaidBreakMinutes ?? 0 : POINT_BREAK_MINUTES })));
+  return kept.map((r) => {
     const name = r.resource?.name ?? r.workerName;
     return {
       attendanceId: r.id, date: r.date, personKey: personKeyOf(r.resourceId, name, r.company), personName: name,
       resourceId: r.resourceId, company: r.company, group: groupOf(r.resourceId, r.resource?.engagement ?? null), engagementSet: !r.resourceId || !!r.resource?.engagement,
       jobId: r.jobId, shift: (r.job?.shift === "NIGHT" ? "NIGHT" : "DAY") as "DAY" | "NIGHT", site: r.job ? jobLabel(r.job) : r.placeLabel ?? r.place ?? "Sign-in point", point: !r.jobId,
-      in: sydneyTime(r.signInAt)!, out: sydneyTime(r.signOutAt), hours: signedHours(r.signInAt, r.signOutAt, breakMinutes), status: r.status, tile: tileOf.get(r.id) ?? null,
+      in: sydneyTime(r.signInAt)!, out: sydneyTime(r.signOutAt), hours: day.get(r.id)!.hours, overlap: day.get(r.id)!.overlap, status: r.status, tile: tileOf.get(r.id) ?? null,
       gps: r.gpsLat != null && r.gpsLng != null ? { lat: r.gpsLat, lng: r.gpsLng, accuracyM: r.gpsAccuracyM } : null, gpsStatus: r.gpsStatus,
     };
   });
@@ -206,7 +210,9 @@ export async function payrollFiles(weekStart: string): Promise<{ payRun: string;
 
 // ---------- the supervisor's daily approval (site link) ----------
 
-export type CrewHoursDTO = { attendanceId: string; name: string; company: string | null; in: string; out: string | null; hours: number | null; toConfirm: boolean };
+// notOnBoard (fix 5b, 2 Nov 2026): a Lobos staff member who signed in here but isn't on this job's allocation -
+// the supervisor confirms they worked (or flags it). It never blocks the approval on its own.
+export type CrewHoursDTO = { attendanceId: string; name: string; company: string | null; in: string; out: string | null; hours: number | null; toConfirm: boolean; notOnBoard?: boolean; overlap?: boolean };
 export type DayHoursDTO = { date: string; jobs: { jobId: string; label: string; crew: CrewHoursDTO[]; approved: { by: string; at: string; changed: boolean } | null; flags: Record<string, string> }[] };
 
 // The supervisor's jobs on a day (on the board for them), with everyone who signed in. Names and hours only.
@@ -218,8 +224,10 @@ export async function dayHoursForLink(link: ResolvedLink, date: string): Promise
   });
   const atts = jobs.length ? await prisma.siteAttendance.findMany({
     where: { jobId: { in: jobs.map((j) => j.id) }, status: { not: "REJECTED" } }, orderBy: { signInAt: "asc" },
-    select: { id: true, jobId: true, workerName: true, company: true, signInAt: true, signOutAt: true, status: true, resource: { select: { name: true } } },
+    select: { id: true, jobId: true, date: true, resourceId: true, allocated: true, workerName: true, company: true, signInAt: true, signOutAt: true, status: true, resource: { select: { name: true } } },
   }) : [];
+  // Each person's whole day (their truck, office or other-site lines too): one break over 5 h, overlaps once.
+  const day = await dayHoursFor(atts);
   const approvals = await latestApprovals(jobs.map((j) => ({ jobId: j.id, date })));
   const dto: DayHoursDTO = {
     date,
@@ -227,7 +235,8 @@ export async function dayHoursForLink(link: ResolvedLink, date: string): Promise
       const crew = atts.filter((a) => a.jobId === j.id).map((a) => ({
         // Names as typed at sign-in can hold a "$" (a hire company "$5 Labour") - taken out so "Approve hours" never fails (DLV-SEC-013).
         attendanceId: a.id, name: nameWithoutAmounts(a.resource?.name ?? a.workerName), company: a.company ? nameWithoutAmounts(a.company) : a.company, in: sydneyTime(a.signInAt)!, out: sydneyTime(a.signOutAt),
-        hours: signedHours(a.signInAt, a.signOutAt, j.project?.unpaidBreakMinutes ?? 0), toConfirm: a.status === "TO_CONFIRM",
+        hours: day.get(a.id)?.hours ?? null, toConfirm: a.status === "TO_CONFIRM",
+        ...(a.resourceId && !a.allocated ? { notOnBoard: true } : {}), ...(day.get(a.id)?.overlap ? { overlap: true } : {}),
       }));
       const a = approvals.get(`${j.id}|${date}`);
       const changed = !!a && crew.some((c) => dayState({ ...c, jobId: j.id }, a.snapshot) !== "APPROVED" && dayState({ ...c, jobId: j.id }, a.snapshot) !== "FLAGGED");

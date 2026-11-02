@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { resolveLink, siteUrl, type ResolvedLink } from "@/lib/siteLinks";
-import { syncSignInActualsQuietly } from "@/lib/signInActuals";
+import { syncPersonDayQuietly, syncSignInActualsQuietly } from "@/lib/signInActuals";
+import { endOpenElsewhere } from "@/lib/signinOverlap";
+import { fromSydneyLocal } from "@/lib/shiftTimes";
+import { todaySydney } from "@/lib/today";
 import { createHandover, jobLabel, openJob, openJobsFor, ROTATE_SECONDS, rotatingCode, sydneyTime, takesSignIns } from "@/lib/signin";
 
 // The supervisor's side of crew sign-in, through their own link (or a
@@ -16,6 +19,8 @@ import { createHandover, jobLabel, openJob, openJobsFor, ROTATE_SECONDS, rotatin
 //      { action: "MANUAL_IN", jobId, resourceId }   (time = now)
 //      { action: "MANUAL_OUT", attendanceId }       (time = now)
 //      { action: "MANUAL_OUT_MANY", attendanceIds } (time = now - several at once, 24 Oct 2026)
+//      { action: "MANUAL_OUT_AT", attendanceId, time: "HH:MM" } (fix 2b, 2 Nov 2026: a time earlier today, after
+//        they signed in - kept with a note; never a future time, never another day)
 //      { action: "HANDOVER", jobId, resourceId }    -> { url } one-day link
 async function jobsFor(link: ResolvedLink) {
   if (link.kind === "HANDOVER") {
@@ -111,6 +116,9 @@ export const POST = withErrorHandling(async (req: NextRequest, { params: paramsP
       if (!person || person.type !== "PERSONNEL") return bad("Pick someone from the crew.");
       const open = await prisma.siteAttendance.findFirst({ where: { jobId: job.id, resourceId: person.id, signOutAt: null, status: { not: "REJECTED" } } });
       if (open) return bad(`${person.name} is already signed in since ${sydneyTime(open.signInAt)}.`);
+      // Fix 1 (2 Nov 2026): ticking someone in ends any other sign-in they still have open (a truck QR, another site).
+      const now = new Date();
+      const ended = await endOpenElsewhere({ who: { resourceId: person.id, workerName: person.name, company: null }, at: now, here: { jobId: job.id }, label: jobLabel(job), by });
       await prisma.siteAttendance.create({
         data: {
           jobId: job.id,
@@ -118,12 +126,28 @@ export const POST = withErrorHandling(async (req: NextRequest, { params: paramsP
           resourceId: person.id,
           workerName: person.name,
           allocated: job.assignments.some((a) => a.resource.id === person.id),
-          signInAt: new Date(),
+          signInAt: now,
           signInMethod: "MANUAL",
           status: "CONFIRMED",
           runBy: link.person.name,
         },
       });
+      await syncSignInActualsQuietly([job.id, ...ended.map((e) => e.jobId)]);
+      await syncPersonDayQuietly(person.id, job.date.toISOString().slice(0, 10));
+      return NextResponse.json({ ok: true, ...(ended.length ? { message: `${person.name}'s other open sign-in was ended at ${sydneyTime(now)}.` } : {}) });
+    }
+    case "MANUAL_OUT_AT": {
+      if (!attendance) return bad("That sign-in isn't on your jobs.");
+      if (attendance.signOutAt) return bad("Already signed out - the office can change the time.");
+      const at = timeToday(body.time);
+      if (!at) return bad("Pick a time earlier today.");
+      if (at <= attendance.signInAt) return bad(`That's before they signed in (${sydneyTime(attendance.signInAt)}).`);
+      if (at > new Date()) return bad("That time hasn't happened yet.");
+      await prisma.siteAttendance.update({
+        where: { id: attendance.id },
+        data: { signOutAt: at, signOutMethod: "MANUAL", edits: { create: { field: "signOutAt", before: null, after: at.toISOString(), reason: `Sign-out time set by ${link.person.name} on their link`, editedBy: by } } },
+      });
+      await syncSignInActualsQuietly([attendance.jobId]);
       return NextResponse.json({ ok: true });
     }
     case "MANUAL_OUT": {
@@ -158,3 +182,10 @@ export const POST = withErrorHandling(async (req: NextRequest, { params: paramsP
 });
 
 const bad = (error: string) => NextResponse.json({ error }, { status: 400 });
+// "HH:MM" today, Sydney time -> the moment; null for anything else (fix 2b).
+function timeToday(v: unknown): Date | null {
+  if (typeof v !== "string" || !/^\d{1,2}:\d{2}$/.test(v.trim())) return null;
+  const [h, m] = v.trim().split(":").map(Number);
+  if (h > 23 || m > 59) return null;
+  return fromSydneyLocal(`${todaySydney()}T${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`);
+}

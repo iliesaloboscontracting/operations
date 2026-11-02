@@ -9,6 +9,7 @@ import { todaySydney } from "@/lib/today";
 import { checkJobDate } from "@/lib/dateRulesServer";
 import { matchHireSignIns } from "@/lib/labourHireMatch";
 import { logBoardEdit, siteName } from "@/lib/boardGuard/store";
+import { jobsWithNoSignInWay } from "@/lib/signinAlerts";
 
 // GET /api/jobs?date=YYYY-MM-DD  -> jobs for that date, with assignments+resource included
 export const GET = withErrorHandling(async (req: NextRequest) => {
@@ -56,12 +57,18 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
     });
   }
 
+  // Fix 3 (2 Nov 2026): today's and later jobs with crew but no way to sign in (no supervisor link held by anyone
+  // on it, no hand-over, no site poster) - the board shows a warning on the row.
+  const dayStr = date.toISOString().slice(0, 10);
+  const noWay = dayStr >= todaySydney() ? new Set((await jobsWithNoSignInWay(dayStr)).map((x) => x.jobId)) : new Set<string>();
+
   // JobDTO.date is documented (and used, e.g. in a <input type="date">) as YYYY-MM-DD.
   const out = jobs.map(({ project, ...j }) => ({
     ...j,
     assignments: j.assignments.map((a) => ({ ...a, signedInAs: filledBy.get(a.id) ?? null })),
     ...liveJobFields({ title: j.title, client: j.client, siteCode: j.siteCode, siteAddress: j.siteAddress, project }),
     regional: !!project?.regional, // the Regional badge on the board (2 Nov 2026)
+    ...(noWay.has(j.id) ? { noSignInWay: true } : {}),
     date: j.date.toISOString().slice(0, 10),
   }));
   return NextResponse.json(out);

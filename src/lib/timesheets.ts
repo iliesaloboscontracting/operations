@@ -4,7 +4,8 @@
 // subcontractor workers are left off; rejected sign-ins don't count. Times
 // and hours only - never a dollar figure.
 import { prisma } from "./prisma";
-import { jobLabel, POINT_BREAK_MINUTES, signedHours, STILL_ON_HOURS, sydneyTime } from "./signin";
+import { jobLabel, POINT_BREAK_MINUTES, STILL_ON_HOURS, sydneyTime } from "./signin";
+import { dayHours } from "./dayHours";
 import { todaySydney } from "./today";
 import { csvCell } from "./payroll/rules";
 import type { TravelLine } from "./travel/store";
@@ -23,10 +24,11 @@ export type TimesheetLine = {
   onSite?: boolean; // signed in within the last 20 hours and not out yet - not a missing sign-out // office / yard / truck sign-in rather than a project site
   in: string;
   out: string | null;
-  breakMinutes: number;
+  breakMinutes: number; // the unpaid break taken off THIS line (one per person per day, over 5 h - lib/dayHours.ts)
   hours: number | null;
   status: string; // CONFIRMED | TO_CONFIRM
   allocated: boolean;
+  overlap?: boolean; // overlapped another of their sign-ins that day - the shared time counted once (2 Nov 2026)
   changedByOffice: string | null; // "sign-out 3:30pm -> 4:00pm (forgot to sign out)"
 };
 
@@ -85,8 +87,11 @@ export async function timesheetLines(weekStart: string): Promise<TimesheetLine[]
       edits: { orderBy: { editedAt: "asc" } },
     },
   });
+  // One break per person per day over 5 h, overlaps counted once (Ilies, 2 Nov 2026) - every staff line of the week
+  // is here, so each person's whole day is too.
+  const day = dayHours(rows.map((a) => ({ id: a.id, personKey: a.resource!.id, date: a.date, start: a.signInAt, end: a.signOutAt, breakMinutes: a.job ? a.job.project?.unpaidBreakMinutes ?? 0 : POINT_BREAK_MINUTES })));
   return rows.map((a) => {
-    const breakMinutes = a.job ? a.job.project?.unpaidBreakMinutes ?? 0 : POINT_BREAK_MINUTES;
+    const h = day.get(a.id)!;
     return {
       attendanceId: a.id,
       date: a.date,
@@ -98,8 +103,9 @@ export async function timesheetLines(weekStart: string): Promise<TimesheetLine[]
       onSite: !a.signOutAt && Date.now() - a.signInAt.getTime() < STILL_ON_HOURS * 3_600_000,
       in: sydneyTime(a.signInAt)!,
       out: sydneyTime(a.signOutAt),
-      breakMinutes,
-      hours: signedHours(a.signInAt, a.signOutAt, breakMinutes),
+      breakMinutes: h.breakMinutes,
+      hours: h.hours,
+      overlap: h.overlap || undefined,
       status: a.status,
       allocated: a.allocated,
       changedByOffice: a.edits.length
@@ -248,6 +254,7 @@ export function timesheetCsv(weekStart: string, lines: TimesheetLine[], approval
           ...lineIssues(l).map((i) => (i === "NO_SIGN_OUT" ? "No sign-out" : "Waiting for supervisor")),
           ...(l.hours === 0 ? ["Check: in and out within minutes"] : []),
           ...(l.allocated ? [] : ["Not on the allocation"]),
+          ...(l.overlap ? ["Overlap - counted once"] : []),
           ...(l.changedByOffice ? ["Office changed: " + l.changedByOffice] : []),
         ].join("; ");
         out.push([p.name, p.role, l.date, dayName(l.date), l.site, l.in, l.out, l.breakMinutes, l.hours, "", l.status === "CONFIRMED" ? "Confirmed" : "To confirm", notes]);
