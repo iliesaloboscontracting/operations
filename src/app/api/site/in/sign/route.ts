@@ -5,6 +5,7 @@ import { nameWithoutAmounts } from "@/lib/dailyLog/money";
 import { jobLabel, makeOdometerToken, makeTravelPass, openJob, pointOf, readTicket, sydneyTime, takesSignIns } from "@/lib/signin";
 import { endOutOnSignIn, hasRegionalWork, homeOffered } from "@/lib/travel/store";
 import { passAllowed } from "@/lib/travel/rules";
+import { looksLikeLobos } from "@/lib/staffMatch";
 import { todaySydney } from "@/lib/today";
 import { syncPersonDayQuietly, syncSignInActualsQuietly } from "@/lib/signInActuals";
 import { endOpenElsewhere } from "@/lib/signinOverlap";
@@ -63,6 +64,9 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   } else {
     const name = clean(body.hire?.name), company = clean(body.hire?.company);
     if (name.length < 2 || company.length < 2) return bad("Enter your full name and the company you're from.");
+    // TF-008 (Ilies: "everyone is lobos contracting"): Lobos, Lobos Civil, Lobos Demolition, Lobos Contracting are all
+    // staff - a "hire" sign-in never reaches the staff timesheet. The office can still add one if it must.
+    if (looksLikeLobos(company)) return bad("You're Lobos staff - pick your name instead (tap \"I'm not on this list\" to search).");
     who = { resourceId: null, workerName: name, company };
   }
   const whoWhere = who.resourceId ? { resourceId: who.resourceId } : { resourceId: null, workerName: who.workerName, company: who.company };
