@@ -70,3 +70,25 @@ export async function removeAttendance(a: SiteAttendance, reason: string, by: st
   });
   return { ok: true };
 }
+
+// Fix 4 (Ilies, 2 Nov 2026): a hire sign-in that was really Lobos staff ("Ratu / Lobos") is moved onto that staff
+// member, so it lands on their timesheet. Manager+, with a reason, kept like any office change; the typed name and
+// company stay in the edit log. Same lock as any office change. Times are never touched.
+export async function moveToStaff(a: SiteAttendance, resourceId: string, reason: string, by: string, actor?: { email: string; personnelId?: string | null }): Promise<{ error: string } | { ok: true; name: string }> {
+  if (a.resourceId) return { error: "That sign-in is already a staff member's." };
+  if (a.status === "REJECTED") return { error: "That sign-in has been removed." };
+  if (await lockedWeekFor(a.date)) return { error: "That week's timesheet has been approved - an Admin has to reopen it (Timesheets page) before its sign-ins can change." };
+  const p = await prisma.resource.findUnique({ where: { id: resourceId }, select: { id: true, name: true, type: true, active: true, email: true } });
+  if (!p || p.type !== "PERSONNEL" || !p.active) return { error: "Pick an active person from the Labour register." };
+  // TF-009: never onto the acting user's own register record (matched on email, or the login's personnelId).
+  if (actor && ((p.email && p.email.trim().toLowerCase() === actor.email.trim().toLowerCase()) || actor.personnelId === p.id)) return { error: "You can't move a sign-in onto your own record - ask another Manager." };
+  const allocated = a.jobId ? !!(await prisma.assignment.findFirst({ where: { jobId: a.jobId, resourceId: p.id }, select: { id: true } })) : true;
+  await prisma.siteAttendance.update({
+    where: { id: a.id },
+    data: {
+      resourceId: p.id, workerName: p.name, company: null, allocated,
+      edits: { create: [{ field: "person", before: `${a.workerName}${a.company ? ` (${a.company})` : ""}`, after: p.name, reason, editedBy: by }] },
+    },
+  });
+  return { ok: true, name: p.name };
+}

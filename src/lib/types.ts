@@ -98,6 +98,7 @@ export interface JobDTO {
   sortOrder: number;
   assignments: AssignmentDTO[];
   regional?: boolean; // the project is regional (travel sign-in) - from /api/jobs, 2 Nov 2026
+  noSignInWay?: boolean; // fix 3: crew on it but no supervisor link, hand-over or poster to sign in with
   // Client-only: a placeholder row for an active/inactive project that has no
   // job created yet for the selected date - see Board.tsx. Never sent to the API.
   virtual?: boolean;

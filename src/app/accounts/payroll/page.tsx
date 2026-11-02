@@ -14,7 +14,8 @@ import type { DayState, Group } from "@/lib/payroll/rules";
 
 type Week = {
   weekStart: string; weekEnd: string; days: string[]; weekEnded: boolean; managerLock: { by: string; at: string } | null;
-  people: PayPersonDTO[]; engagementUnset: number; abnHints: { id: string; name: string }[]; travel: string;
+  people: PayPersonDTO[]; engagementUnset: number;
+  namesToCheck?: { attendanceId: string; date: string; site: string; fields: string[] }[]; abnHints: { id: string; name: string }[]; travel: string;
   summary: { byItem: Record<string, number>; bySite: Record<string, number>; byAgency: Record<string, number>; total: number };
 };
 const GROUP: Record<Group, string> = { EMPLOYEE: "Employees", ABN: "ABN workers", HIRE: "Labour hire" };
@@ -94,6 +95,12 @@ export default function PayrollPage() {
           {" "}✓ supervisor approved · ⚑ flagged · ≠ changed since approved · · not approved · – office / yard / truck · 📍 location at sign-in. Travel / regional: {data.travel} with Victoria.
         </p>
       )}
+      {/* TF-004: a name, company or site that looked like bank / tax details is shown as "Name to check" - the office fixes it on Sign-ins. */}
+      {data?.namesToCheck && data.namesToCheck.length > 0 && (
+        <div className="mb-3 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">
+          {data.namesToCheck.length} sign-in{data.namesToCheck.length === 1 ? "" : "s"} show as &ldquo;Name to check&rdquo; (the {[...new Set(data.namesToCheck.flatMap((n) => n.fields))].join(" / ")} looked like bank or tax details): {data.namesToCheck.map((n) => `${n.date} - ${n.site}`).join("; ")}. Ask the office to check them on Sign-ins.
+        </div>
+      )}
       {flash && <div className="mb-3 rounded-lg bg-emerald-500/15 px-3 py-2 text-sm text-emerald-300">{flash}</div>}
       {error && <div className="mb-3 rounded-lg bg-red-900/30 px-3 py-2 text-sm text-red-300">{error}</div>}
       {!data ? <p className="py-8 text-center text-sm text-gray-500">{error ? "" : "Loading..."}</p> : data.people.length === 0 ? <p className="text-sm text-gray-500">No sign-ins this week.</p> : (
@@ -120,10 +127,11 @@ export default function PayrollPage() {
                         <td className="px-2 py-1.5">
                           {p.review && <div className={p.review.status === "APPROVED" ? "text-emerald-300" : "text-amber-300"}>{p.review.status === "APPROVED" ? "Approved" : "Queried"}{p.review.note ? `: ${p.review.note}` : ""}<div className="text-gray-500">{p.review.by}</div></div>}
                           <div className="mt-1 flex flex-wrap gap-1">
-                            <button className={btn} disabled={!!p.canApprove || busy === p.personKey || p.review?.status === "APPROVED"} title={p.canApprove ?? undefined} onClick={() => review(p, "APPROVED")}>Approve</button>
+                            <button className={btn} disabled={!!p.canApprove || busy === p.personKey || (p.review?.status === "APPROVED" && !p.payRunNote)} title={p.canApprove ?? undefined} onClick={() => review(p, "APPROVED")}>{p.payRunNote ? "Approve again" : "Approve"}</button>
                             <button className={quiet} disabled={busy === p.personKey} onClick={() => review(p, "QUERY")}>Query</button>
                           </div>
                           {p.canApprove && <div className="mt-1 text-gray-500">{p.canApprove}</div>}
+                          {p.payRunNote && <div className="mt-1 text-amber-300">{p.payRunNote}</div>}
                         </td>
                       </tr>
                     ))}

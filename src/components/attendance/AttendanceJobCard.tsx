@@ -45,6 +45,7 @@ export default function AttendanceJobCard({
 }) {
   const [editing, setEditing] = useState<string | null>(null);
   const [history, setHistory] = useState<string | null>(null);
+  const [moving, setMoving] = useState<string | null>(null); // fix 4: the hire row being moved onto a staff member
   const [adding, setAdding] = useState(false);
   const [handing, setHanding] = useState(false);
   const [handTo, setHandTo] = useState("");
@@ -55,6 +56,7 @@ export default function AttendanceJobCard({
   const [outAt, setOutAt] = useState("");
   const [outReason, setOutReason] = useState("Forgot to sign out");
   const [outNote, setOutNote] = useState<string | null>(null);
+  const [addNote, setAddNote] = useState<string | null>(null); // TF-006: how many other open sign-ins an add ended
   const stillIn = job.rows.filter((r) => !r.signOutAt && r.status !== "REJECTED");
   const toggle = (id: string) =>
     setPicked((p) => {
@@ -99,7 +101,7 @@ export default function AttendanceJobCard({
             {point ? "" : `${job.times ?? "No times set"} · ${job.allocated.length} allocated · `}
             {job.rows.filter((r) => r.status !== "REJECTED").length} signed in
             {total > 0 && ` · ${total}h signed`}
-            {job.breakMinutes ? ` (less ${job.breakMinutes} min break)` : ""}
+            {job.breakMinutes ? ` (one ${job.breakMinutes} min break a day, over 5h)` : ""}
           </div>
           {job.note && <div className="text-[11px] text-gray-400">{job.note}</div>}
           {handover && <div className="text-[11px] text-brand-300">Sign-in handed to {handover.name} until {fmt(handover.expiresAt)}</div>}
@@ -181,7 +183,8 @@ export default function AttendanceJobCard({
         </div>
       )}
 
-      {adding && canEdit && <AddMissed job={job} date={date} people={people} onSave={(b) => send("/api/attendance", "POST", b).then((o) => o && setAdding(false))} />}
+      {adding && canEdit && <AddMissed job={job} date={date} people={people} onSave={(b) => send("/api/attendance", "POST", b).then((o) => { if (!o) return o; setAdding(false); setAddNote(o.ended ? null : "Added."); if (o.ended) setAddNote(`Added - and ended ${o.ended} other open sign-in${o.ended === 1 ? "" : "s"} of theirs at this sign-in time (kept with a note).`); return o; })} />}
+      {addNote && <div className="border-b border-edge/70 px-3.5 py-1.5 text-xs text-gray-400">{addNote}</div>}
 
       {job.rows.length === 0 ? (
         <div className="px-3.5 py-3 text-xs text-gray-600">Nobody has signed in.</div>
@@ -228,6 +231,9 @@ export default function AttendanceJobCard({
                 <div className="w-16 shrink-0 text-xs text-gray-300"><div className="text-[10px] text-gray-500">In</div>{r.in}</div>
                 <div className="w-16 shrink-0 text-xs text-gray-300"><div className="text-[10px] text-gray-500">Out</div>{r.out ?? "-"}</div>
                 <div className="w-12 shrink-0 text-right text-xs font-medium text-gray-200"><div className="text-[10px] font-normal text-gray-500">Hours</div>{r.hours != null ? `${r.hours}h` : "-"}</div>
+                {canEdit && r.flags.includes("LOOKS_LIKE_STAFF") && (
+                  <button className={`${quiet} shrink-0 self-center text-amber-300`} onClick={() => setMoving(moving === r.id ? null : r.id)}>Move to staff</button>
+                )}
                 {canEdit && (
                   <button className={`${quiet} shrink-0 self-center`} onClick={() => setEditing(editing === r.id ? null : r.id)}>Change</button>
                 )}
@@ -253,6 +259,7 @@ export default function AttendanceJobCard({
                 </ul>
               )}
               {editing === r.id && <EditRow row={r} onSave={(b) => send(`/api/attendance/${r.id}`, "PATCH", b).then((o) => o && setEditing(null))} />}
+              {moving === r.id && <MoveToStaff row={r} people={people} onSave={(b) => send(`/api/attendance/${r.id}/person`, "POST", b).then((o) => o && setMoving(null))} />}
             </div>
           ))}
         </div>
@@ -306,10 +313,33 @@ function EditRow({ row, onSave }: { row: AttendanceRow; onSave: (body: Record<st
 }
 
 // The office adding a sign-in that was missed (Lobos crew or a hire worker).
+// Fix 4 (2 Nov 2026): a hire sign-in that was really Lobos staff - pick who it was (the likely ones first) and why.
+function MoveToStaff({ row, people, onSave }: { row: AttendanceRow; people: ResourceDTO[]; onSave: (body: Record<string, unknown>) => Promise<unknown> }) {
+  const suggested = row.staffLike ?? [];
+  const others = people.filter((p) => p.active !== false && !suggested.some((s) => s.id === p.id)).sort((a, b) => a.name.localeCompare(b.name));
+  const [who, setWho] = useState(suggested.find((s) => s.exact)?.id ?? ""); // TF-009: pre-selected on a full-name match only
+  const [reason, setReason] = useState(`Signed in as hire ("${row.name}${row.company ? ` / ${row.company}` : ""}") - is staff`);
+  return (
+    <div className="mt-1 flex flex-wrap items-end gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 p-2 text-xs">
+      <label className="text-gray-400">Staff member<br />
+        <select className="rounded-md border border-edge bg-panel2 px-2 py-1 text-gray-200" value={who} onChange={(e) => setWho(e.target.value)}>
+          <option value="">Pick...</option>
+          {suggested.length > 0 && <optgroup label="Likely">{suggested.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</optgroup>}
+          <optgroup label="Everyone">{others.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</optgroup>
+        </select>
+      </label>
+      <label className="min-w-[14rem] flex-1 text-gray-400">Reason (kept)<br /><input className="w-full rounded-md border border-edge bg-panel2 px-2 py-1 text-gray-200" value={reason} onChange={(e) => setReason(e.target.value)} /></label>
+      <button disabled={!who || reason.trim().length < 3} onClick={() => onSave({ resourceId: who, reason })} className="rounded-md bg-brand-600 px-3 py-1 font-medium text-white disabled:opacity-40">Move</button>
+    </div>
+  );
+}
+
 function AddMissed({ job, date, people, onSave }: { job: AttendanceJob; date: string; people: ResourceDTO[]; onSave: (body: Record<string, unknown>) => Promise<unknown> }) {
-  const [v, setV] = useState({ who: "", hireName: "", company: "", in: `${date}T07:00`, out: "", reason: "" });
+  const [v, setV] = useState({ who: "", hireName: "", company: "", in: `${date}T07:00`, out: "", reason: "", endOpen: false });
   const hire = v.who === "HIRE";
   const allocatedIds = new Set(job.allocated.map((p) => p.id));
+  // Fix 2a (2 Nov 2026): an earlier day needs its sign-out too - only today's can be left open (still on site).
+  const needsOut = date !== new Date().toLocaleDateString("en-CA", { timeZone: "Australia/Sydney" });
   return (
     <div className="flex flex-wrap items-end gap-2 border-b border-edge/70 bg-panel2/40 px-3.5 py-2 text-xs">
       <label className="flex flex-col gap-0.5 text-gray-400">
@@ -328,14 +358,20 @@ function AddMissed({ job, date, people, onSave }: { job: AttendanceJob; date: st
         </>
       )}
       <label className="flex flex-col gap-0.5 text-gray-400">In<input type="datetime-local" className={inp} value={v.in} onChange={(e) => setV({ ...v, in: e.target.value })} /></label>
-      <label className="flex flex-col gap-0.5 text-gray-400">Out<input type="datetime-local" className={inp} value={v.out} onChange={(e) => setV({ ...v, out: e.target.value })} /></label>
+      <label className="flex flex-col gap-0.5 text-gray-400">{needsOut ? "Out (needed)" : "Out (leave empty if still on site)"}<input type="datetime-local" className={inp} value={v.out} onChange={(e) => setV({ ...v, out: e.target.value })} /></label>
       <label className="flex min-w-[12rem] flex-1 flex-col gap-0.5 text-gray-400">
         Reason
         <input className={inp} value={v.reason} onChange={(e) => setV({ ...v, reason: e.target.value })} placeholder="e.g. phone flat - supervisor confirmed" />
       </label>
+      {/* TF-006: with a sign-out filled in, ending another open sign-in is the office's choice (an open one always ends it). */}
+      {v.out && (
+        <label className="flex items-center gap-1.5 text-gray-300" title="If they still have a sign-in open somewhere else, it ends at this sign-in time (kept with a note).">
+          <input type="checkbox" checked={v.endOpen} onChange={(e) => setV({ ...v, endOpen: e.target.checked })} /> End their other open sign-in
+        </label>
+      )}
       <button
         className={btn}
-        disabled={!v.who || !v.in || v.reason.trim().length < 3 || (hire && (!v.hireName.trim() || !v.company.trim()))}
+        disabled={!v.who || !v.in || (needsOut && !v.out) || v.reason.trim().length < 3 || (hire && (!v.hireName.trim() || !v.company.trim()))}
         onClick={() =>
           onSave({
             ...(job.kind === "POINT" ? { place: job.place, vehicleId: job.vehicleId } : { jobId: job.id }),
@@ -343,6 +379,7 @@ function AddMissed({ job, date, people, onSave }: { job: AttendanceJob; date: st
             signInAt: fromLocal(v.in),
             signOutAt: fromLocal(v.out),
             reason: v.reason,
+            ...(v.out && v.endOpen ? { endOpen: true } : {}),
           })
         }
       >

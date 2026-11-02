@@ -5,8 +5,10 @@ import { nameWithoutAmounts } from "@/lib/dailyLog/money";
 import { jobLabel, makeOdometerToken, makeTravelPass, openJob, pointOf, readTicket, sydneyTime, takesSignIns } from "@/lib/signin";
 import { endOutOnSignIn, hasRegionalWork, homeOffered } from "@/lib/travel/store";
 import { passAllowed } from "@/lib/travel/rules";
+import { looksLikeLobos } from "@/lib/staffMatch";
 import { todaySydney } from "@/lib/today";
-import { syncSignInActualsQuietly } from "@/lib/signInActuals";
+import { syncPersonDayQuietly, syncSignInActualsQuietly } from "@/lib/signInActuals";
+import { endOpenElsewhere } from "@/lib/signinOverlap";
 import { parseGps } from "@/lib/payroll/rules";
 
 // POST /api/site/in/sign - someone signing in or out from their phone.
@@ -62,6 +64,9 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   } else {
     const name = clean(body.hire?.name), company = clean(body.hire?.company);
     if (name.length < 2 || company.length < 2) return bad("Enter your full name and the company you're from.");
+    // TF-008 (Ilies: "everyone is lobos contracting"): Lobos, Lobos Civil, Lobos Demolition, Lobos Contracting are all
+    // staff - a "hire" sign-in never reaches the staff timesheet. The office can still add one if it must.
+    if (looksLikeLobos(company)) return bad("You're Lobos staff - pick your name instead (tap \"I'm not on this list\" to search).");
     who = { resourceId: null, workerName: name, company };
   }
   const whoWhere = who.resourceId ? { resourceId: who.resourceId } : { resourceId: null, workerName: who.workerName, company: who.company };
@@ -100,16 +105,8 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
     if (sinceMidnight >= 300) return bad("Too many sign-ins here today - call the office.", 429);
     // Signed in somewhere else (another site, another truck) and moved here:
     // that one ends now. A site one goes to its supervisor to confirm.
-    const elsewhere = await prisma.siteAttendance.findMany({
-      where: { ...whoWhere, signOutAt: null, status: { not: "REJECTED" }, signInAt: recent, NOT: hereWhere },
-      select: { id: true, jobId: true },
-    });
-    for (const e of elsewhere) {
-      await prisma.siteAttendance.update({
-        where: { id: e.id },
-        data: { signOutAt: now, signOutMethod: "MOVED", ...(e.jobId ? { status: "TO_CONFIRM" } : {}) },
-      });
-    }
+    // (Fix 1, 2 Nov 2026: the same helper every sign-in path uses, with a note kept on the ended line.)
+    const elsewhere = await endOpenElsewhere({ who, at: now, here: { jobId: where.jobId, place: where.place, vehicleId: where.vehicleId }, label: where.label, by: runBy ?? "Sign-in", siteToConfirm: true });
     const signedIn = await prisma.siteAttendance.create({
       data: {
         jobId: where.jobId,
@@ -130,7 +127,8 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
       },
     });
     // Anywhere they were just moved off now has their hours.
-    await syncSignInActualsQuietly(elsewhere.map((e) => e.jobId));
+    await syncSignInActualsQuietly([...elsewhere.map((e) => e.jobId), where.jobId]);
+    await syncPersonDayQuietly(who.resourceId, where.date);
     // Regional travel (2 Nov 2026): arriving on site ends their outward travel to this project.
     const travelEnded = where.jobId ? await endOutOnSignIn(who.resourceId, where.projectId, signedIn.id, now) : null;
     return NextResponse.json({
@@ -149,6 +147,7 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
       data: { signOutAt: now, signOutMethod: ticket.method, ...(toConfirm ? { status: "TO_CONFIRM" } : {}) },
     });
     await syncSignInActualsQuietly([open.jobId]);
+    await syncPersonDayQuietly(who.resourceId, open.date);
     return NextResponse.json({
       ok: true,
       message: `Signed out at ${sydneyTime(now)} - ${where.label}. See you next time.`,

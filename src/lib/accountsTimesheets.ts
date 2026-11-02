@@ -8,11 +8,15 @@ import { POINT_BREAK_MINUTES, STILL_ON_HOURS } from "./signin";
 import { timesheetCsv, type TimesheetLine, type TravelLine } from "./timesheets";
 import { fileIsSafe } from "./payroll/rules";
 import { HOME_OFFER_HOURS, TRAVEL_CAP_HOURS } from "./travel/rules";
+import { BREAK_OVER_MINUTES, breakRuleFrom } from "./dayHours";
+
+const ruleFromText = () => new Date(breakRuleFrom() + "T12:00:00Z").toLocaleDateString("en-AU", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
 
 // ---------- the one-time notice ----------
 
 // Bump the version when the text changes in a way she should read again.
-export const TIMESHEETS_NOTICE = "ACCOUNTS_TIMESHEETS_V1";
+// V2 (2 Nov 2026): the break rule changed to once a day over 5 h - she sees the notice again.
+export const TIMESHEETS_NOTICE = "ACCOUNTS_TIMESHEETS_V2";
 
 // New projects start with a 30-minute unpaid break (prisma/schema.prisma Project.unpaidBreakMinutes @default(30);
 // the project form's placeholder, lib/projectFormFields.ts). Not importable from the schema, so it is stated here.
@@ -35,14 +39,16 @@ export const TIMESHEETS_EXPLAINER: Explainer = {
       ],
     },
     {
-      // lib/signin.ts signedHours + POINT_BREAK_MINUTES; lib/timesheets.ts timesheetLines (break per line), peopleOf (totals)
+      // lib/dayHours.ts (BREAK_OVER_MINUTES, never below 5 h - TF-011, the day merge, the break off the longest line, the day
+      // rounded once - TF-001, BREAK_RULE_FROM - TF-007a);
+      // lib/signin.ts POINT_BREAK_MINUTES; lib/timesheets.ts timesheetLines / peopleOf (Ilies, 2 Nov 2026: "break once per day over 5h")
       heading: "How hours are worked out",
       bullets: [
-        "Hours = sign-out time minus sign-in time, less the unpaid break.",
-        `The break is set on each project (new projects start at ${PROJECT_BREAK_DEFAULT} minutes). Office, yard and truck sign-ins always take off ${POINT_BREAK_MINUTES} minutes. If a project's break is left blank, nothing comes off.`,
-        "The break comes off every sign-in, however short - there's no short-shift exception. Someone who signs in twice in a day has it taken off both times.",
-        "Hours never go below zero: a sign-in shorter than the break counts as 0 hours (shown as \"check: 0h\").",
-        "After the break, hours are rounded to the nearest quarter hour. Week totals are rounded to the quarter hour too.",
+        `Hours = sign-out time minus sign-in time. One unpaid break per person per day, and only when their day's total is over ${BREAK_OVER_MINUTES / 60} hours - and the break never takes the day below ${BREAK_OVER_MINUTES / 60} hours (5:10 counts 5.0, 6:00 counts 5.5).`,
+        `The break is the largest set on any of that day's places: each project's own setting (new projects start at ${PROJECT_BREAK_DEFAULT} minutes), and ${POINT_BREAK_MINUTES} minutes at the office, yard and trucks. It comes off the day's longest sign-in.`,
+        "Signed in at two places at the same time (a truck and a site, say)? That time counts once, and both lines show \"overlap - counted once\".",
+        "Each day is rounded once to the nearest quarter hour and shared across its lines, so the lines always add up to the day.",
+        `This applies from ${ruleFromText()}. Earlier days keep the old rule (a break off each sign-in, each rounded on its own).`,
       ],
     },
     {

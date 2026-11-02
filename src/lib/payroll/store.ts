@@ -3,7 +3,9 @@
 // weekly lock, and Victoria's final approve / query - plus the pay-run and summary files. Reads sign-ins
 // only; writes HoursApproval and PayWeekReview rows. Hours only, never money.
 import { prisma } from "../prisma";
-import { jobLabel, POINT_BREAK_MINUTES, signedHours, sydneyTime } from "../signin";
+import { jobLabel, POINT_BREAK_MINUTES, sydneyTime } from "../signin";
+import { dayHours } from "../dayHours";
+import { dayHoursFor } from "../dayHoursStore";
 import { matchHireSignIns } from "../labourHireMatch";
 import { activeApproval, weekDates, weekEnd, weekHasEnded } from "../timesheets";
 import { assertNoMoney } from "../moneyGuard";
@@ -17,6 +19,17 @@ import {
 } from "./rules";
 
 type Problem = { error: string; status: number };
+// Any "$" amount out of a name / company / site for the payroll files and screen; the fallback if nothing is left.
+export const noAmounts = (s: string, fallback: string) => nameWithoutAmounts(s) || fallback;
+// TF-004: a name / company / site that still trips the file check's words (BSB, TFN, ABA, account number - e.g. a
+// worker called "Aba") is swapped for a placeholder in the files and the screen, and listed for the office to check.
+export const NAME_TO_CHECK = (date: string) => `Name to check (Sign-ins ${date})`;
+export function payText(s: string, fallback: string, date: string, toCheck?: string[], field = "name") {
+  const v = noAmounts(s, fallback);
+  if (fileIsSafe(v)) return v;
+  toCheck?.push(field);
+  return NAME_TO_CHECK(date);
+}
 const parse = <T,>(s: string, fallback: T): T => { try { return JSON.parse(s) as T; } catch { return fallback; } };
 
 // ---------- the week's lines ----------
@@ -26,7 +39,7 @@ export async function payLines(weekStart: string): Promise<PayLine[]> {
     where: { date: { gte: weekStart, lte: weekEnd(weekStart) }, status: { not: "REJECTED" } },
     orderBy: [{ workerName: "asc" }, { signInAt: "asc" }],
     select: {
-      id: true, date: true, jobId: true, resourceId: true, workerName: true, company: true, signInAt: true, signOutAt: true, status: true,
+      id: true, date: true, jobId: true, resourceId: true, workerName: true, company: true, deviceId: true, signInAt: true, signOutAt: true, status: true,
       placeLabel: true, place: true, gpsLat: true, gpsLng: true, gpsAccuracyM: true, gpsStatus: true,
       resource: { select: { id: true, name: true, type: true, engagement: true } },
       job: { select: { title: true, shift: true, project: { select: { name: true, unpaidBreakMinutes: true } } } },
@@ -39,15 +52,22 @@ export async function payLines(weekStart: string): Promise<PayLine[]> {
   for (const jobId of jobIds) {
     matchHireSignIns(tiles.filter((t) => t.jobId === jobId).map((t) => t.resource), rows.filter((r) => r.jobId === jobId && !r.resourceId)).forEach((t, id) => tileOf.set(id, t.name));
   }
-  return rows.filter((r) => !r.resource || r.resource.type === "PERSONNEL").map((r) => {
-    const breakMinutes = r.job ? r.job.project?.unpaidBreakMinutes ?? 0 : POINT_BREAK_MINUTES;
+  const kept = rows.filter((r) => !r.resource || r.resource.type === "PERSONNEL");
+  // One break per person per day over 5 h, overlaps counted once (lib/dayHours.ts, Ilies 2 Nov 2026).
+  const day = dayHours(kept.map((r) => ({ id: r.id, personKey: personKeyOf(r.resourceId, r.resource?.name ?? r.workerName, r.company), date: r.date, start: r.signInAt, end: r.signOutAt, breakMinutes: r.job ? r.job.project?.unpaidBreakMinutes ?? 0 : POINT_BREAK_MINUTES, deviceId: r.deviceId })));
+  return kept.map((r) => {
     const name = r.resource?.name ?? r.workerName;
+    const chk: string[] = []; // TF-004: which of name / company / site had to be swapped for a placeholder
     return {
-      attendanceId: r.id, date: r.date, personKey: personKeyOf(r.resourceId, name, r.company), personName: name,
-      resourceId: r.resourceId, company: r.company, group: groupOf(r.resourceId, r.resource?.engagement ?? null), engagementSet: !r.resourceId || !!r.resource?.engagement,
-      jobId: r.jobId, shift: (r.job?.shift === "NIGHT" ? "NIGHT" : "DAY") as "DAY" | "NIGHT", site: r.job ? jobLabel(r.job) : r.placeLabel ?? r.place ?? "Sign-in point", point: !r.jobId,
-      in: sydneyTime(r.signInAt)!, out: sydneyTime(r.signOutAt), hours: signedHours(r.signInAt, r.signOutAt, breakMinutes), status: r.status, tile: tileOf.get(r.id) ?? null,
+      // Names, companies and sites with any "$" amount taken out (Ilies, 2 Nov 2026: "yes fix the payroll $ names") - a
+      // hire worker typed "$5 Labour" once, and the whole week's files were refused. The key keeps the raw text so the
+      // same person still groups together.
+      attendanceId: r.id, date: r.date, personKey: personKeyOf(r.resourceId, name, r.company), personName: payText(name, "Unnamed", r.date, chk, "name"),
+      resourceId: r.resourceId, company: r.company == null ? null : payText(r.company, "Company", r.date, chk, "company"), group: groupOf(r.resourceId, r.resource?.engagement ?? null), engagementSet: !r.resourceId || !!r.resource?.engagement,
+      jobId: r.jobId, shift: (r.job?.shift === "NIGHT" ? "NIGHT" : "DAY") as "DAY" | "NIGHT", site: payText(r.job ? jobLabel(r.job) : r.placeLabel ?? r.place ?? "Sign-in point", "Site", r.date, chk, "site"), point: !r.jobId,
+      in: sydneyTime(r.signInAt)!, out: sydneyTime(r.signOutAt), hours: day.get(r.id)!.hours, overlap: day.get(r.id)!.overlap, status: r.status, tile: tileOf.get(r.id) ?? null,
       gps: r.gpsLat != null && r.gpsLng != null ? { lat: r.gpsLat, lng: r.gpsLng, accuracyM: r.gpsAccuracyM } : null, gpsStatus: r.gpsStatus,
+      ...(chk.length ? { toCheck: chk } : {}),
     };
   });
 }
@@ -62,7 +82,7 @@ async function payTravel(weekStart: string): Promise<PayTravel[]> {
   const legs = await prisma.travelLeg.findMany({ where: { date: { gte: weekStart, lte: weekEnd(weekStart) } }, orderBy: { startAt: "asc" } });
   const pt = (lat: number | null, lng: number | null, acc: number | null) => (lat != null && lng != null ? { lat, lng, accuracyM: acc } : null);
   return legs.map((l) => ({
-    legId: l.id, personKey: l.resourceId, name: l.workerName, date: l.date, direction: l.direction, site: l.siteLabel,
+    legId: l.id, personKey: l.resourceId, name: payText(l.workerName, "Unnamed", l.date), date: l.date, direction: l.direction, site: payText(l.siteLabel, "Site", l.date),
     start: sydneyTime(l.startAt)!, end: sydneyTime(l.endAt), ...legHours(l.startAt, l.endAt),
     gps: { start: pt(l.startGpsLat, l.startGpsLng, l.startGpsAccuracyM), end: pt(l.endGpsLat, l.endGpsLng, l.endGpsAccuracyM) },
   }));
@@ -93,6 +113,8 @@ export type PayPersonDTO = {
   days: Record<string, PayDayLine[]>; issues: string[]; review: { status: string; note: string | null; by: string; at: string } | null;
   canApprove: string | null; // null = Victoria can approve now; else why not
   inPayRun: boolean;
+  payRunNote?: string; // TF-007b: why someone Victoria approved is left out of the pay-run file
+  reviewHours?: number | null; // the hours her latest review was made on
   travel: PayTravel[]; // regional travel legs (2 Nov 2026) - its own hours, never in `hours`
   travelHours: number;
 };
@@ -110,7 +132,7 @@ export async function payrollWeek(weekStart: string) {
     const p = people.get(l.personKey) ?? {
       personKey: l.personKey, name: l.personName, group: l.group, company: l.company, engagementSet: l.engagementSet, hours: 0,
       days: Object.fromEntries(weekDates(weekStart).map((d) => [d, [] as PayDayLine[]])), issues: [],
-      review: r ? { status: r.status, note: r.note, by: r.by, at: r.at.toISOString() } : null,
+      review: r ? { status: r.status, note: r.note, by: r.by, at: r.at.toISOString() } : null, reviewHours: r?.hours ?? null,
       canApprove: canAccountsApprove(l.group, !!lock, ended), inPayRun: inPayRun(l.group, r?.status ?? null),
       travel: [], travelHours: 0,
     };
@@ -137,6 +159,12 @@ export async function payrollWeek(weekStart: string) {
       ...(p.group === "HIRE" && all.some((x) => x.jobId && !x.tile) ? ["Signed in where no labour hire was booked on the board"] : []),
     ];
     p.hours = Math.round(p.hours * 4) / 4;
+    // TF-007b: approved on different hours than the sign-ins show now (an office change, a late sign-out, the break
+    // rule) - left out of the pay-run file until she approves the new hours.
+    if (p.inPayRun && p.review?.status === "APPROVED" && p.reviewHours != null && Math.abs(p.reviewHours - p.hours) > 0.001) {
+      p.inPayRun = false;
+      p.payRunNote = `Hours changed since you approved (${p.reviewHours}h -> ${p.hours}h) - approve again to put them in the pay-run.`;
+    }
   }
   const list = [...people.values()].sort((a, b) => a.group.localeCompare(b.group) || a.name.localeCompare(b.name));
   // People whose notes mention ABN but engagement isn't set - for the office to check (never set automatically).
@@ -147,6 +175,8 @@ export async function payrollWeek(weekStart: string) {
   return {
     weekStart, weekEnd: weekEnd(weekStart), days: weekDates(weekStart), weekEnded: ended,
     managerLock: lock ? { by: lock.approvedBy, at: lock.approvedAt.toISOString() } : null,
+    // TF-004: the lines whose name / company / site was swapped for "Name to check" - listed on the Payroll screen.
+    namesToCheck: lines.filter((l) => l.toCheck?.length).map((l) => ({ attendanceId: l.attendanceId, date: l.date, site: l.site, fields: l.toCheck! })),
     people: list, engagementUnset: list.filter((p) => p.group === "EMPLOYEE" && !p.engagementSet).length, summary: summarise(lines, new Map([...reviews].map(([k, r]) => [k, r.status]))), abnHints, travel: TRAVEL_HOOK,
   };
 }
@@ -170,8 +200,8 @@ export async function reviewPerson(who: { id: string; name: string }, b: Record<
   return { ok: true };
 }
 
-// The pay-run file (employees Victoria approved) and the weekly summary. Hours only.
-export async function payrollFiles(weekStart: string): Promise<{ payRun: string; summary: string }> {
+// The pay-run file (employees Victoria approved) or the weekly summary - only the one asked for (TF-004). Hours only.
+export async function payrollFiles(weekStart: string, which: "payrun" | "summary" = "payrun"): Promise<{ csv: string } | { error: string }> {
   const week = await payrollWeek(weekStart);
   const lines = Object.values(week.people).flatMap((p) => Object.values(p.days).flat());
   const approved = new Set(week.people.filter((p) => p.inPayRun).map((p) => p.personKey));
@@ -183,10 +213,10 @@ export async function payrollFiles(weekStart: string): Promise<{ payRun: string;
     v.hours += t.hours ?? 0;
     travel.set(k, v);
   }
-  const payRun = toCsv(payRunRows(lines, approved, emails, travel));
+  const payRun = () => toCsv(payRunRows(lines, approved, emails, travel));
   const travelOf = new Map(week.people.map((p) => [p.personKey, p.travelHours]));
   const s = week.summary;
-  const summary = toCsv([
+  const summary = () => toCsv([
     [`Lobos Contracting - weekly hours summary, ${week.weekStart} to ${week.weekEnd}`],
     [week.managerLock ? `Timesheet locked by ${week.managerLock.by}` : "Timesheet not locked by a Manager yet"],
     [],
@@ -200,13 +230,17 @@ export async function payrollFiles(weekStart: string): Promise<{ payRun: string;
     ...Object.entries(s.bySite).sort((a, b) => b[1] - a[1]).map(([k, v]) => [`Site: ${k}`, v]),
     ...Object.entries(s.byAgency).map(([k, v]) => [`Labour hire: ${k}`, v]),
   ]);
-  if (!fileIsSafe(payRun) || !fileIsSafe(summary)) throw new Error("A payroll file looked like it had money in it - not sent.");
-  return { payRun, summary };
+  // Still the last check: anything that looks like money, bank or tax details is refused - with a reason, never a 500.
+  const csv = which === "summary" ? summary() : payRun();
+  if (!fileIsSafe(csv)) return { error: `The ${which === "summary" ? "summary" : "pay-run"} file for this week has something that looks like a dollar figure, bank or tax details (BSB, TFN, ABA, account number) - not sent. Ask the office to check the week's sign-ins.` };
+  return { csv };
 }
 
 // ---------- the supervisor's daily approval (site link) ----------
 
-export type CrewHoursDTO = { attendanceId: string; name: string; company: string | null; in: string; out: string | null; hours: number | null; toConfirm: boolean };
+// notOnBoard (fix 5b, 2 Nov 2026): a Lobos staff member who signed in here but isn't on this job's allocation -
+// the supervisor confirms they worked (or flags it). It never blocks the approval on its own.
+export type CrewHoursDTO = { attendanceId: string; name: string; company: string | null; in: string; out: string | null; hours: number | null; toConfirm: boolean; notOnBoard?: boolean; overlap?: boolean };
 export type DayHoursDTO = { date: string; jobs: { jobId: string; label: string; crew: CrewHoursDTO[]; approved: { by: string; at: string; changed: boolean } | null; flags: Record<string, string> }[] };
 
 // The supervisor's jobs on a day (on the board for them), with everyone who signed in. Names and hours only.
@@ -218,8 +252,10 @@ export async function dayHoursForLink(link: ResolvedLink, date: string): Promise
   });
   const atts = jobs.length ? await prisma.siteAttendance.findMany({
     where: { jobId: { in: jobs.map((j) => j.id) }, status: { not: "REJECTED" } }, orderBy: { signInAt: "asc" },
-    select: { id: true, jobId: true, workerName: true, company: true, signInAt: true, signOutAt: true, status: true, resource: { select: { name: true } } },
+    select: { id: true, jobId: true, date: true, resourceId: true, allocated: true, workerName: true, company: true, signInAt: true, signOutAt: true, status: true, resource: { select: { name: true } } },
   }) : [];
+  // Each person's whole day (their truck, office or other-site lines too): one break over 5 h, overlaps once.
+  const day = await dayHoursFor(atts);
   const approvals = await latestApprovals(jobs.map((j) => ({ jobId: j.id, date })));
   const dto: DayHoursDTO = {
     date,
@@ -227,7 +263,8 @@ export async function dayHoursForLink(link: ResolvedLink, date: string): Promise
       const crew = atts.filter((a) => a.jobId === j.id).map((a) => ({
         // Names as typed at sign-in can hold a "$" (a hire company "$5 Labour") - taken out so "Approve hours" never fails (DLV-SEC-013).
         attendanceId: a.id, name: nameWithoutAmounts(a.resource?.name ?? a.workerName), company: a.company ? nameWithoutAmounts(a.company) : a.company, in: sydneyTime(a.signInAt)!, out: sydneyTime(a.signOutAt),
-        hours: signedHours(a.signInAt, a.signOutAt, j.project?.unpaidBreakMinutes ?? 0), toConfirm: a.status === "TO_CONFIRM",
+        hours: day.get(a.id)?.hours ?? null, toConfirm: a.status === "TO_CONFIRM",
+        ...(a.resourceId && !a.allocated ? { notOnBoard: true } : {}), ...(day.get(a.id)?.overlap ? { overlap: true } : {}),
       }));
       const a = approvals.get(`${j.id}|${date}`);
       const changed = !!a && crew.some((c) => dayState({ ...c, jobId: j.id }, a.snapshot) !== "APPROVED" && dayState({ ...c, jobId: j.id }, a.snapshot) !== "FLAGGED");

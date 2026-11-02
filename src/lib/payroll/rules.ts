@@ -3,6 +3,7 @@
 // Victoria are marked "Draft".
 import { tierFor, type RateTier } from "../labourCost";
 import { assertNoMoney } from "../moneyGuard";
+import { personKeyFor } from "../dayHours";
 
 export type Group = "EMPLOYEE" | "ABN" | "HIRE";
 export type DayState = "APPROVED" | "FLAGGED" | "CHANGED" | "NOT_APPROVED" | "NO_SUPERVISOR";
@@ -10,14 +11,14 @@ export type DayState = "APPROVED" | "FLAGGED" | "CHANGED" | "NOT_APPROVED" | "NO
 export type PayLine = {
   attendanceId: string; date: string; personKey: string; personName: string; resourceId: string | null; company: string | null;
   group: Group; engagementSet: boolean; jobId: string | null; shift: "DAY" | "NIGHT"; site: string; point: boolean;
-  in: string; out: string | null; hours: number | null; status: string; tile: string | null; // labour hire: the board tile it fills
+  in: string; out: string | null; hours: number | null; overlap?: boolean; toCheck?: string[]; status: string; tile: string | null; // labour hire: the board tile it fills
   gps: { lat: number; lng: number; accuracyM: number | null } | null; gpsStatus: string | null;
 };
 export type ApprovalSnapshotLine = { attendanceId: string; name: string; company: string | null; in: string; out: string | null; hours: number | null; flag?: string };
 
 // "hire:<name>|<company>" for a worker with no register record; the resource id otherwise.
-export const personKeyOf = (resourceId: string | null, name: string, company: string | null) =>
-  resourceId ?? `hire:${name.trim().toLowerCase().replace(/\s+/g, " ")}|${(company ?? "").trim().toLowerCase().replace(/\s+/g, " ")}`;
+// The same key the day-hours rule groups by (lib/dayHours.ts personKeyFor - one place).
+export const personKeyOf = personKeyFor;
 
 export const groupOf = (resourceId: string | null, engagement: string | null): Group => (!resourceId ? "HIRE" : engagement === "ABN" ? "ABN" : "EMPLOYEE");
 

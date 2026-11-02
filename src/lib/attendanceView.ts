@@ -7,6 +7,9 @@ import { prisma } from "./prisma";
 import { jobLabel, pointCrew, POINT_BREAK_MINUTES, signedHours, sydneyTime, type Place } from "./signin";
 import { todaySydney } from "./today";
 import { matchHireSignIns } from "./labourHireMatch";
+import type { LineHours } from "./dayHours";
+import { dayHoursFor } from "./dayHoursStore";
+import { staffSuggestions, type StaffMatch } from "./staffMatch";
 
 export type AttendanceFlag =
   | "NO_SIGN_IN" // allocated, never signed in
@@ -19,7 +22,9 @@ export type AttendanceFlag =
   | "SHARED_PHONE" // one phone signed in more than one person that day
   | "REJECTED" // supervisor said they weren't there
   | "ODD_HOURS" // office / yard / truck: signed in before 4am or after 9pm
-  | "LONG_DAY"; // office / yard / truck: more than 14 hours signed in
+  | "LONG_DAY" // office / yard / truck: more than 14 hours signed in
+  | "OVERLAP" // overlapped another of their sign-ins that day - the shared time counted once (2 Nov 2026)
+  | "LOOKS_LIKE_STAFF"; // a hire sign-in that looks like Lobos staff (company Lobos, or a staff member's name) - fix 4
 
 type AttendanceWithEdits = Prisma.SiteAttendanceGetPayload<{ include: { edits: true } }>;
 
@@ -29,7 +34,7 @@ const weekday = (iso: string) => new Date(iso + "T12:00:00Z").getUTCDay();
 function rowOf(
   a: AttendanceWithEdits,
   // slot: the labour hire tile a hire worker fills on this job (null = none left); undefined for staff / points.
-  opts: { date: string; today: string; breakMin: number | null; devices: Map<string, Set<string>>; point: boolean; slot?: string | null }
+  opts: { date: string; today: string; breakMin: number | null; devices: Map<string, Set<string>>; point: boolean; slot?: string | null; day: Map<string, LineHours>; staff?: StaffMatch[] }
 ) {
   const flags: AttendanceFlag[] = [];
   if (a.status === "TO_CONFIRM") flags.push("TO_CONFIRM");
@@ -40,6 +45,9 @@ function rowOf(
   if (opts.slot === null && a.status !== "REJECTED") flags.push("NO_HIRE_TILE");
   if (!a.signOutAt) flags.push(opts.date < opts.today ? "NO_SIGN_OUT" : "STILL_ON");
   if (a.signOutMethod === "MOVED") flags.push("MOVED");
+  if (opts.day.get(a.id)?.overlap && a.status !== "REJECTED") flags.push("OVERLAP");
+  const staffLike = !a.resourceId && a.status !== "REJECTED" ? staffSuggestions({ name: a.workerName, company: a.company }, opts.staff ?? []) : null;
+  if (staffLike) flags.push("LOOKS_LIKE_STAFF");
   if (a.deviceId && (opts.devices.get(a.deviceId)?.size ?? 0) > 1) flags.push("SHARED_PHONE");
   if (opts.point) {
     const h = sydneyHour(a.signInAt);
@@ -61,7 +69,9 @@ function rowOf(
     status: a.status,
     confirmedBy: a.confirmedBy,
     runBy: a.runBy,
-    hours: a.status === "REJECTED" ? null : signedHours(a.signInAt, a.signOutAt, opts.breakMin),
+    hours: a.status === "REJECTED" ? null : opts.day.get(a.id)?.hours ?? null,
+    breakTaken: opts.day.get(a.id)?.breakMinutes ?? 0,
+    staffLike, // fix 4: the staff it may be ("Move to <person>" on the Sign-ins page)
     flags,
     edits: a.edits.map((e) => ({ field: e.field, before: e.before, after: e.after, reason: e.reason, editedBy: e.editedBy, editedAt: e.editedAt.toISOString() })),
   };
@@ -90,6 +100,13 @@ export async function attendanceForDate(date: string) {
     prisma.siteLink.findMany({ where: { kind: "POSTER", place: "VEHICLE", revokedAt: null }, select: { resource: { select: { id: true, name: true } } } }),
   ]);
 
+  // Hours per person per day (one break over 5 h, overlaps once - lib/dayHours.ts), and the active staff a hire
+  // sign-in might really be (fix 4).
+  const [dayMap, staffAll] = await Promise.all([
+    dayHoursFor([...jobs.flatMap((j) => j.attendances), ...pointRows]),
+    prisma.resource.findMany({ where: { type: "PERSONNEL", active: true }, select: { id: true, name: true } }),
+  ]);
+
   // Phones that signed in more than one person this date.
   const devices = new Map<string, Set<string>>();
   for (const a of [...jobs.flatMap((j) => j.attendances), ...pointRows]) {
@@ -107,7 +124,7 @@ export async function attendanceForDate(date: string) {
       // Labour hire sign-ins paired with this job's labour hire tiles.
       const slots = matchHireSignIns(tiles, j.attendances.filter((a) => !a.resourceId));
       const rows = j.attendances.map((a) =>
-        rowOf(a, { date, today, breakMin, devices, point: false, slot: a.resourceId ? undefined : slots.get(a.id)?.name ?? null })
+        rowOf(a, { date, today, breakMin, devices, point: false, slot: a.resourceId ? undefined : slots.get(a.id)?.name ?? null, day: dayMap, staff: staffAll })
       );
       const signedIn = new Set(j.attendances.filter((a) => a.status !== "REJECTED").map((a) => a.resourceId));
       const filled = new Set([...slots.values()].map((t) => t.id));
@@ -163,7 +180,7 @@ export async function attendanceForDate(date: string) {
       endTime: null as string | null,
       breakMinutes: POINT_BREAK_MINUTES,
       allocated: staff,
-      rows: mine.map((a) => rowOf(a, { date, today, breakMin: POINT_BREAK_MINUTES, devices, point: true })),
+      rows: mine.map((a) => rowOf(a, { date, today, breakMin: POINT_BREAK_MINUTES, devices, point: true, day: dayMap, staff: staffAll })),
       noShows: place === "OFFICE" && date <= today && day >= 1 && day <= 5 ? staff.filter((p) => !signedIn.has(p.id)) : [],
     };
   };
@@ -185,7 +202,7 @@ export async function signInHoursForJobs(jobIds: string[]) {
     where: { jobId: { in: jobIds }, status: { not: "REJECTED" } },
     orderBy: { signInAt: "asc" },
     select: {
-      id: true, jobId: true, resourceId: true, workerName: true, company: true, signInAt: true, signOutAt: true, status: true,
+      id: true, jobId: true, date: true, resourceId: true, workerName: true, company: true, signInAt: true, signOutAt: true, status: true,
       job: { select: { project: { select: { unpaidBreakMinutes: true } } } },
     },
   });
@@ -199,6 +216,8 @@ export async function signInHoursForJobs(jobIds: string[]) {
     const m = matchHireSignIns(tiles.filter((t) => t.jobId === jobId).map((t) => t.resource), rows.filter((r) => r.jobId === jobId && !r.resourceId).map((r) => ({ ...r, workerName: r.workerName })));
     m.forEach((t, id) => slot.set(id, t));
   }
+  // A person's whole day counts (their truck / office / other-site lines too): one break over 5 h, overlaps once.
+  const day = await dayHoursFor(rows);
   return rows.map((r) => ({
     jobId: r.jobId,
     resourceId: r.resourceId ?? slot.get(r.id)?.id ?? null,
@@ -207,7 +226,7 @@ export async function signInHoursForJobs(jobIds: string[]) {
     company: r.company,
     in: sydneyTime(r.signInAt),
     out: sydneyTime(r.signOutAt),
-    hours: signedHours(r.signInAt, r.signOutAt, r.job?.project?.unpaidBreakMinutes),
+    hours: day.get(r.id)?.hours ?? null,
     toConfirm: r.status === "TO_CONFIRM",
   }));
 }

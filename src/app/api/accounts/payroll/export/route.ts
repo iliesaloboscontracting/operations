@@ -16,8 +16,9 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
   const q = req.nextUrl.searchParams.get("week");
   const weekStart = weekStartOf(q && isISODate(q) ? q : todaySydney());
   const which = req.nextUrl.searchParams.get("file") === "summary" ? "summary" : "payrun";
-  const files = await payrollFiles(weekStart);
-  return new NextResponse("﻿" + (which === "summary" ? files.summary : files.payRun), {
+  const files = await payrollFiles(weekStart, which);
+  if ("error" in files) return NextResponse.json({ error: files.error }, { status: 409 });
+  return new NextResponse("﻿" + files.csv, {
     headers: {
       "Content-Type": "text/csv; charset=utf-8",
       "Content-Disposition": `attachment; filename="Lobos ${which === "summary" ? "hours summary" : "pay run hours"} week ${weekStart}.csv"`,

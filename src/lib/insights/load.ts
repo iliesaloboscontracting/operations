@@ -2,6 +2,7 @@
 // overview needs and runs it through the plain KPI functions in ./kpis.ts.
 // Read-only - nothing here writes. Costs come from Project Tracking's own
 // loader, so a Directors number and a Tracking number can't disagree.
+import { dayHours, personKeyFor } from "../dayHours";
 import { prisma } from "../prisma";
 import { todaySydney } from "../today";
 import { addDays, startOfWeek } from "../dates";
@@ -84,7 +85,7 @@ export async function gatherDirectorInputs() {
     prisma.dayClose.findMany({ where: { status: "CLOSED" }, select: { date: true } }),
     prisma.siteAttendance.findMany({
       where: { date: { gte: addDays(startOfWeek(today), -7 * 7) }, status: { not: "REJECTED" } },
-      select: { date: true, signInAt: true, signOutAt: true, resource: { select: { type: true } }, job: { select: { project: { select: { unpaidBreakMinutes: true } } } } },
+      select: { id: true, date: true, jobId: true, resourceId: true, workerName: true, company: true, deviceId: true, signInAt: true, signOutAt: true, resource: { select: { type: true } }, job: { select: { project: { select: { unpaidBreakMinutes: true } } } } },
     }),
     prisma.invoiceDraft.count({ where: { status: { in: ["NEEDS_REVIEW", "NO_JOB"] } } }),
     prisma.resource.findMany({
@@ -144,10 +145,12 @@ export async function loadDirectorOverview() {
   const hire = hiredPlantOut(projects);
 
   // ---- hours ----
+  // TF-010: the same once-a-day break and overlap rule as timesheets (lib/dayHours.ts); every line of those weeks is here.
+  const dayH = dayHours(attendance.map((a) => ({ id: a.id, personKey: personKeyFor(a.resourceId, a.workerName, a.company), date: a.date, start: a.signInAt, end: a.signOutAt, breakMinutes: a.job ? a.job.project?.unpaidBreakMinutes ?? 0 : POINT_BREAK_MINUTES, deviceId: a.deviceId })));
   const hours = hoursByWeek(
     attendance.map((a) => ({
       date: a.date,
-      hours: signedHours(a.signInAt, a.signOutAt, a.job ? a.job.project?.unpaidBreakMinutes ?? 0 : POINT_BREAK_MINUTES),
+      hours: dayH.get(a.id)?.hours ?? null,
       isHire: a.resource?.type !== "PERSONNEL",
     })),
     today, 8,

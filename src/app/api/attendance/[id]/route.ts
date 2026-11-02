@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { guard, getCurrentUser } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { applyOfficeChange, removeAttendance } from "@/lib/attendanceEdits";
-import { syncSignInActualsQuietly } from "@/lib/signInActuals";
+import { syncPersonDayQuietly, syncSignInActualsQuietly } from "@/lib/signInActuals";
 
 // PATCH /api/attendance/:id { signInAt?, signOutAt? (null = clear), status?, reason }
 // Only the office (Manager+) changes a sign-in - rules in lib/attendanceEdits.ts.
@@ -21,6 +21,7 @@ export const PATCH = withErrorHandling(async (req: NextRequest, { params: params
   if ("error" in out) return bad(out.error);
   if (!out.changed) return NextResponse.json({ ok: true, unchanged: true });
   await syncSignInActualsQuietly([a.jobId]);
+  await syncPersonDayQuietly(a.resourceId, a.date);
   return NextResponse.json({ ok: true });
 });
 
@@ -39,6 +40,7 @@ export const DELETE = withErrorHandling(async (req: NextRequest, { params: param
   const out = await removeAttendance(a, reason, user?.name ?? "Office");
   if ("error" in out) return bad(out.error);
   await syncSignInActualsQuietly([a.jobId]);
+  await syncPersonDayQuietly(a.resourceId, a.date);
   return NextResponse.json({ ok: true });
 });
 

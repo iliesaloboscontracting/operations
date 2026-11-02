@@ -77,6 +77,12 @@ export default function JobRow({
           {job.virtual && (
             <div className="mt-1 text-[11px] italic text-gray-500">Not scheduled yet</div>
           )}
+          {job.noSignInWay && (
+            <div className="mt-1 flex items-center gap-1 text-[11px] font-medium text-amber-400" title="Crew are on this job but nobody on it has a supervisor link, there is no hand-over and no site poster - nobody can sign in.">
+              <TriangleAlert size={11} className="shrink-0" />
+              No way to sign in
+            </div>
+          )}
           {needsSupervisor && (
             <div className="mt-1 flex items-center gap-1 text-[11px] font-medium text-red-400">
               <TriangleAlert size={11} className="shrink-0" />
