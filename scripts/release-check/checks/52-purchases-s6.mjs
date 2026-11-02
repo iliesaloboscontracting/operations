@@ -152,21 +152,32 @@ export default {
     const dr = Object.values((await c.json("/api/directors/purchases", "OWNER")).body ?? {}).flat().find((r) => r?.id === mine.id);
     t.status(await c.post(`/api/directors/purchases/${mine.id}`, "OWNER", { action: "APPROVE", chosenQuoteId: dr?.quotes?.[0]?.id, version: dr?.version }), 403, "the owner can't approve his own request");
 
-    // PQ-001: 30 MB over a request's whole life - two big files fit, one more is refused, and nothing is left behind.
+    // PQ-001 + option A (Ilies, 2 Nov 2026: 7 MB a file): one save carries one file of up to 7 MB (Next cuts a body to
+    // 10 MB); the request's 30 MB lifetime budget is reached a file at a time - four 7 MB files fit, the fifth doesn't,
+    // and a replacement counts too. A body too big to read is 413 with plain words.
+    const SEVEN = 7 * MB - 64; // a 7 MB file, the header included
     const BIG = `RC big quotes - ${Date.now() % 100000}`;
-    const big = await c.post("/api/purchases", "OWNER", { what: BIG, quotes: [
-      { supplier: "RC Big A", file: { dataUrl: pdf(14.6 * MB), name: "big-a.pdf" } }, { supplier: "RC Big B", file: { dataUrl: pdf(14.6 * MB), name: "big-b.pdf" } },
-    ] });
-    t.status(big, 201, "two 14.6 MB quote files fit the 30 MB budget");
+    t.status(await c.post("/api/purchases", "OWNER", { what: BIG, kind: "HIRE" }), 201, "a request to take big quote files");
     const bigRow = ((await c.json("/api/purchases", "OWNER")).body?.requests ?? []).find((r) => r.what === BIG);
     if (!t.ok(!!bigRow, "the big request is listed")) return;
-    const over = await c.post(`/api/purchases/${bigRow.id}`, "OWNER", { action: "ADD_QUOTE", quote: { supplier: "RC Big C", file: { dataUrl: pdf(1 * MB), name: "big-c.pdf" } }, version: bigRow.version });
-    t.ok(over.status === 400 && /too large/i.test(await over.text()), "PQ-001: one more file over 30 MB is refused with a plain 'too large'", over.status);
-    const changeOver = await c.post(`/api/purchases/${bigRow.id}`, "OWNER", { action: "EDIT_QUOTE", quoteId: bigRow.quotes?.[0]?.id, quote: { file: { dataUrl: pdf(1 * MB), name: "big-a2.pdf" } }, version: bigRow.version });
-    t.status(changeOver, 400, "PQ-001: replacing a file counts the old one too - refused");
-    const still = await c.db.purchaseQuote.count({ where: { requestId: bigRow.id } });
-    t.ok(still === 2, "the refused quote wasn't added", still);
-    t.status(await c.post("/api/purchases", "OWNER", { what: "RC too big at once", quotes: [1, 2, 3].map((n) => ({ supplier: `RC ${n}`, file: { dataUrl: pdf(10.5 * MB), name: `q${n}.pdf` } })) }), 400, "PQ-001: a new request over 30 MB is refused");
+    for (const n of [1, 2, 3, 4]) {
+      const r = await c.post(`/api/purchases/${bigRow.id}`, "OWNER", { action: "ADD_QUOTE", quote: { supplier: `RC Big ${n}`, file: { dataUrl: pdf(SEVEN), name: `big-${n}.pdf` } } });
+      t.status(r, 200, `a 7 MB quote file (${n} of 4) fits - one per save`);
+    }
+    const fifth = await c.post(`/api/purchases/${bigRow.id}`, "OWNER", { action: "ADD_QUOTE", quote: { supplier: "RC Big 5", file: { dataUrl: pdf(SEVEN), name: "big-5.pdf" } } });
+    t.ok(fifth.status === 400 && /too large/i.test(await fifth.text()), "PQ-001: the fifth 7 MB file goes over 30 MB - refused, 'too large'", fifth.status);
+    const firstBig = (await c.db.purchaseQuote.findFirst({ where: { requestId: bigRow.id }, orderBy: { createdAt: "asc" }, select: { id: true } }))?.id;
+    t.status(await c.post(`/api/purchases/${bigRow.id}`, "OWNER", { action: "EDIT_QUOTE", quoteId: firstBig, quote: { file: { dataUrl: pdf(2.5 * MB), name: "big-1b.pdf" } } }), 400,
+      "PQ-001: replacing a file counts the old one too - 28 + 2.5 MB is refused");
+    const overOne = await c.post(`/api/purchases/${bigRow.id}`, "OWNER", { action: "ADD_QUOTE", quote: { supplier: "RC Over", file: { dataUrl: pdf(7 * MB + 1024), name: "over.pdf" } } });
+    t.ok(overOne.status === 400 && /up to 7 MB/.test(await overOne.text()), "a single file over 7 MB is refused, in plain words", overOne.status);
+    t.ok((await c.db.purchaseQuote.count({ where: { requestId: bigRow.id } })) === 4, "only the four that fit were added");
+    const unreadable = await c.post(`/api/purchases/${bigRow.id}`, "OWNER", { action: "ADD_QUOTE", quote: { supplier: "RC Huge", file: { dataUrl: pdf(8 * MB), name: "huge.pdf" } } });
+    const ut = await unreadable.text();
+    t.ok(unreadable.status === 413 && /^\{"error":"Too large: send big quote files one at a time with Add another supplier \(7 MB each\)/.test(ut) && !/Say what you need/.test(ut),
+      "a body over Next's 10 MB limit is 413 'Too large' - never 'Say what you need'", `${unreadable.status} ${ut.slice(0, 80)}`);
+    const linkHuge = await c.post(c.site(L.office, "/purchases"), null, { what: "RC huge from the link", quotes: [{ supplier: "RC Huge", file: { dataUrl: pdf(8 * MB), name: "huge.pdf" } }] });
+    t.status(linkHuge, 413, "the same 413 on the OFFICE link");
 
     t.status(await c.get("/api/accounts/assets", "ACCOUNTS"), 200, "assets as accounts");
     t.status(await c.get("/api/accounts/assets", "MANAGER"), 403, "assets as manager");

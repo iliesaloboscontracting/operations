@@ -18,7 +18,8 @@ export const fromQuote = (q: QuoteDTO): QuoteDraft => ({ supplier: q.supplier, p
 // A typed quote that's still completely empty is left out rather than refused.
 export const isBlank = (q: QuoteDraft) => !q.supplier.trim() && !q.priceExGst.trim() && !q.details.trim() && !q.linkUrl.trim() && !q.file;
 
-const MAX_FILE = 15 * 1024 * 1024;
+// 7 MB a file (Ilies, 2 Nov 2026, option A) - the server's limit too (lib/purchases/files.ts QUOTE_FILE_MAX): one save can't carry more.
+const MAX_FILE = 7 * 1024 * 1024;
 const readFile = (f: File) => new Promise<string>((ok, no) => { const r = new FileReader(); r.onload = () => ok(String(r.result)); r.onerror = () => no(r.error); r.readAsDataURL(f); });
 
 export function QuoteList({ quotes, chosenQuoteId, fileBase, legacySupplier }: { quotes: QuoteDTO[]; chosenQuoteId: string | null; fileBase: string; legacySupplier?: string | null }) {
@@ -53,7 +54,7 @@ export function QuoteFields({ q, onChange, n, input }: { q: QuoteDraft; onChange
     const f = e.target.files?.[0];
     setFileError(null);
     if (!f) return;
-    if (f.size > MAX_FILE) return setFileError("That file is over 15 MB.");
+    if (f.size > MAX_FILE) return setFileError("Too large: a quote file can be up to 7 MB - put a link to the quote instead, or make it smaller.");
     onChange({ ...q, file: { dataUrl: await readFile(f), name: f.name } });
   }
   return (

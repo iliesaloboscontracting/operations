@@ -18,7 +18,9 @@ export const MAX_QUOTES = 10;
 // day. Plain words when it's too much.
 export const REQUEST_FILE_BUDGET = 30 * 1024 * 1024;
 export const DAILY_FILE_UPLOADS = 20;
-export const TOO_LARGE = "Too large: this request's quote files would come to more than 30 MB. Leave the big file off, or put a link to the quote instead.";
+// A body the server couldn't read - over Next's 10 MB request limit, so cut short (7 MB option A, Ilies 2 Nov 2026).
+export const BODY_TOO_LARGE = "Too large: send big quote files one at a time with Add another supplier (7 MB each).";
+export const TOO_LARGE ="Too large: this request's quote files would come to more than 30 MB. Leave the big file off, or put a link to the quote instead.";
 export const TOO_MANY = "Too many files today: you can attach up to 20 quote files a day. Add the rest tomorrow, or put a link to the quote instead.";
 export const fileBudgetError = (usedBytes: number, newBytes: number) => (usedBytes + newBytes > REQUEST_FILE_BUDGET ? TOO_LARGE : null);
 export const dailyUploadsError = (sentToday: number, adding: number) => (adding > 0 && sentToday + adding > DAILY_FILE_UPLOADS ? TOO_MANY : null);

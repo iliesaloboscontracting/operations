@@ -462,8 +462,12 @@ business, without becoming unnecessarily complicated.
   to add another supplier to the same request, this way they can see prices from different
   suppliers"): a request is PURCHASE or HIRE (`kind`), `why` is the description (2000
   chars, prices allowed), suppliers' quotes are `PurchaseQuote` rows (price ex GST, details,
-  link, optional PDF / photo file in `PURCHASE_FILE_DIR` - add it to the nightly backup -
-  served only by `/api/purchases/quotes/:id/file` or the OFFICE link's own route); the
+  link, optional PDF / photo file in `PURCHASE_FILE_DIR` - in the nightly backup and the
+  off-site copy as purchase-files-<stamp>.tar.gz - served only by `/api/purchases/quotes/:id/file`
+  or the OFFICE link's own route; **7 MB a file** (Ilies, 2 Nov 2026, option A: Next cuts a
+  request body to 10 MB when middleware runs and files travel base64 - one file per save, a body
+  too big to read is 413 "Too large"), 30 MB per request over its life, 20 files a day per link
+  or login); the
   approver picks the quote (`chosenQuoteId`; one quote is pre-selected, none = as before).
   Prices are seen by the requester, the owner, DIRECTOR logins, accounts, and - Ilies (Q1):
   "ALL requests, read-only" - every Manager, Admin and the coordinator on `/purchases`

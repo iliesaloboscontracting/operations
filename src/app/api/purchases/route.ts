@@ -3,6 +3,7 @@ import { getCurrentUser, type AuthUser } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { createRequest, listForRequester, listOthers, projectChoices } from "@/lib/purchases/store";
 import { SEES_ALL_REQUESTS } from "@/lib/purchases/quotes";
+import { purchaseBody } from "@/lib/purchases/serve";
 
 // In-app purchase and hire requests (stage 6): Managers, Admins and the coordinator (Alex, 2 Nov 2026) ask - DIRECTOR
 // and ACCOUNTS logins never reach Operations, so they're refused here too (the lead, 27 Oct 2026). Each sees their own
@@ -28,8 +29,9 @@ export const GET = withErrorHandling(async () => {
 export const POST = withErrorHandling(async (req: NextRequest) => {
   const a = await asker();
   if ("denied" in a) return a.denied;
-  const body = await req.json().catch(() => ({}));
-  const out = await createRequest({ kind: "APP", userId: a.user.id, name: a.user.name }, body && typeof body === "object" ? body : {});
+  const read = await purchaseBody(req); // 413 "Too large" when the body can't be read (7 MB option A)
+  if ("denied" in read) return read.denied;
+  const out = await createRequest({ kind: "APP", userId: a.user.id, name: a.user.name }, read.b);
   if ("error" in out) return NextResponse.json({ error: out.error }, { status: out.status });
   return NextResponse.json(out, { status: 201 });
 });

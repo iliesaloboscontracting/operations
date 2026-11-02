@@ -37,12 +37,21 @@ function AskForm({ base, projects, onDone, onCancel }: { base: string; projects:
     e.preventDefault();
     setBusy(true);
     setError(null);
-    const res = await post(base, { ...f, quotes: quotes.filter((q) => !isBlank(q)).map(quoteBody) }).catch(() => null);
+    // 7 MB option A (Ilies, 2 Nov 2026): one save can carry one quote file at most, so the request goes first with the
+    // quotes that have no file, then each quote with a file is its own "Add another supplier" save.
+    const typed = quotes.filter((q) => !isBlank(q));
+    const res = await post(base, { ...f, quotes: typed.filter((q) => !q.file).map(quoteBody) }).catch(() => null);
+    if (!res) { setBusy(false); return setError("Couldn't send - check your signal."); }
+    if (!res.ok) { setBusy(false); return setError(await serverErrorMessage(res, "Couldn't send it.")); }
+    const d = (await res.json()) as { id: string; ref: string; warning?: string };
+    const problems: string[] = d.warning ? [d.warning] : [];
+    for (const q of typed.filter((x) => x.file)) {
+      const r = await post(`${base}/${d.id}`, { action: "ADD_QUOTE", quote: quoteBody(q) }).catch(() => null);
+      if (!r?.ok) problems.push(`${q.supplier || "A quote"}: ${r ? await serverErrorMessage(r, "its file couldn't be sent") : "couldn't send - check your signal"}`);
+      else { const w = ((await r.json().catch(() => ({}))) as { warning?: string }).warning; if (w) problems.push(w); }
+    }
     setBusy(false);
-    if (!res) return setError("Couldn't send - check your signal.");
-    if (!res.ok) return setError(await serverErrorMessage(res, "Couldn't send it."));
-    const d = (await res.json()) as { ref: string; warning?: string };
-    onDone(d.ref, d.warning);
+    onDone(d.ref, problems.length ? `${problems.join(" ")} Add it again with "Add another supplier".` : undefined);
   }
   const hire = f.kind === "HIRE";
   return (

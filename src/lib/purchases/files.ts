@@ -4,16 +4,20 @@
 // next to the app. Only the server reads them; a person gets one through an authorised route
 // (/api/purchases/quotes/:id/file, or the OFFICE link's own /api/site/:token/purchases/quotes/:id/file) - never a
 // public path. Same checks as compliance files: the type from the data URL or the name, the size cap, the magic bytes.
+// 7 MB a file (Ilies, 2 Nov 2026, option A): Next cuts any request body to 10 MB when middleware runs
+// (experimental.middlewareClientMaxBodySize, left as it is) and a file travels base64 in JSON (4/3 the size), so one
+// 7 MB file is the most one save can carry. Bigger requests are sent a file at a time (Add another supplier).
 import fs from "fs/promises";
 import path from "path";
 import { randomBytes } from "crypto";
 import { contentMatches } from "../invoiceFiles";
 
+export const QUOTE_FILE_MAX = 7 * 1024 * 1024;
 export const QUOTE_FILE_TYPES: Record<string, { ext: string; max: number }> = {
-  "application/pdf": { ext: "pdf", max: 15 * 1024 * 1024 },
-  "image/jpeg": { ext: "jpg", max: 10 * 1024 * 1024 },
-  "image/png": { ext: "png", max: 10 * 1024 * 1024 },
-  "image/webp": { ext: "webp", max: 10 * 1024 * 1024 },
+  "application/pdf": { ext: "pdf", max: QUOTE_FILE_MAX },
+  "image/jpeg": { ext: "jpg", max: QUOTE_FILE_MAX },
+  "image/png": { ext: "png", max: QUOTE_FILE_MAX },
+  "image/webp": { ext: "webp", max: QUOTE_FILE_MAX },
 };
 const BY_EXT = Object.fromEntries(Object.entries(QUOTE_FILE_TYPES).map(([mime, t]) => [t.ext, mime]));
 const isWebp = (b: Buffer) => b.subarray(0, 4).toString("ascii") === "RIFF" && b.subarray(8, 12).toString("ascii") === "WEBP";
@@ -34,7 +38,7 @@ export function checkQuoteFile(dataUrl: unknown, originalName: unknown): { bytes
   const t = QUOTE_FILE_TYPES[mime];
   const bytes = Buffer.from(m[2], "base64");
   if (bytes.length === 0) return { error: "The file is empty." };
-  if (bytes.length > t.max) return { error: `The file is too large (max ${Math.round(t.max / 1024 / 1024)} MB).` };
+  if (bytes.length > t.max) return { error: `Too large: a quote file can be up to ${Math.round(t.max / 1024 / 1024)} MB - put a link to the quote instead, or make it smaller.` };
   if (!looksRight(t.ext, bytes)) return { error: `That file doesn't look like a real .${t.ext} - save it again and re-send.` };
   return { bytes, mime, ext: t.ext, name: originalName.trim().slice(0, 120) };
 }

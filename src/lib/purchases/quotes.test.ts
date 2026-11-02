@@ -4,7 +4,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
-  alertBody, chosenQuote, canEditOwn, dailyUploadsError, fileBudgetError, kindOf, linkMayCarryMoney, maySeeQuoteFile, parseQuote, REQUEST_FILE_BUDGET,
+  alertBody, BODY_TOO_LARGE, chosenQuote, canEditOwn, dailyUploadsError, fileBudgetError, kindOf, linkMayCarryMoney, maySeeQuoteFile, parseQuote, REQUEST_FILE_BUDGET,
   quoteChangeNote, SEES_ALL_REQUESTS, TOO_LARGE, TOO_MANY, uploaderKey,
 } from "./quotes";
 
@@ -56,7 +56,7 @@ test("PQ-001: 30 MB over a request's whole life, 20 quote files a day per link o
     for (const w of writes) assert.ok(body.lastIndexOf("$transaction(", w) !== -1 && body.lastIndexOf("$transaction(", w) < w, `${fn}: every write comes after a transaction`);
   }
 });
-import { checkQuoteFile, isStoredName } from "./files";
+import { checkQuoteFile, isStoredName, QUOTE_FILE_MAX } from "./files";
 
 test("PQ-004: a phone alert's body has no free text - nothing from what was asked, no price", () => {
   const r = { requestedBy: "Alex", kind: "HIRE", what: "Scissor lift 19ft x 3, $1,450/wk from Kennards 0412 345 678", ref: "P-0042" };
@@ -133,8 +133,16 @@ test("quote files: PDF / JPEG / PNG / WebP, checked by their first bytes, capped
   assert.ok("error" in checkQuoteFile(`data:application/octet-stream;base64,${Buffer.from("MZ..").toString("base64")}`, "x.exe"));
   assert.ok("error" in checkQuoteFile(`data:image/png;base64,`, "x.png"), "empty");
   assert.ok("error" in checkQuoteFile(PDF, ""), "no name");
-  const big = `data:application/pdf;base64,${Buffer.concat([Buffer.from("%PDF"), Buffer.alloc(15 * 1024 * 1024)]).toString("base64")}`;
-  assert.ok("error" in checkQuoteFile(big, "big.pdf"), "over the cap");
+  // 7 MB a file, PDFs and photos alike (option A, Ilies 2 Nov 2026) - and that still fits one save under Next's 10 MB.
+  const sized = (n: number, head = [0x25, 0x50, 0x44, 0x46], mime = "application/pdf") => `data:${mime};base64,${Buffer.concat([Buffer.from(head), Buffer.alloc(n - head.length)]).toString("base64")}`;
+  assert.equal(QUOTE_FILE_MAX, 7 * 1024 * 1024);
+  assert.ok("bytes" in checkQuoteFile(sized(QUOTE_FILE_MAX), "at-limit.pdf"), "exactly 7 MB fits");
+  const over = checkQuoteFile(sized(QUOTE_FILE_MAX + 1), "over.pdf");
+  assert.ok("error" in over && /^Too large: a quote file can be up to 7 MB/.test(over.error), "one byte over is refused, in plain words");
+  assert.ok("error" in checkQuoteFile(sized(QUOTE_FILE_MAX + 1, [0xff, 0xd8, 0xff, 0xe0], "image/jpeg"), "over.jpg"), "photos too");
+  const atLimit = `{"action":"ADD_QUOTE","quote":{"supplier":"X","file":{"name":"q.pdf","dataUrl":"${sized(QUOTE_FILE_MAX)}"}}}`;
+  assert.ok(Buffer.byteLength(atLimit) < 10 * 1024 * 1024, "a 7 MB file's save is under Next's 10 MB body limit");
+  assert.match(BODY_TOO_LARGE, /^Too large: send big quote files one at a time with Add another supplier \(7 MB each\)/);
   assert.ok(isStoredName("1730000000000-0123456789abcdef.pdf"));
   for (const n of ["../.env", "1-0123456789abcdef.pdf/../x", "x.pdf", "1730000000000-0123456789abcdef.exe"]) assert.equal(isStoredName(n), false, n);
 });
