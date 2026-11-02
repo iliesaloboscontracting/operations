@@ -127,10 +127,11 @@ export default function PayrollPage() {
                         <td className="px-2 py-1.5">
                           {p.review && <div className={p.review.status === "APPROVED" ? "text-emerald-300" : "text-amber-300"}>{p.review.status === "APPROVED" ? "Approved" : "Queried"}{p.review.note ? `: ${p.review.note}` : ""}<div className="text-gray-500">{p.review.by}</div></div>}
                           <div className="mt-1 flex flex-wrap gap-1">
-                            <button className={btn} disabled={!!p.canApprove || busy === p.personKey || p.review?.status === "APPROVED"} title={p.canApprove ?? undefined} onClick={() => review(p, "APPROVED")}>Approve</button>
+                            <button className={btn} disabled={!!p.canApprove || busy === p.personKey || (p.review?.status === "APPROVED" && !p.payRunNote)} title={p.canApprove ?? undefined} onClick={() => review(p, "APPROVED")}>{p.payRunNote ? "Approve again" : "Approve"}</button>
                             <button className={quiet} disabled={busy === p.personKey} onClick={() => review(p, "QUERY")}>Query</button>
                           </div>
                           {p.canApprove && <div className="mt-1 text-gray-500">{p.canApprove}</div>}
+                          {p.payRunNote && <div className="mt-1 text-amber-300">{p.payRunNote}</div>}
                         </td>
                       </tr>
                     ))}

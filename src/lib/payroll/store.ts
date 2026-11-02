@@ -113,6 +113,8 @@ export type PayPersonDTO = {
   days: Record<string, PayDayLine[]>; issues: string[]; review: { status: string; note: string | null; by: string; at: string } | null;
   canApprove: string | null; // null = Victoria can approve now; else why not
   inPayRun: boolean;
+  payRunNote?: string; // TF-007b: why someone Victoria approved is left out of the pay-run file
+  reviewHours?: number | null; // the hours her latest review was made on
   travel: PayTravel[]; // regional travel legs (2 Nov 2026) - its own hours, never in `hours`
   travelHours: number;
 };
@@ -130,7 +132,7 @@ export async function payrollWeek(weekStart: string) {
     const p = people.get(l.personKey) ?? {
       personKey: l.personKey, name: l.personName, group: l.group, company: l.company, engagementSet: l.engagementSet, hours: 0,
       days: Object.fromEntries(weekDates(weekStart).map((d) => [d, [] as PayDayLine[]])), issues: [],
-      review: r ? { status: r.status, note: r.note, by: r.by, at: r.at.toISOString() } : null,
+      review: r ? { status: r.status, note: r.note, by: r.by, at: r.at.toISOString() } : null, reviewHours: r?.hours ?? null,
       canApprove: canAccountsApprove(l.group, !!lock, ended), inPayRun: inPayRun(l.group, r?.status ?? null),
       travel: [], travelHours: 0,
     };
@@ -157,6 +159,12 @@ export async function payrollWeek(weekStart: string) {
       ...(p.group === "HIRE" && all.some((x) => x.jobId && !x.tile) ? ["Signed in where no labour hire was booked on the board"] : []),
     ];
     p.hours = Math.round(p.hours * 4) / 4;
+    // TF-007b: approved on different hours than the sign-ins show now (an office change, a late sign-out, the break
+    // rule) - left out of the pay-run file until she approves the new hours.
+    if (p.inPayRun && p.review?.status === "APPROVED" && p.reviewHours != null && Math.abs(p.reviewHours - p.hours) > 0.001) {
+      p.inPayRun = false;
+      p.payRunNote = `Hours changed since you approved (${p.reviewHours}h -> ${p.hours}h) - approve again to put them in the pay-run.`;
+    }
   }
   const list = [...people.values()].sort((a, b) => a.group.localeCompare(b.group) || a.name.localeCompare(b.name));
   // People whose notes mention ABN but engagement isn't set - for the office to check (never set automatically).
