@@ -12,14 +12,15 @@ const OPEN_WINDOW_MS = 20 * 3_600_000; // same window the phone path always used
 
 export async function endOpenElsewhere(o: { who: Who; at: Date; here: Here; label: string; by: string; siteToConfirm?: boolean }) {
   const whoWhere = o.who.resourceId ? { resourceId: o.who.resourceId } : { resourceId: null, workerName: o.who.workerName, company: o.who.company };
-  const hereWhere = o.here.jobId ? { jobId: o.here.jobId } : { jobId: null, place: o.here.place ?? null, vehicleId: o.here.vehicleId ?? null };
-  const open = await prisma.siteAttendance.findMany({
-    where: {
-      ...whoWhere, signOutAt: null, status: { not: "REJECTED" }, removedAt: null,
-      signInAt: { gte: new Date(o.at.getTime() - OPEN_WINDOW_MS), lt: o.at }, NOT: hereWhere,
-    },
-    select: { id: true, jobId: true, date: true },
+  const rows = await prisma.siteAttendance.findMany({
+    where: { ...whoWhere, signOutAt: null, status: { not: "REJECTED" }, removedAt: null, signInAt: { gte: new Date(o.at.getTime() - OPEN_WINDOW_MS), lt: o.at } },
+    select: { id: true, jobId: true, date: true, place: true, vehicleId: true },
   });
+  // "Here" is left out in code, not in the query: a Prisma NOT on a nullable column (jobId) is SQL NOT (jobId = x),
+  // which is NULL - so office / yard / truck lines (no job) were silently never ended when someone moved to a site.
+  const isHere = (r: { jobId: string | null; place: string | null; vehicleId: string | null }) =>
+    o.here.jobId ? r.jobId === o.here.jobId : r.jobId === null && r.place === (o.here.place ?? null) && r.vehicleId === (o.here.vehicleId ?? null);
+  const open = rows.filter((r) => !isHere(r));
   const ended: { id: string; jobId: string | null; date: string }[] = [];
   for (const e of open) {
     if (await lockedWeekFor(e.date)) continue; // an approved week is never changed
