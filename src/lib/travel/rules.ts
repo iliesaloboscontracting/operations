@@ -38,6 +38,15 @@ export function legHours(startAt: Date, endAt: Date | null, now = new Date()): {
 // A flag the office has to look at (ON_THE_WAY is not one).
 export const needsOffice = (flag: TravelFlag | null) => flag === "NOT_ENDED" || flag === "OVER_CAP";
 
+// ---------- the travel pass (AT-001, Ilies 2 Nov 2026: "Supervisor QR only") ----------
+
+// A phone gets its travel pass only from a sign-in that proves the person was really there on regional work: on a
+// job (not an office / yard / truck point), on the supervisor's changing QR (a poster doesn't count - a photo of it
+// works anywhere), on that job's allocation, and with regional work on their board.
+export function passAllowed(s: { jobId: string | null; method: string; allocated: boolean; regionalWork: boolean }) {
+  return !!s.jobId && s.method === "SUPERVISOR_QR" && s.allocated && s.regionalWork;
+}
+
 // ---------- what the worker's phone may do ----------
 
 export type OutCandidate = { jobId: string; regional: boolean; signedIn: boolean; existingLeg: boolean };

@@ -4,6 +4,7 @@ import { withErrorHandling } from "@/lib/apiHandler";
 import { nameWithoutAmounts } from "@/lib/dailyLog/money";
 import { jobLabel, makeOdometerToken, makeTravelPass, openJob, pointOf, readTicket, sydneyTime, takesSignIns } from "@/lib/signin";
 import { endOutOnSignIn, hasRegionalWork, homeOffered } from "@/lib/travel/store";
+import { passAllowed } from "@/lib/travel/rules";
 import { todaySydney } from "@/lib/today";
 import { syncSignInActualsQuietly } from "@/lib/signInActuals";
 import { parseGps } from "@/lib/payroll/rules";
@@ -135,7 +136,7 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
     return NextResponse.json({
       ok: true,
       message: `Signed in at ${sydneyTime(now)} - ${where.label}.${toConfirm ? " Your supervisor will confirm it." : ""}${travelEnded ? " " + travelEnded : ""}`,
-      ...(await travelFor(who.resourceId, deviceId, where.date)),
+      ...(await travelFor(who.resourceId, deviceId, where.date, { jobId: where.jobId, method: ticket.method, allocatedIds: where.allocatedIds })),
       // On a truck: the next screen asks for an odometer photo (Receipts R1).
       ...(where.place === "VEHICLE" ? { odometer: makeOdometerToken(signedIn.id) } : {}),
     });
@@ -151,7 +152,7 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
     return NextResponse.json({
       ok: true,
       message: `Signed out at ${sydneyTime(now)} - ${where.label}. See you next time.`,
-      ...(await travelFor(who.resourceId, deviceId, where.date)),
+      ...(await travelFor(who.resourceId, deviceId, where.date, { jobId: where.jobId, method: ticket.method, allocatedIds: where.allocatedIds })),
       // Regional job: "Travelling home" comes next on the phone.
       ...(open.jobId && (await homeOffered(who.resourceId, where.projectId)) ? { travelHome: true } : {}),
     });
@@ -160,11 +161,14 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
 });
 
 const bad = (error: string, status = 400) => NextResponse.json({ error }, { status });
-// Regional travel (2 Nov 2026): a Labour-register person's phone gets its travel pass with every real sign-in /
-// sign-out, and is told whether they have a regional job coming up (the phone then shows the travel page link).
-async function travelFor(resourceId: string | null, deviceId: string | null, date: string) {
+// Regional travel (2 Nov 2026): the phone is told whether its owner has regional work coming up (it then shows the
+// travel page link), and gets its travel pass ONLY from a sign-in on the supervisor's QR, on a job they're allocated
+// to, with regional work on their board (AT-001, Ilies: "Supervisor QR only" - lib/travel/rules.ts passAllowed).
+async function travelFor(resourceId: string | null, deviceId: string | null, date: string, s: { jobId: string | null; method: string; allocatedIds: string[] | null }) {
   if (!resourceId || !deviceId) return {};
-  return { travelPass: makeTravelPass(resourceId, deviceId), travelLink: await hasRegionalWork(resourceId, date) };
+  const regionalWork = await hasRegionalWork(resourceId, date);
+  const allocated = !!s.allocatedIds && s.allocatedIds.includes(resourceId);
+  return { travelLink: regionalWork, ...(passAllowed({ jobId: s.jobId, method: s.method, allocated, regionalWork }) ? { travelPass: makeTravelPass(resourceId, deviceId) } : {}) };
 }
 // A hire worker's typed name / company: never an amount in it (SEC-010) - it's shown on the log screen and the report.
 const clean = (v: unknown) => (typeof v === "string" ? nameWithoutAmounts(v.replace(/\s+/g, " ").trim()).slice(0, 60) : "");

@@ -16,16 +16,22 @@ export default {
     const db = c.db;
     const today = c.today;
     const jobDate = new Date(today + "T00:00:00.000Z");
-    const person = await db.resource.findFirst({ where: { type: "PERSONNEL", active: true, attendances: { none: { date: today } } }, select: { id: true, name: true } });
-    if (!person) return t.block("no active Labour-register person without a sign-in today on the snapshot");
+    const people = await db.resource.findMany({ where: { type: "PERSONNEL", active: true, attendances: { none: { date: today } } }, select: { id: true, name: true }, take: 3 });
+    if (people.length < 3) return t.block("fewer than 3 active Labour-register people without a sign-in today on the snapshot");
+    const [person, person2, person3] = people;
     const tag = Date.now().toString(36);
     const reg = await db.project.create({ data: { name: `RC regional ${tag}`, status: "ACTIVE" } });
     const loc = await db.project.create({ data: { name: `RC local ${tag}`, status: "ACTIVE" } });
     const regJob = await db.job.create({ data: { projectId: reg.id, title: reg.name, date: jobDate, shift: "DAY", status: "ACTIVE" } });
+    const regNight = await db.job.create({ data: { projectId: reg.id, title: reg.name, date: jobDate, shift: "NIGHT", status: "ACTIVE" } });
     const locJob = await db.job.create({ data: { projectId: loc.id, title: loc.name, date: jobDate, shift: "DAY", status: "ACTIVE" } });
-    for (const j of [regJob, locJob]) await db.assignment.create({ data: { jobId: j.id, resourceId: person.id } });
+    for (const j of [regJob, regNight, locJob]) await db.assignment.create({ data: { jobId: j.id, resourceId: person.id } });
+    await db.assignment.create({ data: { jobId: regJob.id, resourceId: person2.id } }); // regional work, but not on the night job
+    await db.assignment.create({ data: { jobId: locJob.id, resourceId: person3.id } }); // no regional work at all
     const regPoster = await makeLink(db, "POSTER", null, { projectId: reg.id });
     const locPoster = await makeLink(db, "POSTER", null, { projectId: loc.id });
+    const officePoint = await makeLink(db, "POSTER", null, { place: "OFFICE" });
+    const supLink = await makeLink(db, "SUPERVISOR", person.id); // the person runs sign-in for their jobs
     const dev = `rc-dev-${tag}`;
     const linkSafe = [];
     const travel = async (body) => {
@@ -34,15 +40,20 @@ export default {
       linkSafe.push(JSON.stringify(j));
       return { status: r.status, body: j };
     };
-    const sign = async (poster, jobId, action) => {
-      const scan = await c.json(`/api/site/in/${poster.secret}`, null);
+    // A scan: a poster / point secret, or the supervisor's changing QR code; then IN / OUT as that person on that phone.
+    const sign = async (code, jobId, action, who = person.id, device = dev) => {
+      const scan = await c.json(`/api/site/in/${encodeURIComponent(code)}`, null);
       linkSafe.push(JSON.stringify(scan.body ?? {}));
-      const r = await c.post("/api/site/in/sign", null, { ticket: scan.body?.ticket, jobId, action, resourceId: person.id, deviceId: dev, gps: { status: "DENIED" } });
+      const r = await c.post("/api/site/in/sign", null, { ticket: scan.body?.ticket, jobId, action, resourceId: who, deviceId: device, gps: { status: "DENIED" } });
       const j = await r.json().catch(() => ({}));
       linkSafe.push(JSON.stringify(j));
       return { status: r.status, body: j };
     };
-
+    // The supervisor's current QR for one of their jobs (it changes every 30 s - fetched fresh each time).
+    const qr = async (jobId) => {
+      const s = await c.json(c.site(supLink, "/signin"), null);
+      return s.body?.jobs?.find((j) => j.id === jobId)?.qrUrl?.match(/\/in\/([^/?#]+)$/)?.[1] ?? "none";
+    };
     // (1) The Regional flag: Manager+ sets it through the project PATCH; a Viewer can't; the board gets it in /api/jobs.
     t.status(await c.patch(`/api/projects/${reg.id}`, "VIEWER", { regional: true }), 403, "a Viewer can't mark a project regional");
     t.status(await c.patch(`/api/projects/${reg.id}`, "ACCOUNTS", { regional: true }), 403, "ACCOUNTS can't mark a project regional");
@@ -52,17 +63,26 @@ export default {
     const page = await c.text("/command", "VIEWER");
     t.ok(page.status === 200 && !/Application error/.test(page.text), "the board page loads", page.status);
 
-    // (2) No pass yet: travel refused. A real sign-in (local job) gives the phone its pass; a local sign-out offers no trip home.
+    // (2) No pass yet: travel refused. AT-001 (Ilies, "Supervisor QR only"): a POINT, a POSTER, an unallocated person or
+    // someone with no regional work gets no pass; the supervisor's QR on a regional job they're allocated to does.
     t.status((await travel({ action: "STATUS" })).status, 401, "travel without a pass is refused");
-    const inLoc = await sign(locPoster, locJob.id, "IN");
-    t.ok(inLoc.status === 200 && typeof inLoc.body.travelPass === "string", "a sign-in gives the phone its travel pass", inLoc.status);
-    t.ok(inLoc.body.travelLink === true, "and says there's regional work coming up");
-    const outLoc = await sign(locPoster, locJob.id, "OUT");
-    t.ok(outLoc.status === 200 && !outLoc.body.travelHome, "signing out of a LOCAL job offers no trip home", outLoc.status);
-    const pass = outLoc.body.travelPass ?? inLoc.body.travelPass;
+    const pt = await sign(officePoint.secret, officePoint.id, "IN");
+    t.ok(pt.status === 200 && !pt.body.travelPass, "AT-001: an office / yard / truck POINT sign-in gives no pass", pt.status);
+    await sign(officePoint.secret, officePoint.id, "OUT");
+    const inLoc = await sign(locPoster.secret, locJob.id, "IN");
+    t.ok(inLoc.status === 200 && !inLoc.body.travelPass, "AT-001: a POSTER sign-in gives no pass", inLoc.status);
+    t.ok(inLoc.body.travelLink === true, "the phone is still told there's regional work coming up (travel page link)");
+    const outLoc = await sign(locPoster.secret, locJob.id, "OUT");
+    t.ok(outLoc.status === 200 && !outLoc.body.travelHome && !outLoc.body.travelPass, "signing out of a LOCAL job offers no trip home (and no pass)", outLoc.status);
+    const inQr = await sign(await qr(regNight.id), regNight.id, "IN");
+    t.ok(inQr.status === 200 && typeof inQr.body.travelPass === "string", "the supervisor's QR on a regional job they're allocated to gives the pass", `${inQr.status} ${inQr.body.error ?? ""}`);
+    const pass = inQr.body.travelPass;
+    const unalloc = await sign(await qr(regNight.id), regNight.id, "IN", person2.id, `${dev}-2`);
+    t.ok(unalloc.status === 200 && !unalloc.body.travelPass, "AT-001: the supervisor's QR but NOT on that job's allocation gives no pass", `${unalloc.status} ${unalloc.body.error ?? ""}`);
+    const noReg = await sign(await qr(locJob.id), locJob.id, "IN", person3.id, `${dev}-3`);
+    t.ok(noReg.status === 200 && !noReg.body.travelPass && noReg.body.travelLink === false, "AT-001: the supervisor's QR, allocated, but no regional work gives no pass", `${noReg.status} ${noReg.body.error ?? ""}`);
     t.status((await travel({ pass, deviceId: "another-phone", action: "STATUS" })).status, 401, "the pass doesn't work on another phone");
     t.status((await travel({ pass, action: "START_HOME" })).status, 409, "travelling home after a local sign-out is refused");
-
     // (3) Travel out: only the regional job is offered; the local one is refused; a second tap is the same leg.
     const st = await travel({ pass, action: "STATUS" });
     t.ok(st.status === 200 && st.body.outJobs?.some((j) => j.jobId === regJob.id) && !st.body.outJobs?.some((j) => j.jobId === locJob.id), "only the regional job is offered", JSON.stringify(st.body).slice(0, 200));
@@ -75,13 +95,14 @@ export default {
     t.status((await travel({ pass, action: "START_HOME" })).status, 409, "no trip home while travelling out");
 
     // (4) The site sign-in ends the outward leg.
-    const inReg = await sign(regPoster, regJob.id, "IN");
+    const inReg = await sign(regPoster.secret, regJob.id, "IN");
     t.ok(inReg.status === 200 && /Travel ended/.test(inReg.body.message ?? ""), "signing in on site ends travel", inReg.body.message);
+    t.ok(!inReg.body.travelPass, "AT-001: the regional site POSTER (allocated) gives no pass either");
     const outLeg = await db.travelLeg.findUnique({ where: { id: s1.body.leg.id } });
     t.ok(outLeg?.endAt && outLeg.endMethod === "SIGN_IN" && outLeg.endAttendanceId, "leg ended by the sign-in (endMethod SIGN_IN)");
 
     // (5) Travel home: offered after a regional sign-out, once; Arrived ends it.
-    const outReg = await sign(regPoster, regJob.id, "OUT");
+    const outReg = await sign(regPoster.secret, regJob.id, "OUT");
     t.ok(outReg.status === 200 && outReg.body.travelHome === true, "a regional sign-out offers Travelling home", outReg.status);
     const h1 = await travel({ pass, action: "START_HOME", gps: { status: "TIMEOUT" } });
     t.ok(h1.status === 200 && h1.body.leg?.direction === "HOME", "Travelling home starts", h1.status);

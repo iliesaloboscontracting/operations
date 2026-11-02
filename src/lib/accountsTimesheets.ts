@@ -60,7 +60,7 @@ export const TIMESHEETS_EXPLAINER: Explainer = {
       heading: "Travel (regional jobs)",
       bullets: [
         "Only for jobs on a project marked Regional - local jobs are exactly as before. Travel is its own column and is never added to site hours.",
-        "Travel out: the worker taps Start travel on their phone; it ends when they sign in on site at that project.",
+        "Travel out: the worker taps Start travel on their phone; it ends when they sign in on site at that project. A phone can start travel after its owner signs in on a supervisor's QR on a regional job they're allocated to.",
         `Travel home: after signing out of a regional job they tap Travelling home (offered for ${HOME_OFFER_HOURS} hours after the sign-out), then Arrived.`,
         `Travel hours = start to end, to the nearest quarter hour, with no break taken off. A leg never ended, or longer than ${TRAVEL_CAP_HOURS} hours, counts no hours and is flagged - only the office can correct it, with a reason. Until it's fixed, the Manager can't approve that week.`,
         "How travel is paid is still to be agreed - the exports show the travel hours only.",

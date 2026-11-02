@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { correctionError, homeFrom, HOME_OFFER_HOURS, legHours, needsOffice, outRefusal, stillOpen, TRAVEL_CAP_HOURS } from "./rules";
+import { correctionError, homeFrom, HOME_OFFER_HOURS, legHours, needsOffice, outRefusal, passAllowed, stillOpen, TRAVEL_CAP_HOURS } from "./rules";
 import { makeTravelPass, readTravelPass } from "../signin";
 import { approvalBlockers, timesheetCsv, peopleOf, travelIssues, type TravelLine } from "../timesheets";
 import { fileIsSafe } from "../payroll/rules";
@@ -105,4 +105,12 @@ test("approval is blocked by travel never ended, over 8h or still on the way - n
   assert.deepEqual(approvalBlockers([line], [tl({ flag: "ON_THE_WAY", hours: null })]), ["Sam Smith (2026-11-02: still travelling)"]);
   assert.deepEqual(approvalBlockers([{ ...line, out: null, hours: null }], []), ["Sam Smith (2026-11-02: no sign-out)"], "a missing sign-out still blocks as before");
   assert.equal(travelIssues([tl({}), tl({ flag: "NOT_ENDED" }), tl({ flag: "OVER_CAP" })]), 2);
+});
+test("AT-001: a travel pass only from the supervisor's QR, on a job they're allocated to, with regional work", () => {
+  const ok = { jobId: "j1", method: "SUPERVISOR_QR", allocated: true, regionalWork: true };
+  assert.equal(passAllowed(ok), true);
+  assert.equal(passAllowed({ ...ok, jobId: null, method: "POINT" }), false, "office / yard / truck point");
+  assert.equal(passAllowed({ ...ok, method: "POSTER" }), false, "a site poster (Ilies: Supervisor QR only)");
+  assert.equal(passAllowed({ ...ok, allocated: false }), false, "not on that job's allocation");
+  assert.equal(passAllowed({ ...ok, regionalWork: false }), false, "no regional work on their board");
 });

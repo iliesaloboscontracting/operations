@@ -191,8 +191,10 @@ business, without becoming unnecessarily complicated.
   last night's night shift) is ended by their site sign-in on that project;
   "Travelling home" (offered 8 h after a regional sign-out) is ended by "Arrived"
   (`/site/in/travel`, `/api/site/in/travel` - rides the photos tunnel, no $).
-  The phone proves who it is with a travel pass a real sign-in scan gives it
-  (`makeTravelPass`, HMAC with AUTH_SECRET, person + device, 120 days). `TravelLeg`
+  The phone proves who it is with a travel pass (`makeTravelPass`, HMAC with
+  AUTH_SECRET, person + device, 120 days): a phone can start travel after its
+  owner signs in on a supervisor's QR on a regional job they're allocated to
+  (AT-001, Ilies "Supervisor QR only" - never a poster or a point). `TravelLeg`
   (append-only, plain ids, one leg each way per job) + `TravelEdit` (office
   corrections, Manager+, reason; locked weeks refuse). One quiet GPS point at the
   start / Arrived, accounts / Admins only. Hours = start to end, quarter hours, no
