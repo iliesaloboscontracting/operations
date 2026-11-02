@@ -19,8 +19,9 @@ async function asker(): Promise<{ denied: NextResponse } | { user: AuthUser }> {
 export const GET = withErrorHandling(async () => {
   const a = await asker();
   if ("denied" in a) return a.denied;
+  // Every project that isn't archived, with its status (2 Nov 2026 project pickers); the OFFICE link stays active-only.
   const [requests, others, projects] = await Promise.all([
-    listForRequester({ kind: "APP", userId: a.user.id, name: a.user.name }), listOthers(a.user.id), projectChoices(),
+    listForRequester({ kind: "APP", userId: a.user.id, name: a.user.name }), listOthers(a.user.id), projectChoices({ allStatuses: true }),
   ]);
   return NextResponse.json({ requests, others, projects });
 });

@@ -2,12 +2,20 @@
 
 import { Fragment, useEffect, useState } from "react";
 import { X } from "lucide-react";
+import ProjectSelect from "./ProjectSelect";
+import type { PickerProject } from "@/lib/projectPicker";
 
 export interface FieldDef {
   key: string;
   label: string;
-  type?: "text" | "select" | "textarea" | "date" | "password" | "number" | "static";
+  type?: "text" | "select" | "textarea" | "date" | "password" | "number" | "static" | "project";
   options?: (string | { value: string; label: string })[];
+  // For type "project" (2 Nov 2026): the shared project dropdown (components/ProjectSelect.tsx) - Active, Inactive,
+  // Completed groups, and the "active again or still completed?" question when a Completed project is picked.
+  projects?: PickerProject[];
+  noneLabel?: string; // the first "no project" choice, value ""
+  projectLabel?: (p: PickerProject) => string;
+  onProjectReactivated?: (id: string) => void;
   placeholder?: string;
   required?: boolean;
   full?: boolean; // span every column
@@ -143,6 +151,16 @@ export default function FormModal({
                   <div className={`${input} cursor-default bg-panel2/60 text-gray-300`}>
                     {f.staticText}
                   </div>
+                ) : f.type === "project" ? (
+                  <ProjectSelect
+                    projects={f.projects ?? []}
+                    value={values[f.key] ?? ""}
+                    onChange={(id) => setValues((v) => ({ ...v, [f.key]: id }))}
+                    noneLabel={f.noneLabel}
+                    optionLabel={f.projectLabel}
+                    onReactivated={f.onProjectReactivated}
+                    className={input}
+                  />
                 ) : f.type === "select" ? (
                   <select
                     value={values[f.key] ?? ""}

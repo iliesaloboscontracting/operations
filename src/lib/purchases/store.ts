@@ -410,6 +410,11 @@ export async function quoteFile(quoteId: string) {
 // Accounts To do: approved requests waiting to be ordered.
 export const purchasesWaiting = () => prisma.purchaseRequest.count({ where: { status: "APPROVED" } });
 
-// Jobs a request can be for (the active ones), for the form's picker. Names only.
-export const projectChoices = () =>
-  prisma.project.findMany({ where: { status: "ACTIVE" }, select: { id: true, name: true, jobNo: true }, orderBy: { name: "asc" }, take: 300 });
+// Jobs a request can be for, for the form's picker. Names and status only. On a link (Alex's OFFICE link) the active
+// ones, as before; in the app (`allStatuses`, 2 Nov 2026 - Ilies: the lists include inactive and completed jobs)
+// every project that isn't archived, grouped and asked about by components/ProjectSelect.tsx.
+export const projectChoices = (opts: { allStatuses?: boolean } = {}) =>
+  prisma.project.findMany({
+    where: opts.allStatuses ? { archived: false } : { status: "ACTIVE" },
+    select: { id: true, name: true, jobNo: true, status: true }, orderBy: { name: "asc" }, take: opts.allStatuses ? 1000 : 300,
+  });

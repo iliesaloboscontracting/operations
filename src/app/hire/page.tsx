@@ -310,13 +310,14 @@ export default function HirePage() {
             ? [{ key: "role", label: "Role" }]
             : [
                 {
+                  // Active, Inactive and Completed projects (Ilies, 2 Nov 2026) - a completed one asks first
+                  // (components/ProjectSelect.tsx); a late hire item for a finished job can stay "Still completed".
                   key: "hireProjectId",
                   label: "Project",
-                  type: "select" as const,
-                  options: [
-                    { value: "", label: "— not for a project —" },
-                    ...projects.filter((p) => p.status === "ACTIVE").map((p) => ({ value: p.id, label: p.name })),
-                  ],
+                  type: "project" as const,
+                  noneLabel: "— not for a project —",
+                  projects,
+                  onProjectReactivated: (id: string) => setProjects((ps) => ps.map((p) => (p.id === id ? { ...p, status: "ACTIVE" } : p))),
                 },
                 {
                   key: "hireStatus",
