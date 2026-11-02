@@ -7,6 +7,7 @@ import {
   alertBody, BODY_TOO_LARGE, chosenQuote, canEditOwn, dailyUploadsError, fileBudgetError, kindOf, linkMayCarryMoney, maySeeQuoteFile, parseQuote, REQUEST_FILE_BUDGET,
   quoteChangeNote, SEES_ALL_REQUESTS, TOO_LARGE, TOO_MANY, uploaderKey,
 } from "./quotes";
+import { checkQuoteFile, isStoredName, QUOTE_FILE_MAX } from "./files";
 
 test("PQ-002 / PQ-010: a changed quote's history says what changed, before -> after", () => {
   const A = "1730500000000-0123456789abcdef.pdf", B = "1730500000001-fedcba9876543210.pdf";
@@ -56,7 +57,16 @@ test("PQ-001: 30 MB over a request's whole life, 20 quote files a day per link o
     for (const w of writes) assert.ok(body.lastIndexOf("$transaction(", w) !== -1 && body.lastIndexOf("$transaction(", w) < w, `${fn}: every write comes after a transaction`);
   }
 });
-import { checkQuoteFile, isStoredName, QUOTE_FILE_MAX } from "./files";
+
+test("PQ-012: the ask form sends every quote first without files, then attaches each file to its quote with the version", () => {
+  const form = readFileSync(new URL("../../components/purchases/MyPurchases.tsx", import.meta.url), "utf8");
+  const send = form.slice(form.indexOf("async function send"), form.indexOf("const hire = f.kind"));
+  assert.match(send, /quotes: typed\.map\(\(q\) => quoteBody\(\{ \.\.\.q, file: null \}\)\)/, "the create carries every typed quote, no file");
+  assert.match(send, /action: "EDIT_QUOTE", quoteId: d\.quoteIds\[i\], quote: \{ file: q\.file \}, version/, "each file goes to its own quote, with the version");
+  assert.doesNotMatch(send, /ADD_QUOTE/, "no extra quote is made for a file");
+  const store = readFileSync(new URL("./store.ts", import.meta.url), "utf8");
+  assert.match(store, /version: row\.version, quoteIds/, "the create reply gives the version and the quote ids");
+});
 
 test("PQ-004: a phone alert's body has no free text - nothing from what was asked, no price", () => {
   const r = { requestedBy: "Alex", kind: "HIRE", what: "Scissor lift 19ft x 3, $1,450/wk from Kennards 0412 345 678", ref: "P-0042" };

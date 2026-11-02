@@ -37,21 +37,25 @@ function AskForm({ base, projects, onDone, onCancel }: { base: string; projects:
     e.preventDefault();
     setBusy(true);
     setError(null);
-    // 7 MB option A (Ilies, 2 Nov 2026): one save can carry one quote file at most, so the request goes first with the
-    // quotes that have no file, then each quote with a file is its own "Add another supplier" save.
+    // 7 MB option A (Ilies, 2 Nov 2026): one save can carry one quote file at most. PQ-012 (approved 2 Nov 2026): the
+    // request goes first with EVERY typed quote (supplier, price, details, link - no files), so the directors see all
+    // the suppliers at once; then each file is attached to its own quote with EDIT_QUOTE, sending the version - any
+    // approval made on the version before a file arrived is refused (409) and has to look again.
     const typed = quotes.filter((q) => !isBlank(q));
-    const res = await post(base, { ...f, quotes: typed.filter((q) => !q.file).map(quoteBody) }).catch(() => null);
+    const res = await post(base, { ...f, quotes: typed.map((q) => quoteBody({ ...q, file: null })) }).catch(() => null);
     if (!res) { setBusy(false); return setError("Couldn't send - check your signal."); }
     if (!res.ok) { setBusy(false); return setError(await serverErrorMessage(res, "Couldn't send it.")); }
-    const d = (await res.json()) as { id: string; ref: string; warning?: string };
+    const d = (await res.json()) as { id: string; ref: string; version: number; quoteIds: string[]; warning?: string };
     const problems: string[] = d.warning ? [d.warning] : [];
-    for (const q of typed.filter((x) => x.file)) {
-      const r = await post(`${base}/${d.id}`, { action: "ADD_QUOTE", quote: quoteBody(q) }).catch(() => null);
+    let version = d.version;
+    for (const [i, q] of typed.entries()) {
+      if (!q.file) continue;
+      const r = await post(`${base}/${d.id}`, { action: "EDIT_QUOTE", quoteId: d.quoteIds[i], quote: { file: q.file }, version }).catch(() => null);
       if (!r?.ok) problems.push(`${q.supplier || "A quote"}: ${r ? await serverErrorMessage(r, "its file couldn't be sent") : "couldn't send - check your signal"}`);
-      else { const w = ((await r.json().catch(() => ({}))) as { warning?: string }).warning; if (w) problems.push(w); }
+      else { version += 1; const w = ((await r.json().catch(() => ({}))) as { warning?: string }).warning; if (w) problems.push(w); }
     }
     setBusy(false);
-    onDone(d.ref, problems.length ? `${problems.join(" ")} Add it again with "Add another supplier".` : undefined);
+    onDone(d.ref, problems.length ? `${problems.join(" ")} Attach it again with "Change" on that supplier.` : undefined);
   }
   const hire = f.kind === "HIRE";
   return (

@@ -152,6 +152,25 @@ export default {
     const dr = Object.values((await c.json("/api/directors/purchases", "OWNER")).body ?? {}).flat().find((r) => r?.id === mine.id);
     t.status(await c.post(`/api/directors/purchases/${mine.id}`, "OWNER", { action: "APPROVE", chosenQuoteId: dr?.quotes?.[0]?.id, version: dr?.version }), 403, "the owner can't approve his own request");
 
+    // PQ-012 (Ilies approved, 2 Nov 2026): the ask form sends every typed quote first, without files, then attaches each
+    // file to its own quote with EDIT_QUOTE and the version - an approval made before the file arrived is refused.
+    const LATER = `RC attach later - ${Date.now() % 100000}`;
+    const asked = await c.post(c.site(L.office, "/purchases"), null, { what: LATER, quotes: [{ supplier: "RC Later A", priceExGst: 410 }, { supplier: "RC Later B", priceExGst: 395 }] });
+    const ak = await asked.json().catch(() => ({}));
+    t.ok(asked.status === 201 && Array.isArray(ak.quoteIds) && ak.quoteIds.length === 2 && Number.isInteger(ak.version), "the create reply gives the quote ids in order and the version", asked.status);
+    const seenFirst = Object.values((await c.json("/api/directors/purchases", "DIRECTOR")).body ?? {}).flat().find((r) => r?.what === LATER);
+    t.ok(seenFirst && seenFirst.quotes?.length === 2 && seenFirst.quotes.every((q) => !q.file) && seenFirst.quotes[0].id === ak.quoteIds[0] && seenFirst.quotes[1].supplier === "RC Later B",
+      "the directors see both suppliers at once, in order, before any file");
+    if (Array.isArray(ak.quoteIds)) {
+      t.status(await c.post(c.site(L.office, `/purchases/${ak.id}`), null, { action: "EDIT_QUOTE", quoteId: ak.quoteIds[1], quote: { file: { dataUrl: PDF, name: "later-b.pdf" } }, version: ak.version }), 200,
+        "the file is attached to its own quote with EDIT_QUOTE");
+      t.status(await c.post(`/api/directors/purchases/${ak.id}`, "DIRECTOR", { action: "APPROVE", chosenQuoteId: ak.quoteIds[1], version: seenFirst?.version }), 409,
+        "PQ-012: an approval on the version before the file arrived is refused (409)");
+      const after = Object.values((await c.json("/api/directors/purchases", "DIRECTOR")).body ?? {}).flat().find((r) => r?.id === ak.id);
+      t.ok(after && after.quotes.find((q) => q.id === ak.quoteIds[1])?.file && !after.quotes.find((q) => q.id === ak.quoteIds[0])?.file && after.version === ak.version + 1,
+        "the file sits on the quote it was meant for, and the version moved on");
+    }
+
     // PQ-001 + option A (Ilies, 2 Nov 2026: 7 MB a file): one save carries one file of up to 7 MB (Next cuts a body to
     // 10 MB); the request's 30 MB lifetime budget is reached a file at a time - four 7 MB files fit, the fifth doesn't,
     // and a replacement counts too. A body too big to read is 413 with plain words.

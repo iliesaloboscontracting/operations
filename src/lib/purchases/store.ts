@@ -141,7 +141,9 @@ async function tellRequester(r: { siteLinkId: string | null; requestedByUserId: 
   else if (r.requestedByUserId) await alert(pushToUsers([r.requestedByUserId], { ...msg, url: "/purchases" }));
 }
 
-export async function createRequest(who: Requester, b: Record<string, unknown>): Promise<{ id: string; ref: string; warning?: string } | Problem> {
+// The reply carries the request's version and its quotes' ids in the order sent (PQ-012, 2 Nov 2026), so the ask
+// form can then attach each quote's file with EDIT_QUOTE - one file per save - to the quote it belongs to.
+export async function createRequest(who: Requester, b: Record<string, unknown>): Promise<{ id: string; ref: string; version: number; quoteIds: string[]; warning?: string } | Problem> {
   // PUR-001 (27 Oct 2026): the Building Agent login never raises a purchase request - on any route.
   if (who.kind === "APP") {
     const u = await prisma.user.findUnique({ where: { id: who.userId }, select: { email: true } });
@@ -159,23 +161,26 @@ export async function createRequest(who: Requester, b: Record<string, unknown>):
   const fileBytes = p.quotes.reduce((n, q) => n + (q.file?.bytes.length ?? 0), 0);
   for (let attempt = 0; ; attempt++) {
     try {
-      const row = await prisma.$transaction(async (tx) => {
+      const { row, quoteIds } = await prisma.$transaction(async (tx) => {
         const number = await nextNumber(tx);
-        return tx.purchaseRequest.create({
+        const made = await tx.purchaseRequest.create({
           data: {
             ...p.data, number, requestedBy: who.name, source: who.kind, fileBytes,
             siteLinkId: who.kind === "LINK" ? who.linkId : null, requestedByUserId: who.kind === "APP" ? who.userId : null,
             events: { create: { action: "ASK", status: "REQUESTED", by: who.name, byKey: key, files } },
-            quotes: { create: built.map((x) => x.data) },
           },
         });
+        // One at a time, so the ids come back in the order the quotes were sent.
+        const ids: string[] = [];
+        for (const x of built) ids.push((await tx.purchaseQuote.create({ data: { ...x.data, requestId: made.id }, select: { id: true } })).id);
+        return { row: made, quoteIds: ids };
       });
       // PQ-001: the files only now the request is saved; one the disk refused comes off its quote.
       const failed = await writePending(built.flatMap((x) => (x.pending ? [x.pending] : [])));
       if (failed.length) await prisma.purchaseQuote.updateMany({ where: { requestId: row.id, fileName: { in: failed } }, data: NO_FILE });
       // Straight to the approvers (28 Oct 2026) - not accounts.
       await alert(pushToUsers(await approversFor(row.requestedByUserId), { title: `${KIND_LABEL[kindOf(row.kind)]} request ${purchaseNo(row.number)} to approve`, body: alertBody(who.name, row.kind, purchaseNo(row.number)), url: "/directors/purchases", tag: "purchase-approve" }));
-      return { id: row.id, ref: purchaseNo(row.number), ...(failed.length ? { warning: FILE_NOT_STORED } : {}) };
+      return { id: row.id, ref: purchaseNo(row.number), version: row.version, quoteIds, ...(failed.length ? { warning: FILE_NOT_STORED } : {}) };
     } catch (e) {
       // Two requests at the same moment took the same number - take the next one.
       if (attempt < 3 && e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") continue;
