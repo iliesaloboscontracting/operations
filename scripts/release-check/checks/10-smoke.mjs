@@ -2,7 +2,7 @@
 import { noMoney } from "../lib/context.mjs";
 
 const PAGES = ["/assistant", "/attendance", "/bugs", "/calendar", "/command", "/completed", "/day-review", "/hire", "/labour",
-  "/notes", "/plant", "/projects", "/requests", "/timesheets", "/tools", "/tools/faults", "/tools/site", "/tools/toolboxes", "/tracking",
+  "/plant", "/projects", "/requests", "/timesheets", "/tools", "/tools/faults", "/tools/site", "/tools/toolboxes", "/tracking",
   "/users", "/vehicles", "/receipts", "/production", "/changes", "/office-requests", "/purchases"];
 
 export default {

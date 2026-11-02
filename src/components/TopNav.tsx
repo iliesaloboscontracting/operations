@@ -19,7 +19,8 @@ const OPERATIONS = [
   { href: "/purchases", label: "Purchases" },
   { href: "/questions", label: "My questions" },
   { href: "/messages", label: "Messages" },
-  { href: "/changes", label: "Changes" },
+  // Changes has no tab (Ilies, 3 Nov 2026: "hide the tab only") - /changes still works from the phone
+  // alert link and the Directors "Changes to approve" box.
   { href: "/completed", label: "Completed" },
   { href: "/day-review", label: "Day Review" },
   { href: "/receipts", label: "Receipts" },
@@ -29,7 +30,6 @@ const OPERATIONS = [
   { href: "/production", label: "Production" },
   { href: "/documents", label: "Documents" },
   { href: "/assistant", label: "Assistant" },
-  { href: "/notes", label: "Notes" },
   { href: "/bugs", label: "Bug Reports" },
 ];
 
@@ -137,7 +137,6 @@ export default function TopNav() {
   const [offHire, setOffHire] = useState(0);
   const [requests, setRequests] = useState(0);
   const [officeRequests, setOfficeRequests] = useState(0);
-  const [changes, setChanges] = useState(0);
   // Questions for me (27 Oct 2026): -1 = this login has never been asked, so the tab stays hidden.
   const [myQuestions, setMyQuestions] = useState(-1);
   const refreshQuestions = useCallback(() => {
@@ -183,14 +182,7 @@ export default function TopNav() {
       .then((r) => (r.ok ? r.json() : { waiting: 0 }))
       .then((d: { waiting: number }) => setOfficeRequests(d.waiting))
       .catch(() => setOfficeRequests(0));
-    // Badge on Changes (LCI phase 4): proposed changes this login could approve.
-    if (canEdit) {
-      fetch("/api/changes?count=1")
-        .then((r) => (r.ok ? r.json() : { count: 0 }))
-        .then((d: { count: number }) => setChanges(d.count))
-        .catch(() => setChanges(0));
-    }
-  }, [loading, onePage, canEdit]);
+  }, [loading, onePage]);
 
   useEffect(refreshBadge, [refreshBadge, path]);
   // The Requests page says when a decision changes the count.
@@ -256,14 +248,14 @@ export default function TopNav() {
             <Divider />
           </>
         )}
-        {OPERATIONS.filter((i) => (i.href !== "/tracking" && i.href !== "/invoices" && i.href !== "/assistant" && i.href !== "/attendance" && i.href !== "/timesheets" && i.href !== "/requests" && i.href !== "/office-requests" && i.href !== "/purchases" && i.href !== "/questions" && i.href !== "/messages" && i.href !== "/changes" && i.href !== "/receipts" && i.href !== "/production" && i.href !== "/documents") || canEdit).filter((i) => i.href !== "/questions" || myQuestions >= 0).map((i) => (
+        {OPERATIONS.filter((i) => (i.href !== "/tracking" && i.href !== "/invoices" && i.href !== "/assistant" && i.href !== "/attendance" && i.href !== "/timesheets" && i.href !== "/requests" && i.href !== "/office-requests" && i.href !== "/purchases" && i.href !== "/questions" && i.href !== "/messages" && i.href !== "/receipts" && i.href !== "/production" && i.href !== "/documents") || canEdit).filter((i) => i.href !== "/questions" || myQuestions >= 0).map((i) => (
           <NavTab
             key={i.href}
             href={i.href}
             label={i.label}
             active={isActive(i.href)}
-            badge={i.href === "/calendar" ? startingSoon : i.href === "/requests" ? requests : i.href === "/office-requests" ? officeRequests : i.href === "/questions" ? Math.max(myQuestions, 0) : i.href === "/messages" ? messages : i.href === "/changes" ? changes : undefined}
-            badgeTitle={i.href === "/requests" ? "Site requests waiting on a decision, and reminders due" : i.href === "/office-requests" ? "Directors and accounts queries and actions waiting on a decision" : i.href === "/changes" ? "Proposed changes waiting for your approval" : undefined}
+            badge={i.href === "/calendar" ? startingSoon : i.href === "/requests" ? requests : i.href === "/office-requests" ? officeRequests : i.href === "/questions" ? Math.max(myQuestions, 0) : i.href === "/messages" ? messages : undefined}
+            badgeTitle={i.href === "/requests" ? "Site requests waiting on a decision, and reminders due" : i.href === "/office-requests" ? "Directors and accounts queries and actions waiting on a decision" : undefined}
           />
         ))}
         <Divider />

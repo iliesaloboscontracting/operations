@@ -87,6 +87,9 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
       if (!canSeeMoney) {
         delete out.contractValue;
         delete out.contractValueNotes;
+        // PP-005 (Ilies, 3 Nov 2026): the notes scratchpad can carry $ figures - hidden from a Viewer, as
+        // GET /api/projects/[id] already does. The coordinator keeps them with every amount taken out (viewJson).
+        if (user?.role !== "COORDINATOR") delete out.notes;
       }
       return out;
     })
