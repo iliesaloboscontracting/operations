@@ -2,7 +2,7 @@
 // carries the notes or contract value notes - free text that can hold rates and prices.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { jobsForModel, projectsForModel, resourcesForModel, trackingForModel } from "./assistantTools";
+import { jobsForModel, projectsForModel, resourcesForModel, runTool, trackingForModel } from "./assistantTools";
 
 test("get_projects: notes and contract value notes are dropped, everything else kept", () => {
   const reply = [
@@ -139,6 +139,49 @@ test("get_resources / get_jobs: amounts typed into free text are taken out, the 
   assert.equal(j.assignments[0].resource.id, "cmh1abc");
   // The route's own reply is not changed.
   assert.equal(jobs[0].dayBrief, "Strip out level 2, $300 tip at Kemps Creek");
+});
+
+test("names and addresses keep words like Grand and Pound, and only lose a $-led amount (PP-013)", () => {
+  const jobs = [{
+    id: "j1", title: "One Grand Plaza", client: "Pound & Co", siteAddress: "12 Grand Pde Brighton", siteCode: "24117",
+    dayBrief: "12 grand of steel to go", assignments: [{ id: "a1", signedInAs: "Joe (Grand Labour)",
+      resource: { id: "r1", name: "Hino 500 ($90/day)", agency: "$5 Labour", identifier: "XY12AB", detail: "3 grand bond" } }],
+  }];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const j = (jobsForModel(jobs) as any[])[0];
+  assert.equal(j.title, "One Grand Plaza");
+  assert.equal(j.client, "Pound & Co");
+  assert.equal(j.siteAddress, "12 Grand Pde Brighton");
+  assert.equal(j.siteCode, "24117");
+  assert.equal(j.assignments[0].signedInAs, "Joe (Grand Labour)");
+  const r = j.assignments[0].resource;
+  assert.equal(r.name, "Hino 500");
+  assert.equal(r.agency, "Labour");
+  assert.equal(r.identifier, "XY12AB");
+  // Free text still loses every amount, "grand" included.
+  assert.ok(!/12 grand/i.test(j.dayBrief) && !/3 grand/i.test(r.detail));
+  assert.ok(!JSON.stringify(j).includes("$"));
+  // A name that is only an amount becomes the tag, never an empty string.
+  assert.equal((resourcesForModel([{ id: "r2", name: "$450" }]) as Record<string, unknown>[])[0].name, "(amount not recorded)");
+});
+
+test("list entries that aren't records still lose their amounts (PP-011)", () => {
+  assert.deepEqual(resourcesForModel(["Hire at $450/day", 7, null]), ["Hire at (amount not recorded)", 7, null]);
+  assert.deepEqual(jobsForModel(["Tip $300"]), ["Tip (amount not recorded)"]);
+});
+
+test("runTool: a built-in name is an unknown tool, and nothing is fetched (PP-014)", async () => {
+  const real = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = (async () => { calls++; throw new Error("no fetch"); }) as typeof fetch;
+  try {
+    for (const name of ["constructor", "toString", "__proto__", "hasOwnProperty"]) {
+      assert.deepEqual(await runTool(name, {}, "http://127.0.0.1:3000", null), { ok: false, data: { error: `Unknown tool: ${name}` } });
+    }
+    assert.equal(calls, 0);
+  } finally {
+    globalThis.fetch = real;
+  }
 });
 
 test("get_projects: anything that isn't a list passes through untouched", () => {

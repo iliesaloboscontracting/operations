@@ -12,7 +12,7 @@
 // until read-only has proven itself.
 
 import type Anthropic from "@anthropic-ai/sdk";
-import { stripMoney } from "./dailyLog/money";
+import { AMOUNT_TAG, linkLabel, stripMoney } from "./dailyLog/money";
 import { toPublicResource } from "./serializeResource";
 import { withoutAmounts } from "./coordinatorHire";
 
@@ -135,12 +135,22 @@ export function trackingForModel(data: unknown): unknown {
 // costs, whoever is asking - and its free-text notes are dropped. Names, types, status, hire dates and the day's
 // crew stay. Anything that isn't a list fails closed. PP-009 (approved 3 Nov 2026): every amount typed into the free
 // text that's left (hire source / reference / legacy start and finish, detail, a job's day brief) is taken out the
-// same way the coordinator's replies are (withoutAmounts) - the words stay.
+// same way the coordinator's replies are (withoutAmounts) - the words stay. PP-013 (option b, approved 4 Nov 2026):
+// names and addresses (NAME_KEYS) only lose a "$"-led amount (linkLabel), so "12 Grand Pde Brighton" or "3 Pound Rd"
+// reach the model whole. PP-011: a list entry that isn't a record goes through the same walk.
+const NAME_KEYS = new Set(["title", "client", "siteAddress", "siteCode", "name", "agency", "identifier", "signedInAs"]);
+const nameForModel = (s: string) => (/[$＄﹩]/.test(s) ? linkLabel(s, AMOUNT_TAG) : s);
+function textForModel(x: unknown, key?: string): unknown {
+  if (typeof x === "string") return key && NAME_KEYS.has(key) ? nameForModel(x) : withoutAmounts(x);
+  if (Array.isArray(x)) return x.map((v) => textForModel(v));
+  if (x && typeof x === "object") return Object.fromEntries(Object.entries(x).map(([k, v]) => [k, textForModel(v, k)]));
+  return x;
+}
 function resourceForModel(r: unknown): unknown {
-  if (!r || typeof r !== "object") return r;
+  if (!r || typeof r !== "object") return textForModel(r);
   const out = toPublicResource({ ...(r as Record<string, unknown>) }, "VIEWER");
   delete out.notes;
-  return withoutAmounts(out);
+  return textForModel(out);
 }
 export function resourcesForModel(data: unknown): unknown {
   if (!Array.isArray(data)) return { error: "Unexpected reply" };
@@ -149,12 +159,12 @@ export function resourcesForModel(data: unknown): unknown {
 export function jobsForModel(data: unknown): unknown {
   if (!Array.isArray(data)) return { error: "Unexpected reply" };
   return data.map((j) => {
-    if (!j || typeof j !== "object") return j;
+    if (!j || typeof j !== "object") return textForModel(j);
     const out = { ...(j as Record<string, unknown>) };
     if (!Array.isArray(out.assignments)) delete out.assignments;
     else out.assignments = out.assignments.map((a) =>
       a && typeof a === "object" ? { ...a, resource: resourceForModel((a as { resource?: unknown }).resource) } : a);
-    return withoutAmounts(out);
+    return textForModel(out);
   });
 }
 
@@ -167,8 +177,9 @@ export async function runTool(
   origin: string,
   cookie: string | null
 ): Promise<{ ok: boolean; data: unknown }> {
+  // PP-014 (approved 4 Nov 2026): own keys only - "constructor" or "toString" is an unknown tool, not a crash.
+  if (!Object.hasOwn(PATH_FOR, name)) return { ok: false, data: { error: `Unknown tool: ${name}` } };
   const build = PATH_FOR[name as ToolName];
-  if (!build) return { ok: false, data: { error: `Unknown tool: ${name}` } };
   const res = await fetch(`${origin}${build(input)}`, {
     headers: cookie ? { cookie } : undefined,
   });
