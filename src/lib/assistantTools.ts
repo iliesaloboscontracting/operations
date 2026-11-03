@@ -13,6 +13,7 @@
 
 import type Anthropic from "@anthropic-ai/sdk";
 import { stripMoney } from "./dailyLog/money";
+import { toPublicResource } from "./serializeResource";
 
 export type ToolName = "get_jobs" | "get_tracking_summary" | "get_projects" | "get_resources" | "search_documents";
 
@@ -128,6 +129,32 @@ export function trackingForModel(data: unknown): unknown {
   };
 }
 
+// What the resource register and the day's jobs hand the model. PP-008 (Ilies approved 3 Nov 2026): every resource
+// goes through the Viewer cut of toPublicResource - no pay rates, day rates, hire rates or delivery / collection
+// costs, whoever is asking - and its free-text notes are dropped. Names, types, status, hire dates and the day's
+// crew stay. Anything that isn't a list fails closed.
+function resourceForModel(r: unknown): unknown {
+  if (!r || typeof r !== "object") return r;
+  const out = toPublicResource({ ...(r as Record<string, unknown>) }, "VIEWER");
+  delete out.notes;
+  return out;
+}
+export function resourcesForModel(data: unknown): unknown {
+  if (!Array.isArray(data)) return { error: "Unexpected reply" };
+  return data.map(resourceForModel);
+}
+export function jobsForModel(data: unknown): unknown {
+  if (!Array.isArray(data)) return { error: "Unexpected reply" };
+  return data.map((j) => {
+    if (!j || typeof j !== "object") return j;
+    const out = { ...(j as Record<string, unknown>) };
+    if (!Array.isArray(out.assignments)) delete out.assignments;
+    else out.assignments = out.assignments.map((a) =>
+      a && typeof a === "object" ? { ...a, resource: resourceForModel((a as { resource?: unknown }).resource) } : a);
+    return out;
+  });
+}
+
 // Executes a tool call by hitting our own API route with the caller's session
 // cookie forwarded - so it's gated by the exact same guard() check and returns
 // the exact same shape the real page renders from, nothing more.
@@ -147,5 +174,7 @@ export async function runTool(
   if (name === "search_documents") return { ok: true, data: documentHits(data) };
   if (name === "get_projects") return { ok: true, data: projectsForModel(data) };
   if (name === "get_tracking_summary") return { ok: true, data: trackingForModel(data) };
+  if (name === "get_resources") return { ok: true, data: resourcesForModel(data) };
+  if (name === "get_jobs") return { ok: true, data: jobsForModel(data) };
   return { ok: true, data };
 }

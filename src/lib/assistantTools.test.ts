@@ -2,7 +2,7 @@
 // carries the notes or contract value notes - free text that can hold rates and prices.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { projectsForModel, trackingForModel } from "./assistantTools";
+import { jobsForModel, projectsForModel, resourcesForModel, trackingForModel } from "./assistantTools";
 
 test("get_projects: notes and contract value notes are dropped, everything else kept", () => {
   const reply = [
@@ -58,6 +58,57 @@ test("get_tracking_summary: an unexpected reply fails closed", () => {
   assert.deepEqual(trackingForModel({ rows: [] }), { error: "Unexpected reply" });
   assert.deepEqual(trackingForModel(null), { error: "Unexpected reply" });
   assert.deepEqual(trackingForModel([]), { error: "Unexpected reply" });
+});
+
+// An Admin caller's register row: pay, day and hire rates, delivery / collection costs and notes all present.
+const adminRow = () => ({
+  id: "r1", name: "Sam Lee", type: "PERSONNEL", status: "ON_SITE", role: "Operator", agency: null, onHireDate: null,
+  payRateBasis: "HOURLY", ordinaryRate: 48.5, nightRate: 60, travelRate: 52, regionalDayRate: 55, regionalNightRate: 66,
+  saturdayRate: 70, sundayRate: 90, annualSalary: null, payRateConfirmed: true, payRateNotes: "Agreed $48.50", engagement: "ABN",
+  dailyRateExGst: 1234.5, rate: "$410/day", hireRate: 410, hireRateUnit: "DAY", hireDeliveryCost: 150, hireCollectionCost: 175,
+  notes: "Rate $410 per day confirmed by Coates",
+});
+const MONEY_KEYS = ["payRateBasis", "ordinaryRate", "nightRate", "travelRate", "regionalDayRate", "regionalNightRate", "saturdayRate",
+  "sundayRate", "annualSalary", "payRateConfirmed", "payRateNotes", "engagement", "dailyRateExGst", "rate", "hireRate",
+  "hireRateUnit", "hireDeliveryCost", "hireCollectionCost", "notes"];
+
+test("get_resources: every rate, pay field and note is dropped, whoever asked (PP-008)", () => {
+  const reply: Record<string, unknown>[] = [adminRow(), { id: "r2", name: "20t excavator", type: "HIRE", status: "AVAILABLE", agency: "Coates", onHireDate: "2026-11-01", hireRate: 900 }];
+  const out = resourcesForModel(reply) as Record<string, unknown>[];
+  for (const r of out) for (const k of MONEY_KEYS) assert.ok(!Object.hasOwn(r, k), k);
+  assert.deepEqual(out[0], { id: "r1", name: "Sam Lee", type: "PERSONNEL", status: "ON_SITE", role: "Operator", agency: null, onHireDate: null });
+  assert.deepEqual(out[1], { id: "r2", name: "20t excavator", type: "HIRE", status: "AVAILABLE", agency: "Coates", onHireDate: "2026-11-01" });
+  const text = JSON.stringify(out);
+  for (const s of ["48.5", "410", "1234.5", "150", "175", "$"]) assert.ok(!text.includes(s), s);
+  // The route's own reply is not changed (the register page still needs it).
+  assert.equal(reply[0].ordinaryRate, 48.5);
+  assert.equal(reply[0].notes, "Rate $410 per day confirmed by Coates");
+});
+
+test("get_jobs: each assignment's resource loses its rates and notes, the job and crew stay (PP-008)", () => {
+  const reply = [{
+    id: "j1", title: "Smith St", shift: "DAY", startTime: "7am", dayBrief: "Strip out level 2",
+    assignments: [{ id: "a1", role: "Operator", signedInAs: null, resource: adminRow() }],
+  }];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const out = jobsForModel(reply) as any[];
+  assert.equal(out[0].title, "Smith St");
+  assert.equal(out[0].dayBrief, "Strip out level 2");
+  assert.equal(out[0].assignments[0].role, "Operator");
+  const r = out[0].assignments[0].resource;
+  for (const k of MONEY_KEYS) assert.ok(!Object.hasOwn(r, k), k);
+  assert.equal(r.name, "Sam Lee");
+  assert.ok(!JSON.stringify(out).includes("$"));
+  assert.equal(reply[0].assignments[0].resource.dailyRateExGst, 1234.5);
+});
+
+test("get_jobs / get_resources: an unexpected reply fails closed (PP-008)", () => {
+  for (const f of [jobsForModel, resourcesForModel]) {
+    assert.deepEqual(f({ jobs: [] }), { error: "Unexpected reply" });
+    assert.deepEqual(f(null), { error: "Unexpected reply" });
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  assert.ok(!Object.hasOwn((jobsForModel([{ id: "j1", assignments: { resource: adminRow() } }]) as any[])[0], "assignments"));
 });
 
 test("get_projects: anything that isn't a list passes through untouched", () => {
