@@ -111,6 +111,36 @@ test("get_jobs / get_resources: an unexpected reply fails closed (PP-008)", () =
   assert.ok(!Object.hasOwn((jobsForModel([{ id: "j1", assignments: { resource: adminRow() } }]) as any[])[0], "assignments"));
 });
 
+test("get_resources / get_jobs: amounts typed into free text are taken out, the words, ids and dates stay (PP-009)", () => {
+  const hire = {
+    id: "cmh1abc", name: "20t excavator", type: "HIRE", agency: "Hire Express", onHireDate: "2026-11-01", offHireDate: "2026-11-14",
+    hireSource: "Email: Hire Express 16 Oct, quoted $450/day", hireRef: "HX-2231 $1,200 deposit", hireStart: "22 Sept",
+    hireEnd: "Fri, $90 pick-up", detail: "with operator $95/hr",
+  };
+  const r = (resourcesForModel([hire]) as Record<string, unknown>[])[0];
+  for (const s of ["$", "450", "1,200", "90 pick", "95"]) assert.ok(!JSON.stringify(r).includes(s), s);
+  assert.equal(r.id, "cmh1abc");
+  assert.equal(r.onHireDate, "2026-11-01");
+  assert.equal(r.offHireDate, "2026-11-14");
+  assert.equal(r.hireStart, "22 Sept");
+  assert.equal(r.agency, "Hire Express");
+  assert.ok(String(r.hireSource).startsWith("Email: Hire Express 16 Oct"));
+
+  const jobs = [{
+    id: "j1", title: "Smith St", date: "2026-11-03", startTime: "7am", dayBrief: "Strip out level 2, $300 tip at Kemps Creek",
+    dateCheckNote: "Weekend - client paying $2k extra", assignments: [{ id: "a1", role: "Operator", resource: hire }],
+  }];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const j = (jobsForModel(jobs) as any[])[0];
+  for (const s of ["$", "300", "2k", "450"]) assert.ok(!JSON.stringify(j).includes(s), s);
+  assert.equal(j.date, "2026-11-03");
+  assert.equal(j.startTime, "7am");
+  assert.ok(j.dayBrief.startsWith("Strip out level 2"));
+  assert.equal(j.assignments[0].resource.id, "cmh1abc");
+  // The route's own reply is not changed.
+  assert.equal(jobs[0].dayBrief, "Strip out level 2, $300 tip at Kemps Creek");
+});
+
 test("get_projects: anything that isn't a list passes through untouched", () => {
   const err = { error: "Forbidden" };
   assert.equal(projectsForModel(err), err);

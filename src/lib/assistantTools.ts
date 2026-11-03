@@ -14,6 +14,7 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { stripMoney } from "./dailyLog/money";
 import { toPublicResource } from "./serializeResource";
+import { withoutAmounts } from "./coordinatorHire";
 
 export type ToolName = "get_jobs" | "get_tracking_summary" | "get_projects" | "get_resources" | "search_documents";
 
@@ -132,12 +133,14 @@ export function trackingForModel(data: unknown): unknown {
 // What the resource register and the day's jobs hand the model. PP-008 (Ilies approved 3 Nov 2026): every resource
 // goes through the Viewer cut of toPublicResource - no pay rates, day rates, hire rates or delivery / collection
 // costs, whoever is asking - and its free-text notes are dropped. Names, types, status, hire dates and the day's
-// crew stay. Anything that isn't a list fails closed.
+// crew stay. Anything that isn't a list fails closed. PP-009 (approved 3 Nov 2026): every amount typed into the free
+// text that's left (hire source / reference / legacy start and finish, detail, a job's day brief) is taken out the
+// same way the coordinator's replies are (withoutAmounts) - the words stay.
 function resourceForModel(r: unknown): unknown {
   if (!r || typeof r !== "object") return r;
   const out = toPublicResource({ ...(r as Record<string, unknown>) }, "VIEWER");
   delete out.notes;
-  return out;
+  return withoutAmounts(out);
 }
 export function resourcesForModel(data: unknown): unknown {
   if (!Array.isArray(data)) return { error: "Unexpected reply" };
@@ -151,7 +154,7 @@ export function jobsForModel(data: unknown): unknown {
     if (!Array.isArray(out.assignments)) delete out.assignments;
     else out.assignments = out.assignments.map((a) =>
       a && typeof a === "object" ? { ...a, resource: resourceForModel((a as { resource?: unknown }).resource) } : a);
-    return out;
+    return withoutAmounts(out);
   });
 }
 
@@ -176,5 +179,6 @@ export async function runTool(
   if (name === "get_tracking_summary") return { ok: true, data: trackingForModel(data) };
   if (name === "get_resources") return { ok: true, data: resourcesForModel(data) };
   if (name === "get_jobs") return { ok: true, data: jobsForModel(data) };
-  return { ok: true, data };
+  // PP-010 (approved 3 Nov 2026): a tool with no filter of its own above hands the model nothing.
+  return { ok: false, data: { error: "No filter for this tool" } };
 }
