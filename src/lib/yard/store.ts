@@ -4,9 +4,9 @@
 // ("Collected") and the Requests page (an Admin's "Collected"). The guard - who
 // may act - is the caller's job (lib/yard/rules.ts mayActOnYard); the status
 // moves are checked here (yardActionError). Nothing is bought, booked or created.
-import type { SiteRequest } from "@prisma/client";
+import type { Prisma, SiteRequest } from "@prisma/client";
 import { prisma } from "../prisma";
-import { savePhoto } from "../toolPhotos";
+import { removePhoto, savePhoto } from "../toolPhotos";
 import { assertNoMoney } from "../moneyGuard";
 import { OFFICE_KINDS, requestNo } from "../requestTypes";
 import { LINK_WHERE, addEvent, linkVisible, yardView } from "../siteRequests";
@@ -52,7 +52,18 @@ type Act = { by: string; linkId?: string | null; photo?: unknown; note?: unknown
 const text = (x: unknown, max = 500) => (typeof x === "string" ? x.replace(/\s+/g, " ").trim().slice(0, max) : "");
 type Result = { request: SiteRequest } | { error: string; status: number };
 
-export async function applyYardAction(r: SiteRequest, action: YardAction, a: Act): Promise<Result> {
+// YD-003 (Ilies approved 4 Nov 2026): every status move is conditional on the status that was
+// checked - if someone else moved it in the meantime (cancelled, pulled back, collected), nothing
+// is written, no alert goes out, and the caller answers 409.
+export const CHANGED = { error: "It changed - reload the list.", status: 409 } as const;
+type Db = { siteRequest: Pick<typeof prisma.siteRequest, "updateMany" | "findUnique"> };
+export async function moveIfStill(db: Db, id: string, from: string, data: Prisma.SiteRequestUpdateManyMutationInput): Promise<SiteRequest | null> {
+  const { count } = await db.siteRequest.updateMany({ where: { id, status: from }, data });
+  return count ? db.siteRequest.findUnique({ where: { id } }) : null;
+}
+
+// `db` is only ever swapped in tests (lib/yard/store.test.ts).
+export async function applyYardAction(r: SiteRequest, action: YardAction, a: Act, db: Db = prisma): Promise<Result> {
   const err = yardActionError(action, r.status);
   if (err) return { error: err, status: err === "Unknown action." ? 400 : 409 };
   const no = requestNo(r.number);
@@ -69,10 +80,13 @@ export async function applyYardAction(r: SiteRequest, action: YardAction, a: Act
       const saved = await savePhoto(a.photo);
       if ("error" in saved) return { error: saved.error, status: 400 };
       const missing = text(a.note) || null;
-      const updated = await prisma.siteRequest.update({
-        where: { id: r.id },
-        data: { status: "READY", readyAt: new Date(), readyBy: a.by, readyNote: missing, readyPhotoFile: saved.fileName, readySiteLinkId: a.linkId ?? null },
+      const updated = await moveIfStill(db, r.id, r.status, {
+        status: "READY", readyAt: new Date(), readyBy: a.by, readyNote: missing, readyPhotoFile: saved.fileName, readySiteLinkId: a.linkId ?? null,
       });
+      if (!updated) {
+        await removePhoto(saved.fileName).catch(() => undefined); // never kept for a move that didn't happen
+        return CHANGED;
+      }
       await addEvent(r.id, "YARD_READY", a.by, missing ? `Missing: ${missing}` : null);
       // A missing item alerts the Admins out loud - nothing is bought or created automatically.
       const what = missing ? `${no} ready - missing: ${assertNoMoney(missing) ? missing : "see the request"}` : `${no} ready for collection at the yard`;
@@ -84,13 +98,15 @@ export async function applyYardAction(r: SiteRequest, action: YardAction, a: Act
       const reason = text(a.reason ?? a.note, 300);
       if (reason.length < 2) return { error: "Say why it can't be done - it goes back to the office.", status: 400 };
       // Back to the Admins to decide again (CANT_DO is "to decide").
-      const updated = await prisma.siteRequest.update({ where: { id: r.id }, data: { status: "CANT_DO", outcome: reason } });
+      const updated = await moveIfStill(db, r.id, r.status, { status: "CANT_DO", outcome: reason });
+      if (!updated) return CHANGED;
       await addEvent(r.id, "CANT_DO", a.by, reason);
       await notifyRequestUpdate(updated, `The yard can't do it: ${reason}`);
       return { request: updated };
     }
     case "COLLECTED": {
-      const updated = await prisma.siteRequest.update({ where: { id: r.id }, data: { status: "DONE", outcome: COLLECTED, doneAt: new Date() } });
+      const updated = await moveIfStill(db, r.id, r.status, { status: "DONE", outcome: COLLECTED, doneAt: new Date() });
+      if (!updated) return CHANGED;
       await addEvent(r.id, "COLLECTED", a.by, null);
       await notifyRequestUpdate(updated, `${no} collected - ${a.by}`);
       if (!a.fromYard) await notifyYard(updated, `Collected - ${a.by}`);

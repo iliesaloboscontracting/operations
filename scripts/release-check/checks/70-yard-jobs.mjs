@@ -176,6 +176,19 @@ export default {
 
     // (9) Security fixes (Ilies approved YD-001..009, 4 Nov 2026). Last, because making a new shared Yard link switches
     // off every older one - including this check's synthetic `yard` link.
+    // YD-003: a move only happens from the status that was checked - cancelled or pulled back first, READY is refused.
+    const c3 = (await ask("TOOLS", { item: `${tag} YD-003 cancel` }, { sendTo: "YARD" })).body?.request?.id;
+    if (t.ok(!!c3, "YD-003: a yard job to cancel")) {
+      t.status(await own("PATCH", c.site(L.sup, `/requests/${c3}`), { action: "CANCEL" }), 200, "YD-003: the supervisor cancels it");
+      t.status(await send("PATCH", c.site(yard, `/yard/${c3}`), null, { action: "READY", who: "RC Sam", photo: PNG }), 409, "YD-003: cancelled, then READY -> 409");
+      t.ok((await status(c3)) === "CANCELLED", "YD-003: it stays CANCELLED");
+    }
+    const p3 = (await ask("TOOLS", { item: `${tag} YD-003 pull back` }, { sendTo: "YARD" })).body?.request?.id;
+    if (t.ok(!!p3, "YD-003: a yard job to pull back")) {
+      t.status(await c.patch(`/api/requests/${p3}`, "ADMIN", { action: "PULL_BACK" }), 200, "YD-003: an Admin pulls it back");
+      t.status(await send("PATCH", c.site(yard, `/yard/${p3}`), null, { action: "READY", who: "RC Sam", photo: PNG }), 409, "YD-003: pulled back, then READY -> 409");
+      t.ok((await status(p3)) === "SEEN", "YD-003: it stays SEEN (with the office)");
+    }
     // YD-002: only an Admin makes the shared Yard link; personal links stay Manager+.
     t.status(await c.post("/api/site-links", "MANAGER", { shared: "Yard" }), 403, "YD-002: a Manager can't make the shared Yard link");
     t.status(await c.post("/api/site-links", "ADMIN", { shared: "Yard" }), 201, "YD-002: an Admin can");

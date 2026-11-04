@@ -11,7 +11,7 @@ import { recordQueryDecision } from "@/lib/findings/queries";
 import { QUERY_TYPE, STATUS_FOR_OFFICE } from "@/lib/requestTypes";
 import { adminBlockedByYard, isWithYard, pullBackError, sendToYardError } from "@/lib/yard/rules";
 import { notifyYard } from "@/lib/yard/alerts";
-import { applyYardAction } from "@/lib/yard/store";
+import { CHANGED, applyYardAction, moveIfStill } from "@/lib/yard/store";
 
 // PATCH /api/requests/:id - Ilies deciding on a site request. Admin only:
 // Alex (and any other Manager) can see requests but never decides on them.
@@ -170,7 +170,14 @@ export const PATCH = withErrorHandling(async (req: NextRequest, { params: params
     default:
       return bad("Unknown action.");
   }
-  const updated = await prisma.siteRequest.update({ where: { id: r.id }, data });
+  // YD-003 (Ilies approved 4 Nov 2026): sending to / pulling back from the yard, and any decision on a
+  // job the yard has (it may be marking it ready right now), only happen if the status is still the one
+  // checked above - otherwise 409, nothing written, no alert.
+  const conditional = body.action === "SEND_TO_YARD" || body.action === "PULL_BACK" || isWithYard(r.status);
+  const updated = conditional
+    ? await moveIfStill(prisma, r.id, r.status, data)
+    : await prisma.siteRequest.update({ where: { id: r.id }, data });
+  if (!updated) return NextResponse.json({ error: CHANGED.error }, { status: CHANGED.status });
   if (body.action !== "DISMISS_SUGGESTION") await addEvent(r.id, EVENT_NAME[body.action] ?? body.action, user.name, note);
   // The yard hears about a new job, and about one taken off its list (pulled back, declined).
   if (body.action === "SEND_TO_YARD") await notifyYard(updated, "NEW");

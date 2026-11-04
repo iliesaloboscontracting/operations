@@ -7,7 +7,7 @@ import { notifyRequestUpdate } from "@/lib/requestAlerts";
 import { suggestInBackground } from "@/lib/requestReminders";
 import { isWithYard } from "@/lib/yard/rules";
 import { notifyYard } from "@/lib/yard/alerts";
-import { applyYardAction } from "@/lib/yard/store";
+import { CHANGED, applyYardAction, moveIfStill } from "@/lib/yard/store";
 
 // PATCH /api/site/:token/requests/:id
 //   { action: "ANSWER", answer }  - reply to the office's question
@@ -39,7 +39,11 @@ export const PATCH = withErrorHandling(async (req: NextRequest, { params: params
   }
   if (body.action === "CANCEL") {
     if (["DONE", "DECLINED", "CANCELLED"].includes(r.status)) return bad("This one is already closed.");
-    await prisma.siteRequest.update({ where: { id: r.id }, data: { status: "CANCELLED" } });
+    // YD-003 (Ilies approved 4 Nov 2026): a job the yard has may be marked ready / collected at the same
+    // moment - cancel only if it's still where it was (else 409, nothing written, no alert).
+    if (isWithYard(r.status)) {
+      if (!(await moveIfStill(prisma, r.id, r.status, { status: "CANCELLED" }))) return NextResponse.json({ error: CHANGED.error }, { status: CHANGED.status });
+    } else await prisma.siteRequest.update({ where: { id: r.id }, data: { status: "CANCELLED" } });
     await addEvent(r.id, "CANCELLED", link.person.name, text(body.reason) || null);
     const updated = (await prisma.siteRequest.findUnique({ where: { id: r.id }, include: { events: { orderBy: { at: "asc" } } } }))!;
     await notifyRequestUpdate(updated, `${link.person.name} cancelled it - no longer needed`);

@@ -64,3 +64,10 @@ export function mediaTypeOf(fileName: string): "image/jpeg" | "image/png" | "ima
 export async function readPhoto(fileName: string): Promise<Buffer> {
   return fs.readFile(safePath(fileName));
 }
+
+// YD-003 (Ilies approved 4 Nov 2026): a photo saved for a change that then didn't happen (the
+// record moved on in the meantime) is removed straight away, so no unreferenced file is kept.
+// Only for a file savePhoto made a moment ago and nothing points to.
+export async function removePhoto(fileName: string): Promise<void> {
+  await fs.unlink(safePath(fileName));
+}
