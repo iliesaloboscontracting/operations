@@ -45,7 +45,10 @@ export default {
     t.ok(/role === "YARD" \? "\/yard"/.test(roles), "homeFor(YARD) is /yard");
     const frame = src("src/components/AppFrame.tsx");
     t.ok(/yardOnly \? "\/yard"/.test(frame) && /!\(yardOnly && isYardPage\(path\)\)/.test(frame), "AppFrame sends it home from every other page");
-    t.ok(/const YARD = \[\s*\{ href: "\/yard", label: "Yard jobs" \},\s*\{ href: "\/tools", label: "Tools" \},\s*\];/.test(src("src/components/TopNav.tsx")), "the nav shows only Yard jobs and Tools");
+    // Yard jobs, the stock take (Yard Stage B, 4 Nov 2026, when the build has it) and Tools - nothing else.
+    const nav = (src("src/components/TopNav.tsx").match(/const YARD = \[([\s\S]*?)\];/)?.[1] ?? "").match(/href: "[^"]+"/g)?.map((h) => h.slice(7, -1)) ?? [];
+    const navWant = c.hasPath("src/app/yard/stocktake/page.tsx") ? ["/yard", "/yard/stocktake", "/tools"] : ["/yard", "/tools"];
+    t.ok(JSON.stringify(nav) === JSON.stringify(navWant), `the nav shows only ${navWant.join(", ")}`, nav.join(", "));
 
     // (3) What it may look at: the Tools register, toolboxes, faults, its own alerts.
     for (const pth of ["/api/tools", "/api/toolboxes", "/api/tool-issues"]) t.status(await read(pth), 200, `view ${pth}`);

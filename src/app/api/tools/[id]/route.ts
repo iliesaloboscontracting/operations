@@ -2,11 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser, guardTools } from "@/lib/auth";
 import { viewJson } from "@/lib/coordinatorView"; // the coordinator gets no dollar figure (2 Nov 2026)
-import { pickTool, toolFieldError } from "@/lib/pickTool";
-import { keepHiddenAmounts, seesAmountsStripped } from "@/lib/toolTextWrite";
 import { withErrorHandling } from "@/lib/apiHandler";
-import { moveTool } from "@/lib/toolMoves";
-import { duplicateMessage, findDuplicate, serialKeyOf } from "@/lib/toolCreate";
+import { updateTool } from "@/lib/toolUpdate";
 
 // GET /api/tools/:id -> the tool with its photos, move history and faults.
 export const GET = withErrorHandling(async (_req: NextRequest, { params: paramsP }: { params: Promise<{ id: string }> }) => {
@@ -39,35 +36,10 @@ export const PATCH = withErrorHandling(async (
   if (denied) return denied;
   const user = await getCurrentUser();
   const body = await req.json();
-  const data = pickTool(body);
-  // A toolbox change sets heldBy itself (below), so a heldBy in the same request is ignored.
-  if ("toolboxId" in body) delete data.heldBy;
-  // The coordinator and the yard computer see the tool with amounts taken out (Ilies, 4 Nov 2026 - the Hire rule): a
-  // field sent back as shown is unchanged; changing one that holds an amount they can't see is refused (409).
-  if (seesAmountsStripped(user?.role)) {
-    const existing = await prisma.tool.findUnique({ where: { id: params.id } });
-    if (!existing) return NextResponse.json({ error: "That tool isn't on the register any more." }, { status: 404 });
-    const hidden = keepHiddenAmounts(data, existing as unknown as Record<string, unknown>);
-    if (hidden) return NextResponse.json({ error: hidden.error }, { status: hidden.status });
-  }
-  const invalid = toolFieldError(data);
-  if (invalid) return NextResponse.json({ error: invalid }, { status: 400 });
-  // Changing the serial: never onto one another tool already has.
-  if ("serialNumber" in data) {
-    const dup = await findDuplicate(data.serialNumber, params.id);
-    if (dup) return NextResponse.json({ error: duplicateMessage(dup), duplicate: dup }, { status: 409 });
-    data.serialKey = serialKeyOf(data.serialNumber);
-    if (data.serialKey) data.plateUnreadable = false;
-  }
-  // A toolbox change goes through moveTool (logged, keeps "held by" in step).
-  if ("toolboxId" in body) {
-    await moveTool(params.id, body.toolboxId || null, typeof body.moveReason === "string" ? body.moveReason : null, user?.name ?? null);
-  }
-  const tool = await prisma.tool.update({
-    where: { id: params.id },
-    data: data as any,
-  });
-  return viewJson(tool); // the coordinator / yard computer never see an amount in its notes
+  // The rules live in lib/toolUpdate.ts (shared with finishing a yard stock take, 4 Nov 2026).
+  const out = await updateTool(params.id, body && typeof body === "object" ? body : {}, { role: user?.role ?? null, name: user?.name ?? null });
+  if ("error" in out) return NextResponse.json({ error: out.error, ...(out.duplicate ? { duplicate: out.duplicate } : {}) }, { status: out.status });
+  return viewJson(out.tool); // the coordinator / yard computer never see an amount in its notes
 });
 
 export const DELETE = withErrorHandling(async (

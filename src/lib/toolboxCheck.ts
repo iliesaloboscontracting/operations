@@ -44,7 +44,8 @@ export function normTag(s: string | null | undefined) {
 
 const normText = (s: string | null | undefined) => (s ?? "").replace(/[\s\-]/g, "").toUpperCase();
 
-export function compareToolbox(toolboxId: string, reading: ToolboxReading, tools: CheckTool[]): CheckResult {
+// toolboxId null = the yard (tools with no home toolbox) - the yard stock take (Yard Stage B, 4 Nov 2026).
+export function compareToolbox(toolboxId: string | null, reading: ToolboxReading, tools: CheckTool[]): CheckResult {
   const byTag = new Map(tools.map((t) => [normTag(t.tag), t]));
   const bySerial = new Map(tools.filter((t) => normSerial(t.serialNumber)).map((t) => [normSerial(t.serialNumber), t]));
   const expected = tools.filter((t) => t.toolboxId === toolboxId);

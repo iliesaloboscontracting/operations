@@ -10,6 +10,7 @@ const TABS = [
   { href: "/tools/toolboxes", label: "Toolboxes" },
   { href: "/tools/faults", label: "Faults & Hilti swaps" },
   { href: "/tools/site", label: "From site" },
+  { href: "/yard/stocktake", label: "Yard stock take" }, // Yard Stage B (4 Nov 2026)
 ];
 
 export default function ToolsTabs() {
