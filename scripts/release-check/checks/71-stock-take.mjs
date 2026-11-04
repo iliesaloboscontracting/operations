@@ -75,7 +75,13 @@ export default {
     t.status(await act(id, "MANAGER", { action: "NOTE", note: "Count after $450 repair" }), 200, "a Manager's note with an amount");
     for (const who of ["YARD", "COORDINATOR"]) {
       const lst = await get("/api/stock-takes", who), one = await get(`/api/stock-takes/${id}`, who);
-      t.ok(lst.status === 200 && one.status === 200 && !/450/.test(lst.text) && !/450/.test(one.text), `${who}: the list and the stock take carry neither "$450" nor "450"`);
+      // The amount, in any form it could leak as ("$450", "$ 450", "450 repair") - not any "450": a record id or a
+      // ".450Z" time can carry those digits by chance on a live copy (failed once that way, 4 Nov 2026). The
+      // surrounding text is shown on a failure.
+      const leak = /\$\s?450|450\s*repair/;
+      const ctx = (s) => [...s.matchAll(/.{0,40}450.{0,40}/g)].map((m) => m[0]).slice(0, 5).join(" | ");
+      t.ok(lst.status === 200 && one.status === 200 && !leak.test(lst.text) && !leak.test(one.text), `${who}: the list and the stock take carry neither "$450" nor "450 repair"`, ctx(lst.text + one.text));
+      t.ok(/amount not recorded|Count after/.test(one.text), `${who}: the note is there with its amount taken out`);
       t.ok(!/startedById|finishedById/.test(lst.text + one.text), `${who}: no login ids in the replies (ST-005)`);
     }
     t.status(await act(id, "YARD", { action: "NOTE", note: "Count after the repair" }), 409, "the yard can't overwrite a note holding an amount it can't see");
