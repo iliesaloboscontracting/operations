@@ -194,6 +194,10 @@ export default {
     if (t.ok(!!y4, "YD-004: a yard job")) {
       t.status(await send("PATCH", c.site(yard, `/yard/${y4}`), null, { action: "ON_IT", who: "Sam $5" }), 400, "YD-004: who 'Sam $5' -> 400");
       t.ok((await c.db.siteRequestEvent.count({ where: { requestId: y4, action: "YARD_ON_IT" } })) === 0, "YD-004: nothing recorded");
+      // YD-005: On it twice by the same person -> one event.
+      t.status(await send("PATCH", c.site(yard, `/yard/${y4}`), null, { action: "ON_IT", who: "RC Sam" }), 200, "YD-005: On it");
+      t.status(await send("PATCH", c.site(yard, `/yard/${y4}`), null, { action: "ON_IT", who: "RC Sam" }), 200, "YD-005: On it again");
+      t.ok((await c.db.siteRequestEvent.count({ where: { requestId: y4, action: "YARD_ON_IT" } })) === 1, "YD-005: one YARD_ON_IT event, not two");
     }
     // YD-002: only an Admin makes the shared Yard link; personal links stay Manager+.
     t.status(await c.post("/api/site-links", "MANAGER", { shared: "Yard" }), 403, "YD-002: a Manager can't make the shared Yard link");

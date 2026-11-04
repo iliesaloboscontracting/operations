@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import type { SiteRequest, SiteRequestEvent } from "@prisma/client";
 import {
   BLOCKED_WHILE_WITH_YARD, YARD_KINDS, adminBlockedByYard, dayLabel, groupYardJobs, isYardLink, mayActOnYard, mayChooseYard,
-  onYardList, pullBackError, sendToYardError, sendsToYard, sharedWho, sydneyDay, yardActionError,
+  onItIsRepeat, onYardList, pullBackError, sendToYardError, sendsToYard, sharedWho, sydneyDay, yardActionError,
 } from "./rules";
 import { siteView, yardView } from "../siteRequests";
 import { NEEDS_ILIES, OFFICE_KINDS, ON_TODO, OPEN_STATUSES, STATUS_FOR_OFFICE, STATUS_FOR_SITE, isOverdue } from "../requestTypes";
@@ -95,6 +95,16 @@ test("a shared-link name is required and stored 'Yard - Sam'", () => {
   assert.equal(sharedWho("Yard", "S"), null);
   assert.equal(sharedWho("Yard", 5), null);
   assert.equal(sharedWho("Yard", "x".repeat(80))!.length, "Yard - ".length + 40);
+});
+
+test("YD-005: On it again by the same person within 10 minutes is a repeat", () => {
+  const now = new Date("2026-11-04T03:09:00Z");
+  const e = { action: "YARD_ON_IT", by: "Yard - Sam", at: "2026-11-04T03:00:00Z" };
+  assert.equal(onItIsRepeat(e, "Yard - Sam", now), true);
+  assert.equal(onItIsRepeat(e, "Yard - Joe", now), false); // someone else
+  assert.equal(onItIsRepeat(e, "Yard - Sam", new Date("2026-11-04T03:10:00Z")), false); // 10 minutes on
+  assert.equal(onItIsRepeat({ ...e, action: "SENT_TO_YARD" }, "Yard - Sam", now), false); // not the latest step
+  assert.equal(onItIsRepeat(null, "Yard - Sam", now), false);
 });
 
 test("YD-004: a name with a dollar figure is refused", () => {

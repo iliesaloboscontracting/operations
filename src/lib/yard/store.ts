@@ -12,7 +12,7 @@ import { OFFICE_KINDS, requestNo } from "../requestTypes";
 import { LINK_WHERE, addEvent, linkVisible, yardView } from "../siteRequests";
 import { notifyRequestUpdate } from "../requestAlerts";
 import { notifySupervisorReady, notifyYard } from "./alerts";
-import { COLLECTED, COLLECTED_DAYS, YARD_STATUSES, yardActionError, type YardAction } from "./rules";
+import { COLLECTED, COLLECTED_DAYS, YARD_STATUSES, onItIsRepeat, yardActionError, type YardAction } from "./rules";
 
 // Most "ready" photos one yard link can send in a day - plenty for real use, and a cap on
 // what a leaked link could do before it's switched off (like DAILY_PHOTO_LIMIT).
@@ -69,7 +69,9 @@ export async function applyYardAction(r: SiteRequest, action: YardAction, a: Act
   const no = requestNo(r.number);
   switch (action) {
     case "ON_IT": {
-      await addEvent(r.id, "YARD_ON_IT", a.by, null);
+      // YD-005 (Ilies approved 4 Nov 2026): the same person again within 10 minutes - unchanged, no new event.
+      const latest = await prisma.siteRequestEvent.findFirst({ where: { requestId: r.id }, orderBy: { at: "desc" }, select: { action: true, by: true, at: true } });
+      if (!onItIsRepeat(latest, a.by)) await addEvent(r.id, "YARD_ON_IT", a.by, null);
       return { request: r };
     }
     case "READY": {

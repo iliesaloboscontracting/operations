@@ -57,6 +57,13 @@ export function yardActionError(action: string, status: string): string | null {
   }
 }
 
+// YD-005 (Ilies approved 4 Nov 2026): "On it" pressed again by the same person within 10 minutes
+// (a double tap, a slow phone) changes nothing - no second event.
+export const ON_IT_REPEAT_MINUTES = 10;
+export function onItIsRepeat(latest: { action: string; by: string; at: string | Date } | null | undefined, by: string, now = new Date()) {
+  return !!latest && latest.action === "YARD_ON_IT" && latest.by === by && now.getTime() - new Date(latest.at).getTime() < ON_IT_REPEAT_MINUTES * 60_000;
+}
+
 // Who may act on the yard's list: the yard's shared phone link, the YARD login and
 // Admins. Managers and the coordinator only look. The supervisor who asked may only
 // mark their own one collected (checked by the link route).
