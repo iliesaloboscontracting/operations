@@ -3,7 +3,8 @@ import { prisma } from "@/lib/prisma";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { resolveLink, resolveReceiptLink } from "@/lib/siteLinks";
 import { receiptsSentToday } from "@/lib/receipts/store";
-import { OPEN_STATUSES } from "@/lib/requestTypes";
+import { OFFICE_KINDS, OPEN_STATUSES } from "@/lib/requestTypes";
+import { isYardLink } from "@/lib/yard/rules";
 import { hireForLink } from "@/lib/hireCheck";
 import { LINK_WHERE } from "@/lib/siteRequests";
 import { isPilotLink, logCard } from "@/lib/dailyLog/store";
@@ -48,5 +49,12 @@ export const GET = withErrorHandling(async (_req: NextRequest, { params: paramsP
   const dailyLog = hasLog ? await logCard(link, new Date()) : undefined;
   // Receipts sent today - supervisors send tip dockets and fuel receipts too.
   const receipts = link.kind === "SUPERVISOR" && link.person.id ? { receiptsToday: await receiptsSentToday(link.person.id) } : {};
-  return NextResponse.json({ person: link.person.name, kind: link.kind, shared: link.shared, toolboxes, openRequests, needsAnswer, todo, hireItems: hire.length, hireToCheck: hire.filter((h) => h.askNow).length, ...(dailyLog ? { dailyLog } : {}), ...(hasLog ? { guide: GUIDE_VERSION } : {}), ...receipts });
+  // Yard jobs (4 Nov 2026): the yard's shared link - how many are waiting to be got ready.
+  // A supervisor's link: how many of theirs are ready to collect.
+  const yard = isYardLink(link)
+    ? { yardJobs: await prisma.siteRequest.count({ where: { ...LINK_WHERE, kind: { notIn: OFFICE_KINDS }, status: "YARD", yardAt: { not: null } } }) }
+    : link.kind !== "OFFICE"
+      ? { readyToCollect: await prisma.siteRequest.count({ where: { siteLinkId: link.id, ...LINK_WHERE, status: "READY" } }) }
+      : {};
+  return NextResponse.json({ person: link.person.name, kind: link.kind, shared: link.shared, toolboxes, openRequests, needsAnswer, todo, hireItems: hire.length, hireToCheck: hire.filter((h) => h.askNow).length, ...(dailyLog ? { dailyLog } : {}), ...(hasLog ? { guide: GUIDE_VERSION } : {}), ...receipts, ...yard });
 });

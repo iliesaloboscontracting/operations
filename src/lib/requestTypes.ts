@@ -205,6 +205,9 @@ export const STATUS_FOR_SITE: Record<string, string> = {
   DECLINED: "Declined",
   CANCELLED: "Cancelled",
   ANSWERED: "Answered",
+  // Yard jobs (Ilies, 4 Nov 2026).
+  YARD: "With the yard",
+  READY: "Ready for collection",
 };
 // And to the office.
 export const STATUS_FOR_OFFICE: Record<string, string> = {
@@ -219,13 +222,17 @@ export const STATUS_FOR_OFFICE: Record<string, string> = {
   DECLINED: "Declined",
   CANCELLED: "Cancelled",
   ANSWERED: "Answered - to close",
+  YARD: "With the yard",
+  READY: "Ready at the yard",
 };
 // ACTIONING (22 Oct 2026): the person it was handed to has started on it.
 // ANSWERED (24 Oct 2026): a query's answer is in - waiting on Ilies to close it.
-export const OPEN_STATUSES = ["SENT", "SEEN", "NEEDS_INFO", "TODO", "ACTIONING", "MINE", "CANT_DO", "ANSWERED"];
+// YARD / READY (4 Nov 2026, lib/yard/rules.ts): with the yard, then ready for the supervisor to collect.
+export const OPEN_STATUSES = ["SENT", "SEEN", "NEEDS_INFO", "TODO", "ACTIONING", "MINE", "CANT_DO", "ANSWERED", "YARD", "READY"];
 // On the assignee's to-do list (Alex): handed over, started, or waiting on his question.
 export const ON_TODO = ["TODO", "ACTIONING", "NEEDS_INFO"];
-// Waiting on Ilies to act (the menu badge).
+// Waiting on Ilies to act (the menu badge). A yard job isn't - the yard is on it; one the yard
+// can't do comes back as CANT_DO. A "missing" note on a ready one alerts the Admins instead.
 export const NEEDS_ILIES = ["SENT", "SEEN", "CANT_DO", "ANSWERED"];
 
 const RANK: Record<string, number> = { URGENT: 0, HIGH: 1, LOW: 2 };

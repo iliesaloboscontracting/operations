@@ -116,6 +116,12 @@ export async function guardOrCoordinator(min: Role): Promise<NextResponse | null
   return null;
 }
 
+// Yard jobs (4 Nov 2026): `min` and up, plus the YARD login.
+// placeholder - replaced by the yard-role branch
+export async function guardOrYard(min: Role): Promise<NextResponse | null> {
+  return guard(min);
+}
+
 // Looking at timesheets: Managers and Admins, plus the review-only
 // TIMESHEETS role and the COORDINATOR login (2 Nov 2026). Approving, reopening and exporting stay guard("MANAGER").
 export async function guardTimesheetViewer(): Promise<NextResponse | null> {

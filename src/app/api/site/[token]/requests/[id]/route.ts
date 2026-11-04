@@ -5,10 +5,14 @@ import { resolveLink } from "@/lib/siteLinks";
 import { addEvent, askedByAssignee, linkVisible, siteView } from "@/lib/siteRequests";
 import { notifyRequestUpdate } from "@/lib/requestAlerts";
 import { suggestInBackground } from "@/lib/requestReminders";
+import { isWithYard } from "@/lib/yard/rules";
+import { notifyYard } from "@/lib/yard/alerts";
+import { applyYardAction } from "@/lib/yard/store";
 
 // PATCH /api/site/:token/requests/:id
 //   { action: "ANSWER", answer }  - reply to the office's question
 //   { action: "CANCEL", reason? } - no longer needed (until it's done)
+//   { action: "COLLECTED" }       - picked up from the yard (only once it's ready; 4 Nov 2026)
 // Only the link that sent it (or the same supervisor's other link).
 export const PATCH = withErrorHandling(async (req: NextRequest, { params: paramsP }: { params: Promise<{ token: string; id: string }> }) => {
   const params = await paramsP;
@@ -39,6 +43,15 @@ export const PATCH = withErrorHandling(async (req: NextRequest, { params: params
     await addEvent(r.id, "CANCELLED", link.person.name, text(body.reason) || null);
     const updated = (await prisma.siteRequest.findUnique({ where: { id: r.id }, include: { events: { orderBy: { at: "asc" } } } }))!;
     await notifyRequestUpdate(updated, `${link.person.name} cancelled it - no longer needed`);
+    // The yard was getting it ready - tell them to stop (4 Nov 2026).
+    if (isWithYard(r.status)) await notifyYard(updated, `Cancelled by ${link.person.name} - no longer needed`);
+    return NextResponse.json({ request: siteView(updated) });
+  }
+  // Yard jobs (Ilies, 4 Nov 2026): the supervisor picked up what the yard got ready.
+  if (body.action === "COLLECTED") {
+    const out = await applyYardAction(r, "COLLECTED", { by: link.person.name });
+    if ("error" in out) return NextResponse.json({ error: out.error }, { status: out.status });
+    const updated = (await prisma.siteRequest.findUnique({ where: { id: r.id }, include: { events: { orderBy: { at: "asc" } } } }))!;
     return NextResponse.json({ request: siteView(updated) });
   }
   return bad("Unknown action.");

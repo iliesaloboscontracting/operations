@@ -4,15 +4,18 @@ import { getCurrentUser, guard } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { pushPublicKey } from "@/lib/push";
 import { isPushHost } from "@/lib/pushHost";
+import { isYardLogin } from "@/lib/yard/rules";
 
 // Phone alerts for site requests - Admin only (Ilies is the one who decides).
 // GET    -> { publicKey, devices }   the key the browser subscribes with
 // POST   { subscription, label }    this phone/browser wants alerts
 // DELETE { endpoint }               this phone/browser stops them
-// Since 26 Oct 2026 the accounts login can turn on its own phone for due-date alerts too.
+// Since 26 Oct 2026 the accounts login can turn on its own phone for due-date alerts too,
+// and since 4 Nov 2026 the YARD login - new yard jobs (lib/yard/alerts.ts).
 async function guardPush() {
   const user = await getCurrentUser();
   if (user?.role === "ACCOUNTS") return null;
+  if (user && isYardLogin(user.role)) return null;
   return guard("ADMIN");
 }
 

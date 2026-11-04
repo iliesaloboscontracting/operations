@@ -8,7 +8,10 @@ import { suggestInBackground, suggestReminder } from "@/lib/requestReminders";
 import { notifyRequestUpdate } from "@/lib/requestAlerts";
 import { audiencesFor, canActOnFindings } from "@/lib/findings/actions";
 import { recordQueryDecision } from "@/lib/findings/queries";
-import { QUERY_TYPE } from "@/lib/requestTypes";
+import { QUERY_TYPE, STATUS_FOR_OFFICE } from "@/lib/requestTypes";
+import { adminBlockedByYard, isWithYard, pullBackError, sendToYardError } from "@/lib/yard/rules";
+import { notifyYard } from "@/lib/yard/alerts";
+import { applyYardAction } from "@/lib/yard/store";
 
 // PATCH /api/requests/:id - Ilies deciding on a site request. Admin only:
 // Alex (and any other Manager) can see requests but never decides on them.
@@ -26,7 +29,13 @@ import { QUERY_TYPE } from "@/lib/requestTypes";
 //                                                 (and its new needed-by, if ticked)
 //   DISMISS_SUGGESTION
 //   SUGGEST                                     - ask the AI now
-const DECIDABLE = ["SENT", "SEEN", "NEEDS_INFO", "CANT_DO", "MINE", "TODO", "ACTIONING", "ANSWERED"];
+// Yard jobs (Ilies, 4 Nov 2026), site requests only - never directors & accounts items:
+//   SEND_TO_YARD { note? }                      - onto the yard's list (from any open, non-yard status)
+//   PULL_BACK { note? }                         - off the yard's list, back to "to decide" (SEEN)
+//   COLLECTED                                   - picked up (only once the yard has it ready)
+// While the yard has it, approve / mine / ask / done wait until it's pulled back
+// (lib/yard/rules.ts); declining and reminders still work.
+const DECIDABLE = ["SENT", "SEEN", "NEEDS_INFO", "CANT_DO", "MINE", "TODO", "ACTIONING", "ANSWERED", "YARD", "READY"];
 
 export const PATCH = withErrorHandling(async (req: NextRequest, { params: paramsP }: { params: Promise<{ id: string }> }) => {
   const params = await paramsP;
@@ -44,10 +53,32 @@ export const PATCH = withErrorHandling(async (req: NextRequest, { params: params
   if (isQuery && (body.action === "APPROVE" || body.action === "MINE")) return bad("A query goes to one person - close it, ask a follow-up, or decline it.");
   const text = (x: unknown, max = 500) => (typeof x === "string" ? x.trim().slice(0, max) : "");
   const open = DECIDABLE.includes(r.status);
+  const blocked = adminBlockedByYard(String(body.action), r.status);
+  if (blocked) return bad(blocked);
   let data: Record<string, unknown>;
   let note: string | null = null;
 
   switch (body.action) {
+    case "SEND_TO_YARD": {
+      const err = sendToYardError(r);
+      if (err) return bad(err);
+      // Off Alex's to-do (if it was there) and onto the yard's list; the note is for the yard.
+      data = { status: "YARD", yardAt: new Date(), yardBy: user.name, assigneeId: null, assigneeName: null, officeNote: text(body.note) || r.officeNote, seenAt: r.seenAt ?? new Date() };
+      note = text(body.note) || null;
+      break;
+    }
+    case "PULL_BACK": {
+      const err = pullBackError(r);
+      if (err) return bad(err);
+      data = { status: "SEEN" };
+      note = text(body.note) || null;
+      break;
+    }
+    case "COLLECTED": {
+      const out = await applyYardAction(r, "COLLECTED", { by: user.name });
+      if ("error" in out) return NextResponse.json({ error: out.error }, { status: out.status });
+      return done(r.id);
+    }
     case "SEEN":
       if (r.status !== "SENT") return done(r.id);
       data = { status: "SEEN", seenAt: new Date() };
@@ -141,6 +172,10 @@ export const PATCH = withErrorHandling(async (req: NextRequest, { params: params
   }
   const updated = await prisma.siteRequest.update({ where: { id: r.id }, data });
   if (body.action !== "DISMISS_SUGGESTION") await addEvent(r.id, EVENT_NAME[body.action] ?? body.action, user.name, note);
+  // The yard hears about a new job, and about one taken off its list (pulled back, declined).
+  if (body.action === "SEND_TO_YARD") await notifyYard(updated, "NEW");
+  else if (isWithYard(r.status) && !isWithYard(updated.status))
+    await notifyYard(updated, body.action === "PULL_BACK" ? `Taken back by the office (${user.name})` : `Taken off the yard list - ${STATUS_FOR_OFFICE[updated.status] ?? updated.status}`);
   if (isQuery) {
     // Recorded on the finding; closing never changes any other record.
     await recordQueryDecision(r, body.action, note, user);
@@ -152,7 +187,7 @@ export const PATCH = withErrorHandling(async (req: NextRequest, { params: params
 });
 
 const bad = (error: string) => NextResponse.json({ error }, { status: 400 });
-const EVENT_NAME: Record<string, string> = { REMIND: "REMINDER", ACCEPT_SUGGESTION: "REMINDER", CLEAR_REMINDER: "REMINDER_CLEARED" };
+const EVENT_NAME: Record<string, string> = { REMIND: "REMINDER", ACCEPT_SUGGESTION: "REMINDER", CLEAR_REMINDER: "REMINDER_CLEARED", SEND_TO_YARD: "SENT_TO_YARD", PULL_BACK: "PULLED_BACK" };
 const whenSyd = (d: Date) =>
   d.toLocaleString("en-AU", { timeZone: "Australia/Sydney", weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
 async function done(id: string) {
