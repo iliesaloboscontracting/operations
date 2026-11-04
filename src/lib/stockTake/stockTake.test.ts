@@ -90,10 +90,19 @@ test("a shelf photo: tag / serial matches ticked, a hand tick stands, toolbox to
 
 test("the summary counts", () => {
   const s = summarise([
-    line("1", { result: "FOUND", conditionSeen: "Needs repair" }), line("2", { result: "FOUND" }), line("3", { result: "NOT_FOUND", decision: "MISSING" }),
+    line("1", { result: "FOUND", conditionSeen: "Needs repair" }), line("2", { result: "FOUND" }),
+    line("3", { result: "NOT_FOUND", decision: "MISSING", appliedAt: new Date(), appliedChange: "Condition Good -> Missing" }),
     line("4", { decision: "LEAVE" }), line("5", { expected: false, result: "EXTRA", conditionSeen: "Needs repair" }),
   ]);
   assert.deepEqual(s, { expected: 4, checked: 3, found: 2, needsRepair: 2, notFound: 1, unchecked: 1, extras: 1, confirmedMissing: 1, left: 1 });
+  // ST-006 (Ilies approved 4 Nov 2026): only a tool finishing really marked Missing counts as confirmed missing.
+  const notMarked = summarise([
+    line("a", { result: "NOT_FOUND", decision: "MISSING" }), // decided, not applied (e.g. its update failed)
+    line("b", { result: "NOT_FOUND", decision: "MISSING", appliedChange: "Already missing" }), // already Missing - no change
+    line("c", { result: "UNCHECKED", decision: "MISSING", appliedChange: "Moved to a toolbox since the start - not marked missing" }),
+    line("d", { result: "NOT_FOUND", decision: "MISSING", appliedAt: new Date(), appliedChange: "Condition Needs repair -> Missing" }),
+  ]);
+  assert.equal(notMarked.confirmedMissing, 1);
   assert.equal(isMissingCandidate(line("x")), true);
   assert.equal(isMissingCandidate(line("x", { result: "NOT_FOUND" })), true);
   assert.equal(isMissingCandidate(line("x", { result: "FOUND" })), false);

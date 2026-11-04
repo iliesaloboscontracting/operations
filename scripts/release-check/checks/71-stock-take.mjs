@@ -198,7 +198,8 @@ export default {
     if (ph.body?.id) t.status(await send("POST", `/api/stock-takes/${id}/scan`, "YARD", { photoIds: [ph.body.id] }), 409, "or scanned");
     const list = await get("/api/stock-takes", "COORDINATOR");
     const h = list.body?.history?.find((x) => x.id === id);
-    t.ok(list.body?.open === null && h && h.summary.confirmedMissing === 2 && h.summary.found >= 1, "the coordinator sees it in the history with its counts");
+    // ST-006 (Ilies approved 4 Nov 2026): confirmed missing = really marked Missing - B; E (swapped out since) doesn't count.
+    t.ok(list.body?.open === null && h && h.summary.confirmedMissing === 1 && h.summary.found >= 1, "the coordinator sees it in the history with its counts (1 confirmed missing - E was swapped out, not marked)", JSON.stringify(h?.summary));
 
     // (10) Cancel: nothing on the register changes; the yard is free again.
     const st2 = await send("POST", "/api/stock-takes", "MANAGER", { location: "YARD" });

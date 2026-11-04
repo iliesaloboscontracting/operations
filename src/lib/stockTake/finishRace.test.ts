@@ -77,17 +77,19 @@ function setup(status = "OPEN", finishedAt: Date | null = null) {
   const { db, writes } = fakeDb(tables);
   const applied: { toolId: string; body: Row }[] = [];
   let failOn: string | null = null;
+  let throwOn: string | null = null;
   const deps = {
     db, read: async () => ({ items: [], notes: "" }), move: async () => {},
     apply: async (toolId: string, body: Row) => {
       await tick();
       if (failOn === toolId) return { error: "boom", status: 500 };
+      if (throwOn === toolId) throw new Error("database went away");
       applied.push({ toolId, body });
       tables.tool.find((t) => t.id === toolId)!.condition = body.condition;
       return { tool: {} };
     },
   } as unknown as Deps;
-  return { tables, writes, applied, deps, failNext: (id: string | null) => { failOn = id; } };
+  return { tables, writes, applied, deps, failNext: (id: string | null) => { failOn = id; }, throwNext: (id: string | null) => { throwOn = id; } };
 }
 const decisions = { missing: ["lB"], leave: ["lC"] };
 
@@ -162,6 +164,25 @@ test("ST-001: a finish that fails part-way stays FINISHING (claim released); Fin
   assert.ok("ok" in again, JSON.stringify(again));
   assert.deepEqual(f.applied.map((x) => x.toolId), ["tA", "tB"], "A once, then B");
   assert.equal(f.tables.stockTake[0].status, "FINISHED");
+});
+
+test("ST-006: a tool update that throws - the line isn't applied, the stock take stays FINISHING (claim released), a resume applies it", async () => {
+  const { finishStockTake } = await import("./store");
+  const f = setup();
+  f.throwNext("tB");
+  await assert.rejects(finishStockTake("st", decisions, undefined, actor, f.deps), /database went away/);
+  const lB = f.tables.stockTakeLine.find((l) => l.id === "lB")!;
+  assert.equal(lB.appliedAt, null, "B not applied");
+  assert.equal(lB.appliedChange, null);
+  assert.equal(f.tables.stockTake[0].status, "FINISHING");
+  assert.equal(f.tables.stockTake[0].finishedAt, null, "the claim is released");
+  assert.equal(f.tables.tool.find((t) => t.id === "tB")!.condition, "Good", "the tool wasn't changed");
+  f.throwNext(null);
+  const again = await finishStockTake("st", decisions, undefined, actor, f.deps);
+  assert.ok("ok" in again, JSON.stringify(again));
+  assert.deepEqual(f.applied.map((x) => x.toolId), ["tA", "tB"], "A once, then B on the resume");
+  assert.equal(f.tables.stockTake[0].status, "FINISHED");
+  assert.equal((again as { summary: { confirmedMissing: number } }).summary.confirmedMissing, 1, "B really marked Missing");
 });
 
 test("ST-001: a running finish holds its claim - a second Finish is 409 until it's done or its claim runs out", async () => {

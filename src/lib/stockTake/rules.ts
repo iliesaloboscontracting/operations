@@ -144,7 +144,11 @@ export function planScan(lines: LineState[], result: CheckResult): ScanPlan {
 }
 
 // ---------- the summary ----------
-export type SummaryLine = { expected: boolean; result: string; conditionSeen: string | null; decision?: string | null };
+export type SummaryLine = { expected: boolean; result: string; conditionSeen: string | null; decision?: string | null; appliedAt?: Date | string | null; appliedChange?: string | null };
+// ST-006 (Ilies approved 4 Nov 2026): "confirmed missing" is a tool finishing actually marked Missing - decided MISSING,
+// applied (appliedAt) and the register really changed (appliedChange "Condition X -> Missing"). A confirmed one that was
+// already Missing, gone from the register, swapped out since, or whose update failed doesn't count.
+export const markedMissing = (l: SummaryLine) => l.decision === "MISSING" && !!l.appliedAt && !!l.appliedChange && /-> Missing$/.test(l.appliedChange);
 export type Summary = { expected: number; checked: number; found: number; needsRepair: number; notFound: number; unchecked: number; extras: number; confirmedMissing: number; left: number };
 export function summarise(lines: SummaryLine[]): Summary {
   const exp = lines.filter((l) => l.expected);
@@ -156,7 +160,7 @@ export function summarise(lines: SummaryLine[]): Summary {
     notFound: exp.filter((l) => l.result === "NOT_FOUND").length,
     unchecked: exp.filter((l) => l.result === "UNCHECKED").length,
     extras: lines.filter((l) => l.result === "EXTRA").length,
-    confirmedMissing: lines.filter((l) => l.decision === "MISSING").length,
+    confirmedMissing: lines.filter(markedMissing).length,
     left: lines.filter((l) => l.decision === "LEAVE").length,
   };
 }
@@ -169,7 +173,7 @@ export const isMissingCandidate = (l: { expected: boolean; result: string }) => 
 // same rules as the toolbox check's "Mark missing" and the tool form apply. `current` is the tool as it is now
 // (null = deleted since). Every not-found tool needs a decision: MISSING (confirmed - "Confirm all" fills these) or
 // LEAVE (left as the register has it). Nothing is marked Missing without one.
-export type FinishLine = LineState & { decision?: string | null; appliedAt?: Date | string | null };
+export type FinishLine = LineState & { decision?: string | null; appliedAt?: Date | string | null; appliedChange?: string | null };
 export type CurrentTool = { condition: string; toolboxId: string | null } | null;
 export type FinishStep = { lineId: string; decision: "MISSING" | "LEAVE" | null; condition: string | null; change: string | null; note: string | null };
 export type Decisions = { missing: string[]; leave: string[] };

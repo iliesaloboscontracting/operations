@@ -50,7 +50,7 @@ function cleanNote(note: unknown, actor: Actor, stored?: string | null): { note:
 export async function listStockTakes(deps: Deps = REAL) {
   const takes = await deps.db.stockTake.findMany({
     orderBy: { startedAt: "desc" }, take: 60,
-    include: { lines: { select: { expected: true, result: true, conditionSeen: true, decision: true } } },
+    include: { lines: { select: { expected: true, result: true, conditionSeen: true, decision: true, appliedAt: true, appliedChange: true } } }, // ST-006
   });
   return takes.map(({ lines, startedById: _a, finishedById: _b, ...s }) => ({ ...s, summary: summarise(lines) })); // ST-005: no login ids out
 }
@@ -384,7 +384,16 @@ export async function finishStockTake(id: string, d: Decisions, note: unknown, a
         data: { appliedAt: new Date(), appliedChange: step.change, ...(step.decision ? { decision: step.decision } : {}) },
       });
       if (!mine.count) continue; // applied by another finish
-      const out = await deps.apply(line.toolId, { condition: step.condition }, actor);
+      // ST-006 (Ilies approved 4 Nov 2026): a tool update that throws (not just one that answers an error) also hands
+      // the line back - not applied - and leaves the stock take FINISHING with the claim released, so Finish resumes it.
+      let out: Awaited<ReturnType<Deps["apply"]>>;
+      try {
+        out = await deps.apply(line.toolId, { condition: step.condition }, actor);
+      } catch (e) {
+        await db.stockTakeLine.updateMany({ where: { id: line.id }, data: { appliedAt: null, appliedChange: null } });
+        await release("FINISHING");
+        throw e;
+      }
       if ("error" in out) {
         await db.stockTakeLine.updateMany({ where: { id: line.id }, data: { appliedAt: null, appliedChange: null } });
         await release("FINISHING");
@@ -403,6 +412,6 @@ export async function finishStockTake(id: string, d: Decisions, note: unknown, a
     data: { status: "FINISHED", openKey: null, finishedAt: new Date(), finishedBy: actor.name, finishedById: actor.id, ...("note" in n ? { note: n.note } : {}) },
   });
   if (!r.count) return fail(FINISH_RUNNING, 409);
-  const after = await db.stockTakeLine.findMany({ where: { stockTakeId: id }, select: { expected: true, result: true, conditionSeen: true, decision: true } });
+  const after = await db.stockTakeLine.findMany({ where: { stockTakeId: id }, select: { expected: true, result: true, conditionSeen: true, decision: true, appliedAt: true, appliedChange: true } });
   return { ok: true, changes: done, summary: summarise(after), candidates: lines.filter(isMissingCandidate).length };
 }
