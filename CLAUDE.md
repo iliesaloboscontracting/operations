@@ -101,6 +101,21 @@ business, without becoming unnecessarily complicated.
   `src/lib/coordinatorHire.ts`); raises his own purchase requests and sees everyone's read-only, prices included (never approves); office chat;
   site & safety documents only, not the Assistant. Never director access. Only the owner gives, takes away or creates a COORDINATOR login (Ilies, 2 Nov 2026: "Only you (the owner)"). Outlook (phase 2) is a
   placeholder only. Release check `63-coordinator`.
+  `YARD` (4 Nov 2026, Ilies - the yard computer downstairs) works the same way - below VIEWER,
+  `guardOrYard()` / `guardTools()` only, home `/yard`, pages `/yard/*` + the Tools pages; never money,
+  never director access. Only the owner creates, renames, resets, switches off or re-roles a YARD (or
+  COORDINATOR / DIRECTOR) login (YD-009). Its login is iliesa+yard@ (Ilies: "use mine").
+  **Yard** (live 4 Nov 2026 ~21:12, `src/lib/yard/`, `src/lib/stockTake/`, `src/lib/inventory/`):
+  (A) yard jobs - supervisors send TOOLS / MATERIALS / DELIVERY requests "Send to: Yard", Admins send /
+  pull back; the yard (shared Yard site link or the YARD login) marks Ready with a required photo and a
+  missing / needs-buying note (alerts Admins), the supervisor marks Collected; status changes are
+  conditional (YD-003). Only an Admin makes the shared Yard link (YD-002). (B) tool stock take of the
+  yard (`/yard/stocktake`, logins only) - tick or shelf photo (existing Claude photo reading, 40 per take,
+  120 a day), Missing only after a person confirms, FINISHING claim. (C) consumables inventory
+  (`/yard/inventory`) - items, IN / OUT / COUNT movements (append-only, never below zero), item edits
+  logged (InventoryItemEdit), below-minimum alert to Admins + a prefilled normal purchase request
+  (never from the YARD login); the yard computer only sees sites with board jobs ±7 days. Quantities
+  only, never prices. Release checks `69-yard-role`, `70-yard-jobs`, `71-stock-take`, `72-inventory`.
   **Owner** (2026-10-23, `src/lib/owner.ts`): Iliesa's account. The directors
   (Yoel, Nick) are full Admins, but only the owner can change the owner's
   account (role, password, name, active). Code, builds and deploys are done
