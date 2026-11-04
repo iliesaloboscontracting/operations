@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Camera, Loader2, RotateCcw } from "lucide-react";
+import { Camera, ImagePlus, Loader2, RotateCcw } from "lucide-react";
 import { resizePhoto } from "@/lib/imageResize";
 import { serverErrorMessage } from "@/lib/apiFetch";
 
@@ -25,6 +25,7 @@ export default function PhotoPicker({
   big?: boolean; // taller target for phones on site
 }) {
   const input = useRef<HTMLInputElement>(null);
+  const gallery = useRef<HTMLInputElement>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -53,6 +54,7 @@ export default function PhotoPicker({
     } finally {
       setBusy(false);
       if (input.current) input.current.value = "";
+      if (gallery.current) gallery.current.value = "";
     }
   }
 
@@ -73,7 +75,7 @@ export default function PhotoPicker({
         ) : (
           <span className="flex flex-col items-center gap-1 text-xs">
             <Camera size={22} />
-            Take or choose photo
+            Take photo
           </span>
         )}
         {busy && (
@@ -87,13 +89,29 @@ export default function PhotoPicker({
           </span>
         )}
       </button>
+      <button
+        type="button"
+        onClick={() => gallery.current?.click()}
+        disabled={busy}
+        className={`mt-1.5 flex w-full items-center justify-center gap-1.5 rounded-lg border border-edge bg-panel2 ${big ? "py-3 text-sm" : "py-2 text-xs"} text-gray-200 hover:border-brand-500`}
+      >
+        <ImagePlus size={big ? 18 : 14} /> Choose from gallery
+      </button>
       {hint && !error && <p className="mt-1 text-[11px] text-gray-500">{hint}</p>}
       {error && <p className="mt-1 text-[11px] text-red-400">{error}</p>}
+      {/* capture= sends a phone straight to the camera with no gallery option, so the gallery has its own input. */}
       <input
         ref={input}
         type="file"
         accept="image/*"
         capture="environment"
+        className="hidden"
+        onChange={(e) => pick(e.target.files?.[0])}
+      />
+      <input
+        ref={gallery}
+        type="file"
+        accept="image/*"
         className="hidden"
         onChange={(e) => pick(e.target.files?.[0])}
       />

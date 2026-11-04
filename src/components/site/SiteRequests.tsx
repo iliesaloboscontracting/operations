@@ -9,6 +9,7 @@ import {
   Forklift,
   HardHat,
   Loader2,
+  ImagePlus,
   MessageSquarePlus,
   Package,
   ShieldAlert,
@@ -89,6 +90,7 @@ export function RequestForm({ api, who, onDone }: { api: string; who: string; on
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const file = useRef<HTMLInputElement>(null);
+  const gallery = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     fetch(`${api}/requests`)
@@ -120,6 +122,7 @@ export function RequestForm({ api, who, onDone }: { api: string; who: string; on
       setError("Couldn't use that photo - try another.");
     } finally {
       if (file.current) file.current.value = "";
+      if (gallery.current) gallery.current.value = "";
     }
   }
 
@@ -288,6 +291,7 @@ export function RequestForm({ api, who, onDone }: { api: string; who: string; on
 
       {/* Photo is optional - only shows when they tap for it. */}
       <input ref={file} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => addPhoto(e.target.files?.[0])} />
+      <input ref={gallery} type="file" accept="image/*" className="hidden" onChange={(e) => addPhoto(e.target.files?.[0])} />
       {photo ? (
         <div className="relative">
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -297,9 +301,14 @@ export function RequestForm({ api, who, onDone }: { api: string; who: string; on
           </button>
         </div>
       ) : (
-        <button type="button" onClick={() => file.current?.click()} className="flex items-center gap-2 text-sm text-gray-300 underline">
-          <Camera size={16} /> Add a photo (optional)
-        </button>
+        <div className="flex flex-wrap gap-x-5 gap-y-2">
+          <button type="button" onClick={() => file.current?.click()} className="flex items-center gap-2 text-sm text-gray-300 underline">
+            <Camera size={16} /> Take a photo (optional)
+          </button>
+          <button type="button" onClick={() => gallery.current?.click()} className="flex items-center gap-2 text-sm text-gray-300 underline">
+            <ImagePlus size={16} /> From gallery
+          </button>
+        </div>
       )}
 
       {error && <p className="text-sm text-red-400">{error}</p>}
