@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
-  ALREADY_OPEN, CONDITIONS_SEEN, NOT_OPEN, SCAN_LIMIT, expectedFor, extraError, isMissingCandidate, lineChange, noteError, openKeyFor,
+  ALREADY_OPEN, CONDITIONS_SEEN, NOT_OPEN, SCAN_LIMIT, SWAPPED_SINCE, expectedFor, extraError, isMissingCandidate, lineChange, noteError, openKeyFor,
   planFinish, planScan, summarise, type CurrentTool, type FinishLine, type LineState, type RegisterTool,
 } from "./rules";
 import { compareToolbox } from "../toolboxCheck";
@@ -146,6 +146,24 @@ test("finishing: conditions seen, a Missing tool found again, tools moved or del
   assert.equal(by["7"].condition, "Needs repair", "an extra's condition is applied too");
   assert.equal(by["8"].note, "Already applied", "a finish pressed again skips what's done");
   assert.equal(by["9"].condition, null, "never checked, confirmed missing, but the tool is gone from the register");
+});
+
+test("ST-003: a tool swapped out with Hilti since the start is never changed by finishing (missing, found or extra)", () => {
+  const lines = [
+    line("1", { result: "NOT_FOUND" }), line("2", { result: "FOUND", conditionSeen: "Needs repair" }), line("3", { result: "FOUND" }),
+    line("4", { expected: false, result: "EXTRA", conditionSeen: "Good" }), line("5", { result: "NOT_FOUND" }),
+  ];
+  const swapped = { condition: "Swapped out", toolboxId: null };
+  const cur = new Map<string, CurrentTool>([["t1", swapped], ["t2", swapped], ["t3", swapped], ["t4", swapped], ["t5", { condition: "Good", toolboxId: null }]]);
+  const r = planFinish(lines, cur, { missing: ["1", "5"], leave: [] });
+  assert.ok("steps" in r);
+  const by = Object.fromEntries(r.steps.map((s) => [s.lineId, s]));
+  for (const id of ["1", "2", "3", "4"]) {
+    assert.equal(by[id].condition, null, `line ${id} changes nothing`);
+    assert.equal(by[id].note, SWAPPED_SINCE, `line ${id} says why`);
+  }
+  assert.equal(by["1"].decision, "MISSING", "the decision is still recorded");
+  assert.equal(by["5"].condition, "Missing", "an ordinary confirmed one still is");
 });
 
 test("the note: short plain text", () => {

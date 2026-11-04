@@ -167,6 +167,7 @@ export type FinishLine = LineState & { decision?: string | null; appliedAt?: Dat
 export type CurrentTool = { condition: string; toolboxId: string | null } | null;
 export type FinishStep = { lineId: string; decision: "MISSING" | "LEAVE" | null; condition: string | null; change: string | null; note: string | null };
 export type Decisions = { missing: string[]; leave: string[] };
+export const SWAPPED_SINCE = "Swapped out since the start - not changed"; // ST-003
 
 export function planFinish(lines: FinishLine[], current: Map<string, CurrentTool>, d: Decisions): { steps: FinishStep[] } | { error: string; undecided: string[] } {
   const candidates = lines.filter(isMissingCandidate);
@@ -187,6 +188,9 @@ export function planFinish(lines: FinishLine[], current: Map<string, CurrentTool
     if (l.appliedAt) { step.note = "Already applied"; continue; }
     const now = l.toolId ? current.get(l.toolId) ?? null : null;
     if (!now) { if (decision || l.result === "FOUND" || l.result === "EXTRA") step.note = "No longer on the register"; continue; }
+    // ST-003 (Ilies approved 4 Nov 2026): swapped out with Hilti since the start - the swap is the record; a stock
+    // take never turns it back into a yard tool (found / extra) or marks it Missing.
+    if (now.condition === "Swapped out") { if (decision || l.result === "FOUND" || l.result === "EXTRA") step.note = SWAPPED_SINCE; continue; }
     if (l.result === "FOUND" || l.result === "EXTRA") {
       const target = l.conditionSeen ?? (now.condition === "Missing" ? "Good" : null);
       if (target && target !== now.condition) { step.condition = target; step.change = `Condition ${now.condition} -> ${target}`; }
