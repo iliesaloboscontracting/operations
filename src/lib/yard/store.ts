@@ -118,22 +118,23 @@ export async function applyYardAction(r: SiteRequest, action: YardAction, a: Act
       const missing = text(a.note) || null;
       const data = { status: "READY", readyAt: new Date(), readyBy: a.by, readyNote: missing, readyPhotoFile: saved.fileName, readySiteLinkId: a.linkId ?? null };
       let updated: SiteRequest | null;
-      if (!lines.length) updated = await moveIfStill(db, r.id, r.status, data);
-      else {
+      try {
         // The READY move (YD-003: only from the status checked) and every stock OUT go together or not at all: a 409
         // on the move, or a shelf that can't cover a line, leaves the request and the stock exactly as they were.
-        try {
-          updated = await prisma.$transaction(async (tx) => {
+        updated = !lines.length
+          ? await moveIfStill(db, r.id, r.status, data)
+          : await prisma.$transaction(async (tx) => {
             const u = await moveIfStill(tx, r.id, r.status, data);
             if (!u) throw new StockError(CHANGED);
             await takeForYardJob(tx, lines, r, { id: a.byUserId ?? null, name: a.by });
             return u;
           });
-        } catch (e) {
-          if (!(e instanceof StockError)) throw e;
-          await removePhoto(saved.fileName).catch(() => undefined);
-          return e.fail;
-        }
+      } catch (e) {
+        // CI-003 (Ilies approved 4 Nov 2026): whatever went wrong, the photo saved for this READY isn't kept; a stock
+        // problem is answered, anything else is rethrown (the error handler answers it).
+        await removePhoto(saved.fileName).catch(() => undefined);
+        if (e instanceof StockError) return e.fail;
+        throw e;
       }
       if (!updated) {
         await removePhoto(saved.fileName).catch(() => undefined); // never kept for a move that didn't happen

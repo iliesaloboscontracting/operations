@@ -107,6 +107,17 @@ test("YD-003a: a cancel that crosses the Admin's 'send to yard' gets 409 - nothi
   assert.equal(g.calls.length, 0);
 });
 
+test("CI-003: a READY whose database step throws keeps no photo, and the error isn't swallowed", async () => {
+  const { applyYardAction } = await import("./store");
+  const db = { siteRequest: { updateMany: async () => { throw new Error("database went away"); }, findUnique: async () => null } } as never;
+  await assert.rejects(applyYardAction(stale("YARD"), "READY", { by: "Yard - Sam", photo: PNG }, db), /database went away/);
+  assert.deepEqual(fs.existsSync(dir) ? fs.readdirSync(dir) : [], [], "the saved photo was removed");
+  const src = fs.readFileSync(new URL("./store.ts", import.meta.url), "utf8");
+  const ready = src.slice(src.indexOf('case "READY"'), src.indexOf('case "CANT_DO"'));
+  assert.match(ready, /\} catch \(e\) \{[\s\S]*?await removePhoto\(saved\.fileName\)[\s\S]*?if \(e instanceof StockError\) return e\.fail;\s*throw e;/, "photo removed first, then a non-stock error rethrown");
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
 test("YD-003a: the link's CANCEL goes only through cancelFromLink (no unconditional update), alerts only after it", () => {
   const route = fs.readFileSync(new URL("../../app/api/site/[token]/requests/[id]/route.ts", import.meta.url), "utf8");
   const cancel = route.slice(route.indexOf('body.action === "CANCEL"'), route.indexOf('body.action === "COLLECTED"'));
