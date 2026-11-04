@@ -204,6 +204,16 @@ export default {
       t.status(await send("PATCH", c.site(yard, `/yard/${y4}`), null, { action: "ON_IT", who: "RC Sam" }), 200, "YD-005: On it again");
       t.ok((await c.db.siteRequestEvent.count({ where: { requestId: y4, action: "YARD_ON_IT" } })) === 1, "YD-005: one YARD_ON_IT event, not two");
     }
+    // YD-007: a request the yard's link couldn't show (an amount in a system request), or a note with an amount, never goes down.
+    const sys = await c.db.siteRequest.create({ data: {
+      number: 900000 + Math.floor(Math.random() * 99999), kind: "HIRE_EXTEND", priority: "LOW", neededBy: new Date(Date.now() + 86_400_000), projectId: project.id,
+      siteLabel: project.name, summary: `Still needed past finish: RC excavator $360/day`, details: "{}", requestedBy: "Operations", origin: "SYSTEM", audience: "OPERATIONAL", status: "SEEN",
+    } });
+    const r7 = await c.patch(`/api/requests/${sys.id}`, "ADMIN", { action: "SEND_TO_YARD" });
+    t.ok(r7.status === 400 && /amounts/.test((await r7.json().catch(() => ({}))).error ?? ""), "YD-007: a system request with an amount -> 400 'This one has amounts in it'", r7.status);
+    t.ok((await status(sys.id)) === "SEEN", "YD-007: it stays with the office");
+    const n7 = (await ask("TOOLS", { item: `${tag} YD-007 note` })).body?.request?.id;
+    if (n7) t.status(await c.patch(`/api/requests/${n7}`, "ADMIN", { action: "SEND_TO_YARD", note: "Coates has it for $95" }), 400, "YD-007: a note for the yard with an amount -> 400");
     // YD-002: only an Admin makes the shared Yard link; personal links stay Manager+.
     t.status(await c.post("/api/site-links", "MANAGER", { shared: "Yard" }), 403, "YD-002: a Manager can't make the shared Yard link");
     t.status(await c.post("/api/site-links", "ADMIN", { shared: "Yard" }), 201, "YD-002: an Admin can");

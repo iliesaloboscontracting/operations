@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser, guard } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
-import { addEvent, officeView } from "@/lib/siteRequests";
+import { addEvent, officeView, yardSendMoneyError } from "@/lib/siteRequests";
 import { PRIORITIES, type Priority } from "@/lib/requestTypes";
 import { suggestInBackground, suggestReminder } from "@/lib/requestReminders";
 import { notifyRequestUpdate } from "@/lib/requestAlerts";
@@ -60,7 +60,7 @@ export const PATCH = withErrorHandling(async (req: NextRequest, { params: params
 
   switch (body.action) {
     case "SEND_TO_YARD": {
-      const err = sendToYardError(r);
+      const err = sendToYardError(r) ?? yardSendMoneyError(r, text(body.note) || null); // YD-007
       if (err) return bad(err);
       // Off Alex's to-do (if it was there) and onto the yard's list; the note is for the yard.
       data = { status: "YARD", yardAt: new Date(), yardBy: user.name, assigneeId: null, assigneeName: null, officeNote: text(body.note) || r.officeNote, seenAt: r.seenAt ?? new Date() };

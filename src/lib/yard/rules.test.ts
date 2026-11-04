@@ -7,7 +7,7 @@ import {
   BLOCKED_WHILE_WITH_YARD, YARD_KINDS, adminBlockedByYard, dayLabel, groupYardJobs, isYardLink, mayActOnYard, mayChooseYard,
   onItIsRepeat, onYardList, pullBackError, sendToYardError, sendsToYard, sharedWho, sydneyDay, yardActionError,
 } from "./rules";
-import { siteView, yardView } from "../siteRequests";
+import { siteView, yardSendMoneyError, yardView } from "../siteRequests";
 import { NEEDS_ILIES, OFFICE_KINDS, ON_TODO, OPEN_STATUSES, STATUS_FOR_OFFICE, STATUS_FOR_SITE, isOverdue } from "../requestTypes";
 
 const req = (r: Partial<SiteRequest> & { events?: SiteRequestEvent[] } = {}): SiteRequest & { events: SiteRequestEvent[] } => ({
@@ -95,6 +95,18 @@ test("a shared-link name is required and stored 'Yard - Sam'", () => {
   assert.equal(sharedWho("Yard", "S"), null);
   assert.equal(sharedWho("Yard", 5), null);
   assert.equal(sharedWho("Yard", "x".repeat(80))!.length, "Yard - ".length + 40);
+});
+
+test("YD-007: a request with an amount the yard's link can't show never goes to the yard", () => {
+  // A system request (hire check) whose text carries an amount: the link would hide it.
+  const sys = req({ kind: "HIRE_EXTEND", origin: "SYSTEM", status: "SEEN", summary: "Still needed past finish: excavator $360/day", yardAt: null });
+  assert.equal(yardSendMoneyError(sys, null), "This one has amounts in it - it can't go to the yard.");
+  // A clean system request is fine - unless the note sent down with it has an amount.
+  const clean = req({ kind: "HIRE_EXTEND", origin: "SYSTEM", status: "SEEN", summary: "Still needed past finish: excavator", yardAt: null });
+  assert.equal(yardSendMoneyError(clean, "take the 5t"), null);
+  assert.ok(yardSendMoneyError(clean, "it's $360 a day"));
+  // A supervisor's own request (origin SITE) stays sendable; its words are swapped on the yard's screen.
+  assert.equal(yardSendMoneyError(req({ status: "SEEN", note: "about $150", yardAt: null }), null), null);
 });
 
 test("YD-005: On it again by the same person within 10 minutes is a repeat", () => {

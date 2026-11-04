@@ -166,6 +166,15 @@ export function linkVisible(r: LinkCheckable): boolean {
   if (r.origin === "SITE") return true;
   return [r.summary, r.details, r.note, r.officeNote, r.question, r.answer, r.outcome, r.declineReason].every((t) => !t || assertNoMoney(t));
 }
+// YD-007 (Ilies approved 4 Nov 2026): a request only goes to the yard if the yard's link could show it
+// with the note it's sent down with - an office / system request carrying an amount would otherwise
+// vanish from the yard's list (linkVisible) while sitting in YARD. A note for the yard with an amount
+// in it is refused too: the yard never sees prices, so it would only read "Details are with the office".
+export const YARD_MONEY_REFUSAL = "This one has amounts in it - it can't go to the yard.";
+export function yardSendMoneyError(r: LinkCheckable, note: string | null): string | null {
+  if (note && !assertNoMoney(note)) return YARD_MONEY_REFUSAL;
+  return linkVisible({ ...r, officeNote: note ?? r.officeNote }) ? null : YARD_MONEY_REFUSAL;
+}
 const linkUpdate = (r: Req) => {
   const u = latestUpdate(r);
   return u ? { ...u, note: linkText(u.note) ?? "" } : null;
