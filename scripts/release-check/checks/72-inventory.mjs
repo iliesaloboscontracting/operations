@@ -5,6 +5,8 @@
 // coordinator only). Tools access: the yard, the coordinator and Managers write; Viewers look; TIMESHEETS / ACCOUNTS /
 // DIRECTOR / no login are refused; never on a site link. Retired, never deleted. No dollar figure in any reply.
 // WRITES synthetic inventory items and movements, three yard jobs and a synthetic shared Yard link to the copy.
+import { readdirSync } from "node:fs";
+import path from "node:path";
 import { noMoney } from "../lib/context.mjs";
 import { makeLink } from "../lib/setup.mjs";
 
@@ -181,6 +183,48 @@ export default {
     t.ok(((await get("/api/inventory", "VIEWER")).body?.sites ?? []).length === 0, "CI-001b: a Viewer (can't move stock) gets no sites");
     t.status(await move(A, "YARD", { kind: "OUT", qty: 1, projectId: pOut.id }), 400, "CI-001b: the yard can't stock out to a site it wasn't offered");
     t.status(await move(A, "YARD", { kind: "OUT", qty: 1, projectId: pIn.id }), 201, "CI-001b: ... and can to one it was");
+
+    // CI-008 (Ilies approved 4 Nov 2026) - the negatives.
+    const photoDir = path.join(c.p.files, "tool-photos");
+    const photos = () => { try { return readdirSync(photoDir).length; } catch { return 0; } };
+    const job = await ask(`${tag} CI-008`);
+    if (t.ok(!!job, "CI-008: a yard job for the negatives")) {
+      // (a) READY with a retired or an unknown item: 400, still with the yard, no movement, no photo kept.
+      for (const [label, itemId] of [["a retired item", B], ["an unknown item", "rc-no-such-item"]]) {
+        const p0 = photos();
+        t.status(await send("PATCH", `/api/yard/${job}`, "YARD", { action: "READY", photo: PNG, stock: [{ itemId, qty: 1 }] }), 400, `CI-008a: READY with ${label} -> 400`);
+        const r = await c.db.siteRequest.findUnique({ where: { id: job }, select: { status: true, readyPhotoFile: true } });
+        t.ok(r?.status === "YARD" && !r.readyPhotoFile && photos() === p0 && (await c.db.stockMovement.count({ where: { siteRequestId: job } })) === 0, `CI-008a: ... stays YARD, no movement, no photo kept (${label})`);
+      }
+      // (b) more than 20 lines, and quantities that aren't a sensible number.
+      t.status(await send("PATCH", `/api/yard/${job}`, "YARD", { action: "READY", photo: PNG, stock: Array.from({ length: 21 }, () => ({ itemId: A, qty: 1 })) }), 400, "CI-008b: 21 lines -> 400");
+      for (const qty of [NaN, "Infinity", 1e9, 0.0001, "abc"]) {
+        t.status(await send("PATCH", `/api/yard/${job}`, "YARD", { action: "READY", photo: PNG, stock: [{ itemId: A, qty }] }), 400, `CI-008b: READY with qty ${JSON.stringify(qty) ?? String(qty)} -> 400`);
+        t.status(await move(A, "YARD", { kind: "IN", qty }), 400, `CI-008b: stock in qty ${JSON.stringify(qty) ?? String(qty)} -> 400`);
+      }
+      t.ok((await c.db.siteRequest.findUnique({ where: { id: job }, select: { status: true } }))?.status === "YARD", "CI-008b: the job is still with the yard");
+      // (e) READY with stock: an Admin may (as with any yard job); the coordinator and a Manager can't act on yard jobs.
+      for (const who of ["COORDINATOR", "MANAGER"]) t.status(await send("PATCH", `/api/yard/${job}`, who, { action: "READY", photo: PNG, stock: [{ itemId: A, qty: 1 }] }), 403, `CI-008e: ${who} READY with stock -> 403`);
+      const before = await onHand(A);
+      const ad = await send("PATCH", `/api/yard/${job}`, "ADMIN", { action: "READY", photo: PNG, stock: [{ itemId: A, qty: 1 }] });
+      t.ok(ad.status === 200 && (await onHand(A)) === before - 1 && (await c.db.stockMovement.count({ where: { siteRequestId: job, byUserId: U.ADMIN.id } })) === 1, "CI-008e: an Admin marks it ready with stock - one OUT by the Admin", `${ad.status} ${before} -> ${await onHand(A)}`);
+    }
+    // (c) two stock outs at once that together are more than the shelf: one goes through, the other is refused;
+    // the shelf always equals the sum of its movements.
+    const shelf = await onHand(A);
+    if (t.ok(shelf >= 2, `CI-008c: the shelf has ${shelf}`)) {
+      const each = Math.floor(shelf / 2) + 1;
+      const [x, y] = await Promise.all([move(A, "YARD", { kind: "OUT", qty: each }), move(A, "MANAGER", { kind: "OUT", qty: each })]);
+      const codes = [x.status, y.status].sort();
+      t.ok(codes.filter((s) => s === 201).length === 1 && codes.some((s) => s === 400 || s === 409), `CI-008c: two outs of ${each} from ${shelf} at once -> exactly one 201`, codes.join(","));
+    }
+    const sum = (await c.db.stockMovement.aggregate({ where: { itemId: A }, _sum: { change: true } }))._sum.change ?? 0;
+    t.ok(Math.abs(sum - (await onHand(A))) < 1e-6, "CI-008c: on hand = the sum of its movements", `${sum} vs ${await onHand(A)}`);
+    // (f) retire takes a real boolean; (g) a bogus site.
+    t.status(await send("PATCH", `/api/inventory/${A}`, "MANAGER", { active: "false" }), 400, 'CI-008f: PATCH {active: "false"} -> 400');
+    t.ok((await c.db.inventoryItem.findUnique({ where: { id: A }, select: { active: true } }))?.active === true, "CI-008f: still active");
+    for (const projectId of ["rc-no-such-project", 12345, "x".repeat(60)]) t.status(await move(A, "MANAGER", { kind: "OUT", qty: 1, projectId }), 400, `CI-008g: stock out to a bogus site ${JSON.stringify(projectId).slice(0, 20)} -> 400`);
+    // (d) the yard's sites keys {id, name} only, in the week window - in the CI-001b lines above.
 
     // (7) Pages, and no dollar figure anywhere.
     for (const [pg, who] of [["/yard/inventory", "YARD"], ["/yard/inventory", "COORDINATOR"], ["/yard/inventory", "MANAGER"], ["/yard", "YARD"]]) {
