@@ -90,7 +90,11 @@ export async function updateItem(id: string, body: Record<string, unknown>, acto
   if ("error" in f) return { error: f.error, status: 400 };
   const data: Prisma.InventoryItemUpdateInput = { ...f.data };
   if ("onHand" in body) return { error: "Change the quantity with stock in, stock out or a count - so it's recorded.", status: 400 };
-  if (body.active !== undefined) data.active = Boolean(body.active);
+  // CI-005 (Ilies approved 4 Nov 2026): true or false only - the text "false" would have retired nothing / everything.
+  if (body.active !== undefined) {
+    if (typeof body.active !== "boolean") return { error: "active is true or false", status: 400 };
+    data.active = body.active;
+  }
   const active = data.active ?? it.active;
   const name = (f.data.name ?? it.name) as string;
   if (active && (f.data.name !== undefined || (data.active === true && !it.active)) && (await nameTaken(name, id))) return { error: NAME_TAKEN, status: 400 };

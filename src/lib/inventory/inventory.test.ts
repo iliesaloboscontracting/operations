@@ -118,6 +118,12 @@ test("CI-004: an edit records one row per field that really changed; the edit ta
   assert.match(store, /await prisma\.\$transaction\(async \(tx\) => \{\s*await tx\.inventoryItem\.update\(\{ where: \{ id \}, data \}\);\s*for \(const e of edits\) await tx\.inventoryItemEdit\.create/, "written in the same transaction as the change");
 });
 
+test("CI-005: retire / bring back takes true or false only", () => {
+  const store = readFileSync(path.join(__dirname, "store.ts"), "utf8");
+  assert.match(store, /if \(typeof body\.active !== "boolean"\) return \{ error: "active is true or false", status: 400 \};/);
+  assert.doesNotMatch(store, /Boolean\(body\.active\)/);
+});
+
 test("CI-002: the below-minimum mark is set / cleared only while the item is as it was read", () => {
   const store = readFileSync(path.join(__dirname, "store.ts"), "utf8");
   assert.match(store, /const asRead = \{ id: i\.id, onHand: i\.onHand, minLevel: i\.minLevel, active: i\.active \};/);
