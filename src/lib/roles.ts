@@ -63,9 +63,11 @@ export function homeFor(role: Role) {
 
 // The pages a COORDINATOR login may open (AppFrame sends him home from any other; the APIs refuse him anyway).
 // /daily-report/<job> is Day Review's daily site report. /tools/site (site links and submissions) is not his.
+// /yard/stocktake (Yard Stage B, 4 Nov 2026): the yard stock take is Tools work, which he does like the yard - the
+// yard jobs page (/yard) itself stays not his.
 export const COORDINATOR_PAGES = [
   "/coordinator", "/timesheets", "/attendance", "/day-review", "/calendar",
-  "/tools", "/tools/toolboxes", "/tools/faults", "/hire", "/purchases", "/messages", "/documents",
+  "/tools", "/tools/toolboxes", "/tools/faults", "/yard/stocktake", "/hire", "/purchases", "/messages", "/documents",
 ] as const;
 export function isCoordinatorPage(path: string): boolean {
   const p = (path.split(/[?#]/)[0] || "/").replace(/\/+$/, "") || "/";

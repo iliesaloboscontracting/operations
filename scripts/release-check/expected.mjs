@@ -27,14 +27,15 @@ export const MAY_ANSWER = {
   // requests, office chat, the site & safety documents, his own queries. checks/63-coordinator.mjs looks closer.
   COORDINATOR: [/^\/api\/auth\//, /^\/api\/timesheets$/, /^\/api\/attendance$/, /^\/api\/day-review$/, /^\/api\/day-review\/dockets$/,
     /^\/api\/day-review\/site-logs(\/photo|\/before-after)?$/, /^\/api\/calendar$/, /^\/api\/projects$/, /^\/api\/resources$/,
-    /^\/api\/hire-(alerts|checks)$/, /^\/api\/tools$/, /^\/api\/toolboxes$/, /^\/api\/tool-issues$/, /^\/api\/purchases$/,
+    /^\/api\/hire-(alerts|checks)$/, /^\/api\/tools$/, /^\/api\/toolboxes$/, /^\/api\/tool-issues$/, /^\/api\/stock-takes$/, /^\/api\/purchases$/,
     /^\/api\/messages(\/|$)/, /^\/api\/documents(\/|$)/, /^\/api\/queries$/],
+  // Both: the yard stock take list (/api/stock-takes, Yard Stage B 4 Nov 2026 - Tools access; checks/71-stock-take.mjs).
   // YARD (the yard computer downstairs, Ilies 4 Nov 2026): the yard jobs (/api/yard/*, guardOrYard), the Tools register,
   // toolboxes and faults (guardTools, the coordinator's tools access), its own phone / desktop alerts (/api/push), and
   // what every login may ask (/api/queries = only its own; /api/messages/unread = { unread: 0 } as it doesn't chat).
   // Nothing else of Operations - no board, Tracking, Hire, purchases, timesheets, sign-ins, chat, documents, Assistant,
   // Directors or Accounts. checks/69-yard-role.mjs looks closer.
-  YARD: [/^\/api\/auth\//, /^\/api\/yard(\/|$)/, /^\/api\/tools$/, /^\/api\/toolboxes$/, /^\/api\/tool-issues$/, /^\/api\/push$/,
+  YARD: [/^\/api\/auth\//, /^\/api\/yard(\/|$)/, /^\/api\/tools$/, /^\/api\/toolboxes$/, /^\/api\/tool-issues$/, /^\/api\/stock-takes$/, /^\/api\/push$/,
     /^\/api\/queries$/, /^\/api\/messages\/unread$/],
 };
 

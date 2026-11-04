@@ -123,9 +123,11 @@ const COORDINATOR = [
   { href: "/messages", label: "Messages" },
   { href: "/documents", label: "Documents" },
 ];
-// The yard computer's screen (Ilies, 4 Nov 2026): the yard jobs and the Tools pages (lib/roles.ts YARD_PAGES).
+// The yard computer's screen (Ilies, 4 Nov 2026): the yard jobs, the stock take (Yard Stage B) and the Tools pages
+// (lib/roles.ts YARD_PAGES).
 const YARD = [
   { href: "/yard", label: "Yard jobs" },
+  { href: "/yard/stocktake", label: "Stock take" },
   { href: "/tools", label: "Tools" },
 ];
 // The invoices inbox is an Operations page as well as an Accounts tab: an Admin who got there from the
@@ -220,6 +222,7 @@ export default function TopNav() {
   const screenTabs = screen === "directors" ? DIRECTORS : screen === "accounts" ? ACCOUNTS : screen === "coordinator" ? COORDINATOR : screen === "yard" ? YARD : [];
   // Overview also covers a job opened from it; every other tab is its own page or below it.
   const tabActive = (href: string) => (href === "/directors" ? path === "/directors" || path.startsWith("/directors/jobs") : href === "/accounts" ? path === "/accounts"
+    : href === "/yard" ? path === "/yard" // the stock take is its own tab
     : href === "/day-review" ? isActive(href) || path.startsWith("/daily-report/") : isActive(href));
 
   return (

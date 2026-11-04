@@ -137,10 +137,14 @@ test("a tool form saved by the coordinator / yard: untouched fields dropped, the
 });
 
 test("the Tools write routes apply the rule for the stripped logins, before anything is changed", () => {
-  const patch = handler(src("../app/api/tools/[id]/route.ts"), "PATCH");
-  const check = patch.indexOf("seesAmountsStripped(user?.role)");
-  assert.ok(check > 0, "tools PATCH checks the login");
-  assert.match(patch, /keepHiddenAmounts\(data, existing[^)]*\)[\s\S]*status: hidden\.status/);
+  // Since Yard Stage B (4 Nov 2026) the tool PATCH's rules live in lib/toolUpdate.ts updateTool (shared with the stock
+  // take's finish); the route hands it the caller's role.
+  assert.match(handler(src("../app/api/tools/[id]/route.ts"), "PATCH"), /await updateTool\(params\.id, [^\n]+\{ role: user\?\.role \?\? null, name: user\?\.name \?\? null \}\)/);
+  const upd = src("./toolUpdate.ts");
+  const patch = upd.slice(upd.indexOf("export async function updateTool"));
+  const check = patch.indexOf("seesAmountsStripped(actor.role)");
+  assert.ok(check > 0, "updateTool checks the login");
+  assert.match(patch, /keepHiddenAmounts\(data, existing[^)]*\)[\s\S]*if \(hidden\) return hidden;/);
   assert.ok(check < patch.indexOf("moveTool(") && check < patch.indexOf("prisma.tool.update("), "the check comes before the move and the update");
   const fault = handler(src("../app/api/tool-issues/[id]/route.ts"), "PATCH");
   const fcheck = fault.indexOf("keepHiddenAmounts(data, issue");
@@ -174,7 +178,8 @@ test("the screen: AppFrame sends the yard home, the nav shows only its tabs, the
   assert.match(frame, /!\(yardOnly && isYardPage\(path\)\)/);
   assert.match(src("../components/AuthProvider.tsx"), /yardOnly: user\?\.role === "YARD"/);
   const nav = src("../components/TopNav.tsx");
-  assert.match(nav, /const YARD = \[\s*\{ href: "\/yard", label: "Yard jobs" \},\s*\{ href: "\/tools", label: "Tools" \},\s*\];/);
+  // Yard Stage B (4 Nov 2026) adds the stock take tab.
+  assert.match(nav, /const YARD = \[\s*\{ href: "\/yard", label: "Yard jobs" \},\s*\{ href: "\/yard\/stocktake", label: "Stock take" \},\s*\{ href: "\/tools", label: "Tools" \},\s*\];/);
   assert.match(src("../components/tools/ToolsTabs.tsx"), /yardHref\(t\.href, yardOnly\)/);
   assert.match(src("../app/tools/page.tsx"), /canEdit: canEdit \|\| coordinatorOnly \|\| yardOnly/);
   assert.match(src("../app/tools/toolboxes/page.tsx"), /const canFill = canEdit \|\| coordinatorOnly \|\| yardOnly;/);

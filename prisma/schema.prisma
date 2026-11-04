@@ -628,9 +628,63 @@ model Tool {
   issues    ToolIssue[] @relation("issueTool")
   replacedIssues ToolIssue[] @relation("replacementTool")
   assetDocuments ComplianceDocument[] @relation("AssetToolDocs") // stage 6: dates and documents for a tool
+  stockTakeLines StockTakeLine[] // Yard Stage B: every stock take it was counted in
 
   @@index([serialNumber])
   @@index([toolboxId])
+}
+
+// A stock take (Yard Stage B, Ilies 4 Nov 2026: "Stage B: start on the stock take") - the yard counted against the
+// register. Started with one line per tool the register has there, ticked off by hand or by shelf photos, then
+// finished: what wasn't found is listed and a person confirms each before it is marked Missing. Never deleted
+// (cancelling is a status). Rules in lib/stockTake/rules.ts.
+model StockTake {
+  id           String          @id @default(cuid())
+  location     String          @default("YARD") // YARD today; TOOLBOX (with toolboxId) is left room for, not offered
+  toolboxId    String? // reserved for a toolbox stock take later - always null today
+  status       String          @default("OPEN") // OPEN | FINISHED | CANCELLED
+  // = location while OPEN, null once finished or cancelled: unique, so a location has one open stock take at a time.
+  openKey      String?         @unique
+  note         String?
+  scans        Int             @default(0) // shelf-photo readings used (lib/stockTake/rules.ts SCAN_LIMIT)
+  startedAt    DateTime        @default(now())
+  startedBy    String?
+  startedById  String?
+  finishedAt   DateTime? // finished or cancelled
+  finishedBy   String?
+  finishedById String?
+  lines        StockTakeLine[]
+
+  @@index([status, startedAt])
+}
+
+// One tool on a stock take. tag / name / serial are copied at the start so the history still reads after a tool is
+// deleted (toolId then goes null).
+model StockTakeLine {
+  id               String    @id @default(cuid())
+  stockTakeId      String
+  stockTake        StockTake @relation(fields: [stockTakeId], references: [id])
+  toolId           String?
+  tool             Tool?     @relation(fields: [toolId], references: [id], onDelete: SetNull)
+  tag              String
+  name             String
+  serialNumber     String?
+  conditionAtStart String?
+  expected         Boolean // on the register in this place when the stock take started
+  registerPlace    String? // EXTRA: where the register said it was ("Sinan's toolbox")
+  result           String    @default("UNCHECKED") // UNCHECKED | FOUND | NOT_FOUND | EXTRA
+  conditionSeen    String? // Good | Needs repair - null = as on the register
+  via              String? // HAND | PHOTO
+  checkedBy        String?
+  checkedAt        DateTime?
+  movedAt          DateTime? // EXTRA moved to the yard on the register (lib/toolMoves.ts), when the person tapped it
+  decision         String? // at finish, for a tool not found: MISSING (confirmed) | LEAVE
+  appliedAt        DateTime? // when finishing changed the register for this line
+  appliedChange    String? // what it changed, in words ("Condition Good -> Missing")
+
+  @@unique([stockTakeId, toolId])
+  @@index([stockTakeId])
+  @@index([toolId])
 }
 
 // A supervisor's digital toolbox: the tools (by serial / LOB tag) they should have.

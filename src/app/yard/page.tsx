@@ -32,6 +32,8 @@ export default function YardPage() {
       actions={
         <div className="flex flex-wrap items-start gap-2">
           {(yardLogin || isAdmin) && <PushToggle />}
+          {/* Yard Stage B (4 Nov 2026): count the yard against the tool register. */}
+          <Link href="/yard/stocktake" className="rounded-lg border border-brand-500 px-3 py-2 text-sm text-brand-300 hover:bg-brand-600/20">Stock take</Link>
           {canEdit && <Link href="/requests" className="rounded-lg border border-edge px-3 py-2 text-sm text-gray-300 hover:bg-panel2">Requests</Link>}
         </div>
       }
