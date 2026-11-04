@@ -203,6 +203,28 @@ export default {
       t.status(await send("PATCH", c.site(yard, `/yard/${y4}`), null, { action: "ON_IT", who: "RC Sam" }), 200, "YD-005: On it");
       t.status(await send("PATCH", c.site(yard, `/yard/${y4}`), null, { action: "ON_IT", who: "RC Sam" }), 200, "YD-005: On it again");
       t.ok((await c.db.siteRequestEvent.count({ where: { requestId: y4, action: "YARD_ON_IT" } })) === 1, "YD-005: one YARD_ON_IT event, not two");
+      // YD-008: READY with something that isn't really an image -> 400, nothing changes.
+      const fake = `data:image/png;base64,${Buffer.from("not really a photo - release check").toString("base64")}`;
+      t.status(await send("PATCH", c.site(yard, `/yard/${y4}`), null, { action: "READY", who: "RC Sam", photo: fake }), 400, "YD-008: READY with a non-image data URL -> 400");
+      t.ok((await status(y4)) === "YARD", "YD-008: it stays with the yard");
+    }
+    // YD-008: another supervisor's link can't collect or see the ready photo of someone else's job; a hand-over
+    // link has no yard list.
+    const other = await c.db.resource.findFirst({ where: { type: "PERSONNEL", active: true, id: { notIn: [L.sup.resourceId, L.office.resourceId] } }, select: { id: true } });
+    const s8 = (await ask("TOOLS", { item: `${tag} YD-008 other supervisor` }, { sendTo: "YARD" })).body?.request?.id;
+    if (t.ok(!!other && !!s8, "YD-008: a second person and a yard job (made by the first supervisor)")) {
+      const sup2 = await makeLink(c.db, "SUPERVISOR", other.id);
+      t.status(await send("PATCH", c.site(yard, `/yard/${s8}`), null, { action: "READY", who: "RC Sam", photo: PNG }), 200, "YD-008: the yard marks it ready");
+      t.status(await own("PATCH", c.site(sup2, `/requests/${s8}`), { action: "COLLECTED" }), 404, "YD-008: a second supervisor's link can't mark it collected");
+      t.status(await c.get(c.site(sup2, `/requests/${s8}/photo?which=ready`), null), 404, "YD-008: ... or see its ready photo");
+      t.ok((await status(s8)) === "READY", "YD-008: still READY for the supervisor who asked");
+    }
+    const hjob = await c.db.job.findFirst({ select: { id: true }, orderBy: { date: "desc" } });
+    if (t.ok(!!hjob, "YD-008: a job for a hand-over link")) {
+      const hand = await makeLink(c.db, "HANDOVER", L.sup.resourceId, { jobId: hjob.id, expiresAt: new Date(Date.now() + 3600_000) });
+      t.status(await c.get(c.site(hand, "/yard"), null), 404, "YD-008: a HANDOVER link has no yard list");
+      t.status(await c.patch(c.site(hand, `/yard/${id1}`), null, { action: "ON_IT", who: "RC" }), 404, "YD-008: ... can't act on it");
+      t.status(await c.get(c.site(hand, `/yard/${id1}/photo?which=ready`), null), 404, "YD-008: ... or see its photos");
     }
     // YD-007: a request the yard's link couldn't show (an amount in a system request), or a note with an amount, never goes down.
     const sys = await c.db.siteRequest.create({ data: {
@@ -217,5 +239,10 @@ export default {
     // YD-002: only an Admin makes the shared Yard link; personal links stay Manager+.
     t.status(await c.post("/api/site-links", "MANAGER", { shared: "Yard" }), 403, "YD-002: a Manager can't make the shared Yard link");
     t.status(await c.post("/api/site-links", "ADMIN", { shared: "Yard" }), 201, "YD-002: an Admin can");
+    // YD-008: that switched off the older Yard link (this check's synthetic one) - every yard route refuses it now.
+    t.ok(!!(await c.db.siteLink.findUnique({ where: { id: yard.id }, select: { revokedAt: true } }))?.revokedAt, "YD-008: the old Yard link is switched off");
+    t.status(await c.get(c.site(yard, "/yard"), null), 404, "YD-008: a switched-off Yard link: no list");
+    t.status(await c.patch(c.site(yard, `/yard/${id1}`), null, { action: "ON_IT", who: "RC Sam" }), 404, "YD-008: ... no actions");
+    t.status(await c.get(c.site(yard, `/yard/${id1}/photo?which=ready`), null), 404, "YD-008: ... no photos");
   },
 };

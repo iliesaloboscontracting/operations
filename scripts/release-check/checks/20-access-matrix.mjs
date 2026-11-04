@@ -10,7 +10,10 @@ export default {
     t.note(`${routes.length} GET API routes in the candidate`);
     const q = `?date=${c.today}&from=${c.lastWeek}&to=${c.today}&week=${c.lastWeek}`;
     for (const [who, key] of [["no login", "NO_LOGIN"], ["TIMESHEETS", "TIMESHEETS"], ["DIRECTOR", "DIRECTOR"], ["ACCOUNTS", "ACCOUNTS"], ["COORDINATOR", "COORDINATOR"], ["YARD", "YARD"]]) {
-      if (key !== "NO_LOGIN" && !c.users[key]) { t.note(`${who}: no test login (lib/setup.mjs TEST_ROLES) - not swept`); continue; }
+      // YD-008 (Ilies approved 4 Nov 2026): a restricted role that can't be swept is never a silent pass - the
+      // check is BLOCKED (the other roles are still swept, so their results are in the report).
+      if (key !== "NO_LOGIN" && !c.users[key]) { t.block(`${who}: no test login (lib/setup.mjs TEST_ROLES) - the matrix can't sweep it`); continue; }
+      if (!MAY_ANSWER[key]) { t.block(`${who}: no MAY_ANSWER list in expected.mjs`); continue; }
       const may = MAY_ANSWER[key];
       const leaked = [], open = [];
       let refused = 0;

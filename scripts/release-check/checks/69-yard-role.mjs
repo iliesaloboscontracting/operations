@@ -85,6 +85,19 @@ export default {
       t.status(issue, 201, "faults: report one");
       const issueId = issue.body?.id ?? (await c.db.toolIssue.findFirst({ where: { toolId }, select: { id: true } }))?.id;
       if (issueId) t.status(await send("PATCH", `/api/tool-issues/${issueId}`, { status: "CLOSED", resolution: "rc yard closed" }), 200, "faults: close it");
+      // YD-008 (Ilies approved 4 Nov 2026): a fault's resolution holding an amount the yard can't see - sent back
+      // exactly as shown changes nothing (200); changed, it's refused (409) and the Manager's text stays.
+      const mIssue = await c.post(`/api/tools/${toolId}/issues`, "MANAGER", { description: "rc yard fault with a quote" });
+      const mId = (await mIssue.json().catch(() => ({}))).id ?? (await c.db.toolIssue.findFirst({ where: { toolId, description: "rc yard fault with a quote" }, select: { id: true } }))?.id;
+      if (t.ok(!!mId, "YD-008: a Manager reports a second fault")) {
+        t.status(await c.patch(`/api/tool-issues/${mId}`, "MANAGER", { resolution: "Quote $200 from Hilti" }), 200, "YD-008: the Manager adds a resolution with an amount");
+        const shown = (await read("/api/tool-issues")).body?.find?.((i) => i.id === mId)?.resolution;
+        t.ok(typeof shown === "string" && !/\$\s?\d/.test(shown), "YD-008: the yard sees it with the amount taken out", JSON.stringify(shown ?? null));
+        t.status(await send("PATCH", `/api/tool-issues/${mId}`, { resolution: shown }), 200, "YD-008: sent back exactly as shown -> 200");
+        t.ok((await c.db.toolIssue.findUnique({ where: { id: mId }, select: { resolution: true } }))?.resolution === "Quote $200 from Hilti", "YD-008: ... and the Manager's text is unchanged");
+        t.status(await send("PATCH", `/api/tool-issues/${mId}`, { resolution: "Sent to Hilti" }), 409, "YD-008: changing it -> 409");
+        t.ok((await c.db.toolIssue.findUnique({ where: { id: mId }, select: { resolution: true } }))?.resolution === "Quote $200 from Hilti", "YD-008: ... still unchanged");
+      }
       t.status(await send("DELETE", `/api/tools/${toolId}`), 200, "tools: delete a tool (as the coordinator may)");
       t.ok(!(await c.db.tool.findUnique({ where: { id: toolId } })), "the tool is gone");
     }
