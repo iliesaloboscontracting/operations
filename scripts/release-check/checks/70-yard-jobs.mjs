@@ -236,6 +236,16 @@ export default {
     t.ok((await status(sys.id)) === "SEEN", "YD-007: it stays with the office");
     const n7 = (await ask("TOOLS", { item: `${tag} YD-007 note` })).body?.request?.id;
     if (n7) t.status(await c.patch(`/api/requests/${n7}`, "ADMIN", { action: "SEND_TO_YARD", note: "Coates has it for $95" }), 400, "YD-007: a note for the yard with an amount -> 400");
+    // YD-008 (retest gap): the daily cap on "ready" photos per yard link (lib/yard/store.ts YARD_DAILY_READY_LIMIT, 60).
+    // Fill today's count for this synthetic link with synthetic done rows, then one more READY is refused.
+    const done = await c.db.siteRequest.count({ where: { readySiteLinkId: yard.id, readyAt: { gte: new Date(Date.now() - 86_400_000) } } });
+    const base = 800000 + Math.floor(Math.random() * 90000);
+    await c.db.siteRequest.createMany({ data: Array.from({ length: Math.max(0, 60 - done) }, (_, i) => ({ number: base + i, kind: "TOOLS", priority: "LOW", neededBy: new Date(), siteLabel: "RC", summary: "RC cap filler", details: "{}", requestedBy: "RC", status: "DONE", outcome: "Collected", doneAt: new Date(), yardAt: new Date(), readyAt: new Date(), readyBy: "Yard - RC", readySiteLinkId: yard.id })) });
+    const cap = (await ask("TOOLS", { item: `${tag} YD-008 cap` }, { sendTo: "YARD" })).body?.request?.id;
+    if (t.ok(!!cap, "YD-008: a yard job for the daily cap")) {
+      t.status(await send("PATCH", c.site(yard, `/yard/${cap}`), null, { action: "READY", who: "RC Sam", photo: PNG }), 429, "YD-008: 60 ready already today on this link -> the next READY is 429");
+      t.ok((await status(cap)) === "YARD", "YD-008: it stays with the yard");
+    }
     // YD-002: only an Admin makes the shared Yard link; personal links stay Manager+.
     t.status(await c.post("/api/site-links", "MANAGER", { shared: "Yard" }), 403, "YD-002: a Manager can't make the shared Yard link");
     t.status(await c.post("/api/site-links", "ADMIN", { shared: "Yard" }), 201, "YD-002: an Admin can");
