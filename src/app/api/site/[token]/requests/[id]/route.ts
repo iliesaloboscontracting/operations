@@ -7,7 +7,7 @@ import { notifyRequestUpdate } from "@/lib/requestAlerts";
 import { suggestInBackground } from "@/lib/requestReminders";
 import { isWithYard } from "@/lib/yard/rules";
 import { notifyYard } from "@/lib/yard/alerts";
-import { CHANGED, applyYardAction, moveIfStill } from "@/lib/yard/store";
+import { applyYardAction, cancelFromLink } from "@/lib/yard/store";
 
 // PATCH /api/site/:token/requests/:id
 //   { action: "ANSWER", answer }  - reply to the office's question
@@ -38,13 +38,10 @@ export const PATCH = withErrorHandling(async (req: NextRequest, { params: params
     return NextResponse.json({ request: siteView(updated) });
   }
   if (body.action === "CANCEL") {
-    if (["DONE", "DECLINED", "CANCELLED"].includes(r.status)) return bad("This one is already closed.");
-    // YD-003 (Ilies approved 4 Nov 2026): a job the yard has may be marked ready / collected at the same
-    // moment - cancel only if it's still where it was (else 409, nothing written, no alert).
-    if (isWithYard(r.status)) {
-      if (!(await moveIfStill(prisma, r.id, r.status, { status: "CANCELLED" }))) return NextResponse.json({ error: CHANGED.error }, { status: CHANGED.status });
-    } else await prisma.siteRequest.update({ where: { id: r.id }, data: { status: "CANCELLED" } });
-    await addEvent(r.id, "CANCELLED", link.person.name, text(body.reason) || null);
+    // YD-003a (Ilies approved 4 Nov 2026): always only if it's still in the status read above - with the yard or
+    // not - so a second cancel, or a cancel crossing an Admin's "send to yard", gets 409: nothing written, no alert.
+    const out = await cancelFromLink(r, link.person.name, text(body.reason) || null);
+    if ("error" in out) return NextResponse.json({ error: out.error }, { status: out.status });
     const updated = (await prisma.siteRequest.findUnique({ where: { id: r.id }, include: { events: { orderBy: { at: "asc" } } } }))!;
     await notifyRequestUpdate(updated, `${link.person.name} cancelled it - no longer needed`);
     // The yard was getting it ready - tell them to stop (4 Nov 2026).

@@ -70,6 +70,19 @@ export async function moveIfStill(db: Db, id: string, from: string, data: Prisma
   return count ? db.siteRequest.findUnique({ where: { id } }) : null;
 }
 
+// YD-003a (Ilies approved 4 Nov 2026): a supervisor's "no longer needed" from their link. Always conditional on the
+// status that was read - whether or not the yard has it - so cancelling twice, or cancelling while an Admin sends it
+// to the yard / the yard marks it ready, can't both win: the late one gets 409 (CHANGED), writes nothing and alerts
+// nobody. Returns the request as it was (its old status says whether the yard has to be told).
+export const CLOSED_ALREADY = "This one is already closed.";
+export async function cancelFromLink(r: SiteRequest, by: string, reason: string | null, db: Db = prisma, record: typeof addEvent = addEvent): Promise<Result> {
+  if (["DONE", "DECLINED", "CANCELLED"].includes(r.status)) return { error: CLOSED_ALREADY, status: 400 };
+  const updated = await moveIfStill(db, r.id, r.status, { status: "CANCELLED" });
+  if (!updated) return CHANGED;
+  await record(r.id, "CANCELLED", by, reason);
+  return { request: updated };
+}
+
 // `db` is only ever swapped in tests (lib/yard/store.test.ts).
 export async function applyYardAction(r: SiteRequest, action: YardAction, a: Act, db: Db = prisma): Promise<Result> {
   const err = yardActionError(action, r.status);
