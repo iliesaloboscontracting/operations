@@ -12,7 +12,7 @@ import { OFFICE_KINDS, requestNo } from "../requestTypes";
 import { LINK_WHERE, addEvent, linkVisible, yardView } from "../siteRequests";
 import { notifyRequestUpdate } from "../requestAlerts";
 import { notifySupervisorReady, notifyYard } from "./alerts";
-import { COLLECTED, COLLECTED_DAYS, YARD_STATUSES, onItIsRepeat, yardActionError, type YardAction } from "./rules";
+import { COLLECTED, COLLECTED_DAYS, YARD_STATUSES, onItIsRepeat, onYardList, yardActionError, type YardAction } from "./rules";
 
 // Most "ready" photos one yard link can send in a day - plenty for real use, and a cap on
 // what a leaked link could do before it's switched off (like DAILY_PHOTO_LIMIT).
@@ -41,6 +41,14 @@ export async function findYardJob(id: string) {
   const r = await prisma.siteRequest.findUnique({ where: { id }, include: withEvents });
   if (!r || !r.yardAt || OFFICE_KINDS.includes(r.kind) || !linkVisible(r)) return null;
   return r;
+}
+
+// YD-006 (Ilies approved 4 Nov 2026): the photos are only for a job that's on the yard's list now -
+// with the yard, ready, or collected in the last 7 days (rules.ts onYardList). Pulled back, cancelled,
+// declined or long collected: null (404).
+export async function findListedYardJob(id: string) {
+  const r = await findYardJob(id);
+  return r && onYardList(r) ? r : null;
 }
 
 export async function yardReadyToday(linkId: string) {

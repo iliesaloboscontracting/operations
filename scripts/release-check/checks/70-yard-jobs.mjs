@@ -183,9 +183,14 @@ export default {
       t.status(await send("PATCH", c.site(yard, `/yard/${c3}`), null, { action: "READY", who: "RC Sam", photo: PNG }), 409, "YD-003: cancelled, then READY -> 409");
       t.ok((await status(c3)) === "CANCELLED", "YD-003: it stays CANCELLED");
     }
-    const p3 = (await ask("TOOLS", { item: `${tag} YD-003 pull back` }, { sendTo: "YARD" })).body?.request?.id;
+    const p3 = (await ask("TOOLS", { item: `${tag} YD-003 pull back` }, { sendTo: "YARD", photo: PNG })).body?.request?.id;
     if (t.ok(!!p3, "YD-003: a yard job to pull back")) {
+      t.status(await c.get(c.site(yard, `/yard/${p3}/photo?which=request`), null), 200, "YD-006: on the list, the yard link sees its photo");
       t.status(await c.patch(`/api/requests/${p3}`, "ADMIN", { action: "PULL_BACK" }), 200, "YD-003: an Admin pulls it back");
+      // YD-006: off the yard's list -> its photos are off the yard link and /yard too.
+      t.status(await c.get(c.site(yard, `/yard/${p3}/photo?which=request`), null), 404, "YD-006: pulled back -> its photo on the yard link is 404");
+      t.status(await c.get(`/api/yard/${p3}/photo?which=request`, "MANAGER"), 404, "YD-006: and on /api/yard");
+      t.status(await c.get(`/api/requests/${p3}/photo`, "MANAGER"), 200, "YD-006: Requests still shows it to a Manager");
       t.status(await send("PATCH", c.site(yard, `/yard/${p3}`), null, { action: "READY", who: "RC Sam", photo: PNG }), 409, "YD-003: pulled back, then READY -> 409");
       t.ok((await status(p3)) === "SEEN", "YD-003: it stays SEEN (with the office)");
     }
