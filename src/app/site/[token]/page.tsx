@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState, use } from "react";
-import { ArrowLeft, Camera, ClipboardList, ListChecks, Loader2, NotebookPen, QrCode as QrIcon, ImagePlus, ClipboardCheck, ReceiptText, ScanLine, Send, ShoppingCart, Truck, Wrench, Wallet } from "lucide-react";
+import { ArrowLeft, Camera, ClipboardList, ListChecks, Loader2, NotebookPen, PackageCheck, QrCode as QrIcon, ImagePlus, ClipboardCheck, ReceiptText, ScanLine, Send, ShoppingCart, Truck, Wrench, Wallet } from "lucide-react";
+import YardJobs from "@/components/yard/YardJobs";
 import PhotoPicker from "@/components/tools/PhotoPicker";
 import DailyLog from "@/components/site/DailyLog";
 import { GuideLink, WhatsNewCard } from "@/components/site/LogGuide";
@@ -40,8 +41,10 @@ type SiteInfo = {
   dailyLog?: LogCardDTO; // only on the daily log pilot's links (Task K)
   guide?: number; // the daily log guide's version - only on links with the daily log (30 Oct 2026)
   receiptsToday?: number; // supervisor and driver links (Receipts)
+  yardJobs?: number; // the yard's shared link: jobs to get ready (4 Nov 2026)
+  readyToCollect?: number; // a supervisor's link: their requests ready at the yard
 };
-type Mode = "home" | "register" | "check" | "fault" | "signin" | "request" | "requests" | "todo" | "purchases" | "hire" | "log" | "receipt" | "receipts" | "hours" | "reimburse";
+type Mode = "home" | "register" | "check" | "fault" | "signin" | "request" | "requests" | "todo" | "purchases" | "hire" | "log" | "receipt" | "receipts" | "hours" | "reimburse" | "yard";
 
 const input =
   "w-full rounded-lg border border-edge bg-panel2 px-3 py-2.5 text-base text-gray-200 placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500";
@@ -60,7 +63,8 @@ export default function SitePhotosPage({ params: paramsP }: { params: Promise<{ 
   // (or ?go=log - the 19:00 daily log reminder).
   useEffect(() => {
     const go = new URLSearchParams(window.location.search).get("go");
-    if (go === "signin" || go === "log" || go === "purchases") {
+    // ?go=yard - a new yard job alert on the yard's link; ?go=requests - "ready for collection" (4 Nov 2026).
+    if (go === "signin" || go === "log" || go === "purchases" || go === "yard" || go === "requests") {
       setMode(go);
       window.history.replaceState(null, "", window.location.pathname);
     }
@@ -79,6 +83,8 @@ export default function SitePhotosPage({ params: paramsP }: { params: Promise<{ 
   const hasTools = !!info && info.kind === "SUPERVISOR" && info.toolboxes.length > 0;
   const driver = info?.kind === "DRIVER";
   const sendsReceipts = !!info && (info.kind === "SUPERVISOR" || info.kind === "DRIVER");
+  // The yard's shared phone link (an OFFICE link with no person): yard jobs + tools capture (Ilies, 4 Nov 2026).
+  const yard = !!info && info.kind === "OFFICE" && !!info.shared;
 
   const finished = (message: string) => {
     setFlash(message);
@@ -100,11 +106,11 @@ export default function SitePhotosPage({ params: paramsP }: { params: Promise<{ 
         <div className="py-16 text-center text-sm text-gray-500"><Loader2 className="mx-auto animate-spin" /></div>
       ) : mode === "home" ? (
         <>
-          <h1 className="mb-1 text-xl font-semibold text-gray-100">{info.kind === "OFFICE" ? (info.shared ? "Tools capture" : "Office") : info.kind === "HANDOVER" ? "Crew sign-in" : driver ? "Receipts" : "Site"}</h1>
+          <h1 className="mb-1 text-xl font-semibold text-gray-100">{info.kind === "OFFICE" ? (info.shared ? "Yard" : "Office") : info.kind === "HANDOVER" ? "Crew sign-in" : driver ? "Receipts" : "Site"}</h1>
           <p className="mb-4 text-sm text-gray-500">
             {info.kind === "OFFICE"
               ? info.shared
-                ? "Add tools to the Lobos inventory."
+                ? "Yard jobs from site - get them ready for collection - and adding tools to the Lobos inventory."
                 : "Your to-do from site requests, and adding tools to the inventory."
               : info.kind === "HANDOVER"
                 ? "You're running sign-in for today - this link stops working tonight."
@@ -137,6 +143,13 @@ export default function SitePhotosPage({ params: paramsP }: { params: Promise<{ 
                 An alert 20 minutes before your shift finishes if anyone is still signed in
                 {info.dailyLog ? ", and at 7pm if a job has no daily log or before/after photos." : "."}
               </p>
+              <PushToggle api={`${api}/push`} sw="/site/sw.js" home={`/site/${params.token}`} align="start" />
+            </div>
+          )}
+          {yard && (
+            <div className="mb-4 rounded-xl border border-edge bg-panel p-3">
+              <div className="text-sm font-semibold text-gray-100">Yard job alerts</div>
+              <p className="mb-2 text-xs text-gray-500">An alert on this phone when a supervisor or the office sends the yard a job.</p>
               <PushToggle api={`${api}/push`} sw="/site/sw.js" home={`/site/${params.token}`} align="start" />
             </div>
           )}
@@ -176,9 +189,13 @@ export default function SitePhotosPage({ params: paramsP }: { params: Promise<{ 
               <Big
                 icon={<ClipboardList size={22} />}
                 title="My requests"
-                text={info.needsAnswer ? `The office has a question on ${info.needsAnswer}` : info.openRequests ? `${info.openRequests} open - see where they're up to` : "See where they're up to"}
-                count={info.needsAnswer || info.openRequests}
-                alert={info.needsAnswer > 0}
+                text={info.needsAnswer
+                  ? `The office has a question on ${info.needsAnswer}`
+                  : info.readyToCollect
+                    ? `${info.readyToCollect} ready to collect at the yard`
+                    : info.openRequests ? `${info.openRequests} open - see where they're up to` : "See where they're up to"}
+                count={info.needsAnswer || info.readyToCollect || info.openRequests}
+                alert={info.needsAnswer > 0 || !!info.readyToCollect}
                 onClick={() => { setFlash(null); setMode("requests"); }}
               />
               {info.hireItems > 0 && (
@@ -192,6 +209,16 @@ export default function SitePhotosPage({ params: paramsP }: { params: Promise<{ 
                 />
               )}
             </>)}
+            {yard && (
+              <Big
+                icon={<PackageCheck size={22} />}
+                title="Yard jobs"
+                text={info.yardJobs ? `${info.yardJobs} to get ready for site` : "What site needs from the yard"}
+                count={info.yardJobs}
+                alert={!!info.yardJobs}
+                onClick={() => { setFlash(null); setMode("yard"); }}
+              />
+            )}
             {info.kind === "OFFICE" && !info.shared && (
               <Big icon={<ListChecks size={22} />} title="My to-do" text={info.todo ? `${info.todo} to action` : "Requests the office hands you"} count={info.todo} onClick={() => { setFlash(null); setMode("todo"); }} />
             )}
@@ -233,6 +260,18 @@ export default function SitePhotosPage({ params: paramsP }: { params: Promise<{ 
           {mode === "receipts" && <MyReceipts api={api} />}
           {mode === "reimburse" && <Reimburse api={api} onDone={finished} />}
           {mode === "hours" && <ApproveHours api={api} onDone={finished} />}
+          {mode === "yard" && (
+            <>
+              <h1 className="mb-1 text-xl font-semibold text-gray-100">Yard jobs</h1>
+              {yard && (
+                <label className="mb-3 block">
+                  <span className="mb-1 block text-sm text-gray-300">Your name</span>
+                  <input className={input} placeholder="So the office knows who did it" value={who} onChange={(e) => { setWho(e.target.value); saveWho(e.target.value); }} />
+                </label>
+              )}
+              <YardJobs api={`${api}/yard`} who={who} shared />
+            </>
+          )}
         </>
       )}
     </div>

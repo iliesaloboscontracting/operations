@@ -27,6 +27,7 @@ import {
 } from "@/lib/requestTypes";
 import type { OfficeRequestView } from "@/lib/siteRequests";
 import ProposeChange from "@/components/changes/ProposeChange";
+import { isWithYard, sendToYardError } from "@/lib/yard/rules";
 
 // Site requests (21 Oct 2026): what supervisors have asked for from their
 // link, in columns by where each one is up to. Only Ilies (Admin) decides -
@@ -47,8 +48,16 @@ const COLUMNS: { key: string; title: string; hint: string; statuses: string[] }[
   { key: "decide", title: "To decide", hint: "New, seen, sent back, or a query answered", statuses: ["SENT", "SEEN", "CANT_DO", "ANSWERED"] },
   { key: "waiting", title: "Waiting on site", hint: "You asked the supervisor", statuses: ["NEEDS_INFO"] },
   { key: "doing", title: "Being actioned", hint: "With Alex, or you", statuses: ["TODO", "ACTIONING", "MINE"] },
+  // Yard jobs (Ilies, 4 Nov 2026): the yard is getting it ready, or it's ready to collect.
+  { key: "yard", title: "With the yard", hint: "Getting it ready, or ready to collect", statuses: ["YARD", "READY"] },
   { key: "closed", title: "Closed - last 14 days", hint: "Done, declined, cancelled", statuses: ["DONE", "DECLINED", "CANCELLED"] },
 ];
+const statusesOf = (key: string) => COLUMNS.find((c) => c.key === key)!.statuses;
+// How each history step reads (the rest: the action name in plain words).
+const EVENT_TEXT: Record<string, string> = {
+  SENT_TO_YARD: "sent to the yard", PULLED_BACK: "pulled back from the yard", YARD_ON_IT: "yard on it",
+  YARD_READY: "ready for collection", COLLECTED: "collected",
+};
 
 const input =
   "w-full rounded-lg border border-edge bg-panel2 px-3 py-2 text-sm text-gray-200 placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500";
@@ -129,7 +138,7 @@ export default function RequestsBoard({ scope }: { scope: RequestScope }) {
   if (!canEdit) return <PageShell title={text.title}><p className="text-sm text-gray-400">Requests are for managers.</p></PageShell>;
 
   const all = data?.requests ?? [];
-  const openRows = all.filter((r) => !COLUMNS[3].statuses.includes(r.status));
+  const openRows = all.filter((r) => !statusesOf("closed").includes(r.status));
   const current = all.find((r) => r.id === openId) ?? null;
   const withAlex = openRows.filter((r) => r.status === "TODO" || r.status === "ACTIONING" || (r.status === "NEEDS_INFO" && !!r.assigneeName));
 
@@ -140,6 +149,7 @@ export default function RequestsBoard({ scope }: { scope: RequestScope }) {
       actions={
         <div className="flex flex-wrap items-start gap-2">
           {isAdmin && <PushToggle />}
+          {scope === "site" && <Link href="/yard" className="rounded-lg border border-edge px-3 py-2 text-sm text-gray-300 hover:bg-panel2">Yard jobs</Link>}
           <button onClick={() => printRequests(text.print,[...openRows].sort(byPriority))} className="hidden items-center md:flex gap-1.5 rounded-lg border border-edge px-3 py-2 text-sm text-gray-300 hover:bg-panel2">
             <Printer size={15} /> Print open
           </button>
@@ -156,17 +166,20 @@ export default function RequestsBoard({ scope }: { scope: RequestScope }) {
       <InstallApp appName="Lobos Ops" />
       {error && <p className="mb-3 text-sm text-red-400">{error}</p>}
       <div className="mb-4 grid grid-cols-4 gap-2 sm:flex sm:flex-wrap">
-        <Stat label="To decide" value={all.filter((r) => COLUMNS[0].statuses.includes(r.status)).length} tone="text-brand-300" />
+        <Stat label="To decide" value={all.filter((r) => statusesOf("decide").includes(r.status)).length} tone="text-brand-300" />
         <Stat label="Urgent open" value={openRows.filter((r) => r.priority === "URGENT").length} tone="text-red-400" />
         <Stat label="Overdue" value={openRows.filter(isOverdue).length} tone="text-red-400" />
         <Stat label="On to-do lists" value={withAlex.length} />
+        {scope === "site" && <Stat label="With the yard" value={all.filter((r) => statusesOf("yard").includes(r.status)).length} />}
+        {/* A ready job with something missing: someone has to buy it - the Admins were alerted (4 Nov 2026). */}
+        {scope === "site" && <Stat label="Yard: missing" value={all.filter((r) => r.status === "READY" && !!r.readyNote).length} tone="text-amber-300" />}
       </div>
       {data && <RemindersStrip rows={all} onOpen={open} />}
       {!data ? (
         <p className="text-sm text-gray-500">Loading…</p>
       ) : (
         <div className="flex flex-col gap-3 pb-3 md:flex-row md:overflow-x-auto">
-          {COLUMNS.map((c) => {
+          {COLUMNS.filter((c) => scope === "site" || c.key !== "yard").map((c) => {
             const rows = all.filter((r) => c.statuses.includes(r.status));
             if (c.key !== "closed") rows.sort(byPriority);
             return (
@@ -224,12 +237,14 @@ function Card({ r, onOpen }: { r: OfficeRequestView; onOpen: () => void }) {
       {(r.status === "TODO" || r.status === "ACTIONING") && r.update && <div className="mt-1 truncate text-xs text-emerald-300">{r.update.by}: {r.update.note}</div>}
       {r.status === "NEEDS_INFO" && r.askedBy && r.askedBy !== "You" && <div className="mt-1 truncate text-xs text-amber-300">{r.askedBy} asked the supervisor</div>}
       {r.status === "SEEN" && r.answer && <div className="mt-1 text-xs text-sky-300">Answered: {r.answer}</div>}
+      {r.status === "READY" && <div className="mt-1 text-xs text-emerald-300">Ready{r.readyBy ? ` - ${r.readyBy}` : ""}{r.hasReadyPhoto ? " · 📷" : ""}</div>}
+      {r.status === "READY" && r.readyNote && <div className="mt-1 truncate text-xs font-semibold text-amber-300">Missing: {r.readyNote}</div>}
       <ReminderLine r={r} />
     </button>
   );
 }
 
-type Action = "APPROVE" | "MINE" | "ASK" | "DECLINE" | "DONE";
+type Action = "APPROVE" | "MINE" | "ASK" | "DECLINE" | "DONE" | "SEND_TO_YARD" | "PULL_BACK";
 
 function Detail({
   r,
@@ -291,7 +306,14 @@ function Detail({
     if (action === "ASK") return send({ action, question: text });
     if (action === "DECLINE") return send({ action, reason: text });
     if (action === "DONE") return send({ action, outcome: text });
+    if (action === "SEND_TO_YARD" || action === "PULL_BACK") return send({ action, note: text });
   }
+  // Yard jobs (Ilies, 4 Nov 2026): any open site request can go to the yard; one with the yard
+  // can be pulled back, declined, or marked collected once it's ready.
+  const withYard = isWithYard(r.status);
+  const canSendToYard = !sendToYardError(r);
+  const [showReady, setShowReady] = useState(false);
+  useEffect(() => setShowReady(false), [r.id]);
 
   const PROMPT: Record<Action, { label: string; placeholder: string; button: string }> = isQuery ? {
     APPROVE: { label: "", placeholder: "", button: "" },
@@ -299,7 +321,11 @@ function Detail({
     ASK: { label: `Follow-up question for ${r.assigneeName ?? "them"}`, placeholder: "e.g. Which revision of the quote is that from?", button: "Ask follow-up" },
     DECLINE: { label: "Why it's being closed without an answer", placeholder: "e.g. Found it in the contract folder", button: "Decline" },
     DONE: { label: "Closing note - closing never changes a record", placeholder: "e.g. Thanks - I'll propose the contract value change", button: "Close query" },
+    SEND_TO_YARD: { label: "", placeholder: "", button: "" },
+    PULL_BACK: { label: "", placeholder: "", button: "" },
   } : {
+    SEND_TO_YARD: { label: "Note for the yard (optional) - the yard and supervisor see no prices", placeholder: "e.g. Take the 9in from the Vaucluse box", button: "Send to the yard" },
+    PULL_BACK: { label: "Why (optional)", placeholder: "e.g. Ordering it from Coates instead", button: "Pull back from the yard" },
     APPROVE: { label: "Note for them (optional)", placeholder: "e.g. Use Coates, PO 1234. Call Sam on site.", button: `Send to ${assignees.find((a) => a.id === assigneeId)?.name ?? "them"}` },
     MINE: { label: "Note (optional)", placeholder: "e.g. Calling Hire Express", button: "I'll do it" },
     ASK: { label: "Question for the supervisor", placeholder: "e.g. How many days do you need it for?", button: "Ask" },
@@ -358,6 +384,16 @@ function Detail({
         {r.officeNote && <p className="mb-2 text-sm text-brand-200">Your note: {r.officeNote}</p>}
         {r.outcome && <p className={`mb-2 text-sm ${r.status === "CANT_DO" ? "text-amber-300" : "text-emerald-300"}`}>{r.status === "CANT_DO" ? "Can't do: " : "Outcome: "}{r.outcome}</p>}
         {r.declineReason && r.status === "DECLINED" && <p className="mb-2 text-sm text-red-300">Declined: {r.declineReason}</p>}
+        {r.yardAt && (
+          <div className="mb-3 rounded-lg border border-edge bg-panel2 px-3 py-2 text-sm">
+            <div className="text-sky-300">Sent to the yard {whenText(r.yardAt)}{r.yardBy ? ` by ${r.yardBy}` : ""}{withYard ? "" : " (earlier)"}</div>
+            {r.readyAt && <div className="text-emerald-300">Ready {whenText(r.readyAt)}{r.readyBy ? ` - ${r.readyBy}` : ""}</div>}
+            {r.readyNote && <div className="font-semibold text-amber-300">Missing / to buy elsewhere: {r.readyNote}</div>}
+            {r.hasReadyPhoto && <button onClick={() => setShowReady((s) => !s)} className="text-gray-300 underline">{showReady ? "Hide the yard's photo" : "The yard's photo"}</button>}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            {showReady && <img src={`/api/requests/${r.id}/photo?which=ready`} alt="" className="mt-2 max-h-80 w-full rounded-lg object-contain" />}
+          </div>
+        )}
 
         <div className="mb-4 flex flex-wrap gap-3 text-sm">
           {r.hasPhoto && <button onClick={() => setShowPhoto((s) => !s)} className="text-gray-300 underline">{showPhoto ? "Hide photo" : "Photo"}</button>}
@@ -377,8 +413,20 @@ function Detail({
               <button onClick={() => setAction("ASK")} className="rounded-lg border border-edge px-3 py-2 text-sm text-gray-200 hover:bg-panel2">Ask a follow-up</button>
               <button onClick={() => setAction("DECLINE")} className="rounded-lg border border-red-500/40 px-3 py-2 text-sm text-red-300 hover:bg-red-500/10">Decline</button>
             </div>
+          ) : !action && withYard ? (
+            <div className="mb-4 grid grid-cols-2 gap-2 [&>button]:py-3 sm:[&>button]:py-2">
+              {r.status === "READY" && (
+                <button disabled={busy} onClick={() => send({ action: "COLLECTED" })} className="col-span-2 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white">Collected</button>
+              )}
+              <button onClick={() => setAction("PULL_BACK")} className="rounded-lg border border-edge px-3 py-2 text-sm text-gray-200 hover:bg-panel2">Pull back from the yard</button>
+              <button onClick={() => setAction("DECLINE")} className="rounded-lg border border-red-500/40 px-3 py-2 text-sm text-red-300 hover:bg-red-500/10">Decline</button>
+              <Link href={`/yard?open=${r.id}`} className="col-span-2 text-center text-sm text-gray-300 underline">Open on the yard list</Link>
+            </div>
           ) : !action ? (
             <div className="mb-4 grid grid-cols-2 gap-2 [&>button]:py-3 sm:[&>button]:py-2">
+              {canSendToYard && (
+                <button onClick={() => setAction("SEND_TO_YARD")} className="col-span-2 rounded-lg border border-sky-500/50 px-3 py-2 text-sm font-semibold text-sky-200 hover:bg-sky-500/10">Send to yard</button>
+              )}
               <button onClick={() => setAction("APPROVE")} disabled={!assignees.length} className="rounded-lg bg-brand-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-40">
                 {r.status === "TODO" || r.status === "ACTIONING" ? "Change / re-send" : `Approve → ${assignees[0]?.name.split(" ")[0] ?? "to-do"}`}
               </button>
@@ -432,7 +480,7 @@ function Detail({
         <h3 className="mb-1 text-xs font-semibold uppercase tracking-widest text-gray-500">History</h3>
         <ol className="space-y-1 text-xs text-gray-400">
           {r.events.map((e, i) => (
-            <li key={i}><span className="text-gray-500">{whenText(e.at)}</span> · {e.by} · {e.action.replace("_", " ").toLowerCase()}{e.note ? ` - ${e.note}` : ""}</li>
+            <li key={i}><span className="text-gray-500">{whenText(e.at)}</span> · {e.by} · {EVENT_TEXT[e.action] ?? e.action.replace(/_/g, " ").toLowerCase()}{e.note ? ` - ${e.note}` : ""}</li>
           ))}
         </ol>
       </div>

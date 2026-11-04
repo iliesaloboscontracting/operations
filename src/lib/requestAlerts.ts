@@ -34,7 +34,7 @@ export async function notifyNewRequest(r: SiteRequest): Promise<void> {
   await pushToAdmins(
     {
       title: `${PRIORITY_DOT[p]} ${PRIORITY_LABEL[p]} request - ${r.siteLabel}`,
-      body: `${r.summary}\n${r.requestedBy} · needed by ${whenText(r.neededBy)}`,
+      body: `${r.summary}\n${r.requestedBy} · needed by ${whenText(r.neededBy)}${r.status === "YARD" ? " · sent straight to the yard" : ""}`,
       url: urlOf(r),
       tag: `req-${r.number}`,
       silent: p === "LOW",
@@ -45,9 +45,10 @@ export async function notifyNewRequest(r: SiteRequest): Promise<void> {
 }
 
 // Changes that need Ilies (an answer, "can't do") alert; the rest (done,
-// cancelled) arrive silently.
-export async function notifyRequestUpdate(r: SiteRequest, what: string): Promise<void> {
-  const needsYou = NEEDS_ILIES.includes(r.status);
+// cancelled) arrive silently. `loud` (yard jobs, 4 Nov 2026): a ready job with
+// something missing alerts even though it isn't waiting on a decision.
+export async function notifyRequestUpdate(r: SiteRequest, what: string, opts: { loud?: boolean } = {}): Promise<void> {
+  const needsYou = NEEDS_ILIES.includes(r.status) || !!opts.loud;
   if (alertRouteFor(r, "UPDATE") !== "ADMINS") {
     await pushRouted(r, "UPDATE", { title: `${requestNo(r.number)} · ${r.siteLabel}`, body: `${what}
 ${r.summary}`, url: urlOf(r), tag: `req-${r.number}`, silent: !needsYou }, needsYou ? "high" : "normal").catch((e) => console.error("request alert", e));

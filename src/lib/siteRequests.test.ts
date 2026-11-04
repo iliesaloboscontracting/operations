@@ -14,6 +14,7 @@ const req = (r: Partial<SiteRequest> & { events?: SiteRequestEvent[] } = {}): Si
   status: "TODO", seenAt: null, officeNote: null, question: null, answer: null, declineReason: null, assigneeId: "res-alex", assigneeName: "Alexander R",
   outcome: null, doneAt: null, hireResourceId: null, remindAt: null, remindNote: null, remindedAt: null, aiSuggestion: null, aiSuggestedAt: null,
   origin: "SITE", findingId: null, audience: "OPERATIONAL", assigneeUserId: null, answerFile: null,
+  yardAt: null, yardBy: null, readyAt: null, readyBy: null, readyNote: null, readyPhotoFile: null, readySiteLinkId: null,
   createdAt: new Date("2026-10-24T01:00:00Z"), updatedAt: new Date("2026-10-24T01:00:00Z"), events: [], ...r,
 });
 

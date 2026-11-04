@@ -10,7 +10,8 @@ import { isPushHost } from "@/lib/pushHost";
 // POST   { subscription, label }    this phone/browser wants alerts
 // DELETE { endpoint }               this phone/browser stops them
 // Since 26 Oct 2026 the accounts login can turn on its own phone for due-date alerts too, and since 4 Nov 2026 the
-// yard computer (YARD) its own alerts for yard jobs (Ilies). Each only ever sees and changes its own devices.
+// yard computer (YARD) its own alerts for yard jobs (Ilies; sent by lib/yard/alerts.ts). Each only ever sees and
+// changes its own devices.
 const PUSH_OWN_ROLES: readonly string[] = ["ACCOUNTS", "YARD"];
 async function guardPush() {
   const user = await getCurrentUser();

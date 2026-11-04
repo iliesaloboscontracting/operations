@@ -6,13 +6,15 @@ import { savePhoto } from "@/lib/toolPhotos";
 import { LINK_WHERE, createRequest, linkVisible, siteView, sitesFor } from "@/lib/siteRequests";
 import { OPEN_STATUSES } from "@/lib/requestTypes";
 import { notifyNewRequest } from "@/lib/requestAlerts";
+import { notifyYard } from "@/lib/yard/alerts";
 import { suggestInBackground } from "@/lib/requestReminders";
 
 // Site requests from a supervisor's link (or a stand-in's one-day hand-over
 // link) - 21 Oct 2026.
 // GET  -> their requests (open ones, plus anything from the last 14 days) and
 //         the sites they can ask for
-// POST { kind, priority, neededBy, projectId, details, note?, photo? (data URL), who? }
+// POST { kind, priority, neededBy, projectId, details, note?, photo? (data URL), who?,
+//        sendTo? ("YARD" | "OFFICE" - tools, materials and deliveries only; 4 Nov 2026) }
 const DAILY_LIMIT = 40;
 
 async function linkFor(token: string) {
@@ -55,7 +57,9 @@ export const POST = withErrorHandling(async (req: NextRequest, { params: paramsP
   }
   const out = await createRequest(link, body, photoFile);
   if ("error" in out) return NextResponse.json({ error: out.error }, { status: 400 });
+  // Admins hear about every new request, yard jobs included (Ilies, 4 Nov 2026: "obviously I see this as well").
   await notifyNewRequest(out.request);
+  if (out.request.status === "YARD") await notifyYard(out.request, "NEW");
   suggestInBackground(out.request.id);
   return NextResponse.json({ request: siteView(out.request) }, { status: 201 });
 });

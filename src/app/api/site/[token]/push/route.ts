@@ -4,13 +4,15 @@ import { withErrorHandling } from "@/lib/apiHandler";
 import { resolveLink } from "@/lib/siteLinks";
 import { pushPublicKey } from "@/lib/push";
 import { isPushHost } from "@/lib/pushHost";
+import { isYardLink } from "@/lib/yard/rules";
 
 // Phone alerts on a supervisor's link (24 Oct 2026) - e.g. the 20-minute
-// "still signed in" reminder. Supervisor and one-day hand-over links only.
+// "still signed in" reminder. Supervisor and one-day hand-over links, and (4 Nov
+// 2026) the yard's shared link - new yard jobs (lib/yard/alerts.ts).
 // GET -> { publicKey }   POST { subscription, label }   DELETE { endpoint }
 async function linkFor(token: string) {
   const link = await resolveLink(token);
-  return link && (link.kind === "SUPERVISOR" || link.kind === "HANDOVER") ? link : null;
+  return link && (link.kind === "SUPERVISOR" || link.kind === "HANDOVER" || isYardLink(link)) ? link : null;
 }
 
 export const GET = withErrorHandling(async (_req: NextRequest, { params: paramsP }: { params: Promise<{ token: string }> }) => {

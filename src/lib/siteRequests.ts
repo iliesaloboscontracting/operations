@@ -8,6 +8,7 @@ import { OFFICE_KINDS, PRIORITIES, SYSTEM_TYPES, typeOf, type Priority } from ".
 import { todaySydney } from "./today";
 import { assertNoMoney } from "./moneyGuard";
 import type { ReminderSuggestion } from "./requestReminders";
+import { COLLECTED, isWithYard, sendsToYard } from "./yard/rules";
 
 const parseSuggestion = (json: string | null): ReminderSuggestion | null => {
   if (!json) return null;
@@ -68,11 +69,18 @@ export async function createRequest(link: ResolvedLink, body: Record<string, unk
   const project = typeof body.projectId === "string" ? await prisma.project.findUnique({ where: { id: body.projectId }, select: { id: true, name: true } }) : null;
   if (!project) return { error: "Pick the site." };
   const by = link.shared && clean(body.who, 40) ? `${link.person.name} - ${clean(body.who, 40)}` : link.person.name;
+  // Yard jobs (Ilies, 4 Nov 2026): tools, materials and deliveries the supervisor sends
+  // "to the yard" go straight on the yard's list - no Admin decision needed (Admins are
+  // still alerted as for any new request).
+  const toYard = sendsToYard(type.kind, body.sendTo);
 
-  return insertRequest({
+  const out = await insertRequest({
     kind: type.kind, priority, neededBy, project, summary: type.summary(details).slice(0, 200) || type.label,
     details, note: clean(body.note, 500) || null, photoFile, by, byId: link.person.id, siteLinkId: link.id,
+    ...(toYard ? { extra: { status: "YARD", yardAt: new Date(), yardBy: by } } : {}),
   });
+  if (toYard && "request" in out) await addEvent(out.request.id, "SENT_TO_YARD", by, "Sent straight to the yard");
+  return out;
 }
 
 // Saves a request with the next number (retried if two arrive at the same
@@ -81,7 +89,7 @@ export async function createRequest(link: ResolvedLink, body: Record<string, unk
 export async function insertRequest(r: {
   kind: string; priority: Priority; neededBy: Date; project: { id: string | null; name: string }; summary: string;
   details: Record<string, string>; note: string | null; photoFile: string | null; by: string; byId: string | null; siteLinkId: string | null;
-  extra?: Partial<Pick<Prisma.SiteRequestUncheckedCreateInput, "origin" | "findingId" | "audience" | "status" | "seenAt" | "assigneeId" | "assigneeName" | "assigneeUserId" | "hireResourceId">>;
+  extra?: Partial<Pick<Prisma.SiteRequestUncheckedCreateInput, "origin" | "findingId" | "audience" | "status" | "seenAt" | "assigneeId" | "assigneeName" | "assigneeUserId" | "hireResourceId" | "yardAt" | "yardBy">>;
 }): Promise<{ request: SiteRequest } | { error: string }> {
   for (let attempt = 0; attempt < 5; attempt++) {
     const last = await prisma.siteRequest.findFirst({ orderBy: { number: "desc" }, select: { number: true } });
@@ -176,7 +184,56 @@ export const siteView = (r: Req) => ({
   declineReason: r.status === "DECLINED" ? linkText(r.declineReason) : null,
   outcome: r.status === "DONE" ? linkText(r.outcome) : null,
   doneAt: iso(r.doneAt),
+  // Yard jobs (4 Nov 2026): with the yard / ready for collection, the yard's photo and its
+  // "missing" note (through the link money rule), and a "Collected" button while READY.
+  yard: yardProgress(r),
 });
+
+// What the yard has done on a request, as a link may see it (no dollar figure).
+function yardProgress(r: Req) {
+  const shown = isWithYard(r.status) || (r.status === "DONE" && r.outcome === COLLECTED && !!r.readyAt);
+  if (!r.yardAt || !shown) return null;
+  const ready = r.status !== "YARD" && !!r.readyAt;
+  const collected = r.status === "DONE" ? last(r, "COLLECTED") : null;
+  return {
+    readyAt: ready ? iso(r.readyAt) : null,
+    readyBy: ready ? r.readyBy : null,
+    readyNote: ready ? linkText(r.readyNote) : null,
+    hasReadyPhoto: ready && !!r.readyPhotoFile,
+    onItBy: r.status === "YARD" ? (last(r, "YARD_ON_IT")?.by ?? null) : null,
+    collectedAt: collected ? collected.at.toISOString() : null,
+    collectedBy: collected?.by ?? null,
+  };
+}
+
+// The yard's list (Ilies, 4 Nov 2026) - on the yard's shared phone link, which rides the
+// public photos tunnel, and on /yard. Narrow: what to get ready, for whom, by when. Every
+// piece of text goes through the link money rule - the supervisor's own words included,
+// since this is someone else's screen - so a dollar figure never reaches the yard.
+export const yardView = (r: Req) => {
+  const b = base(r);
+  return {
+    id: r.id,
+    number: r.number,
+    kind: r.kind,
+    label: b.label,
+    priority: b.priority,
+    neededBy: b.neededBy,
+    site: r.siteLabel,
+    summary: linkText(r.summary) ?? "",
+    details: Object.fromEntries(Object.entries(b.details).map(([k, v]) => [k, linkText(String(v)) ?? ""])),
+    note: linkText(r.note),
+    officeNote: linkText(r.officeNote), // the Admin's note when they sent it down
+    hasPhoto: !!r.photoFile,
+    requestedBy: r.requestedBy,
+    status: r.status,
+    createdAt: b.createdAt,
+    yardAt: iso(r.yardAt),
+    yardBy: r.yardBy,
+    ...(yardProgress(r) ?? { readyAt: null, readyBy: null, readyNote: null, hasReadyPhoto: false, onItBy: null, collectedAt: null, collectedBy: null }),
+  };
+};
+export type YardJobView = ReturnType<typeof yardView>;
 
 // Whoever it's assigned to (Alex): the task, with Ilies's note.
 export const todoView = (r: Req) => ({
@@ -210,6 +267,13 @@ export const officeView = (r: Req) => ({
   aiSuggestion: parseSuggestion(r.aiSuggestion),
   aiSuggestedAt: iso(r.aiSuggestedAt),
   events: (r.events ?? []).map((e) => ({ action: e.action, by: e.by, note: e.note, at: e.at.toISOString() })),
+  // Yard jobs (4 Nov 2026) - who sent it down, and what the yard did.
+  yardAt: iso(r.yardAt),
+  yardBy: r.yardBy,
+  readyAt: iso(r.readyAt),
+  readyBy: r.readyBy,
+  readyNote: r.readyNote,
+  hasReadyPhoto: !!r.readyPhotoFile,
   // Actions and queries only (Phase 2) - site requests carry exactly the fields they always had.
   ...(OFFICE_KINDS.includes(r.kind)
     ? { office: { origin: r.origin, findingId: r.findingId, audience: r.audience, assigneeUserId: r.assigneeUserId, hasAnswerFile: !!r.answerFile } }

@@ -35,6 +35,7 @@ import {
   type RequestType,
 } from "@/lib/requestTypes";
 import type { SiteRequestView } from "@/lib/siteRequests";
+import { mayChooseYard } from "@/lib/yard/rules";
 
 // Site requests on the supervisor's link (21 Oct 2026) - instead of WhatsApp.
 // "Make a request": what -> a few questions -> site, priority, needed by ->
@@ -83,6 +84,8 @@ export function RequestForm({ api, who, onDone }: { api: string; who: string; on
   const [neededBy, setNeededBy] = useState("");
   const [note, setNote] = useState("");
   const [photo, setPhoto] = useState<string | null>(null);
+  // Tools, materials and deliveries: straight to the yard (the default) or to the office (Ilies, 4 Nov 2026).
+  const [sendTo, setSendTo] = useState<"YARD" | "OFFICE">("YARD");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const file = useRef<HTMLInputElement>(null);
@@ -100,6 +103,7 @@ export function RequestForm({ api, who, onDone }: { api: string; who: string; on
   const pickType = (t: RequestType) => {
     setType(t);
     setDetails({});
+    setSendTo("YARD");
     if (t.defaultPriority) pickPriority(t.defaultPriority);
   };
   const pickPriority = (p: Priority) => {
@@ -119,6 +123,8 @@ export function RequestForm({ api, who, onDone }: { api: string; who: string; on
     }
   }
 
+  const yardChoice = !!type && mayChooseYard(type.kind);
+
   async function send() {
     if (!type) return;
     setError(null);
@@ -132,11 +138,13 @@ export function RequestForm({ api, who, onDone }: { api: string; who: string; on
       const res = await fetch(`${api}/requests`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ kind: type.kind, details, projectId, priority, neededBy: new Date(neededBy).toISOString(), note, photo, who }),
+        body: JSON.stringify({ kind: type.kind, details, projectId, priority, neededBy: new Date(neededBy).toISOString(), note, photo, who, ...(yardChoice ? { sendTo } : {}) }),
       });
       if (!res.ok) throw new Error(await serverErrorMessage(res, "Couldn't send - check your signal and try again."));
       const { request } = (await res.json()) as { request: SiteRequestView };
-      onDone(`${requestNo(request.number)} sent to the office - you'll see it change here once it's seen.`);
+      onDone(request.status === "YARD"
+        ? `${requestNo(request.number)} sent to the yard - you'll see here when it's ready to collect.`
+        : `${requestNo(request.number)} sent to the office - you'll see it change here once it's seen.`);
     } catch (e) {
       setError((e as Error).message);
       setBusy(false);
@@ -209,6 +217,25 @@ export function RequestForm({ api, who, onDone }: { api: string; who: string; on
           )}
         </label>
       ))}
+
+      {yardChoice && (
+        <div>
+          <span className="mb-1 block text-sm text-gray-300">Send to</span>
+          <div className="grid grid-cols-2 gap-2">
+            {([["YARD", "Yard", "They get it ready to collect"], ["OFFICE", "Office", "The office sorts it"]] as const).map(([k, label, hint]) => (
+              <button
+                key={k}
+                type="button"
+                onClick={() => setSendTo(k)}
+                className={`rounded-xl border px-3 py-2.5 text-left ${sendTo === k ? "border-brand-500 bg-brand-600/25 text-brand-200" : "border-edge bg-panel2 text-gray-300"}`}
+              >
+                <span className="block text-sm font-semibold">{label}</span>
+                <span className="block text-xs opacity-80">{hint}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       <label className="block">
         <span className="mb-1 block text-sm text-gray-300">Site <span className="text-red-400">*</span></span>
@@ -298,6 +325,8 @@ const STATUS_TONE: Record<string, string> = {
   DONE: "bg-emerald-500/15 text-emerald-300",
   DECLINED: "bg-red-500/15 text-red-300",
   CANCELLED: "bg-gray-700/40 text-gray-500",
+  YARD: "bg-sky-500/15 text-sky-300",
+  READY: "bg-emerald-500/25 text-emerald-200",
 };
 
 export function MyRequests({ api }: { api: string }) {
@@ -340,6 +369,7 @@ function MyRequest({ api, r, onChange }: { api: string; r: SiteRequestView; onCh
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showPhoto, setShowPhoto] = useState(false);
+  const [showReady, setShowReady] = useState(false);
   const closed = ["DONE", "DECLINED", "CANCELLED"].includes(r.status);
 
   async function act(body: Record<string, unknown>) {
@@ -384,7 +414,28 @@ function MyRequest({ api, r, onChange }: { api: string; r: SiteRequestView; onCh
           <button className={`${primary} mt-2`} disabled={busy} onClick={() => act({ action: "ANSWER", answer })}>Send answer</button>
         </div>
       )}
-      {r.status === "DONE" && r.outcome && <div className="mt-2 text-sm text-emerald-300">✓ {r.outcome}</div>}
+      {/* Yard jobs (4 Nov 2026): where the yard is up to, its photo and anything missing. */}
+      {r.status === "YARD" && <div className="mt-2 text-sm text-sky-300">With the yard{r.yard?.onItBy ? ` - ${r.yard.onItBy} is on it` : " - you'll see here when it's ready"}.</div>}
+      {r.yard?.readyAt && (
+        <div className={`mt-2 rounded-lg p-3 ${r.status === "READY" ? "bg-emerald-500/10" : "bg-panel2"}`}>
+          <div className="text-sm text-emerald-200">
+            {r.status === "READY" ? "Ready for collection at the yard" : "Was ready at the yard"} · {whenText(r.yard.readyAt)}{r.yard.readyBy ? ` · ${r.yard.readyBy}` : ""}
+          </div>
+          {r.yard.readyNote && <div className="mt-1 text-sm text-amber-300">Missing / to buy elsewhere: {r.yard.readyNote}</div>}
+          {r.yard.hasReadyPhoto && (
+            <>
+              <button onClick={() => setShowReady((s) => !s)} className="mt-1 text-sm text-gray-300 underline">{showReady ? "Hide the yard's photo" : "The yard's photo"}</button>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              {showReady && <img src={`${api}/requests/${r.id}/photo?which=ready`} alt="" className="mt-2 max-h-64 w-full rounded-lg object-cover" />}
+            </>
+          )}
+          {r.status === "READY" && (
+            <button className={`${primary} mt-3`} disabled={busy} onClick={() => act({ action: "COLLECTED" })}>Collected</button>
+          )}
+          {r.yard.collectedAt && <div className="mt-1 text-sm text-emerald-300">✓ Collected {whenText(r.yard.collectedAt)}{r.yard.collectedBy ? ` · ${r.yard.collectedBy}` : ""}</div>}
+        </div>
+      )}
+      {r.status === "DONE" && r.outcome && !r.yard?.collectedAt && <div className="mt-2 text-sm text-emerald-300">✓ {r.outcome}</div>}
       {r.status === "DECLINED" && r.declineReason && <div className="mt-2 text-sm text-red-300">Declined: {r.declineReason}</div>}
       {error && <p className="mt-2 text-sm text-red-400">{error}</p>}
       {!closed && (

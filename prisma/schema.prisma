@@ -943,6 +943,7 @@ model SiteRequest {
   requestedById String? // Personnel resource, when the link has one
   siteLinkId    String? // the link it came from
   // SENT | SEEN | NEEDS_INFO | TODO (assigned) | MINE (Ilies doing it) | DONE | CANT_DO | DECLINED | CANCELLED
+  // | YARD (with the yard) | READY (ready for collection at the yard) - 4 Nov 2026
   status        String    @default("SENT")
   seenAt        DateTime?
   officeNote    String? // Ilies's note for whoever actions it
@@ -973,6 +974,17 @@ model SiteRequest {
   audience       String    @default("OPERATIONAL") // OPERATIONAL | COMMERCIAL | DIRECTOR - links only ever see OPERATIONAL
   assigneeUserId String? // an app user (accounts login, a director) - alongside assigneeId (a Personnel resource)
   answerFile     String? // QUERY: optional attachment with the answer, stored like request photos
+  // Yard jobs (Stage A, Ilies, 4 Nov 2026): tools, materials and deliveries the
+  // yard (downstairs) gets ready for a supervisor to collect. status YARD = on
+  // the yard's list (sent by the supervisor or an Admin), READY = gear ready
+  // with a photo, collected = DONE with outcome "Collected". No money, ever.
+  yardAt          DateTime? // when it last went to the yard
+  yardBy          String? // who sent it there (the supervisor, or an Admin)
+  readyAt         DateTime?
+  readyBy         String? // on the shared yard link: "Yard - <name typed on the phone>"
+  readyNote       String? // "anything missing / to buy from another supplier?"
+  readyPhotoFile  String? // the yard's photo of the gear, inside TOOL_PHOTO_DIR like photoFile
+  readySiteLinkId String? // the yard link that marked it ready (its daily photo limit)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   events        SiteRequestEvent[]
@@ -1009,6 +1021,7 @@ model SiteRequestEvent {
   requestId String
   request   SiteRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
   action    String // SENT | SEEN | ASKED | ANSWERED | APPROVED | MINE | DECLINED | DONE | CANT_DO | PRIORITY | NEEDED_BY | CANCELLED | REOPENED
+  // yard jobs (4 Nov 2026): SENT_TO_YARD | PULLED_BACK | YARD_ON_IT | YARD_READY | COLLECTED
   by        String
   note      String?
   at        DateTime    @default(now())
