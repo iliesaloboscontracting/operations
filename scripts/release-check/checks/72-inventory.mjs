@@ -157,6 +157,23 @@ export default {
     t.status(await send("DELETE", `/api/inventory/${B}`, "ADMIN"), 405, "there's no delete");
     t.status(await send("PATCH", `/api/inventory/${B}`, "MANAGER", { onHand: 99 }), 400, "the quantity isn't edited directly");
 
+    // (8) Security fixes (Ilies approved ST-006, CI-001b, CI-002..008, 4 Nov 2026).
+    // CI-001b: "Stock out to a site" sites - id and name only; the yard computer gets only sites on the board a week
+    // either side of today; Managers every active project; a Viewer none. A site it wasn't offered is refused.
+    const dayIso = (n) => { const d = new Date(`${c.today}T00:00:00.000Z`); d.setUTCDate(d.getUTCDate() + n); return d; };
+    const pIn = await c.db.project.create({ data: { name: `${tag} in-window site`, status: "ACTIVE" } });
+    const pOut = await c.db.project.create({ data: { name: `${tag} long-ago site`, status: "ACTIVE" } });
+    await c.db.job.create({ data: { projectId: pIn.id, title: pIn.name, date: dayIso(3), shift: "DAY", status: "ACTIVE" } });
+    await c.db.job.create({ data: { projectId: pOut.id, title: pOut.name, date: dayIso(-30), shift: "DAY", status: "ACTIVE" } });
+    const ys = (await get("/api/inventory", "YARD")).body?.sites ?? [];
+    t.ok(ys.length > 0 && ys.every((s) => JSON.stringify(Object.keys(s).sort()) === '["id","name"]'), "CI-001b: the yard's sites carry id and name only", JSON.stringify(ys[0]));
+    t.ok(ys.some((s) => s.id === pIn.id) && !ys.some((s) => s.id === pOut.id), "CI-001b: the yard gets the site on the board this week, not the one from a month ago");
+    const ms = (await get("/api/inventory", "MANAGER")).body?.sites ?? [];
+    t.ok(ms.some((s) => s.id === pOut.id) && ms.some((s) => s.id === pIn.id), "CI-001b: a Manager gets every active project");
+    t.ok(((await get("/api/inventory", "VIEWER")).body?.sites ?? []).length === 0, "CI-001b: a Viewer (can't move stock) gets no sites");
+    t.status(await move(A, "YARD", { kind: "OUT", qty: 1, projectId: pOut.id }), 400, "CI-001b: the yard can't stock out to a site it wasn't offered");
+    t.status(await move(A, "YARD", { kind: "OUT", qty: 1, projectId: pIn.id }), 201, "CI-001b: ... and can to one it was");
+
     // (7) Pages, and no dollar figure anywhere.
     for (const [pg, who] of [["/yard/inventory", "YARD"], ["/yard/inventory", "COORDINATOR"], ["/yard/inventory", "MANAGER"], ["/yard", "YARD"]]) {
       const r = await c.text(pg, who);

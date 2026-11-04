@@ -3,8 +3,7 @@ import { getCurrentUser, guardTools } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { viewJson } from "@/lib/coordinatorView";
 import { coordinatorOr, toolsWorkerOr } from "@/lib/roles";
-import { belowMinCount, createItem, listItems } from "@/lib/inventory/store";
-import { prisma } from "@/lib/prisma";
+import { belowMinCount, createItem, inventorySites, listItems } from "@/lib/inventory/store";
 
 // The consumables inventory (Yard Stage C, Ilies 4 Nov 2026). Same access as Tools (lib/auth.ts guardTools): looking -
 // Viewers and up, the coordinator, the yard computer; writing - Managers and up, the coordinator, the yard computer.
@@ -18,13 +17,16 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
   const user = (await getCurrentUser())!;
   if (req.nextUrl.searchParams.get("count")) return viewJson({ belowMin: await belowMinCount() });
   const items = await listItems(!!req.nextUrl.searchParams.get("all"));
-  // Sites for "Stock out to a site": active projects, names only (the yard computer can't open /api/projects).
-  const sites = await prisma.project.findMany({ where: { status: "ACTIVE" }, select: { id: true, name: true }, orderBy: { name: "asc" } });
+  const canWrite = toolsWorkerOr(user.role, "MANAGER");
+  // Sites for "Stock out to a site" - id and name only. CI-001 option (b) (Ilies approved 4 Nov 2026): only for those who
+  // can move stock; the yard computer gets just the sites on the board a week either side of today (lib/inventory/store.ts
+  // inventorySites), Managers / Admins / the coordinator every active project.
+  const sites = canWrite ? await inventorySites(user.role) : [];
   return viewJson({
     items,
     sites,
     belowMin: items.filter((i) => i.active && i.status === "BELOW").length,
-    canWrite: toolsWorkerOr(user.role, "MANAGER"),
+    canWrite,
     // A purchase request is the ordinary in-app one - Managers, Admins and the coordinator raise them; the yard
     // computer only sees the list (not its scope).
     canRequestPurchase: coordinatorOr(user.role, "MANAGER"),

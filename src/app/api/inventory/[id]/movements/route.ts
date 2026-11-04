@@ -15,7 +15,7 @@ export const POST = withErrorHandling(async (req: NextRequest, { params: paramsP
   const denied = await guardTools("MANAGER");
   if (denied) return denied;
   const user = (await getCurrentUser())!;
-  const out = await recordMovement(params.id, await req.json().catch(() => ({})), { id: user.id, name: user.name });
+  const out = await recordMovement(params.id, await req.json().catch(() => ({})), { id: user.id, name: user.name, role: user.role }); // role: CI-001b's sites
   if ("error" in out) return NextResponse.json({ error: out.error }, { status: out.status });
   return viewJson(out, { status: 201 });
 });

@@ -7,12 +7,25 @@ import type { InventoryItem, Prisma, StockMovement } from "@prisma/client";
 import { prisma } from "../prisma";
 import { pushToAdmins } from "../push";
 import { requestNo } from "../requestTypes";
+import { todaySydney } from "../today";
 import {
   CATEGORY_LABEL, NO_AMOUNTS, STATUS_LABEL, belowMinStep, fmtQty, hasAmount, itemFields, planMovement, stockStatus,
   type Category, type MoveKind,
 } from "./rules";
 
-export type Actor = { id: string | null; name: string };
+export type Actor = { id: string | null; name: string; role?: string };
+
+// The sites "Stock out to a site" offers - id and name only. CI-001 option (b) (Ilies approved 4 Nov 2026): the yard
+// computer only gets the projects on the board (a Job) from 7 days before to 7 days after today, Sydney time - not
+// the whole project list; Managers / Admins / the coordinator get every active project.
+export const YARD_SITE_WINDOW_DAYS = 7;
+export async function inventorySites(role: string): Promise<{ id: string; name: string }[]> {
+  if (role !== "YARD") return prisma.project.findMany({ where: { status: "ACTIVE" }, select: { id: true, name: true }, orderBy: { name: "asc" } });
+  const today = new Date(todaySydney() + "T00:00:00.000Z");
+  const from = new Date(today.getTime() - YARD_SITE_WINDOW_DAYS * 86_400_000);
+  const to = new Date(today.getTime() + (YARD_SITE_WINDOW_DAYS + 1) * 86_400_000);
+  return prisma.project.findMany({ where: { jobs: { some: { date: { gte: from, lt: to } } } }, select: { id: true, name: true }, orderBy: { name: "asc" } });
+}
 export type Fail = { error: string; status: number };
 export const CHANGED: Fail = { error: "It changed - reload the list.", status: 409 };
 // Thrown inside a transaction so everything in it is rolled back.
@@ -112,8 +125,11 @@ export async function recordMovement(itemId: string, body: Record<string, unknow
   if (!["IN", "OUT", "COUNT"].includes(kind)) return { error: "Stock in, stock out or a count.", status: 400 };
   if (hasAmount(reasonText(body.reason))) return { error: NO_AMOUNTS, status: 400 };
   let site: { id: string; name: string } | null = null;
-  if (kind === "OUT" && typeof body.projectId === "string" && body.projectId) {
-    site = await prisma.project.findUnique({ where: { id: body.projectId }, select: { id: true, name: true } });
+  if (kind === "OUT" && body.projectId !== undefined && body.projectId !== null && body.projectId !== "") {
+    // Only a site the person was offered (CI-001b: the yard computer's are the week either side of today).
+    site = typeof body.projectId === "string" && body.projectId.length <= 40
+      ? (await inventorySites(actor.role ?? "")).find((s) => s.id === body.projectId) ?? null
+      : null;
     if (!site) return { error: "Pick the site.", status: 400 };
   }
   try {
