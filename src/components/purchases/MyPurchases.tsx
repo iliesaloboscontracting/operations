@@ -28,8 +28,12 @@ const TONE: Record<string, string> = {
 };
 const post = (url: string, body: unknown) => fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 
-function AskForm({ base, projects, onDone, onCancel }: { base: string; projects: Project[]; onDone: (ref: string, warning?: string) => void; onCancel: () => void }) {
-  const [f, setF] = useState({ kind: "PURCHASE", what: "", why: "", qty: "", linkUrl: "", neededBy: "", projectId: "" });
+// A purchase request started from somewhere else (Yard Stage C, 4 Nov 2026: "Request a purchase" on a consumable below
+// its minimum) - only fills the form in; the person checks it, adds suppliers and prices, and sends it as usual.
+export type PurchasePrefill = { kind: "PURCHASE" | "HIRE"; what: string; qty: string; why: string };
+
+function AskForm({ base, projects, prefill, onDone, onCancel }: { base: string; projects: Project[]; prefill?: PurchasePrefill; onDone: (ref: string, warning?: string) => void; onCancel: () => void }) {
+  const [f, setF] = useState({ kind: "PURCHASE", what: "", why: "", qty: "", linkUrl: "", neededBy: "", projectId: "", ...prefill });
   const [quotes, setQuotes] = useState<QuoteDraft[]>([emptyQuote()]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -167,11 +171,11 @@ function Card({ r, base, onChanged }: { r: Row; base: string; onChanged: () => v
   );
 }
 
-export default function MyPurchases({ base }: { base: string }) {
+export default function MyPurchases({ base, prefill }: { base: string; prefill?: PurchasePrefill }) {
   const [rows, setRows] = useState<Row[] | null>(null);
   const [others, setOthers] = useState<Row[] | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
-  const [asking, setAsking] = useState(false);
+  const [asking, setAsking] = useState(!!prefill);
   const [flash, setFlash] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const load = useCallback(async () => {
@@ -189,7 +193,7 @@ export default function MyPurchases({ base }: { base: string }) {
     <div className="space-y-3">
       {flash && <p className="rounded-xl bg-emerald-950/50 px-3 py-2 text-sm text-emerald-200">{flash}</p>}
       {asking ? (
-        <AskForm base={base} projects={projects} onCancel={() => setAsking(false)} onDone={(ref, warning) => { setAsking(false); setFlash(`Sent to the directors as ${ref}.${warning ? ` ${warning}` : ""}`); load(); }} />
+        <AskForm base={base} projects={projects} prefill={prefill} onCancel={() => setAsking(false)} onDone={(ref, warning) => { setAsking(false); setFlash(`Sent to the directors as ${ref}.${warning ? ` ${warning}` : ""}`); load(); }} />
       ) : (
         <button onClick={() => { setFlash(null); setAsking(true); }} className={primary}><Plus size={18} /> Ask to buy or hire something</button>
       )}

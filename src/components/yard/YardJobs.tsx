@@ -102,6 +102,41 @@ export default function YardJobs({ api, who, shared = false, inApp = false, open
   );
 }
 
+// "Took from stock" (Yard Stage C, 4 Nov 2026): consumables that went with the job - an item and how many each. They
+// come off the stock in the same step as Ready for collection (all or nothing); more than the shelf has is refused.
+type StockLine = { itemId: string; qty: string };
+type StockItem = { id: string; name: string; unit: string; onHand: number; location: string | null };
+function TookFromStock({ lines, onChange }: { lines: StockLine[]; onChange: (l: StockLine[]) => void }) {
+  const [items, setItems] = useState<StockItem[] | null>(null);
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (!open || items) return;
+    apiFetch("/api/inventory").then((r) => (r.ok ? r.json() : { items: [] })).then((d: { items: StockItem[] }) => setItems(d.items)).catch(() => setItems([]));
+  }, [open, items]);
+  if (!open && !lines.length) return <button type="button" onClick={() => { setOpen(true); onChange([{ itemId: "", qty: "" }]); }} className="text-sm text-gray-300 underline">Took consumables from stock?</button>;
+  const set = (i: number, l: Partial<StockLine>) => onChange(lines.map((x, k) => (k === i ? { ...x, ...l } : x)));
+  return (
+    <div className="space-y-1.5 rounded-lg border border-edge p-2">
+      <div className="text-sm text-gray-300">Took from stock</div>
+      {!items ? <p className="text-xs text-gray-500">Loading the consumables…</p> : !items.length ? <p className="text-xs text-gray-500">Nothing in the inventory yet.</p> : lines.map((l, i) => {
+        const it = items.find((x) => x.id === l.itemId);
+        return (
+          <div key={i} className="flex gap-1.5">
+            <select className={`${input} flex-1 text-sm`} value={l.itemId} onChange={(e) => set(i, { itemId: e.target.value })}>
+              <option value="">Pick the item</option>
+              {items.map((x) => <option key={x.id} value={x.id}>{x.name} ({x.onHand} {x.unit}{x.location ? ` · ${x.location}` : ""})</option>)}
+            </select>
+            <input className={`${input} w-20 text-sm`} inputMode="decimal" placeholder={it?.unit ?? "qty"} value={l.qty} onChange={(e) => set(i, { qty: e.target.value })} />
+            <button type="button" onClick={() => onChange(lines.filter((_, k) => k !== i))} className="px-1 text-gray-400" aria-label="Remove"><X size={16} /></button>
+          </div>
+        );
+      })}
+      {items && items.length > 0 && lines.length < 20 && <button type="button" onClick={() => onChange([...lines, { itemId: "", qty: "" }])} className="text-xs text-brand-300 underline">+ another item</button>}
+      {!lines.length && <button type="button" onClick={() => setOpen(false)} className="block text-xs text-gray-500 underline">None</button>}
+    </div>
+  );
+}
+
 function Job({ api, j, canAct, who, shared, inApp, highlight, onSaved, onError }: {
   api: string; j: YardJobView; canAct: boolean; who?: string; shared: boolean; inApp: boolean; highlight?: boolean;
   onSaved: (j: YardJobView) => void; onError: (e: string | null) => void;
@@ -109,6 +144,7 @@ function Job({ api, j, canAct, who, shared, inApp, highlight, onSaved, onError }
   const [mode, setMode] = useState<"READY" | "CANT_DO" | null>(null);
   const [photo, setPhoto] = useState<string | null>(null);
   const [note, setNote] = useState("");
+  const [stock, setStock] = useState<StockLine[]>([]);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [show, setShow] = useState<"request" | "ready" | null>(null);
@@ -128,6 +164,7 @@ function Job({ api, j, canAct, who, shared, inApp, highlight, onSaved, onError }
       setMode(null);
       setPhoto(null);
       setNote("");
+      setStock([]);
     } catch (e) {
       setErr((e as Error).message);
     } finally {
@@ -201,8 +238,12 @@ function Job({ api, j, canAct, who, shared, inApp, highlight, onSaved, onError }
                 <span className="mb-1 block text-sm text-gray-300">Anything missing / needs buying from another supplier? (optional)</span>
                 <textarea className={input} rows={2} value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. only 1 of the 2 grinders - the office needs to get another" />
               </label>
+              {/* Yard Stage C (4 Nov 2026): consumables that went with it come off the stock - on the yard computer /
+                  in the app only, never on the shared phone link. */}
+              {inApp && <TookFromStock lines={stock} onChange={setStock} />}
               {err && <p className="text-sm text-red-400">{err}</p>}
-              <button className={primary} disabled={busy || !photo} onClick={() => act({ action: "READY", photo, note })}>
+              <button className={primary} disabled={busy || !photo || stock.some((l) => !l.itemId || !(Number(l.qty) > 0))}
+                onClick={() => act({ action: "READY", photo, note, ...(inApp && stock.length ? { stock: stock.map((l) => ({ itemId: l.itemId, qty: l.qty })) } : {}) })}>
                 {busy && <Loader2 size={18} className="animate-spin" />} Ready for collection
               </button>
               <button className="w-full py-1 text-sm text-gray-400" onClick={() => setMode(null)}>Back</button>
