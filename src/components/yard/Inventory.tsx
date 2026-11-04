@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { History, Loader2, Minus, Plus, Search, X } from "lucide-react";
 import FormModal, { type FieldDef } from "@/components/FormModal";
@@ -152,12 +152,23 @@ function ItemForm({ item, onClose, onSaved }: { item: ItemView | null; onClose: 
     { key: "location", label: "Where it lives", placeholder: "e.g. Shelf B2" },
     ...(!item ? ([{ key: "openingQty", label: "On the shelf now (optional - recorded as the first count)", type: "number", full: true }] as FieldDef[]) : []),
   ];
-  async function save(v: Record<string, unknown>) {
-    await send(item ? `/api/inventory/${item.id}` : "/api/inventory", item ? "PATCH" : "POST", {
-      name: v.name, category: v.category, unit: v.unit, minLevel: v.minLevel === "" ? null : v.minLevel, location: v.location,
-      ...(!item ? { openingQty: v.openingQty } : {}),
-    });
-    onSaved();
+  // CI-007 (Ilies approved 4 Nov 2026 - the double-add race is an accepted risk; this is the client-side guard): one
+  // save at a time. The button is already disabled while saving; a second click or Enter that slips in before that
+  // re-renders just waits for the save already on its way instead of sending another.
+  const inFlight = useRef<Promise<void> | null>(null);
+  function save(v: Record<string, unknown>) {
+    inFlight.current ??= (async () => {
+      try {
+        await send(item ? `/api/inventory/${item.id}` : "/api/inventory", item ? "PATCH" : "POST", {
+          name: v.name, category: v.category, unit: v.unit, minLevel: v.minLevel === "" ? null : v.minLevel, location: v.location,
+          ...(!item ? { openingQty: v.openingQty } : {}),
+        });
+        onSaved();
+      } finally {
+        inFlight.current = null;
+      }
+    })();
+    return inFlight.current;
   }
   async function setActive(active: boolean) {
     if (!item) return;
