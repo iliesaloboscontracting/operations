@@ -20,6 +20,8 @@ import { HIRE_EXTEND_TYPE, HIRE_MISMATCH_TYPE, OFF_HIRE_TYPE, OPEN_STATUSES, typ
 import { notifyNewRequest } from "./requestAlerts";
 import { todaySydney } from "./today";
 import { daysBetween } from "./dates";
+import { fromSydneyLocal } from "./shiftTimes";
+import { CALL_OFF_REMINDER, callOffReminderDay } from "./offHire/rules";
 
 export const HIRE_ANSWERS = ["STILL_NEEDED", "FINISHED", "NOT_ON_SITE"] as const;
 export type HireAnswer = (typeof HIRE_ANSWERS)[number];
@@ -133,7 +135,13 @@ export async function answerHire(link: ResolvedLink, body: Record<string, unknow
         project: { id: projectId, name: item.site }, summary: raise.type.summary(details).slice(0, 200),
         details, note: note ? `From the hire check: ${note}` : "From the hire check.", photoFile: null,
         by, byId: link.person.id, siteLinkId: link.id,
-        extra: { hireResourceId: item.id }, // which hire-register item it's about (was never recorded before 25 Oct 2026)
+        // Which hire-register item it's about (was never recorded before 25 Oct 2026). An off-hire also
+        // reminds the office at 8am the next working day if nobody has called it off by then (Ilies,
+        // 5 Nov 2026) - the Off-hired button closes the request, so a done one never reminds.
+        extra: {
+          hireResourceId: item.id,
+          ...(raise.type.kind === OFF_HIRE_TYPE.kind ? { remindAt: fromSydneyLocal(`${callOffReminderDay(todaySydney())}T08:00`), remindNote: CALL_OFF_REMINDER } : {}),
+        },
       });
       if ("error" in made) return made;
       requestId = made.request.id;

@@ -89,7 +89,7 @@ export async function createRequest(link: ResolvedLink, body: Record<string, unk
 export async function insertRequest(r: {
   kind: string; priority: Priority; neededBy: Date; project: { id: string | null; name: string }; summary: string;
   details: Record<string, string>; note: string | null; photoFile: string | null; by: string; byId: string | null; siteLinkId: string | null;
-  extra?: Partial<Pick<Prisma.SiteRequestUncheckedCreateInput, "origin" | "findingId" | "audience" | "status" | "seenAt" | "assigneeId" | "assigneeName" | "assigneeUserId" | "hireResourceId" | "yardAt" | "yardBy">>;
+  extra?: Partial<Pick<Prisma.SiteRequestUncheckedCreateInput, "origin" | "findingId" | "audience" | "status" | "seenAt" | "assigneeId" | "assigneeName" | "assigneeUserId" | "hireResourceId" | "yardAt" | "yardBy" | "remindAt" | "remindNote">>;
 }): Promise<{ request: SiteRequest } | { error: string }> {
   for (let attempt = 0; attempt < 5; attempt++) {
     const last = await prisma.siteRequest.findFirst({ orderBy: { number: "desc" }, select: { number: true } });
@@ -285,6 +285,8 @@ export const officeView = (r: Req) => ({
   readyBy: r.readyBy,
   readyNote: r.readyNote,
   hasReadyPhoto: !!r.readyPhotoFile,
+  // An off-hire's item, for the board's Off-hired button (5 Nov 2026).
+  ...(r.kind === "OFF_HIRE" ? { hireResourceId: r.hireResourceId } : {}),
   // Actions and queries only (Phase 2) - site requests carry exactly the fields they always had.
   ...(OFFICE_KINDS.includes(r.kind)
     ? { office: { origin: r.origin, findingId: r.findingId, audience: r.audience, assigneeUserId: r.assigneeUserId, hasAnswerFile: !!r.answerFile } }

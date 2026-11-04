@@ -8,6 +8,9 @@ import { prisma } from "./prisma";
 import { pickResourceData, PAY_RATE_FIELDS } from "./resourceFields";
 import { hireRegisterError } from "./hireServer";
 import { hireDateError } from "./dateRules";
+import { formOffHireDay, hireStatusChangeError, offHiresByStatus } from "./offHire/rules";
+import { closeOffHireRequests } from "./offHire/store";
+import { todaySydney } from "./today";
 import { pickProject } from "./pickProject";
 import { projectFileError } from "./projectFileServer";
 
@@ -16,7 +19,7 @@ export type PatchProblem = { error: string; status: number };
 // The fields a body may change (pickResourceData), pay rates for an Admin
 // only, the hire dates and the hire register's own rules. A record that
 // doesn't exist throws from Prisma, as the route always has.
-export async function applyResourcePatch(id: string, body: Record<string, unknown>, actor: { role: string | null }): Promise<{ resource: Resource } | PatchProblem> {
+export async function applyResourcePatch(id: string, body: Record<string, unknown>, actor: { role: string | null; name?: string | null }): Promise<{ resource: Resource } | PatchProblem> {
   if (PAY_RATE_FIELDS.some((f) => f in body)) {
     if (actor.role !== "ADMIN") {
       return { error: "Only an admin can change pay rate details", status: 403 };
@@ -34,11 +37,24 @@ export async function applyResourcePatch(id: string, body: Record<string, unknow
   }
   const registerError = await hireRegisterError(data);
   if (registerError) return { error: registerError, status: 400 };
+  // Off-hire (5 Nov 2026): set to Off-hired from the Status box records the day (as the Off-hired button
+  // does) and closes its off-hire request; once off-hired, only "Put back on hire" undoes it.
+  let offHiredDay: string | null = null;
+  if ("hireStatus" in data) {
+    const existing = await prisma.resource.findUnique({ where: { id }, select: { hireStatus: true, offHiredOn: true, onHireDate: true, offHireDate: true } });
+    const statusError = hireStatusChangeError(existing, data.hireStatus);
+    if (statusError) return { error: statusError, status: 400 };
+    if (offHiresByStatus(existing, data.hireStatus)) {
+      offHiredDay = formOffHireDay({ ...(existing ?? {}), ...data } as Parameters<typeof formOffHireDay>[0], todaySydney());
+      Object.assign(data, { offHiredOn: offHiredDay, offHiredBy: actor.name ?? null, offHiredAt: new Date() });
+    }
+  }
 
   const resource = await prisma.resource.update({
     where: { id },
     data: data as any,
   });
+  if (offHiredDay) await closeOffHireRequests(id, offHiredDay, resource.offHireRef, actor.name ?? "Operations");
   return { resource };
 }
 

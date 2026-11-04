@@ -7,10 +7,12 @@ import type { FieldDef } from "@/components/FormModal";
 import { ResourceDTO } from "@/lib/types";
 import { whereToday } from "@/lib/resource";
 import { fmtDay, parseISO, parseLooseDate } from "@/lib/dates";
-import { hireEstimate, offHireAlert, HIRE_STATUS_LABEL } from "@/lib/hireEstimate";
+import { hireEstimate, offHireAlert, offHireMissing, offHireStop, HIRE_STATUS_LABEL } from "@/lib/hireEstimate";
+import { serverErrorMessage } from "@/lib/apiFetch";
 import { useAuth } from "@/components/AuthProvider";
 import PageShell from "@/components/PageShell";
 import HireOverview from "@/components/hire/HireOverview";
+import OffHireDialog from "@/components/hire/OffHireDialog";
 import ProposeChange from "@/components/changes/ProposeChange";
 
 // Last date this item actually appeared on a job, from its own assignment
@@ -34,7 +36,7 @@ function endDate(r: ResourceDTO): Date | null {
 }
 
 function isOverdue(r: ResourceDTO): boolean {
-  if (r.hireStatus === "RETURNED") return false;
+  if (r.hireStatus === "RETURNED" || offHireStop(r)) return false;
   const end = endDate(r);
   if (!end) return false;
   const today = new Date();
@@ -85,53 +87,180 @@ function SiteCheckCell({ c }: { c?: SiteCheck }) {
   );
 }
 
-type OffHireAlertRow = {
-  id: string; name: string; category: string | null; supplier: string | null; project: string | null;
-  offHireDate: string; level: "OVERDUE" | "TODAY" | "SOON"; daysLeft: number;
-};
+type HireAlertItem = { id: string; name: string; category: string | null; supplier: string | null; project: string | null; offHireDate: string | null };
+type OffHireAlertRow = HireAlertItem & { offHireDate: string; level: "OVERDUE" | "TODAY" | "SOON"; daysLeft: number };
+type CallOffRow = HireAlertItem & { finishedAt: string | null; finishedBy: string | null };
+type HireAlerts = { alerts: OffHireAlertRow[]; callOff: CallOffRow[]; noDate: HireAlertItem[] };
+const NO_ALERTS: HireAlerts = { alerts: [], callOff: [], noDate: [] };
 
-function ComingOffHire() {
-  const { canEdit } = useAuth();
-  const [alerts, setAlerts] = useState<OffHireAlertRow[] | null>(null);
+// What needs doing about coming off hire (5 Nov 2026): items the supervisor says are finished but
+// nobody has called off yet (still costing), items marked off-hired with no day (no cost until it's
+// filled in), and items due back / overdue. "Off-hired" records the call-off (OffHireDialog).
+function ComingOffHire({ onChanged }: { onChanged?: () => void }) {
+  const { canEdit, coordinatorOnly } = useAuth();
+  const canWork = canEdit || coordinatorOnly;
+  const [data, setData] = useState<HireAlerts | null>(null);
   // Propose a new off-hire date (LCI phase 4): approved by someone else on Changes before it goes in.
   const [proposing, setProposing] = useState<OffHireAlertRow | null>(null);
+  const [offHiring, setOffHiring] = useState<HireAlertItem | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
-  useEffect(() => {
+  const load = () =>
     fetch("/api/hire-alerts")
-      .then((r) => (r.ok ? r.json() : { alerts: [] }))
-      .then((d) => setAlerts(d.alerts))
-      .catch(() => setAlerts([]));
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => setData(d ? { alerts: d.alerts ?? [], callOff: d.callOff ?? [], noDate: d.noDate ?? [] } : NO_ALERTS))
+      .catch(() => setData(NO_ALERTS));
+  useEffect(() => {
+    load();
   }, []);
-  if (!alerts || alerts.length === 0) return null;
+  if (!data) return null;
+  const { alerts, callOff, noDate } = data;
+  if (alerts.length + callOff.length + noDate.length === 0 && !flash) return null;
   const tone = { OVERDUE: "text-red-400", TODAY: "text-amber-400", SOON: "text-amber-300" };
   const say = (a: OffHireAlertRow) =>
     a.level === "OVERDUE" ? `overdue ${-a.daysLeft} day${a.daysLeft === -1 ? "" : "s"}` : a.level === "TODAY" ? "finishes today" : `finishes in ${a.daysLeft} day${a.daysLeft === 1 ? "" : "s"}`;
+  const where = (a: HireAlertItem) => `${a.supplier ? `${a.supplier} · ` : ""}${a.project ?? "no project"}`;
+  const offHireButton = (a: HireAlertItem, label = "Off-hired") =>
+    canWork && (
+      <button onClick={() => setOffHiring(a)} className="rounded bg-brand-600 px-1.5 py-0.5 text-[11px] font-semibold text-white hover:bg-brand-500">
+        {label}
+      </button>
+    );
   return (
-    <div className="mb-4 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3">
-      <div className="mb-1.5 flex items-center gap-1.5 text-sm font-semibold text-amber-400">
-        <TriangleAlert size={15} /> Coming off hire ({alerts.length})
-      </div>
-      <ul className="space-y-0.5 text-xs">
-        {alerts.map((a) => (
-          <li key={a.id} className="flex flex-wrap gap-x-2">
-            <span className={`font-semibold ${tone[a.level]}`}>{say(a)}</span>
-            <span className="text-gray-200">{a.name}</span>
-            <span className="text-gray-500">
-              {a.supplier && `${a.supplier} · `}
-              {a.project ?? "no project"} · expected finish {short(a.offHireDate)}
-            </span>
-            {canEdit && <button onClick={() => setProposing(a)} className="text-brand-400 underline hover:text-brand-300">Propose new date</button>}
-          </li>
-        ))}
-      </ul>
-      <p className="mt-1.5 text-[11px] text-gray-500">Extend the finish date, or call the supplier to off-hire and set the status to Off-hire requested / Returned.</p>
-      {flash && <p className="mt-1.5 text-xs text-emerald-300">{flash}</p>}
+    <div className="mb-4 space-y-3 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3">
+      {callOff.length > 0 && (
+        <div>
+          <div className="mb-1 flex items-center gap-1.5 text-sm font-semibold text-red-300">
+            <TriangleAlert size={15} /> Finished on site - call these off ({callOff.length})
+          </div>
+          <ul className="space-y-1 text-xs">
+            {callOff.map((a) => (
+              <li key={a.id} className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                <span className="text-gray-200">{a.name}</span>
+                <span className="text-gray-500">
+                  {where(a)}
+                  {a.finishedAt &&
+                    ` · ${a.finishedBy ? `${a.finishedBy.split(" ")[0]} said finished` : "finished"} ${new Date(a.finishedAt).toLocaleDateString("en-AU", { timeZone: "Australia/Sydney", day: "numeric", month: "short" })}`}
+                </span>
+                {offHireButton(a)}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-1 text-[11px] text-gray-500">Still costing until it&apos;s called off. Ring the supplier, then tap Off-hired with their off-hire number.</p>
+        </div>
+      )}
+      {noDate.length > 0 && (
+        <div>
+          <div className="mb-1 text-sm font-semibold text-amber-300">Off-hired with no date ({noDate.length})</div>
+          <ul className="space-y-1 text-xs">
+            {noDate.map((a) => (
+              <li key={a.id} className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                <span className="text-gray-200">{a.name}</span>
+                <span className="text-gray-500">{where(a)}</span>
+                {offHireButton(a, "Add the off-hire day")}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-1 text-[11px] text-gray-500">Its hire cost isn&apos;t counted until the day it was called off is filled in.</p>
+        </div>
+      )}
+      {alerts.length > 0 && (
+        <div>
+          <div className="mb-1.5 flex items-center gap-1.5 text-sm font-semibold text-amber-400">
+            <TriangleAlert size={15} /> Coming off hire ({alerts.length})
+          </div>
+          <ul className="space-y-1 text-xs">
+            {alerts.map((a) => (
+              <li key={a.id} className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                <span className={`font-semibold ${tone[a.level]}`}>{say(a)}</span>
+                <span className="text-gray-200">{a.name}</span>
+                <span className="text-gray-500">
+                  {where(a)} · expected finish {short(a.offHireDate)}
+                </span>
+                {canEdit && <button onClick={() => setProposing(a)} className="text-brand-400 underline hover:text-brand-300">Propose new date</button>}
+                {a.category !== "LABOUR" && offHireButton(a)}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-1.5 text-[11px] text-gray-500">Extend the finish date, or call the supplier off and tap Off-hired. An item still out past its finish keeps costing until it&apos;s called off.</p>
+        </div>
+      )}
+      {flash && <p className="text-xs text-emerald-300">{flash}</p>}
       {proposing && (
         <ProposeChange kinds={["HIRE_OFF_HIRE_DATE"]} recordId={proposing.id} recordName={`${proposing.name}${proposing.supplier ? ` (${proposing.supplier})` : ""}`}
           current={proposing.offHireDate} onClose={() => setProposing(null)} onDone={(m) => { setFlash(m); setProposing(null); }} />
       )}
+      {offHiring && (
+        <OffHireDialog
+          item={offHiring}
+          onClose={() => setOffHiring(null)}
+          onDone={(m) => {
+            setFlash(m);
+            setOffHiring(null);
+            load();
+            onChanged?.();
+          }}
+        />
+      )}
     </div>
   );
+}
+
+// In an item's edit window: off-hire it, or - once it's off-hired - when, and put it back on hire.
+function OffHirePanel({ r, reload }: { r: ResourceDTO; reload: () => Promise<void> }) {
+  const [open, setOpen] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const stop = offHireStop(r);
+  async function backOn() {
+    if (!confirm(`Put ${r.name} back on hire? Its cost runs again from the day it was off-hired.`)) return;
+    const res = await fetch(`/api/resources/${r.id}/off-hire`, { method: "DELETE" });
+    setMsg(res.ok ? "Back on hire - close and reopen this item to see it." : await serverErrorMessage(res, "Couldn't change it."));
+    if (res.ok) await reload();
+  }
+  return (
+    <div className="rounded-lg border border-edge bg-panel2/60 p-3 text-sm">
+      <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-400">Off-hire</div>
+      {stop ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-gray-200">
+            {stop > todayIso() ? "Called off for" : "Off-hired"} {fmtDay(stop, { weekday: "short", day: "numeric", month: "short" })}
+            {r.offHireRef && ` · off-hire no. ${r.offHireRef}`}
+            {r.offHiredBy && <span className="text-gray-500"> · by {r.offHiredBy}</span>}
+          </span>
+          <button type="button" onClick={() => setOpen(true)} className="text-xs text-brand-400 underline">Change</button>
+          <button type="button" onClick={backOn} className="text-xs text-gray-400 underline">Put back on hire</button>
+        </div>
+      ) : (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-gray-400">
+            {offHireMissing(r) ? "Marked off-hired with no date - add the day it was called off." : "Called the supplier off? Record it here - the cost stops that day."}
+          </span>
+          <button type="button" onClick={() => setOpen(true)} className="rounded bg-brand-600 px-2 py-1 text-xs font-semibold text-white hover:bg-brand-500">
+            Off-hired
+          </button>
+        </div>
+      )}
+      {msg && <p className="mt-1 text-xs text-emerald-300">{msg}</p>}
+      {open && (
+        <OffHireDialog
+          item={{ id: r.id, name: r.name, supplier: r.agency }}
+          onClose={() => setOpen(false)}
+          onDone={async (m) => {
+            setOpen(false);
+            setMsg(`${m} Close and reopen this item to see it.`);
+            await reload();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// The status as the list shows it: the off-hire day once it's been called off.
+function statusText(r: ResourceDTO): string {
+  const stop = offHireStop(r);
+  if (stop) return `${stop > todayIso() ? "Called off for" : "Off-hired"} ${short(stop)}`;
+  if (offHireMissing(r)) return "Off-hired (no date)";
+  return r.hireStatus ? HIRE_STATUS_LABEL[r.hireStatus] ?? r.hireStatus : "—";
 }
 
 // Fields that hold a dollar figure - Managers and Admins only; the coordinator neither sees nor sends them
@@ -144,6 +273,8 @@ export default function HirePage() {
   const canWork = canEdit || coordinatorOnly;
   // Overview first (21 Oct 2026): every site's hire at a glance.
   const [tab, setTab] = useState("OVERVIEW");
+  // Bumped after an off-hire from the overview's box, so the tiles re-read.
+  const [overviewKey, setOverviewKey] = useState(0);
   const [projects, setProjects] = useState<{ id: string; name: string; status: string }[]>([]);
   useEffect(() => {
     fetch("/api/projects")
@@ -197,8 +328,8 @@ export default function HirePage() {
     return (
       <PageShell title="Hire" subtitle="Everything on hire across all sites, site by site - supplier hire and subcontractors kept separate - who it's from, when it's due back and roughly what it's costing.">
         {tabBar}
-        <ComingOffHire />
-        <HireOverview canSeeMoney={canEdit} onOpenTab={setTab} />
+        <ComingOffHire onChanged={() => setOverviewKey((k) => k + 1)} />
+        <HireOverview key={overviewKey} canSeeMoney={canEdit} onOpenTab={setTab} />
       </PageShell>
     );
   }
@@ -219,7 +350,9 @@ export default function HirePage() {
         canDelete: canEdit,
         searchText: (r) => `${r.name} ${r.agency} ${r.role} ${r.hireRef ?? ""} ${projectName(r.hireProjectId)}`,
         newDefaults: { type: "HIRE", category: tab, ownership: "HIRED", role: isLabour ? "General labour" : "", hireStatus: isLabour ? "" : "BOOKED" },
-        header: () => <ComingOffHire />,
+        header: (_rows, reload) => <ComingOffHire onChanged={() => void reload()} />,
+        // Off-hire from the item itself (labour hire is costed by hours, never off-hired here).
+        detail: isLabour || !canWork ? undefined : (r, reload) => <OffHirePanel r={r} reload={reload} />,
         tabs: tabBar,
         columns: [
           { label: isLabour ? "Worker" : "Item", render: (r) => <span className="font-medium">{r.name}</span> },
@@ -231,7 +364,7 @@ export default function HirePage() {
               ]
             : [
                 { label: "Project", render: (r: ResourceDTO) => projectName(r.hireProjectId) },
-                { label: "Status", render: (r: ResourceDTO) => (r.hireStatus ? HIRE_STATUS_LABEL[r.hireStatus] ?? r.hireStatus : "—") },
+                { label: "Status", render: (r: ResourceDTO) => statusText(r) },
                 { label: "From site", render: (r: ResourceDTO) => <SiteCheckCell c={checks[r.id]} /> },
               ]),
           {
@@ -281,9 +414,10 @@ export default function HirePage() {
                   render: (r: ResourceDTO) => {
                     const e = hireEstimate(r, today);
                     if (!e) return <span className="text-gray-500">no start date</span>;
+                    if (e.offHireMissing) return <span className="text-amber-400">off-hire day missing</span>;
                     if (e.costToDate == null) return <span className="text-gray-500">no rate</span>;
                     return (
-                      <span title="Estimate: rate × working days on hire + delivery / pick-up">
+                      <span title="Estimate: rate × working days on hire (to the day it's called off) + delivery / pick-up">
                         {money(e.costToDate)}
                         {e.costTotal != null && <span className="text-gray-500"> of ~{money(e.costTotal)}</span>}
                       </span>
@@ -320,20 +454,22 @@ export default function HirePage() {
                   onProjectReactivated: (id: string) => setProjects((ps) => ps.map((p) => (p.id === id ? { ...p, status: "ACTIVE" } : p))),
                 },
                 {
+                  // Off-hired here records the day as today (or the expected finish if that's passed);
+                  // the Off-hired button below takes the exact day and the off-hire number.
                   key: "hireStatus",
                   label: "Status",
                   type: "select" as const,
                   options: [
                     { value: "BOOKED", label: "Booked" },
                     { value: "ON_HIRE", label: "On hire" },
-                    { value: "OFF_HIRE_REQUESTED", label: "Off-hire requested" },
-                    { value: "RETURNED", label: "Returned" },
+                    { value: "OFF_HIRE_REQUESTED", label: "Finished - to call off" },
+                    { value: "RETURNED", label: "Off-hired (cost stops today)" },
                   ],
                 },
                 { key: "hireRef", label: "Hire / docket no." },
               ]),
           { key: "onHireDate", label: "Start", type: "date" },
-          { key: "offHireDate", label: isLabour ? "Expected finish" : "Expected finish (or returned date)", type: "date" },
+          { key: "offHireDate", label: "Expected finish", type: "date" },
           { key: "hireRate", label: "Rate (ex GST)", type: "number", placeholder: "e.g. 450" },
           {
             key: "hireRateUnit",

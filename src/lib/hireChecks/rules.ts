@@ -1,7 +1,7 @@
 // Supplier hire invoices vs the hire register (Accounts stage 4, docs/accounts/STAGE4-DESIGN.md) - pure rules.
 // For an item's linked invoices: days billed outside its on-hire period, more days than the register shows,
 // the same days billed twice, a linked invoice with no period. Reuses the hire register's own helpers.
-import { hireDayRate, weekdaysBetween, type HireLike } from "@/lib/hireEstimate";
+import { hireDayRate, offHireStop, weekdaysBetween, type HireLike } from "@/lib/hireEstimate";
 
 export const EXTRA_DAYS_TOLERANCE = 0.5; // Draft - for Ilies / Victoria
 
@@ -18,7 +18,10 @@ const dayAfter = (d: string) => new Date(new Date(`${d}T00:00:00Z`).getTime() + 
 export function checkHireInvoices(item: HireItem, invoices: HireInvoice[], today: string): HireFlag[] {
   const flags: HireFlag[] = [];
   const onHire = item.onHireDate ?? null;
-  const offHire = item.offHireDate && item.offHireDate <= today ? item.offHireDate : item.offHireDate ?? today; // still on hire: up to today
+  // The end of the hire: the day it was called off (5 Nov 2026), else its expected finish; still on hire with
+  // no finish: up to today.
+  const stop = offHireStop(item);
+  const offHire = stop ?? item.offHireDate ?? today;
   const dayRate = hireDayRate(item);
   const extras = (item.hireDeliveryCost ?? 0) + (item.hireCollectionCost ?? 0);
   for (const inv of invoices) {
@@ -34,7 +37,7 @@ export function checkHireInvoices(item: HireItem, invoices: HireInvoice[], today
       const after = inv.periodTo > offHire ? weekdaysBetween(maxIso(inv.periodFrom, dayAfter(offHire)), inv.periodTo) : 0;
       outside = before + after;
       if (outside > 0) {
-        flags.push({ invoiceId: inv.id, kind: "OUTSIDE_PERIOD", text: `${no} bills ${before + after} weekday(s) outside the register's hire period (${onHire} to ${item.offHireDate ?? "still on hire"}).` });
+        flags.push({ invoiceId: inv.id, kind: "OUTSIDE_PERIOD", text: `${no} bills ${before + after} weekday(s) outside the register's hire period (${onHire} to ${stop ?? item.offHireDate ?? "still on hire"}).` });
       }
     }
     // More days than the register shows inside the invoice's period (amount / the item's own day rate) -

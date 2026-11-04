@@ -388,6 +388,12 @@ model Resource {
   hireCollectionCost Float? // one-off pick-up charge, ex GST
   hireStatus         String? // BOOKED | ON_HIRE | OFF_HIRE_REQUESTED | RETURNED
   hireSource         String? // where it came from, e.g. "Email: Hire Express, 16 Oct 2026, 'Confirmation email'"
+  // Off-hire (Ilies, 5 Nov 2026): the day the office called the supplier off - the hire cost stops on
+  // it and the item leaves the board after it. Kept apart from offHireDate (the expected finish).
+  offHiredOn         String? // YYYY-MM-DD
+  offHireRef         String? // the supplier's off-hire number
+  offHiredBy         String? // who recorded it
+  offHiredAt         DateTime?
 
   // Pay rate (personnel only) - what Lobos actually pays this person. Kept
   // separate from dailyRateExGst (that's for plant/vehicles/hire, never set

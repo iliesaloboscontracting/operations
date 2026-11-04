@@ -41,6 +41,10 @@ export interface ResourceDTO {
   hireRef?: string | null;
   hireStatus?: "BOOKED" | "ON_HIRE" | "OFF_HIRE_REQUESTED" | "RETURNED" | null;
   hireSource?: string | null;
+  // Off-hire (5 Nov 2026): the day it was called off - its cost stops then - set only by the Off-hired button.
+  offHiredOn?: string | null;
+  offHireRef?: string | null;
+  offHiredBy?: string | null;
   // Cost fields - the API omits these entirely for a Viewer, so they come
   // through as undefined, not null, for anyone below Manager.
   rate?: string | null;

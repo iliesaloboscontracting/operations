@@ -26,7 +26,7 @@ export interface RegisterConfig<T> {
   searchText: (row: T) => string;
   statusOf?: (row: T) => string; // enables the status filter
   statusOptions?: { value: string; label: string }[];
-  header?: (rows: T[]) => React.ReactNode; // e.g. summary tiles
+  header?: (rows: T[], reload: () => Promise<void>) => React.ReactNode; // e.g. summary tiles
   tabs?: React.ReactNode;
   itemNoun?: string;
   detail?: (row: T, reload: () => Promise<void>) => React.ReactNode; // extra panel in the edit modal (existing rows only)
@@ -157,7 +157,7 @@ export default function RegisterPage<T extends { id: string }>({
       }
     >
       {config.tabs}
-      {config.header?.(rows)}
+      {config.header?.(rows, load)}
 
       <div className="mb-4 flex flex-wrap gap-2">
         <div className="relative w-64">

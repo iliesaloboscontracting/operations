@@ -27,7 +27,7 @@ export const PATCH = withErrorHandling(async (
     body = ok.body;
   }
   // The checks and the update live in lib/recordPatch.ts (shared with approved changes, LCI phase 4).
-  const out = await applyResourcePatch(params.id, body, { role: user?.role ?? null });
+  const out = await applyResourcePatch(params.id, body, { role: user?.role ?? null, name: user?.name ?? null });
   if ("error" in out) return NextResponse.json({ error: out.error }, { status: out.status });
   const { resource } = out;
   if (coordinator) return NextResponse.json(toCoordinatorHire(resource));

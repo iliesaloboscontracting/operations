@@ -13,7 +13,7 @@ export async function hireInvoiceChecks() {
   });
   const items = await prisma.resource.findMany({
     where: { id: { in: [...new Set(invoices.map((i) => i.hireResourceId!))] } },
-    select: { id: true, name: true, agency: true, hireRef: true, onHireDate: true, offHireDate: true, hireRate: true, hireRateUnit: true, dailyRateExGst: true, hireDeliveryCost: true, hireCollectionCost: true, hireStatus: true },
+    select: { id: true, name: true, agency: true, hireRef: true, onHireDate: true, offHireDate: true, hireRate: true, hireRateUnit: true, dailyRateExGst: true, hireDeliveryCost: true, hireCollectionCost: true, hireStatus: true, offHiredOn: true },
   });
   const reviews = await latestFlagReviews("HIRE");
   const out = items.map((item) => {

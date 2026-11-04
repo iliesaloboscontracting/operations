@@ -7,7 +7,7 @@ import { tierFor, type CostStatus } from "@/lib/labourCost";
 import { costAllocation } from "@/lib/costAllocation";
 import { fmtDay, parseISO, parseLooseDate, addDays } from "@/lib/dates";
 import { todaySydney } from "@/lib/today";
-import { hireEstimate, hireEstimateDays, hireStillToCome } from "@/lib/hireEstimate";
+import { hireEstimate, hireEstimateDays, hireStillToCome, offHireMissing, offHireStop } from "@/lib/hireEstimate";
 import { tipDocketsByProject } from "@/lib/receipts/tipStore";
 import { docketNosOf, expectsDockets, isUninvoiced } from "@/lib/receipts/tipCosts";
 import type { AttentionItemDTO, AttentionJobDTO, CostCatKey, DayCostDTO, JobHealth } from "@/lib/types";
@@ -122,7 +122,7 @@ export async function loadTracking({ withPeople }: { withPeople: boolean }) {
     select: {
       id: true, name: true, category: true, agency: true, hireRef: true, hireProjectId: true, hireStatus: true,
       onHireDate: true, offHireDate: true, hireRate: true, hireRateUnit: true, dailyRateExGst: true,
-      hireDeliveryCost: true, hireCollectionCost: true,
+      hireDeliveryCost: true, hireCollectionCost: true, offHiredOn: true,
     },
   });
   // Tip dockets (Receipts R3): read / confirmed dockets with their cost (price, else tonnes x rate).
@@ -344,22 +344,22 @@ export async function loadTracking({ withPeople }: { withPeople: boolean }) {
           .map((i) => ({ from: i.periodFrom as string, to: i.periodTo as string }));
         const e = hireEstimate(r, todayIso, billed);
         for (const d of hireEstimateDays(r, todayIso, billed)) addDay(d.date, d.amount, "estimated", "hire");
-        if (r.hireStatus !== "RETURNED") {
-          const left = hireStillToCome(r, todayIso);
-          if (left == null) hireNoFinish++;
-          else hireToCome += left;
-        }
+        // Called off (5 Nov 2026): what's left is to its off-hire day (hireStillToCome); a plain
+        // Returned with no day has nothing left to come.
+        const left = hireStillToCome(r, todayIso);
+        if (left == null) hireNoFinish++;
+        else hireToCome += left;
         return {
           id: r.id, name: r.name, category: r.category, supplier: r.agency, hireRef: r.hireRef, status: r.hireStatus,
-          onHireDate: r.onHireDate, offHireDate: r.offHireDate,
+          onHireDate: r.onHireDate, offHireDate: r.offHireDate, offHiredOn: offHireStop(r),
           dayRate: e?.dayRate ?? null, daysToDate: e?.daysToDate ?? 0, daysInvoiced: e?.daysInvoiced ?? 0,
-          costToDate: e?.costToDate ?? null, costTotal: e?.costTotal ?? null,
+          costToDate: e?.costToDate ?? null, costTotal: e?.costTotal ?? null, offHireMissing: e?.offHireMissing ?? false,
         };
       });
     const hireEstimateToDate = hireItems.reduce((n, h) => n + (h.costToDate ?? 0), 0);
     byCode.hire += hireEstimateToDate;
     estimatedCost += hireEstimateToDate;
-    uncostedCount += hireItems.filter((h) => h.costToDate == null && h.daysToDate - h.daysInvoiced > 0).length;
+    uncostedCount += hireItems.filter((h) => (h.costToDate == null && h.daysToDate - h.daysInvoiced > 0) || h.offHireMissing).length;
     // Tip dockets (Receipts R3): an estimate in the same layer as hire until the tip invoice that
     // bills them arrives - a docket matched to one of this project's invoices stops counting, since
     // the invoice (in invoicedTotal) replaces it. Live-only; closed days and the ledger are untouched.
@@ -464,7 +464,7 @@ export async function loadTracking({ withPeople }: { withPeople: boolean }) {
     },
     select: {
       id: true, name: true, agency: true, hireStart: true, hireEnd: true, onHireDate: true, offHireDate: true,
-      dailyRateExGst: true, hireRate: true, hireRateUnit: true,
+      dailyRateExGst: true, hireRate: true, hireRateUnit: true, hireStatus: true, offHiredOn: true,
       assignments: { select: { job: { select: { date: true } } } },
     },
   });
@@ -488,10 +488,14 @@ export async function loadTracking({ withPeople }: { withPeople: boolean }) {
     .map((r) => {
       const start = r.onHireDate ? parseISO(r.onHireDate) : parseLooseDate(r.hireStart, referenceYear);
       if (!start) return null;
+      // Off-hired (5 Nov 2026): idle days stop on the day it was called off; no day recorded = not counted.
+      if (offHireMissing(r)) return null;
+      const stop = offHireStop(r);
+      const until = stop && parseISO(stop) < today ? parseISO(stop) : today;
       const end = r.offHireDate ? parseISO(r.offHireDate) : parseLooseDate(r.hireEnd, referenceYear);
-      const overdue = end != null && end < today;
-      const onHireDays = Math.max(0, Math.round((today.getTime() - start.getTime()) / 86400000));
-      const workedDays = new Set(r.assignments.map((a) => a.job.date.toISOString().slice(0, 10))).size;
+      const overdue = !stop && end != null && end < today;
+      const onHireDays = Math.max(0, Math.round((until.getTime() - start.getTime()) / 86400000));
+      const workedDays = new Set(r.assignments.map((a) => a.job.date.toISOString().slice(0, 10)).filter((d) => !stop || d <= stop)).size;
       const idleDays = Math.max(0, onHireDays - workedDays);
       const rateUsed = idleDailyRate(r);
       const idleCost = rateUsed != null ? Math.round(idleDays * rateUsed * 100) / 100 : null;

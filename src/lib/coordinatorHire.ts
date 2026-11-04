@@ -57,6 +57,7 @@ export type CoordinatorHireDTO = {
   name: string; agency: string | null; role: string | null;
   hireRef: string | null; hireSource: string | null; hireStart: string | null; hireEnd: string | null; notes: string | null;
   onHireDate: string | null; offHireDate: string | null; hireProjectId: string | null; hireStatus: string | null;
+  offHiredOn: string | null; offHireRef: string | null; offHiredBy: string | null; // set by the Off-hired button only (5 Nov 2026)
   assignments: { id: string; job: { id: string; title: string; date: unknown; shift: unknown } }[];
 };
 
@@ -70,6 +71,7 @@ export function toCoordinatorHire(r: Row): CoordinatorHireDTO {
     hireRef: shownText("hireRef", r.hireRef), hireSource: shownText("hireSource", r.hireSource),
     hireStart: shownText("hireStart", r.hireStart), hireEnd: shownText("hireEnd", r.hireEnd), notes: shownText("notes", r.notes),
     onHireDate: s(r.onHireDate), offHireDate: s(r.offHireDate), hireProjectId: s(r.hireProjectId), hireStatus: s(r.hireStatus),
+    offHiredOn: s(r.offHiredOn), offHireRef: shownText("hireRef", r.offHireRef), offHiredBy: s(r.offHiredBy),
     assignments: assignments.map((a) => ({ id: a.id, job: { id: a.job.id, title: shownText("name", a.job.title) ?? "", date: a.job.date, shift: a.job.shift } })),
   };
 }

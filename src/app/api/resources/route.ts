@@ -6,6 +6,8 @@ import { hireRegisterError } from "@/lib/hireServer";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { toPublicResource } from "@/lib/serializeResource";
 import { hireDateError } from "@/lib/dateRules";
+import { formOffHireDay, offHiresByStatus } from "@/lib/offHire/rules";
+import { todaySydney } from "@/lib/today";
 import { coordinatorHireWrite, toCoordinatorHire } from "@/lib/coordinatorHire";
 
 // GET /api/resources?type=PERSONNEL,EQUIPMENT&category=LABOUR
@@ -75,6 +77,11 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   if (hireError) return NextResponse.json({ error: hireError }, { status: 400 });
   const registerError = await hireRegisterError(data);
   if (registerError) return NextResponse.json({ error: registerError }, { status: 400 });
+  // Added already off-hired (a late entry for gear that's gone back): its off-hire day is recorded the
+  // way the Status box does it (5 Nov 2026) - the expected finish if that's passed, else today.
+  if (offHiresByStatus(null, data.hireStatus)) {
+    Object.assign(data, { offHiredOn: formOffHireDay(data as Parameters<typeof formOffHireDay>[0], todaySydney()), offHiredBy: user?.name ?? null, offHiredAt: new Date() });
+  }
 
   const resource = await prisma.resource.create({
     data: data as any,

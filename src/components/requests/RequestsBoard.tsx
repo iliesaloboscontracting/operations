@@ -27,6 +27,7 @@ import {
 } from "@/lib/requestTypes";
 import type { OfficeRequestView } from "@/lib/siteRequests";
 import ProposeChange from "@/components/changes/ProposeChange";
+import OffHireDialog from "@/components/hire/OffHireDialog";
 import { isWithYard, sendToYardError } from "@/lib/yard/rules";
 
 // Site requests (21 Oct 2026): what supervisors have asked for from their
@@ -269,7 +270,8 @@ function Detail({
   const [showPhoto, setShowPhoto] = useState(false);
   const [proposing, setProposing] = useState(false);
   const [changeFlash, setChangeFlash] = useState<string | null>(null);
-  const closed = ["DONE", "DECLINED", "CANCELLED"].includes(r.status);
+  const [offHiring, setOffHiring] = useState(false);
+  const closed =["DONE", "DECLINED", "CANCELLED"].includes(r.status);
   const type = typeOf(r.kind);
   const follow = FOLLOW_UP[r.kind];
   // A query (Phase 2): one question to one person - close it, ask a follow-up, or decline.
@@ -375,6 +377,23 @@ function Detail({
           <button onClick={() => setProposing(true)} className="mb-3 rounded-lg border border-edge px-3 py-2 text-sm text-gray-200 hover:bg-panel2">
             {isQuery ? "Propose a change from this answer" : "Propose new off-hire date"}
           </button>
+        )}
+        {/* An off-hire (5 Nov 2026): one tap after ringing the supplier - stops the cost, closes this request. */}
+        {isAdmin && r.kind === "OFF_HIRE" && !closed && !withYard && "hireResourceId" in r && r.hireResourceId && (
+          <button onClick={() => setOffHiring(true)} className="mb-3 rounded-lg bg-brand-600 px-3 py-2 text-sm font-semibold text-white hover:bg-brand-500">
+            Off-hired (supplier called)
+          </button>
+        )}
+        {offHiring && "hireResourceId" in r && r.hireResourceId && (
+          <OffHireDialog
+            item={{ id: r.hireResourceId, name: r.details.item ?? r.summary, supplier: r.details.supplier ?? null }}
+            onClose={() => setOffHiring(false)}
+            onDone={(m) => {
+              setOffHiring(false);
+              setChangeFlash(m);
+              void send({ action: "SEEN" }); // re-reads the request, now closed
+            }}
+          />
         )}
         {changeFlash && <p className="mb-3 text-sm text-emerald-300">{changeFlash}</p>}
         {proposing && (

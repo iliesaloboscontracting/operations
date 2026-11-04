@@ -7,6 +7,7 @@ import { assertDateOpen } from "@/lib/dayLock";
 import { logBoardEdit } from "@/lib/boardGuard/store";
 import { isISODate } from "@/lib/dateRules";
 import { QUICK_LABOUR_HIRE_NAME, nextQuickLabourHireNumber } from "@/lib/resource";
+import { offHiredBefore } from "@/lib/hireEstimate";
 
 // POST /api/jobs/copy { from: "YYYY-MM-DD", to: "YYYY-MM-DD" }
 // Copies every running job from one day to another so the target day ends up
@@ -56,11 +57,20 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
       OR: [{ projectId: null }, { project: { status: "ACTIVE" } }],
     },
     include: {
-      assignments: { include: { resource: { select: { name: true, type: true, category: true } } } },
+      assignments: { include: { resource: { select: { name: true, type: true, category: true, hireStatus: true, offHiredOn: true, offHireDate: true } } } },
       project: { select: { dayStart: true, dayEnd: true, nightStart: true, nightEnd: true } },
     },
     orderBy: { sortOrder: "asc" },
   });
+  // Hire gear off-hired before the target day stays behind (Ilies, 5 Nov 2026) - it's gone back.
+  const offHired = new Set<string>();
+  for (const j of source) {
+    j.assignments = j.assignments.filter((a) => {
+      const gone = a.resource.type === "HIRE" && a.resource.category !== "LABOUR" && offHiredBefore(a.resource, to);
+      if (gone) offHired.add(a.resource.name);
+      return !gone;
+    });
+  }
   const existing = await prisma.job.findMany({
     where: { date: { gte: toStart, lt: toEnd } },
     include: { assignments: { include: { resource: { select: { name: true, type: true, category: true } } } }, project: { select: { name: true } } },
@@ -160,5 +170,5 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
     copied++;
   }
   if (copied || merged) await logBoardEdit(user, to, "COPY", `from ${from}: ${copied} job${copied === 1 ? "" : "s"} copied, ${merged} filled in`);
-  return NextResponse.json({ copied, merged, skipped });
+  return NextResponse.json({ copied, merged, skipped, offHired: [...offHired] });
 });

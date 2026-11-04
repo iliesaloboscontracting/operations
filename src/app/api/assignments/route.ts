@@ -5,6 +5,8 @@ import { withErrorHandling } from "@/lib/apiHandler";
 import { sanitizeAssignment } from "@/lib/serializeResource";
 import { assertDateOpen } from "@/lib/dayLock";
 import { isoDay, logBoardEdit, siteName } from "@/lib/boardGuard/store";
+import { offHiredBefore, offHireStop } from "@/lib/hireEstimate";
+import { fmtDay } from "@/lib/dates";
 
 // POST /api/assignments -> drag a resource onto a job
 // body: { jobId, resourceId, role? }
@@ -29,6 +31,14 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   const resource = await prisma.resource.findUnique({
     where: { id: body.resourceId },
   });
+  // Off-hired gear can't go on a day after it was called off (Ilies, 5 Nov 2026).
+  if (resource && resource.type === "HIRE" && resource.category !== "LABOUR" && offHiredBefore(resource, isoDay(job.date))) {
+    const stop = offHireStop(resource);
+    return NextResponse.json(
+      { error: `${resource.name} was off-hired${stop ? ` on ${fmtDay(stop, { weekday: "short", day: "numeric", month: "short" })}` : ""} - put it back on hire on the Hire page first.` },
+      { status: 400 },
+    );
+  }
 
   const assignment = await prisma.assignment.upsert({
     where: {

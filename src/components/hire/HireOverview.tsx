@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { TriangleAlert } from "lucide-react";
 import { fmtDay } from "@/lib/dates";
-import { hireEstimate, offHireAlert, HIRE_STATUS_LABEL } from "@/lib/hireEstimate";
+import { hireEstimate, offHireAlert, offHireMissing, offHireStop, HIRE_STATUS_LABEL } from "@/lib/hireEstimate";
 import type { ResourceDTO } from "@/lib/types";
 import { HIRE_KIND_LABEL, SUPPLIER_HIRE_KINDS, SUBCONTRACT_KINDS, isSubcontract } from "@/lib/hireKinds";
 
@@ -60,7 +60,8 @@ function PeriodBar({ r, today }: { r: ResourceDTO; today: string }) {
   if (!r.onHireDate || !r.offHireDate) return null;
   const start = dayNo(r.onHireDate);
   const end = dayNo(r.offHireDate);
-  const now = dayNo(r.hireStatus === "RETURNED" ? r.offHireDate : today);
+  const stop = offHireStop(r);
+  const now = dayNo(stop && stop < today ? stop : today);
   const span = Math.max(end - start, 1);
   const pct = Math.min(Math.max(((now - start) / span) * 100, 0), 100);
   const over = now > end;
@@ -79,7 +80,10 @@ function PeriodBar({ r, today }: { r: ResourceDTO; today: string }) {
 
 function DueBack({ row }: { row: Row }) {
   const { r, alert } = row;
-  if (r.hireStatus === "RETURNED") return <span className="text-gray-500">returned</span>;
+  const stop = offHireStop(r);
+  if (stop) return <span className="text-gray-500">{stop > sydneyToday() ? "called off for" : "off-hired"} {short(stop)}</span>;
+  if (offHireMissing(r)) return <span className="text-amber-400">off-hired, no date</span>;
+  if (r.hireStatus === "OFF_HIRE_REQUESTED") return <span className="font-semibold text-red-300">finished - call it off</span>;
   if (!r.offHireDate) return <span className="text-gray-500">no finish date</span>;
   if (alert?.level === "OVERDUE")
     return (
@@ -251,7 +255,7 @@ export default function HireOverview({ canSeeMoney, onOpenTab }: { canSeeMoney: 
 
       <div className="flex flex-wrap items-center gap-3 text-xs text-gray-500">
         <button className="hover:text-gray-300" onClick={() => setShowReturned((v) => !v)}>
-          {showReturned ? "Hide returned items" : "Show returned items"}
+          {showReturned ? "Hide off-hired items" : "Show off-hired items"}
         </button>
         <span>·</span>
         <span>

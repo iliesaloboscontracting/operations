@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { DragResourcePayload, ResourceDTO } from "@/lib/types";
 import { isQuickLabourHire, NEW_LABOUR_HIRE } from "@/lib/resource";
+import { offHiredBefore } from "@/lib/hireEstimate";
 import ResourceCard from "./ResourceCard";
 import ReportBugButton from "./ReportBugButton";
 import YardBin from "./YardBin";
@@ -173,6 +174,8 @@ export default function ResourceSidebar({
     };
     for (const r of resources) {
       if (isQuickLabourHire(r)) continue; // these only live on the job they were dropped on
+      // Off-hired gear leaves the list from the day after it was called off (Ilies, 5 Nov 2026).
+      if (r.type === "HIRE" && r.category !== "LABOUR" && offHiredBefore(r, selectedDate)) continue;
       if (q &&!`${r.name} ${r.role ?? ""} ${r.detail ?? ""}`.toLowerCase().includes(q)) continue;
       // Once it's on a job today, dragging from here is a move: it leaves the Yard
       // until it's unassigned (or dragged back onto the Yard), so there's one copy
