@@ -118,6 +118,13 @@ test("CI-004: an edit records one row per field that really changed; the edit ta
   assert.match(store, /await prisma\.\$transaction\(async \(tx\) => \{\s*await tx\.inventoryItem\.update\(\{ where: \{ id \}, data \}\);\s*for \(const e of edits\) await tx\.inventoryItemEdit\.create/, "written in the same transaction as the change");
 });
 
+test("CI-006: the raw stock list is capped first (even 21 copies of one item), and a long item id is refused", () => {
+  assert.ok("error" in stockLines(Array.from({ length: 21 }, () => ({ itemId: "same", qty: 1 }))), "21 lines of one item - refused before merging");
+  assert.ok("lines" in stockLines(Array.from({ length: 20 }, () => ({ itemId: "same", qty: 1 }))));
+  assert.ok("error" in stockLines([{ itemId: "x".repeat(41), qty: 1 }]));
+  assert.ok("lines" in stockLines([{ itemId: "x".repeat(40), qty: 1 }]));
+});
+
 test("CI-005: retire / bring back takes true or false only", () => {
   const store = readFileSync(path.join(__dirname, "store.ts"), "utf8");
   assert.match(store, /if \(typeof body\.active !== "boolean"\) return \{ error: "active is true or false", status: 400 \};/);

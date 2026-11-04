@@ -15,6 +15,7 @@ export const UNIT_SUGGESTIONS = ["each", "box", "pack", "roll", "pair", "bag", "
 export const NO_AMOUNTS = "Leave dollar amounts out - stock is quantities only (prices live in purchase requests).";
 export const MAX_QTY = 1_000_000;
 export const MAX_STOCK_LINES = 20;
+export const MAX_ITEM_ID = 40; // CI-006
 
 const round = (n: number) => Math.round(n * 1000) / 1000;
 // "3", "2.5" - how a quantity reads.
@@ -132,9 +133,12 @@ export function purchasePrefill(i: { name: string; unit: string; onHand: number;
 export function stockLines(x: unknown): { lines: { itemId: string; qty: number }[] } | { error: string } {
   if (x === undefined || x === null) return { lines: [] };
   if (!Array.isArray(x)) return { error: "Took from stock: pick the item and how many." };
+  // CI-006 (Ilies approved 4 Nov 2026): the raw list is capped before anything is looked at, and an item id is a
+  // short id (cuid), never anything longer.
+  if (x.length > MAX_STOCK_LINES) return { error: `At most ${MAX_STOCK_LINES} items at once.` };
   const merged = new Map<string, number>();
   for (const l of x) {
-    const itemId = typeof l?.itemId === "string" ? l.itemId : "";
+    const itemId = typeof l?.itemId === "string" && l.itemId.length <= MAX_ITEM_ID ? l.itemId : "";
     const qty = parseQty(l?.qty);
     if (!itemId || qty === null) return { error: "Took from stock: pick the item and how many." };
     merged.set(itemId, round((merged.get(itemId) ?? 0) + qty));
