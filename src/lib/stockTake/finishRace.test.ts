@@ -204,6 +204,43 @@ test("ST-002: each reading is reserved before the Claude call; the stock take's 
   assert.equal(((await scanShelf("st", ["p1"], actor, h.deps)) as { status: number }).status, 409);
 });
 
+test("ST-005: dropping keeps the line (DROPPED, out of the counts); adding it back revives it; a clash is 409; finish arrays capped", async () => {
+  const { dropExtra, addExtra, finishStockTake, lineAction } = await import("./store");
+  const { summarise, DROPPED_LINE } = await import("./rules");
+  const { Prisma } = await import("@prisma/client");
+  const f = setup();
+  f.tables.stockTakeLine.push({ id: "lD", stockTakeId: "st", toolId: "tD", tag: "LOB-0009", expected: false, result: "EXTRA", conditionSeen: "Good", via: "HAND", movedAt: null, appliedAt: null, decision: null });
+  assert.deepEqual(await dropExtra("st", "lD", f.deps), { ok: true });
+  const d = f.tables.stockTakeLine.find((l) => l.id === "lD")!;
+  assert.equal(d.result, "DROPPED", "kept, not deleted");
+  assert.equal(f.tables.stockTakeLine.length, 4);
+  assert.equal(summarise(f.tables.stockTakeLine as never).extras, 0, "not counted");
+  assert.deepEqual(await lineAction("st", "lD", { action: "CONDITION", conditionSeen: "Good" }, actor, f.deps), { error: DROPPED_LINE, status: 409 });
+  assert.deepEqual(await addExtra("st", "tD", null, actor, f.deps), { id: "lD" }, "added back on the same line");
+  assert.equal(d.result, "EXTRA");
+  // Two people adding the same tool at once: the database's unique line refuses the second - 409, not 500.
+  const g = setup();
+  const lines = (g.deps.db as unknown as Row).stockTakeLine as Row;
+  lines.create = async () => { throw new Prisma.PrismaClientKnownRequestError("Unique constraint failed", { code: "P2002", clientVersion: "5" }); };
+  assert.deepEqual(await addExtra("st", "tD", null, actor, g.deps), { error: "That tool is already on this stock take.", status: 409 });
+  // Finish with more decisions than the stock take has lines.
+  const h = setup();
+  const many = Array.from({ length: 4 }, (_, i) => `x${i}`);
+  assert.equal(((await finishStockTake("st", { missing: many, leave: [] }, undefined, actor, h.deps)) as { status: number }).status, 400);
+  assert.equal(((await finishStockTake("st", { missing: [], leave: many }, undefined, actor, h.deps)) as { status: number }).status, 400);
+  assert.equal(h.tables.stockTake[0].status, "OPEN");
+});
+
+test("ST-005: replies never carry the starter's or finisher's login id", async () => {
+  const fs = await import("node:fs");
+  const store = fs.readFileSync(new URL("./store.ts", import.meta.url), "utf8");
+  assert.match(store, /lines, startedById: _a, finishedById: _b, \.\.\.s \}\) => \(\{ \.\.\.s, summary/);
+  assert.match(store, /const \{ startedById: _a, finishedById: _b, \.\.\.shown \} = s;[\s\S]*return \{ \.\.\.shown, lines/);
+  const view = fs.readFileSync(new URL("../../components/yard/StockTakeView.tsx", import.meta.url), "utf8");
+  assert.match(view, /l\.via === "PHOTO" \? " \(photo\)" : ""/, "the Finish summary marks changes that came from a photo");
+  assert.match(view, /l\.result !== "DROPPED" && inFilter/, "dropped lines aren't listed");
+});
+
 test("ST-001: a finish refused for undecided tools claims nothing", async () => {
   const { finishStockTake } = await import("./store");
   const f = setup();

@@ -77,7 +77,8 @@ export default function StockTakeView({ id, canWork, onClosed }: { id: string; c
 
   const lines = useMemo(() => {
     const n = q.trim().toLowerCase();
-    return (st?.lines ?? []).filter((l) => inFilter(l, filter) && (!n || `${l.tag} ${l.name} ${l.serialNumber ?? ""}`.toLowerCase().includes(n)));
+    // ST-005 (Ilies approved 4 Nov 2026): a dropped extra is kept on the record but never listed.
+    return (st?.lines ?? []).filter((l) => l.result !== "DROPPED" && inFilter(l, filter) && (!n || `${l.tag} ${l.name} ${l.serialNumber ?? ""}`.toLowerCase().includes(n)));
   }, [st, q, filter]);
 
   if (!st) return <p className="text-sm text-gray-500">{error ?? "Loading…"}</p>;
@@ -344,7 +345,8 @@ function Finish({ st, onClose, onDone }: { st: StockTakeDetail; onClose: () => v
   const [error, setError] = useState<string | null>(null);
   const decided = candidates.every((l) => choice[l.id]);
   const s = st.summary;
-  const changes = st.lines.filter((l) => (l.result === "FOUND" || l.result === "EXTRA") && l.now && (l.conditionSeen ? l.conditionSeen !== l.now.condition : l.now.condition === "Missing"));
+  // "(photo)": the tick came from a shelf-photo reading, not a person (ST-005).
+  const changes = st.lines.filter((l) => (l.result === "FOUND" || l.result === "EXTRA") && l.now && l.now.condition !== "Swapped out" && (l.conditionSeen ? l.conditionSeen !== l.now.condition : l.now.condition === "Missing"));
 
   async function finish() {
     setBusy(true);
@@ -366,7 +368,7 @@ function Finish({ st, onClose, onDone }: { st: StockTakeDetail; onClose: () => v
       </div>
       {changes.length > 0 && (
         <p className="mb-3 text-xs text-gray-400">
-          Finishing updates {changes.length} tool{changes.length === 1 ? "'s" : "s'"} condition: {changes.map((l) => `${l.tag} ${l.now?.condition} → ${l.conditionSeen ?? "Good"}`).join(", ")}.
+          Finishing updates {changes.length} tool{changes.length === 1 ? "'s" : "s'"} condition: {changes.map((l) => `${l.tag} ${l.now?.condition} → ${l.conditionSeen ?? "Good"}${l.via === "PHOTO" ? " (photo)" : ""}`).join(", ")}.
         </p>
       )}
       {candidates.length > 0 ? (

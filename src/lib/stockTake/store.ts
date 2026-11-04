@@ -52,7 +52,7 @@ export async function listStockTakes(deps: Deps = REAL) {
     orderBy: { startedAt: "desc" }, take: 60,
     include: { lines: { select: { expected: true, result: true, conditionSeen: true, decision: true } } },
   });
-  return takes.map(({ lines, ...s }) => ({ ...s, summary: summarise(lines) }));
+  return takes.map(({ lines, startedById: _a, finishedById: _b, ...s }) => ({ ...s, summary: summarise(lines) })); // ST-005: no login ids out
 }
 
 export async function getStockTake(id: string, deps: Deps = REAL) {
@@ -70,7 +70,8 @@ export async function getStockTake(id: string, deps: Deps = REAL) {
     ...l,
     now: tool ? { condition: tool.condition, place: tool.toolbox?.name ?? "Yard", inYard: tool.toolboxId === null } : null,
   }));
-  return { ...s, lines, summary: summarise(lines), scansLeft: Math.max(0, SCAN_LIMIT - s.scans) };
+  const { startedById: _a, finishedById: _b, ...shown } = s; // ST-005 (Ilies approved 4 Nov 2026): no login ids out
+  return { ...shown, lines, summary: summarise(lines), scansLeft: Math.max(0, SCAN_LIMIT - s.scans) };
 }
 
 // The stock take, or why a change to it is refused (404, or 409 once it isn't OPEN).
@@ -180,17 +181,31 @@ export async function addExtra(id: string, toolId: string, conditionSeen: string
   if (bad || !tool) return fail(bad ?? "That tool isn't on the register.", bad?.includes("already") ? 409 : 400);
   const c = lineChange({ id: "", toolId, tag: tool.tag, expected: false, result: "EXTRA", conditionSeen: null, via: null }, { action: "CONDITION", conditionSeen });
   if ("error" in c) return fail(c.error, 400);
-  const out = await whileOpen(id, deps.db, (tx) => tx.stockTakeLine.create({
-    data: {
-      stockTakeId: id, toolId, tag: tool.tag, name: tool.name, serialNumber: tool.serialNumber, conditionAtStart: tool.condition, expected: false,
-      registerPlace: tool.toolbox?.name ?? "the yard (added since the start)", result: "EXTRA", conditionSeen, via: "HAND", checkedBy: actor.name, checkedAt: new Date(),
-    },
-  }));
-  if (isFail(out)) return out;
-  return { id: out.id };
+  const fields = {
+    tag: tool.tag, name: tool.name, serialNumber: tool.serialNumber, conditionAtStart: tool.condition,
+    registerPlace: tool.toolbox?.name ?? "the yard (added since the start)", result: "EXTRA", conditionSeen, via: "HAND", checkedBy: actor.name, checkedAt: new Date(),
+  };
+  const dropped = lines.find((l) => l.toolId === toolId && l.result === "DROPPED");
+  try {
+    const out = await whileOpen(id, deps.db, async (tx) => {
+      // ST-005: a tool dropped by mistake earlier is added back on its own line (kept, never deleted).
+      if (dropped) {
+        const r = await tx.stockTakeLine.updateMany({ where: { id: dropped.id, result: "DROPPED", appliedAt: null }, data: fields });
+        return r.count ? { id: dropped.id } : fail("It changed - reload.", 409);
+      }
+      return tx.stockTakeLine.create({ data: { stockTakeId: id, toolId, expected: false, ...fields } });
+    });
+    if (isFail(out)) return out;
+    return { id: out.id };
+  } catch (e) {
+    // ST-005 (Ilies approved 4 Nov 2026): added at the same moment by someone else (or a shelf photo).
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") return fail("That tool is already on this stock take.", 409);
+    throw e;
+  }
 }
 
 // An EXTRA added by mistake: taken off again while the stock take is open (before anything about it was applied).
+// ST-005 (Ilies approved 4 Nov 2026): kept as DROPPED - out of every count and list, never deleted.
 export async function dropExtra(id: string, lineId: string, deps: Deps = REAL) {
   const s = await openOrFail(id, deps.db);
   if ("error" in s) return s;
@@ -199,7 +214,10 @@ export async function dropExtra(id: string, lineId: string, deps: Deps = REAL) {
   if (line.appliedAt) return fail(ALREADY_APPLIED, 409);
   if (line.result !== "EXTRA") return fail("Only a tool added as found here can be dropped - untick the others.", 400);
   if (line.movedAt) return fail("It's already been moved to the yard on the register - move it back from the tool itself.", 409);
-  const r = await deps.db.stockTakeLine.deleteMany({ where: { id: lineId, stockTakeId: id, result: "EXTRA", movedAt: null, appliedAt: null, stockTake: { status: "OPEN" } } });
+  const r = await deps.db.stockTakeLine.updateMany({
+    where: { id: lineId, stockTakeId: id, result: "EXTRA", movedAt: null, appliedAt: null, stockTake: { status: "OPEN" } },
+    data: { result: "DROPPED", conditionSeen: null },
+  });
   if (!r.count) return whyNot(id, deps.db, "It changed - reload.");
   return { ok: true };
 }
@@ -328,6 +346,8 @@ export async function finishStockTake(id: string, d: Decisions, note: unknown, a
     return { lines, current };
   };
   const first = await load();
+  // ST-005 (Ilies approved 4 Nov 2026): never more decisions than the stock take has lines.
+  if (d.missing.length > first.lines.length || d.leave.length > first.lines.length) return fail("Too many tools in that finish - reload and try again.", 400);
   const check = planFinish(first.lines, first.current, d);
   if ("error" in check) return fail(check.error, 409, { undecided: check.undecided });
 

@@ -14,7 +14,9 @@ export const LOCATION_LABEL: Record<string, string> = { YARD: "the yard" };
 export const STATUSES = ["OPEN", "FINISHING", "FINISHED", "CANCELLED"] as const;
 export type Status = (typeof STATUSES)[number];
 export const isOpenish = (status: string) => status === "OPEN" || status === "FINISHING";
-export const RESULTS = ["UNCHECKED", "FOUND", "NOT_FOUND", "EXTRA"] as const;
+// DROPPED (ST-005, Ilies approved 4 Nov 2026): an extra taken off as a mistake - kept on the record, left out of
+// every count and list.
+export const RESULTS = ["UNCHECKED", "FOUND", "NOT_FOUND", "EXTRA", "DROPPED"] as const;
 export type Result = (typeof RESULTS)[number];
 export const CONDITIONS_SEEN = ["Good", "Needs repair"] as const;
 export const SCAN_LIMIT = 40; // shelf-photo readings per stock take (each is one Claude call - the toolbox check's)
@@ -36,6 +38,7 @@ export const BEING_FINISHED = "This stock take is being finished - nothing more 
 export const FINISH_RUNNING = "It's being finished right now - wait a moment and reload.";
 export const CANT_CANCEL_FINISHING = "It's being finished - it can't be cancelled now. Press Finish again if it stopped part-way.";
 export const ALREADY_APPLIED = "Already applied by a finish - change the tool itself.";
+export const DROPPED_LINE = "That one was dropped - add it again with \"Found a tool from elsewhere\" if it's here."; // ST-005
 // How long a running finish holds its claim: a finish that died (server restart) can be resumed after this.
 export const FINISH_LEASE_MS = 2 * 60_000;
 // Why a write to a stock take that isn't OPEN is refused.
@@ -72,6 +75,7 @@ const okCondition = (c: unknown): c is string | null | undefined => c == null ||
 export function lineChange(line: LineState, act: LineAction): { patch: LinePatch } | { error: string; status?: number } {
   // ST-001 (Ilies approved 4 Nov 2026): a line a finish already applied is the register's now.
   if (line.appliedAt) return { error: ALREADY_APPLIED, status: 409 };
+  if (line.result === "DROPPED") return { error: DROPPED_LINE, status: 409 }; // ST-005
   const extra = line.result === "EXTRA";
   switch (act.action) {
     case "FOUND":
@@ -97,7 +101,7 @@ export function lineChange(line: LineState, act: LineAction): { patch: LinePatch
 export function extraError(tool: RegisterTool | null, lines: LineState[]): string | null {
   if (!tool) return "That tool isn't on the register.";
   if (tool.condition === "Swapped out") return "That tool was swapped out with Hilti - register the one that's here.";
-  if (lines.some((l) => l.toolId === tool.id)) return "That tool is already on this stock take.";
+  if (lines.some((l) => l.toolId === tool.id && l.result !== "DROPPED")) return "That tool is already on this stock take."; // a dropped one is added back (ST-005)
   return null;
 }
 
@@ -121,18 +125,20 @@ export function planScan(lines: LineState[], result: CheckResult): ScanPlan {
   const plan: ScanPlan = { tick: [], alreadyFound: [], extras: [], probably: [], unknown: result.unknown, notes: result.notes };
   for (const p of result.present) {
     const l = byTool.get(p.toolId);
+    if (l?.result === "DROPPED") continue; // ST-005: a person took it off - a photo doesn't put it back
     if (!l) { plan.extras.push({ toolId: p.toolId, tag: p.tag, name: p.name, serialNumber: p.serialNumber, registerPlace: null }); continue; }
     if (l.result === "FOUND" || l.result === "EXTRA") plan.alreadyFound.push(l.id);
     else plan.tick.push(l.id);
   }
   for (const f of result.foreign) {
     const l = byTool.get(f.toolId);
+    if (l?.result === "DROPPED") continue;
     if (l) { if (l.result === "FOUND" || l.result === "EXTRA") plan.alreadyFound.push(l.id); else plan.tick.push(l.id); continue; }
     plan.extras.push({ toolId: f.toolId, tag: f.tag, name: f.name, serialNumber: f.serialNumber, registerPlace: f.belongsTo ?? null });
   }
   for (const u of result.presentUnconfirmed) {
     const l = byTool.get(u.toolId);
-    if (l && l.result !== "FOUND" && l.result !== "EXTRA") plan.probably.push({ lineId: l.id, tag: u.tag, name: u.name });
+    if (l && l.result !== "FOUND" && l.result !== "EXTRA" && l.result !== "DROPPED") plan.probably.push({ lineId: l.id, tag: u.tag, name: u.name });
   }
   return plan;
 }
