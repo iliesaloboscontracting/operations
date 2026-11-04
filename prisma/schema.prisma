@@ -642,15 +642,17 @@ model StockTake {
   id           String          @id @default(cuid())
   location     String          @default("YARD") // YARD today; TOOLBOX (with toolboxId) is left room for, not offered
   toolboxId    String? // reserved for a toolbox stock take later - always null today
-  status       String          @default("OPEN") // OPEN | FINISHED | CANCELLED
-  // = location while OPEN, null once finished or cancelled: unique, so a location has one open stock take at a time.
+  // OPEN | FINISHING | FINISHED | CANCELLED. FINISHING (ST-001, Ilies approved 4 Nov 2026): a finish has claimed it and
+  // is applying its lines - no ticking, no cancelling; a finish that stopped part-way is resumed by finishing again.
+  status       String          @default("OPEN")
+  // = location while OPEN or FINISHING, null once finished or cancelled: unique, so a location has one at a time.
   openKey      String?         @unique
   note         String?
   scans        Int             @default(0) // shelf-photo readings used (lib/stockTake/rules.ts SCAN_LIMIT)
   startedAt    DateTime        @default(now())
   startedBy    String?
   startedById  String?
-  finishedAt   DateTime? // finished or cancelled
+  finishedAt   DateTime? // finished or cancelled; while FINISHING, when the running finish started (its lease - ST-001)
   finishedBy   String?
   finishedById String?
   lines        StockTakeLine[]
@@ -686,7 +688,6 @@ model StockTakeLine {
   @@index([stockTakeId])
   @@index([toolId])
 }
-
 // A supervisor's digital toolbox: the tools (by serial / LOB tag) they should have.
 model Toolbox {
   id           String    @id @default(cuid())

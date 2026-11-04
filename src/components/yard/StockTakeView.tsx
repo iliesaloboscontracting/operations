@@ -60,8 +60,10 @@ export default function StockTakeView({ id, canWork, onClosed }: { id: string; c
   }, [id]);
   useEffect(() => { load(); }, [load]);
 
-  const open = st?.status === "OPEN";
-  const work = canWork && open;
+  // ST-001 (Ilies approved 4 Nov 2026): FINISHING is still the open stock take, but only a Finish (to resume) works on it.
+  const finishingNow = st?.status === "FINISHING";
+  const open = st?.status === "OPEN" || finishingNow;
+  const work = canWork && st?.status === "OPEN";
   useEffect(() => { if (st && !open) setFilter("all"); }, [st, open]);
 
   async function act(lineId: string, body: Record<string, unknown>) {
@@ -89,13 +91,16 @@ export default function StockTakeView({ id, canWork, onClosed }: { id: string; c
           <div>
             <div className="text-sm font-semibold text-gray-100">
               Stock take of the yard {open ? "" : st.status === "FINISHED" ? "· finished" : "· cancelled"}
+              {finishingNow && <span className="ml-2 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold text-amber-400">Finishing…</span>}
             </div>
             <div className="text-xs text-gray-500">
               Started {when(st.startedAt)}{st.startedBy ? ` by ${st.startedBy}` : ""}
-              {st.finishedAt && ` · ${st.status === "FINISHED" ? "finished" : "cancelled"} ${when(st.finishedAt)}${st.finishedBy ? ` by ${st.finishedBy}` : ""}`}
+              {st.finishedAt && !open && ` · ${st.status === "FINISHED" ? "finished" : "cancelled"} ${when(st.finishedAt)}${st.finishedBy ? ` by ${st.finishedBy}` : ""}`}
             </div>
             {st.note && <div className="mt-1 text-xs text-gray-400">{st.note}</div>}
+            {finishingNow && <div className="mt-1 text-xs text-amber-300">A finish is applying this stock take - nothing more can be ticked. If it stopped part-way, press Finish again to carry on.</div>}
           </div>
+          {finishingNow && canWork && <button className={btn} onClick={() => setFinishing(true)}>Finish…</button>}
           {work && (
             <div className="flex flex-wrap gap-2">
               <button className={`${quiet} flex items-center gap-1.5 border-brand-500 text-brand-300`} onClick={() => setScanning(true)} disabled={st.scansLeft <= 0}>
@@ -180,7 +185,7 @@ export default function StockTakeView({ id, canWork, onClosed }: { id: string; c
         ))}
       </ul>
 
-      {open && canWork && (
+      {work && (
         <div className="flex justify-end">
           <button className="text-xs text-gray-500 hover:text-red-300" onClick={async () => {
             if (!window.confirm("Cancel this stock take? Nothing on the register changes (a tool already moved to the yard stays moved).")) return;
@@ -332,7 +337,9 @@ function AddFound({ id, onLines, onClose, onChanged }: { id: string; onLines: St
 
 function Finish({ st, onClose, onDone }: { st: StockTakeDetail; onClose: () => void; onDone: () => void }) {
   const candidates = st.lines.filter(isMissingCandidate);
-  const [choice, setChoice] = useState<Record<string, "MISSING" | "LEAVE">>({});
+  // A finish that stopped part-way (ST-001) starts from the decisions it already recorded.
+  const [choice, setChoice] = useState<Record<string, "MISSING" | "LEAVE">>(() =>
+    Object.fromEntries(candidates.filter((l) => l.decision === "MISSING" || l.decision === "LEAVE").map((l) => [l.id, l.decision as "MISSING" | "LEAVE"])));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const decided = candidates.every((l) => choice[l.id]);

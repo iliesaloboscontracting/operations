@@ -174,10 +174,12 @@ test("access: Tools levels - look Viewer+, coordinator, yard; count / finish / c
 
 test("finishing changes the register only through the ordinary tool update and moveTool", () => {
   const store = src("./store.ts");
-  assert.match(store, /await updateTool\(line\.toolId, \{ condition: step\.condition \}, actor\)/);
-  assert.match(store, /await moveTool\(line\.toolId, null, "Found in the yard on a stock take", actor\.name\)/);
-  assert.doesNotMatch(store, /prisma\.tool\.(update|updateMany|upsert|delete)/, "no direct tool writes");
-  assert.match(store, /readToolboxPhotos\(/, "the toolbox check's photo reading - no new connection");
+  // ST-001 made the store's database and helpers swappable for tests; the real ones are the ordinary tool paths.
+  assert.match(store, /const REAL: Deps = \{ db: prisma, apply: updateTool, move: moveTool, read: readToolboxPhotos \};/);
+  assert.match(store, /await deps\.apply\(line\.toolId, \{ condition: step\.condition \}, actor\)/);
+  assert.match(store, /await deps\.move\(line\.toolId, null, "Found in the yard on a stock take", actor\.name\)/);
+  assert.doesNotMatch(store, /\.tool\.(update|updateMany|upsert|delete|create)\(/, "no direct tool writes");
+  assert.match(store, /await deps\.read\(/, "the toolbox check's photo reading - no new connection");
   assert.match(store, /compareToolbox\(null, reading/);
   const upd = src("../toolUpdate.ts");
   assert.match(upd, /pickTool\(body\)[\s\S]*toolFieldError\(data\)[\s\S]*moveTool\([\s\S]*prisma\.tool\.update/);

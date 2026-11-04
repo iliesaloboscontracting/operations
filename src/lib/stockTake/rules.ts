@@ -9,8 +9,11 @@ import type { CheckResult } from "../toolboxCheck";
 export const LOCATIONS = ["YARD"] as const; // a toolbox (TOOLBOX + toolboxId) has room in the schema, not in the UI
 export type Location = (typeof LOCATIONS)[number];
 export const LOCATION_LABEL: Record<string, string> = { YARD: "the yard" };
-export const STATUSES = ["OPEN", "FINISHED", "CANCELLED"] as const;
+// FINISHING (ST-001, Ilies approved 4 Nov 2026): a finish has claimed the stock take and is applying it. Nothing can be
+// ticked or cancelled; it still holds the yard (openKey), and finishing again resumes one that stopped part-way.
+export const STATUSES = ["OPEN", "FINISHING", "FINISHED", "CANCELLED"] as const;
 export type Status = (typeof STATUSES)[number];
+export const isOpenish = (status: string) => status === "OPEN" || status === "FINISHING";
 export const RESULTS = ["UNCHECKED", "FOUND", "NOT_FOUND", "EXTRA"] as const;
 export type Result = (typeof RESULTS)[number];
 export const CONDITIONS_SEEN = ["Good", "Needs repair"] as const;
@@ -22,6 +25,15 @@ export const NOTE_MAX = 500;
 export const openKeyFor = (location: string) => location;
 export const ALREADY_OPEN = "A stock take of the yard is already open - finish or cancel it first.";
 export const NOT_OPEN = "This stock take is finished - it can only be looked at now.";
+// ST-001 (Ilies approved 4 Nov 2026).
+export const BEING_FINISHED = "This stock take is being finished - nothing more can be ticked. If the finish stopped part-way, press Finish again.";
+export const FINISH_RUNNING = "It's being finished right now - wait a moment and reload.";
+export const CANT_CANCEL_FINISHING = "It's being finished - it can't be cancelled now. Press Finish again if it stopped part-way.";
+export const ALREADY_APPLIED = "Already applied by a finish - change the tool itself.";
+// How long a running finish holds its claim: a finish that died (server restart) can be resumed after this.
+export const FINISH_LEASE_MS = 2 * 60_000;
+// Why a write to a stock take that isn't OPEN is refused.
+export const closedMessage = (status: string | null | undefined) => (status === "FINISHING" ? BEING_FINISHED : NOT_OPEN);
 
 // ---------- who is expected at the start ----------
 export type RegisterTool = { id: string; tag: string; name: string; serialNumber: string | null; condition: string; toolboxId: string | null };
@@ -38,6 +50,7 @@ export function expectedFor(location: string, tools: RegisterTool[]): RegisterTo
 export type LineState = {
   id: string; toolId: string | null; tag: string; expected: boolean; result: string; conditionSeen: string | null; via: string | null;
   movedAt?: Date | string | null;
+  appliedAt?: Date | string | null;
 };
 export type LineAction =
   | { action: "FOUND"; conditionSeen?: string | null }
@@ -50,7 +63,9 @@ const okCondition = (c: unknown): c is string | null | undefined => c == null ||
 
 // What one tap does to a line (by hand). An EXTRA (found here, the register says elsewhere) is found by being there -
 // it can have a condition, or be dropped (store), never NOT_FOUND.
-export function lineChange(line: LineState, act: LineAction): { patch: LinePatch } | { error: string } {
+export function lineChange(line: LineState, act: LineAction): { patch: LinePatch } | { error: string; status?: number } {
+  // ST-001 (Ilies approved 4 Nov 2026): a line a finish already applied is the register's now.
+  if (line.appliedAt) return { error: ALREADY_APPLIED, status: 409 };
   const extra = line.result === "EXTRA";
   switch (act.action) {
     case "FOUND":

@@ -3,6 +3,7 @@ import { getCurrentUser, guardTools } from "@/lib/auth";
 import { viewJson } from "@/lib/coordinatorView"; // no amount reaches the coordinator / yard computer
 import { withErrorHandling } from "@/lib/apiHandler";
 import { listStockTakes, startStockTake } from "@/lib/stockTake/store";
+import { isOpenish } from "@/lib/stockTake/rules";
 
 // Yard stock takes (Yard Stage B, Ilies 4 Nov 2026). Same access as the rest of Tools (lib/auth.ts guardTools):
 // looking - Viewers and up, the coordinator, the yard computer; starting / counting / finishing / cancelling -
@@ -13,7 +14,8 @@ export const GET = withErrorHandling(async () => {
   const denied = await guardTools("VIEWER");
   if (denied) return denied;
   const all = await listStockTakes();
-  return viewJson({ open: all.find((s) => s.status === "OPEN") ?? null, history: all.filter((s) => s.status !== "OPEN") });
+  // ST-001 (Ilies approved 4 Nov 2026): a stock take being finished is still the open one (FINISHING - resume it).
+  return viewJson({ open: all.find((s) => isOpenish(s.status)) ?? null, history: all.filter((s) => !isOpenish(s.status)) });
 });
 
 export const POST = withErrorHandling(async (req: NextRequest) => {
