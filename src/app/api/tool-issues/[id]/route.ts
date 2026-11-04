@@ -4,6 +4,7 @@ import { getCurrentUser, guardTools } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { viewJson } from "@/lib/coordinatorView"; // no amount reaches the coordinator / yard computer
 import { moveTool } from "@/lib/toolMoves";
+import { ISSUE_TEXT_FIELDS, keepHiddenAmounts, seesAmountsStripped } from "@/lib/toolTextWrite";
 
 // Where a fault can go next. SWAPPED / FIXED / CLOSED are final.
 const NEXT: Record<string, string[]> = {
@@ -30,6 +31,12 @@ export const PATCH = withErrorHandling(async (req: NextRequest, { params: params
   const data: Record<string, unknown> = {};
   if ("swapRef" in body) data.swapRef = typeof body.swapRef === "string" && body.swapRef.trim() ? body.swapRef.trim() : null;
   if ("resolution" in body) data.resolution = typeof body.resolution === "string" && body.resolution.trim() ? body.resolution.trim() : null;
+  // The coordinator and the yard computer see the fault with amounts taken out (Ilies, 4 Nov 2026 - the Hire rule): a
+  // field sent back as shown is unchanged; changing one that holds an amount they can't see is refused (409).
+  if (seesAmountsStripped(user?.role)) {
+    const hidden = keepHiddenAmounts(data, issue as unknown as Record<string, unknown>, ISSUE_TEXT_FIELDS);
+    if (hidden) return NextResponse.json({ error: hidden.error }, { status: hidden.status });
+  }
 
   const status = body.status;
   if (status && status !== issue.status) {

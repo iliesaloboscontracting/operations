@@ -13,7 +13,9 @@ import { rankOf } from "./roleRank";
 import { audiencesFor, canActOnFindings } from "./findings/actions";
 import { safeHome } from "./safeNext";
 import { STRIPPED_ROLES } from "./coordinatorView";
-import { withoutAmounts } from "./coordinatorHire";
+import { HIDDEN_AMOUNT, NO_AMOUNTS_IN_TEXT, strippedTextWrite, withoutAmounts } from "./coordinatorHire";
+import { ISSUE_TEXT_FIELDS, keepHiddenAmounts, seesAmountsStripped } from "./toolTextWrite";
+import { pickTool } from "./pickTool";
 
 const src = (rel: string) => readFileSync(new URL(rel, import.meta.url), "utf8");
 // The body of one exported handler, up to the next export (good enough for these small route files).
@@ -90,6 +92,62 @@ test("no dollar figure reaches the yard on the Tools routes", () => {
   }
   assert.deepEqual(withoutAmounts({ notes: "Repair quote $450, ask Hilti", n: 3 }).n, 3);
   assert.doesNotMatch(String(withoutAmounts({ notes: "Repair quote $450, ask Hilti" }).notes), /\$\s*\d/);
+});
+
+test("the Hire rule for stripped text: unchanged is dropped, a hidden amount can't be overwritten, new amounts refused", () => {
+  const stored = "Repair quote $450 from Hilti";
+  const shown = withoutAmounts({ notes: stored }).notes;
+  assert.notEqual(shown, stored);
+  assert.equal(strippedTextWrite("notes", shown, { stored }), "unchanged", "sent back as shown");
+  assert.equal(strippedTextWrite("notes", `  ${shown} `, { stored }), "unchanged", "spaces at the ends don't count");
+  assert.deepEqual(strippedTextWrite("notes", "Sent back to Hilti", { stored }), { error: HIDDEN_AMOUNT, status: 409 });
+  assert.deepEqual(strippedTextWrite("notes", "", { stored }), { error: HIDDEN_AMOUNT, status: 409 }, "clearing it would lose the amount too");
+  assert.equal(strippedTextWrite("notes", "Sent back to Hilti", { stored: "Bent chuck" }), "ok", "no amount stored - an ordinary change");
+  assert.equal(strippedTextWrite("notes", "Bent chuck", { stored: "Bent chuck" }), "unchanged");
+  assert.equal(strippedTextWrite("notes", null, { stored: null }), "unchanged");
+  assert.equal(strippedTextWrite("notes", "New note", { stored: null }), "ok");
+  assert.deepEqual(strippedTextWrite("notes", "Cost $90 to fix", { stored: "Bent chuck" }), { error: NO_AMOUNTS_IN_TEXT, status: 400 });
+  assert.deepEqual(strippedTextWrite("notes", "about 450 dollars", { stored: null }), { error: NO_AMOUNTS_IN_TEXT, status: 400 });
+  assert.equal(strippedTextWrite("notes", "LOB-0450 serial 24117", { stored: null }), "ok", "tags and serials aren't money");
+});
+
+test("a tool form saved by the coordinator / yard: untouched fields dropped, the Manager's amount kept, a real change refused", () => {
+  for (const r of ["COORDINATOR", "YARD"]) assert.equal(seesAmountsStripped(r), true, r);
+  for (const r of ["ADMIN", "MANAGER", "VIEWER", null, undefined, "yard"]) assert.equal(seesAmountsStripped(r), false, String(r));
+  const existing = { tag: "LOB-0100", name: "Hammer drill", notes: "Repair quote $450 from Hilti", condition: "Good", heldBy: "Yard", serialNumber: "SN 1", conditionNotes: null };
+  const seen = withoutAmounts(existing);
+  // The whole form back with only the condition changed: the note is left alone, the condition goes through.
+  const data = pickTool({ ...seen, condition: "Needs repair" });
+  assert.equal(keepHiddenAmounts(data, existing), null);
+  assert.deepEqual(data, { condition: "Needs repair" }, "only what changed is saved - the note keeps its $450");
+  // Changing the note they only saw stripped: 409, nothing saved.
+  const edit = pickTool({ ...seen, notes: "Sent to Hilti" });
+  assert.deepEqual(keepHiddenAmounts(edit, existing), { error: HIDDEN_AMOUNT, status: 409 });
+  // A note with no amount in it is theirs to change.
+  const plain = pickTool({ notes: "Sent to Hilti" });
+  assert.equal(keepHiddenAmounts(plain, { ...existing, notes: "Bent chuck" }), null);
+  assert.deepEqual(plain, { notes: "Sent to Hilti" });
+  // Faults: the swap reference and resolution.
+  assert.deepEqual([...ISSUE_TEXT_FIELDS], ["swapRef", "resolution"]);
+  const issue = { swapRef: "HS-1 ($120 fee)", resolution: null };
+  const same: Record<string, unknown> = { swapRef: withoutAmounts(issue).swapRef };
+  assert.equal(keepHiddenAmounts(same, issue, ISSUE_TEXT_FIELDS), null);
+  assert.deepEqual(same, {});
+  assert.deepEqual(keepHiddenAmounts({ swapRef: "HS-2" }, issue, ISSUE_TEXT_FIELDS), { error: HIDDEN_AMOUNT, status: 409 });
+});
+
+test("the Tools write routes apply the rule for the stripped logins, before anything is changed", () => {
+  const patch = handler(src("../app/api/tools/[id]/route.ts"), "PATCH");
+  const check = patch.indexOf("seesAmountsStripped(user?.role)");
+  assert.ok(check > 0, "tools PATCH checks the login");
+  assert.match(patch, /keepHiddenAmounts\(data, existing[^)]*\)[\s\S]*status: hidden\.status/);
+  assert.ok(check < patch.indexOf("moveTool(") && check < patch.indexOf("prisma.tool.update("), "the check comes before the move and the update");
+  const fault = handler(src("../app/api/tool-issues/[id]/route.ts"), "PATCH");
+  const fcheck = fault.indexOf("keepHiddenAmounts(data, issue");
+  assert.ok(fcheck > 0 && /ISSUE_TEXT_FIELDS/.test(fault), "fault PATCH checks swapRef / resolution");
+  assert.ok(fcheck < fault.indexOf("moveTool(") && fcheck < fault.indexOf("prisma.toolIssue.update("), "before any move or update");
+  // Hire uses the same helper (one rule, not two).
+  assert.match(src("./coordinatorHire.ts"), /const w = strippedTextWrite\(f, v, existing \? \{ stored: existing\[f\] \} : null\);/);
 });
 
 test("the yard lands on /yard and opens only its pages", () => {

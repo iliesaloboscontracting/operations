@@ -7,6 +7,8 @@ const FIELDS = [
 ] as const;
 const BOOLEAN_FIELDS = new Set(["plateUnreadable", "needsCheck"]);
 const REQUIRED = new Set(["tag", "name", "condition", "heldBy", "ownership"]);
+// The text fields (lib/toolTextWrite.ts checks them for the logins that see amounts taken out).
+export const TOOL_TEXT_FIELDS: readonly string[] = FIELDS.filter((k) => !BOOLEAN_FIELDS.has(k));
 
 export const TOOL_CONDITIONS = ["New", "Good", "Needs repair", "Missing", "Swapped out"] as const;
 export const TOOL_OWNERSHIP = ["OWNED", "HILTI_FLEET", "HIRED"] as const;

@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentUser, guardTools } from "@/lib/auth";
 import { viewJson } from "@/lib/coordinatorView"; // the coordinator gets no dollar figure (2 Nov 2026)
 import { pickTool, toolFieldError } from "@/lib/pickTool";
+import { keepHiddenAmounts, seesAmountsStripped } from "@/lib/toolTextWrite";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { moveTool } from "@/lib/toolMoves";
 import { duplicateMessage, findDuplicate, serialKeyOf } from "@/lib/toolCreate";
@@ -39,6 +40,16 @@ export const PATCH = withErrorHandling(async (
   const user = await getCurrentUser();
   const body = await req.json();
   const data = pickTool(body);
+  // A toolbox change sets heldBy itself (below), so a heldBy in the same request is ignored.
+  if ("toolboxId" in body) delete data.heldBy;
+  // The coordinator and the yard computer see the tool with amounts taken out (Ilies, 4 Nov 2026 - the Hire rule): a
+  // field sent back as shown is unchanged; changing one that holds an amount they can't see is refused (409).
+  if (seesAmountsStripped(user?.role)) {
+    const existing = await prisma.tool.findUnique({ where: { id: params.id } });
+    if (!existing) return NextResponse.json({ error: "That tool isn't on the register any more." }, { status: 404 });
+    const hidden = keepHiddenAmounts(data, existing as unknown as Record<string, unknown>);
+    if (hidden) return NextResponse.json({ error: hidden.error }, { status: hidden.status });
+  }
   const invalid = toolFieldError(data);
   if (invalid) return NextResponse.json({ error: invalid }, { status: 400 });
   // Changing the serial: never onto one another tool already has.
@@ -48,10 +59,8 @@ export const PATCH = withErrorHandling(async (
     data.serialKey = serialKeyOf(data.serialNumber);
     if (data.serialKey) data.plateUnreadable = false;
   }
-  // A toolbox change goes through moveTool (logged, keeps "held by" in step);
-  // it also sets heldBy, so a heldBy in the same request is ignored.
+  // A toolbox change goes through moveTool (logged, keeps "held by" in step).
   if ("toolboxId" in body) {
-    delete data.heldBy;
     await moveTool(params.id, body.toolboxId || null, typeof body.moveReason === "string" ? body.moveReason : null, user?.name ?? null);
   }
   const tool = await prisma.tool.update({

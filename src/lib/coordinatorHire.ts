@@ -93,14 +93,25 @@ export function coordinatorHireWrite(body: Record<string, unknown>, existing: Re
     if (!(f in body)) continue;
     const v = body[f];
     if (TEXT_FIELDS.includes(f)) {
-      const sent = typeof v === "string" ? v : v == null ? null : String(v);
-      if (existing && (sent ?? "") === (shownText(f, existing[f]) ?? "")) continue; // unchanged
-      // A field holding an amount he can't see: changing it would lose the amount, so it stays the office's to change.
-      if (existing && typeof existing[f] === "string" && shownText(f, existing[f]) !== existing[f]) return { error: HIDDEN_AMOUNT, status: 409 };
-      // Anything he'd be shown as "(amount not recorded)" isn't saved either ("$450/day", "450 dollars").
-      if (sent && (!assertNoMoney(sent) || stripMoney(sent).removed)) return { error: NO_AMOUNTS_IN_TEXT, status: 400 };
+      const w = strippedTextWrite(f, v, existing ? { stored: existing[f] } : null);
+      if (w === "unchanged") continue;
+      if (w !== "ok") return w;
     }
     out[f] = f === "active" ? true : v;
   }
   return { body: out };
+}
+
+// One free-text field sent back by a login that only ever sees it with amounts taken out - the coordinator (Hire above,
+// Tools) and the yard computer (Tools, Ilies 4 Nov 2026). `current` is the stored value ({ stored }), or null when the
+// record is new. Sent back exactly as shown (spaces at the ends aside) = "unchanged": the caller drops it, so saving
+// the form never overwrites a note's amounts with "(amount not recorded)". A different value while the stored one holds
+// an amount they can't see = 409 HIDDEN_AMOUNT (it stays the office's to change). New text with an amount = 400.
+export function strippedTextWrite(field: string, sent: unknown, current: { stored: unknown } | null): "unchanged" | "ok" | { error: string; status: number } {
+  const s = typeof sent === "string" ? sent : sent == null ? null : String(sent);
+  if (current && (s ?? "").trim() === (shownText(field, current.stored) ?? "").trim()) return "unchanged";
+  if (current && typeof current.stored === "string" && shownText(field, current.stored) !== current.stored) return { error: HIDDEN_AMOUNT, status: 409 };
+  // Anything they'd be shown as "(amount not recorded)" isn't saved either ("$450/day", "450 dollars").
+  if (s && (!assertNoMoney(s) || stripMoney(s).removed)) return { error: NO_AMOUNTS_IN_TEXT, status: 400 };
+  return "ok";
 }

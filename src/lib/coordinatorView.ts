@@ -2,14 +2,16 @@
 // login with every amount in free text taken out (lib/coordinatorHire.ts withoutAmounts) - his screen carries no
 // dollar figure. Use in place of NextResponse.json on the GET routes he reaches.
 // The YARD login (Ilies, 4 Nov 2026: the yard computer sees no money anywhere) gets the same treatment on the Tools
-// routes it shares with him - the tool register has no price field, but notes are free text.
+// routes it shares with him - the tool register has no price field, but notes are free text. Their writes go through
+// lib/toolTextWrite.ts so a stripped note sent back never overwrites the stored one.
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "./auth";
 import { withoutAmounts } from "./coordinatorHire";
+import { STRIPPED_ROLES, seesAmountsStripped } from "./toolTextWrite";
 
-export const STRIPPED_ROLES: readonly string[] = ["COORDINATOR", "YARD"];
+export { STRIPPED_ROLES };
 
 export async function viewJson(body: unknown, init?: ResponseInit) {
   const user = await getCurrentUser();
-  return NextResponse.json(user && STRIPPED_ROLES.includes(user.role) ? withoutAmounts(body) : body, init);
+  return NextResponse.json(seesAmountsStripped(user?.role) ? withoutAmounts(body) : body, init);
 }

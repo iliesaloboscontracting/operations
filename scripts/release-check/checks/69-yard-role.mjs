@@ -69,6 +69,14 @@ export default {
       const one = await read(`/api/tools/${toolId}`);
       t.ok(one.status === 200 && !/\$\s?\d/.test(one.body?.notes ?? ""), "tools: it sees the note with the amount taken out", JSON.stringify(one.body?.notes ?? null));
       t.status(await send("PATCH", `/api/tools/${toolId}`, { condition: "Good" }), 200, "tools: edit a tool");
+      // The Hire rule (Ilies, 4 Nov 2026): the whole form sent back as shown changes only what was changed - the
+      // Manager's amount stays; changing the note it only saw stripped is refused (409), nothing saved.
+      const FORM = ["tag", "name", "brand", "model", "serialNumber", "itemNo", "manufactured", "condition", "conditionNotes", "ownership", "fleetRef", "lastSeen", "notes", "heldBy"];
+      const form = Object.fromEntries(FORM.filter((f) => one.body && f in one.body).map((f) => [f, one.body[f]]));
+      t.status(await send("PATCH", `/api/tools/${toolId}`, { ...form, condition: "Needs repair" }), 200, "tools: the whole form saved with a new condition");
+      t.status(await send("PATCH", `/api/tools/${toolId}`, { ...form, notes: "Sent to Hilti" }), 409, "tools: changing a note holding an amount it can't see is refused");
+      const kept = await c.db.tool.findUnique({ where: { id: toolId }, select: { notes: true, condition: true } });
+      t.ok(kept?.notes === "Repair quote $450 from Hilti" && kept?.condition === "Needs repair", "the Manager's note and its amount are untouched; the condition changed", JSON.stringify({ c: kept?.condition }));
       if (box) {
         t.status(await send("PATCH", `/api/tools/${toolId}`, { toolboxId: box.id, moveReason: "rc yard move in" }), 200, "toolboxes: move a tool in");
         t.status(await send("PATCH", `/api/tools/${toolId}`, { toolboxId: null, moveReason: "rc yard move out" }), 200, "toolboxes: move it back out");

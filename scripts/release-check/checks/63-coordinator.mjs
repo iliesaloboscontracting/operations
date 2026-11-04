@@ -84,6 +84,15 @@ export default {
     const box = await c.db.toolbox.findFirst({ where: { active: true }, select: { id: true, name: true, supervisorId: true, notes: true } });
     if (toolId) {
       t.status(await send("PATCH", `/api/tools/${toolId}`, { notes: "checked by rc", condition: "Good" }), 200, "tools: edit a tool");
+      // 4 Nov 2026 (the Hire rule on Tools, where the build has it): a note with an amount he only sees stripped is
+      // kept when he saves the form, and he can't change it (409).
+      if (c.hasPath("src/lib/toolTextWrite.ts")) {
+        t.status(await c.patch(`/api/tools/${toolId}`, "MANAGER", { notes: "Repair quote $450 from Hilti" }), 200, "a Manager adds a tool note with an amount");
+        const shown = (await read(`/api/tools/${toolId}`)).body?.notes;
+        t.status(await send("PATCH", `/api/tools/${toolId}`, { notes: shown, condition: "Good" }), 200, "tools: the note sent back as shown is a normal save");
+        t.status(await send("PATCH", `/api/tools/${toolId}`, { notes: "Sent to Hilti" }), 409, "tools: changing a note holding an amount he can't see is refused");
+        t.ok((await c.db.tool.findUnique({ where: { id: toolId }, select: { notes: true } }))?.notes === "Repair quote $450 from Hilti", "the Manager's tool note is untouched");
+      }
       if (box) {
         t.status(await send("PATCH", `/api/tools/${toolId}`, { toolboxId: box.id, moveReason: "rc move in" }), 200, "toolboxes: move a tool in");
         t.status(await send("PATCH", `/api/tools/${toolId}`, { toolboxId: null, moveReason: "rc move out" }), 200, "toolboxes: move it back out");
