@@ -2233,3 +2233,49 @@ model TravelEdit {
 
   @@index([travelLegId])
 }
+
+// Consumables inventory (Yard Stage C, Ilies 4 Nov 2026: "Stage C: start on the consumables inventory"): rubble
+// bags, blades, P2 masks, gloves, hi-vis... each with a unit, a minimum level and a location. Quantities only -
+// never a price, rate or cost (no field for one, and free text with a dollar figure is refused). The list starts
+// empty: the yard and the office add the items in the app (never invented). Retired, never deleted. Rules in
+// lib/inventory/rules.ts.
+model InventoryItem {
+  id                String          @id @default(cuid())
+  name              String // unique among active items, any case (checked in lib/inventory/store.ts)
+  category          String          @default("CONSUMABLES") // CONSUMABLES | PPE | MATERIALS | OTHER
+  unit              String          @default("each") // box, roll, each, pair, litre ...
+  minLevel          Float? // blank = "not set" (never guessed)
+  location          String? // e.g. "Shelf B2"
+  onHand            Float           @default(0) // kept in step with StockMovement, in the same transaction
+  active            Boolean         @default(true)
+  belowMinAlertedAt DateTime? // the one "below minimum" alert to the Admins; cleared once back at or above it
+  createdAt         DateTime        @default(now())
+  createdBy         String?
+  createdById       String?
+  updatedAt         DateTime        @updatedAt
+  movements         StockMovement[]
+
+  @@index([active, name])
+}
+
+// Every change to an item's quantity, append-only: IN (received), OUT (to a site / a yard job), COUNT (a person
+// counted the shelf - the change is what it took to get there). change is signed; balanceAfter is onHand after it.
+model StockMovement {
+  id            String        @id @default(cuid())
+  itemId        String
+  item          InventoryItem @relation(fields: [itemId], references: [id])
+  kind          String // IN | OUT | COUNT
+  change        Float // + in, - out, the difference for a count
+  balanceAfter  Float
+  countedQty    Float? // COUNT: what was on the shelf
+  reason        String? // optional note - no dollar figures
+  siteRequestId String? // OUT for a yard job (the request it went with) - plain id
+  projectId     String? // OUT to a site - plain id
+  siteLabel     String? // the site's name as it was
+  by            String
+  byUserId      String?
+  at            DateTime      @default(now())
+
+  @@index([itemId, at])
+  @@index([siteRequestId])
+}

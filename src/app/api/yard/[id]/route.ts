@@ -4,6 +4,7 @@ import { withErrorHandling } from "@/lib/apiHandler";
 import { yardView } from "@/lib/siteRequests";
 import { YARD_ACTIONS, isYardLogin, mayActOnYard, type YardAction } from "@/lib/yard/rules";
 import { applyYardAction, findYardJob, reread } from "@/lib/yard/store";
+import { stockLines } from "@/lib/inventory/rules";
 
 // PATCH /api/yard/:id - working the yard's list on /yard (Ilies, 4 Nov 2026). The YARD
 // login and Admins only - Managers and the coordinator look, never act.
@@ -20,7 +21,14 @@ export const PATCH = withErrorHandling(async (req: NextRequest, { params: params
   if (!r) return NextResponse.json({ error: "Not found." }, { status: 404 });
   const body = await req.json().catch(() => ({}));
   if (!YARD_ACTIONS.includes(body.action)) return NextResponse.json({ error: "Unknown action." }, { status: 400 });
-  const out = await applyYardAction(r, body.action as YardAction, { by: user.name, photo: body.photo, note: body.note, reason: body.reason, fromYard: isYardLogin(user.role) });
+  // Yard Stage C (Ilies, 4 Nov 2026): READY may carry "Took from stock" lines - OUT movements tied to this job, in the
+  // same transaction as the READY move (lib/yard/store.ts). Only with READY.
+  const lines = stockLines(body.stock);
+  if ("error" in lines) return NextResponse.json({ error: lines.error }, { status: 400 });
+  if (lines.lines.length && body.action !== "READY") return NextResponse.json({ error: "Stock is taken when it's marked ready." }, { status: 400 });
+  const out = await applyYardAction(r, body.action as YardAction, {
+    by: user.name, byUserId: user.id, photo: body.photo, note: body.note, reason: body.reason, fromYard: isYardLogin(user.role), stock: lines.lines,
+  });
   if ("error" in out) return NextResponse.json({ error: out.error }, { status: out.status });
   return NextResponse.json({ job: yardView((await reread(r.id))!) });
 });

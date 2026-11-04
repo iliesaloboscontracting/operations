@@ -128,6 +128,7 @@ const COORDINATOR = [
 const YARD = [
   { href: "/yard", label: "Yard jobs" },
   { href: "/yard/stocktake", label: "Stock take" },
+  { href: "/yard/inventory", label: "Consumables" }, // Yard Stage C (4 Nov 2026)
   { href: "/tools", label: "Tools" },
 ];
 // The invoices inbox is an Operations page as well as an Accounts tab: an Admin who got there from the

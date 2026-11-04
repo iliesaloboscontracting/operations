@@ -13,6 +13,8 @@ import { LINK_WHERE, addEvent, linkVisible, yardView } from "../siteRequests";
 import { notifyRequestUpdate } from "../requestAlerts";
 import { notifySupervisorReady, notifyYard } from "./alerts";
 import { COLLECTED, COLLECTED_DAYS, YARD_STATUSES, onItIsRepeat, onYardList, yardActionError, type YardAction } from "./rules";
+import { StockError, afterStockChange, checkStockLines, takeForYardJob } from "../inventory/store";
+import { fmtQty } from "../inventory/rules";
 
 // Most "ready" photos one yard link can send in a day - plenty for real use, and a cap on
 // what a leaked link could do before it's switched off (like DAILY_PHOTO_LIMIT).
@@ -56,7 +58,13 @@ export async function yardReadyToday(linkId: string) {
 }
 
 // fromYard: the yard itself acted (its link or login) - no point alerting the yard about it.
-type Act = { by: string; linkId?: string | null; photo?: unknown; note?: unknown; reason?: unknown; fromYard?: boolean };
+// stock (Yard Stage C): READY's "Took from stock" lines - logins only (the routes decide); byUserId: the login.
+type Act = { by: string; byUserId?: string | null; linkId?: string | null; photo?: unknown; note?: unknown; reason?: unknown; fromYard?: boolean; stock?: { itemId: string; qty: number }[] };
+// "Took from stock: 2 box P2 masks, 1 roll Duct tape" for the request's history.
+async function stockNote(lines: { itemId: string; qty: number }[]) {
+  const items = await prisma.inventoryItem.findMany({ where: { id: { in: lines.map((l) => l.itemId) } }, select: { id: true, name: true, unit: true } });
+  return `Took from stock: ${lines.map((l) => { const i = items.find((x) => x.id === l.itemId); return `${fmtQty(l.qty)} ${i?.unit ?? ""} ${i?.name ?? "item"}`.replace(/\s+/g, " "); }).join(", ")}`;
+}
 const text = (x: unknown, max = 500) => (typeof x === "string" ? x.replace(/\s+/g, " ").trim().slice(0, max) : "");
 type Result = { request: SiteRequest } | { error: string; status: number };
 
@@ -87,17 +95,40 @@ export async function applyYardAction(r: SiteRequest, action: YardAction, a: Act
       if (!a.photo) return { error: "Take a photo of the gear first.", status: 400 };
       if (a.linkId && (await yardReadyToday(a.linkId)) >= YARD_DAILY_READY_LIMIT)
         return { error: "That's the most this link can mark ready in a day - call the office.", status: 429 };
+      // Yard Stage C (Ilies, 4 Nov 2026): "Took from stock" - checked before the photo is kept; the shelf itself is
+      // re-checked inside the transaction below.
+      const lines = a.stock ?? [];
+      const badStock = await checkStockLines(lines);
+      if (badStock) return badStock;
       const saved = await savePhoto(a.photo);
       if ("error" in saved) return { error: saved.error, status: 400 };
       const missing = text(a.note) || null;
-      const updated = await moveIfStill(db, r.id, r.status, {
-        status: "READY", readyAt: new Date(), readyBy: a.by, readyNote: missing, readyPhotoFile: saved.fileName, readySiteLinkId: a.linkId ?? null,
-      });
+      const data = { status: "READY", readyAt: new Date(), readyBy: a.by, readyNote: missing, readyPhotoFile: saved.fileName, readySiteLinkId: a.linkId ?? null };
+      let updated: SiteRequest | null;
+      if (!lines.length) updated = await moveIfStill(db, r.id, r.status, data);
+      else {
+        // The READY move (YD-003: only from the status checked) and every stock OUT go together or not at all: a 409
+        // on the move, or a shelf that can't cover a line, leaves the request and the stock exactly as they were.
+        try {
+          updated = await prisma.$transaction(async (tx) => {
+            const u = await moveIfStill(tx, r.id, r.status, data);
+            if (!u) throw new StockError(CHANGED);
+            await takeForYardJob(tx, lines, r, { id: a.byUserId ?? null, name: a.by });
+            return u;
+          });
+        } catch (e) {
+          if (!(e instanceof StockError)) throw e;
+          await removePhoto(saved.fileName).catch(() => undefined);
+          return e.fail;
+        }
+      }
       if (!updated) {
         await removePhoto(saved.fileName).catch(() => undefined); // never kept for a move that didn't happen
         return CHANGED;
       }
-      await addEvent(r.id, "YARD_READY", a.by, missing ? `Missing: ${missing}` : null);
+      const took = lines.length ? await stockNote(lines) : null;
+      await addEvent(r.id, "YARD_READY", a.by, [missing ? `Missing: ${missing}` : null, took].filter(Boolean).join(" · ") || null);
+      if (lines.length) await afterStockChange(lines.map((l) => l.itemId));
       // A missing item alerts the Admins out loud - nothing is bought or created automatically.
       const what = missing ? `${no} ready - missing: ${assertNoMoney(missing) ? missing : "see the request"}` : `${no} ready for collection at the yard`;
       await notifyRequestUpdate(updated, what, { loud: !!missing });

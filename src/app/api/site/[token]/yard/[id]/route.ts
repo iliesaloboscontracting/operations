@@ -20,6 +20,10 @@ export const PATCH = withErrorHandling(async (req: NextRequest, { params: params
   if (!r) return NextResponse.json({ error: "Not found." }, { status: 404 });
   const body = await req.json().catch(() => ({}));
   if (!YARD_ACTIONS.includes(body.action)) return NextResponse.json({ error: "Unknown action." }, { status: 400 });
+  // Yard Stage C (Ilies, 4 Nov 2026): the consumables inventory is logins only - the shared phone link never takes
+  // stock (that would put the stock list on a link anyone holding it can use). Do it on the yard computer.
+  if (Array.isArray(body.stock) ? body.stock.length : body.stock != null)
+    return NextResponse.json({ error: "Taking from stock is done on the yard computer (/yard), not on the phone link." }, { status: 400 });
   const by = sharedWho(link.person.name, body.who);
   if (!by) return NextResponse.json({ error: "Put your name in at the top first, so the office knows who did it." }, { status: 400 });
   const out = await applyYardAction(r, body.action as YardAction, { by, linkId: link.id, photo: body.photo, note: body.note, reason: body.reason, fromYard: true });
