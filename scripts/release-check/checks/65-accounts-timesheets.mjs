@@ -56,13 +56,22 @@ export default {
       t.status(await c[m](`/api/accounts/timesheets?week=${week}`, "ACCOUNTS", {}), 405, `${m.toUpperCase()} /api/accounts/timesheets is not a route`);
 
     // (5) The notice: unseen for a fresh login, recorded once on "Got it", never changed after.
+    // 4 Nov 2026: the Accounts dashboard reads the same notice from GET /api/accounts/timesheets/explainer.
     t.ok(mine.body?.explainerSeen === false, "a fresh accounts login hasn't seen the notice");
+    const dash = await c.json("/api/accounts/timesheets/explainer", "ACCOUNTS");
+    t.ok(dash.status === 200 && dash.body?.seen === false && dash.body?.explainer?.title === mine.body?.explainer?.title, "the dashboard gets the same notice, unseen", dash.status);
+    t.ok(noMoney(JSON.stringify(dash.body ?? {})), "no dollar figure in the notice");
+    for (const [who, want] of [["MANAGER", 403], ["VIEWER", 403], ["TIMESHEETS", 403], ["DIRECTOR", 403], [null, 401]])
+      t.status(await c.get("/api/accounts/timesheets/explainer", who), want, `the notice as ${who ?? "no login"}`);
+    const dashPage = await c.text("/accounts", "ACCOUNTS");
+    t.ok(dashPage.status === 200 && !/Application error/.test(dashPage.text), "page /accounts as accounts", dashPage.status);
     const g1 = await c.post("/api/accounts/timesheets/explainer", "ACCOUNTS", {});
     const b1 = await g1.json().catch(() => ({}));
     t.ok(g1.status === 200 && b1.seenAt, "Got it is recorded", g1.status);
     const b2 = await (await c.post("/api/accounts/timesheets/explainer", "ACCOUNTS", {})).json().catch(() => ({}));
     t.ok(b2.seenAt === b1.seenAt, "pressing it again changes nothing", `${b1.seenAt} / ${b2.seenAt}`);
     t.ok((await c.json(`/api/accounts/timesheets?week=${week}`, "ACCOUNTS")).body?.explainerSeen === true, "it doesn't come up again");
+    t.ok((await c.json("/api/accounts/timesheets/explainer", "ACCOUNTS")).body?.seen === true, "nor on the dashboard (one Got it for both)");
     t.ok((await c.db.noticeSeen.count({ where: { userId: c.users.ACCOUNTS.id } })) === 1, "one NoticeSeen row for the login");
     for (const who of ["MANAGER", "TIMESHEETS"]) t.status(await c.post("/api/accounts/timesheets/explainer", who, {}), 403, `${who} can't record the accounts notice`);
 

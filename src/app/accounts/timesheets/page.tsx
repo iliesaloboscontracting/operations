@@ -78,7 +78,7 @@ export default function AccountsTimesheetsPage() {
         {data && <span className="text-sm text-gray-300">Week {longDate(data.weekStart)} – {longDate(data.weekEnd)}</span>}
         <div className="ml-auto flex flex-wrap items-center gap-2">
           <button onClick={() => setExplainer(true)} disabled={!data} className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm text-brand-300 hover:underline disabled:opacity-40">
-            <CircleHelp size={14} /> How timesheets work
+            <CircleHelp size={14} /> How sign-ins and timesheets work
           </button>
           <span className="rounded-full bg-gray-700/60 px-3 py-1 text-xs text-gray-300">View only</span>
           {data && (

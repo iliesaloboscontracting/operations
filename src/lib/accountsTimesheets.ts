@@ -16,7 +16,10 @@ const ruleFromText = () => new Date(breakRuleFrom() + "T12:00:00Z").toLocaleDate
 
 // Bump the version when the text changes in a way she should read again.
 // V2 (2 Nov 2026): the break rule changed to once a day over 5 h - she sees the notice again.
-export const TIMESHEETS_NOTICE = "ACCOUNTS_TIMESHEETS_V2";
+// V3 (4 Nov 2026, Ilies: "a notification to pop up on the accounts dashboard ... how the sign-ins work, how they
+// reflect on the timesheets, and any of the small indicators and what they mean"): the notes on the timesheet are
+// explained one by one, and it comes up on the Accounts dashboard too - she sees it again.
+export const TIMESHEETS_NOTICE = "ACCOUNTS_TIMESHEETS_V3";
 
 // New projects start with a 30-minute unpaid break (prisma/schema.prisma Project.unpaidBreakMinutes @default(30);
 // the project form's placeholder, lib/projectFormFields.ts). Not importable from the schema, so it is stated here.
@@ -27,8 +30,8 @@ export type ExplainerSection = { heading: string; bullets: string[] };
 // The words, in one place, for the owner to check. Every rule is from the code - sources are noted per section.
 export type Explainer = { title: string; intro: string; sections: ExplainerSection[] };
 export const TIMESHEETS_EXPLAINER: Explainer = {
-  title: "How timesheets work",
-  intro: "These are the Lobos staff hours for the week, straight from the crew's sign-ins. You can look and export - you can't change anything here.",
+  title: "How sign-ins and timesheets work",
+  intro: "Timesheets are the Lobos staff hours for the week, straight from the crew's sign-ins. You can look and export - you can't change anything there.",
   sections: [
     {
       // lib/signin.ts (QR / poster / fixed points); lib/timesheets.ts timesheetLines (PERSONNEL only)
@@ -88,6 +91,39 @@ export const TIMESHEETS_EXPLAINER: Explainer = {
         "1. The site supervisor approves the crew's hours for each job and day on their link (\"Approve hours\"). Office, yard and truck sign-ins have no supervisor step.",
         "2. A Manager approves the week from the Monday after, once every sign-in has a sign-out and is confirmed, and every regional travel leg is ended and under 8 hours. That locks it: its sign-ins can't change unless an Admin reopens the week, with a reason.",
         "3. Then you approve or query each person's week in Payroll. Staff can only be approved once the Manager has locked the week. The pay-run file has the employees you approved.",
+      ],
+    },
+    {
+      // components/timesheets/TimesheetGrid.tsx Entry (the amber box: noOut || pending || zero); lib/timesheets.ts
+      // lineIssues (only no sign-out and to confirm hold up the Manager's approval - approvalBlockers)
+      heading: "The notes on a sign-in: ones to sort",
+      bullets: [
+        "Each sign-in is a small box: the place, the in and out times and the hours. An amber box needs a look; a grey box is fine.",
+        "\"no sign-out\" - they never signed out, so it counts no hours until the office puts the time in. Holds up the week's approval.",
+        "\"to confirm\" - signed in on a site poster and waiting for the site supervisor to confirm it. Holds up the week's approval.",
+        "\"check: 0h\" - signed in and out within a few minutes, so 0 hours. Usually a mis-tap; it doesn't hold anything up.",
+      ],
+    },
+    {
+      // components/timesheets/TimesheetGrid.tsx Entry; lib/signin.ts STILL_ON_HOURS; lib/dayHours.ts (break, overlap);
+      // lib/attendanceEdits.ts (office changes); SiteAttendance.allocated (on the job's allocation when they signed in)
+      heading: "The notes on a sign-in: information only",
+      bullets: [
+        `"on site now" - signed in within the last ${STILL_ON_HOURS} hours and not out yet. Not a problem.`,
+        "\"less 30 min break\" (or another number) - the unpaid break taken off this line. Only one line a day has it.",
+        "\"overlap - counted once\" - signed in at two places at the same time; that time is counted once.",
+        "\"office changed\" - the office changed a time. On a computer, hover over the box to see the reason; it's also in the export's Notes column.",
+        "\"not allocated\" - they weren't on that job on the board when they signed in. The hours still count.",
+      ],
+    },
+    {
+      // components/timesheets/TimesheetGrid.tsx (TravelChip TRAVEL_FLAG, AccountsNote, WholeWeek); app/accounts/timesheets/page.tsx (tiles, banner)
+      heading: "Travel boxes and the week",
+      bullets: [
+        "A blue box is regional travel (\"Travel out\" or \"Travel home\"). \"on the way\" = still travelling; \"never ended - no hours\" and \"over 8h - not counted\" turn it amber and need the office.",
+        "\"Draft\" means a Manager hasn't approved the week yet; \"Locked\" means they have. \"Need sorting\" counts the amber sign-ins and travel legs.",
+        "On a locked week, \"N sign-ins differ from what was approved\" means a time changed after the lock - the office would need to reopen the week.",
+        "Under a name: \"Approved by accounts\" or \"Accounts query\" is your own decision in Payroll. In By site, \"Week, all places\" is that person's whole week.",
       ],
     },
     {

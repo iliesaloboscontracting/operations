@@ -28,8 +28,10 @@ test("ACCOUNTS reads and exports through guardAccounts - GET only, nothing writt
   }
   // The "Got it" route writes the notice row only - never a timesheet, sign-in or approval.
   const notice = src("../app/api/accounts/timesheets/explainer/route.ts");
-  assert.deepEqual(handlers(notice), ["POST"]);
-  assert.match(notice, /guardAccounts\(\)/);
+  // GET (4 Nov 2026): the Accounts dashboard reads the words and "seen" - guardAccounts first, no write.
+  assert.deepEqual(handlers(notice), ["GET", "POST"]);
+  for (const h of ["GET", "POST"]) assert.match(handler(notice, h), /await guardAccounts\(\)[\s\S]*"denied" in g\) return g\.denied/, `explainer ${h}: guardAccounts first`);
+  assert.doesNotMatch(handler(notice, "GET"), /markNoticeSeen|\.(create|update|upsert|delete)(Many)?\(/, "explainer GET writes nothing");
   assert.doesNotMatch(notice, /timesheetWeek|siteAttendance|hoursApproval|payWeekReview/);
   assert.match(src("./accountsTimesheets.ts"), /prisma\.noticeSeen\.upsert\([\s\S]*update: \{\} \}\)/, "Got it never changes an existing row");
 });
@@ -89,7 +91,7 @@ test("an export that still looks like bank / tax details is refused, not sent", 
 
 test("the explainer says the rules the code uses, and no money", () => {
   const text = JSON.stringify(TIMESHEETS_EXPLAINER);
-  assert.equal(TIMESHEETS_NOTICE, "ACCOUNTS_TIMESHEETS_V2", "bumped with the once-a-day break rule");
+  assert.equal(TIMESHEETS_NOTICE, "ACCOUNTS_TIMESHEETS_V3", "bumped with the notes explained one by one (4 Nov 2026)");
   assert.ok(text.includes(`${POINT_BREAK_MINUTES} minutes at the office, yard and trucks`), "the sign-in point break is the code's constant");
   assert.match(text, /One unpaid break per person per day, and only when their day's total is over 5 hours - and the break never takes the day below 5 hours/);
   assert.match(text, /rounded once/);
@@ -102,4 +104,16 @@ test("the explainer says the rules the code uses, and no money", () => {
   assert.ok(text.includes(`offered for ${HOME_OFFER_HOURS} hours`), "home-leg window from the code");
   assert.doesNotMatch(text, /\$/);
   for (const s of TIMESHEETS_EXPLAINER.sections) assert.ok(s.bullets.length >= 1 && s.bullets.length <= 5, s.heading);
+});
+
+// V3 (4 Nov 2026, Ilies: "any of the small indicators and what they mean"): every note the timesheet grid can show
+// (components/timesheets/TimesheetGrid.tsx - Entry, TravelChip's TRAVEL_FLAG, AccountsNote, WholeWeek) is explained,
+// in the grid's own words. A new note on the grid needs a line here and in the explainer.
+test("every note on the timesheet grid is explained, word for word", () => {
+  const text = JSON.stringify(TIMESHEETS_EXPLAINER);
+  for (const note of ["on site now", "no sign-out", "to confirm", "check: 0h", "overlap - counted once", "min break", "office changed", "not allocated",
+    "Travel out", "Travel home", "on the way", "never ended - no hours", "over 8h - not counted", "Approved by accounts", "Accounts query", "Week, all places",
+    "Draft", "Locked", "Need sorting", "differ from what was approved"]) {
+    assert.ok(text.includes(note), note);
+  }
 });

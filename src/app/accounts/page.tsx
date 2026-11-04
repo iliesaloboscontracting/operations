@@ -2,14 +2,16 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { Plus } from "lucide-react";
+import { CircleHelp, Plus } from "lucide-react";
 import PageShell from "@/components/PageShell";
 import PushToggle from "@/components/PushToggle";
 import ItemForm, { type AccountsItemDTO } from "@/components/accounts/ItemForm";
 import ItemRow from "@/components/accounts/ItemRow";
+import TimesheetsExplainer from "@/components/accounts/TimesheetsExplainer";
 import { useAuth } from "@/components/AuthProvider";
 import { apiFetch } from "@/lib/apiFetch";
 import { fmtDay } from "@/lib/dates";
+import type { Explainer } from "@/lib/accountsTimesheets";
 
 // The Accounts screen (26 Oct 2026, stage 1 of Victoria's list): "Pending for me" - read from what
 // Operations already records, never a second copy - plus due dates and her own reminders.
@@ -46,6 +48,30 @@ export default function AccountsPage() {
   const load = useCallback(() => apiFetch("/api/accounts/pending").then((r) => (r.ok ? r.json() : null)).then((d) => d && setP(d)), []);
   useEffect(() => { load(); }, [load]);
 
+  // "How sign-ins and timesheets work" (4 Nov 2026, Ilies: "a notification to pop up on the accounts dashboard"): the
+  // same notice as the Timesheets tab - it comes up by itself for the accounts login until "Got it" on either page,
+  // and opens from the link here any time. Admins only get the link.
+  const [help, setHelp] = useState<{ seen: boolean; explainer: Explainer } | null>(null);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [helpSaving, setHelpSaving] = useState(false);
+  useEffect(() => {
+    apiFetch("/api/accounts/timesheets/explainer").then((r) => (r.ok ? r.json() : null)).then((d) => d && setHelp(d));
+  }, []);
+  const [helpAutoShown, setHelpAutoShown] = useState(false);
+  useEffect(() => {
+    if (help && accountsOnly && !help.seen && !helpAutoShown) {
+      setHelpOpen(true);
+      setHelpAutoShown(true);
+    }
+  }, [help, accountsOnly, helpAutoShown]);
+  const helpGotIt = async () => {
+    setHelpSaving(true);
+    const res = await apiFetch("/api/accounts/timesheets/explainer", { method: "POST" });
+    setHelpSaving(false);
+    setHelpOpen(false);
+    if (res.ok) setHelp((h) => (h ? { ...h, seen: true } : h));
+  };
+
   if (!loading && !accountsOnly && !isAdmin) return <PageShell title="Accounts"><p className="text-sm text-gray-400">This screen is for accounts.</p></PageShell>;
 
   const nothing = p && !p.inboxWaiting && !p.reimbursementsToPay && !p.abnInvoicesToCheck && !p.salesNotTied && !p.purchasesToCheck && !p.purchasesToOrder && !p.queries.length && !p.noSignOut.length && !p.due.length;
@@ -59,6 +85,19 @@ export default function AccountsPage() {
         <p className="text-sm text-gray-500">Loading…</p>
       ) : (
         <>
+          {help && (
+            <button
+              onClick={() => setHelpOpen(true)}
+              className={`mb-4 flex w-full items-center gap-2 rounded-xl border px-3 py-2.5 text-left text-sm ${!help.seen && accountsOnly ? "border-brand-500/50 bg-brand-500/10 text-brand-200" : "border-edge bg-panel text-brand-300"} hover:bg-panel2`}
+            >
+              <CircleHelp size={16} className="shrink-0" />
+              <span>
+                <span className="font-medium">{help.explainer.title}</span>
+                <span className="text-gray-400"> - where the hours come from, the break, approvals, and what each little note on a timesheet means.</span>
+              </span>
+            </button>
+          )}
+
           {nothing && <p className="mb-4 rounded-xl border border-edge bg-panel p-4 text-sm text-gray-400">Nothing waiting for you right now.</p>}
 
           <Section title="Due and reminders" count={p.due.length} action={
@@ -133,6 +172,8 @@ export default function AccountsPage() {
           )}
         </>
       )}
+
+      {helpOpen && help && <TimesheetsExplainer explainer={help.explainer} busy={helpSaving} onClose={() => setHelpOpen(false)} onGotIt={helpGotIt} />}
     </PageShell>
   );
 }
