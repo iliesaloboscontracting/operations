@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/components/AuthProvider";
-import { coordinatorHref } from "@/lib/roles";
+import { coordinatorHref, yardHref } from "@/lib/roles";
 
 const TABS = [
   { href: "/tools", label: "Register" },
@@ -14,11 +14,12 @@ const TABS = [
 
 export default function ToolsTabs() {
   const path = usePathname();
-  // The coordinator's tabs are the ones he may open (lib/roles.ts) - "From site" (site links) isn't one.
-  const { coordinatorOnly } = useAuth();
+  // The coordinator's tabs are the ones he may open (lib/roles.ts) - "From site" (site links) isn't one. The same for
+  // the yard computer (4 Nov 2026).
+  const { coordinatorOnly, yardOnly } = useAuth();
   return (
     <div className="mb-4 flex flex-wrap gap-1.5">
-      {TABS.filter((t) => coordinatorHref(t.href, coordinatorOnly)).map((t) => (
+      {TABS.filter((t) => coordinatorHref(t.href, coordinatorOnly) && yardHref(t.href, yardOnly)).map((t) => (
         <Link
           key={t.href}
           href={t.href}

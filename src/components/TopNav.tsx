@@ -123,14 +123,20 @@ const COORDINATOR = [
   { href: "/messages", label: "Messages" },
   { href: "/documents", label: "Documents" },
 ];
+// The yard computer's screen (Ilies, 4 Nov 2026): the yard jobs and the Tools pages (lib/roles.ts YARD_PAGES).
+const YARD = [
+  { href: "/yard", label: "Yard jobs" },
+  { href: "/tools", label: "Tools" },
+];
 // The invoices inbox is an Operations page as well as an Accounts tab: an Admin who got there from the
 // Accounts screen stays on the Accounts screen.
 const SCREEN_KEY = "lobos-screen";
 
 export default function TopNav() {
   const path = usePathname() ?? "";
-  const { user, loading, canEdit, isAdmin, isDirector, directorOnly, timesheetsOnly, accountsOnly, coordinatorOnly, signOut } = useAuth();
-  const onePage = timesheetsOnly ? "/timesheets" : accountsOnly ? "/accounts" : directorOnly ? "/directors" : coordinatorOnly ? "/coordinator" : null;
+  const { user, loading, canEdit, isAdmin, isDirector, directorOnly, timesheetsOnly, accountsOnly, coordinatorOnly, yardOnly, signOut } = useAuth();
+  const onePage = timesheetsOnly ? "/timesheets" : accountsOnly ? "/accounts" : directorOnly ? "/directors" : coordinatorOnly ? "/coordinator"
+    : yardOnly ? "/yard" : null;
   const [changingPw, setChangingPw] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [startingSoon, setStartingSoon] = useState(0);
@@ -207,10 +213,11 @@ export default function TopNav() {
     } catch { setFromScreen(null); }
   }, [path]);
   const fromAccounts = fromScreen === "accounts";
-  const screen: "directors" | "accounts" | "coordinator" | null = directorOnly ? "directors" : accountsOnly ? "accounts" : coordinatorOnly ? "coordinator"
+  const screen: "directors" | "accounts" | "coordinator" | "yard" | null = directorOnly ? "directors" : accountsOnly ? "accounts" : coordinatorOnly ? "coordinator"
+    : yardOnly ? "yard"
     : isDirector && (isActive("/directors") || (path === "/messages" && fromScreen === "directors")) ? "directors"
     : isAdmin && (isActive("/accounts") || ((path === "/invoices" || path === "/messages") && fromAccounts)) ? "accounts" : null;
-  const screenTabs = screen === "directors" ? DIRECTORS : screen === "accounts" ? ACCOUNTS : screen === "coordinator" ? COORDINATOR : [];
+  const screenTabs = screen === "directors" ? DIRECTORS : screen === "accounts" ? ACCOUNTS : screen === "coordinator" ? COORDINATOR : screen === "yard" ? YARD : [];
   // Overview also covers a job opened from it; every other tab is its own page or below it.
   const tabActive = (href: string) => (href === "/directors" ? path === "/directors" || path.startsWith("/directors/jobs") : href === "/accounts" ? path === "/accounts"
     : href === "/day-review" ? isActive(href) || path.startsWith("/daily-report/") : isActive(href));

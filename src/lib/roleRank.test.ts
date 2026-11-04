@@ -18,6 +18,9 @@ test("an unknown role (a rollback, a typo, anything) is refused by every level",
   // COORDINATOR is known on this build - a one-page login, below VIEWER like the others.
   assert.equal(rankOf("COORDINATOR"), 0);
   assert.ok(!rankAtLeast("COORDINATOR", "VIEWER"));
+  // So is YARD (the yard computer, 4 Nov 2026).
+  assert.equal(rankOf("YARD"), 0);
+  assert.ok(!rankAtLeast("YARD", "VIEWER"));
 });
 
 test("CO-001-R1: an unknown role never has director access, whatever its tick says; known roles unchanged", async () => {

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getCurrentUser, guardOrCoordinator } from "@/lib/auth";
+import { getCurrentUser, guardTools } from "@/lib/auth";
 import { viewJson } from "@/lib/coordinatorView"; // the coordinator gets no dollar figure (2 Nov 2026)
 import { pickTool, toolFieldError } from "@/lib/pickTool";
 import { withErrorHandling } from "@/lib/apiHandler";
@@ -10,7 +10,7 @@ import { duplicateMessage, findDuplicate, serialKeyOf } from "@/lib/toolCreate";
 // GET /api/tools/:id -> the tool with its photos, move history and faults.
 export const GET = withErrorHandling(async (_req: NextRequest, { params: paramsP }: { params: Promise<{ id: string }> }) => {
   const params = await paramsP;
-  const denied = await guardOrCoordinator("VIEWER");
+  const denied = await guardTools("VIEWER");
   if (denied) return denied;
   const tool = await prisma.tool.findUnique({
     where: { id: params.id },
@@ -34,7 +34,7 @@ export const PATCH = withErrorHandling(async (
   { params: paramsP }: { params: Promise<{ id: string }> }
 ) => {
   const params = await paramsP;
-  const denied = await guardOrCoordinator("MANAGER");
+  const denied = await guardTools("MANAGER");
   if (denied) return denied;
   const user = await getCurrentUser();
   const body = await req.json();
@@ -58,7 +58,7 @@ export const PATCH = withErrorHandling(async (
     where: { id: params.id },
     data: data as any,
   });
-  return NextResponse.json(tool);
+  return viewJson(tool); // the coordinator / yard computer never see an amount in its notes
 });
 
 export const DELETE = withErrorHandling(async (
@@ -66,7 +66,7 @@ export const DELETE = withErrorHandling(async (
   { params: paramsP }: { params: Promise<{ id: string }> }
 ) => {
   const params = await paramsP;
-  const denied = await guardOrCoordinator("MANAGER");
+  const denied = await guardTools("MANAGER");
   if (denied) return denied;
   await prisma.tool.delete({ where: { id: params.id } });
   return NextResponse.json({ ok: true });

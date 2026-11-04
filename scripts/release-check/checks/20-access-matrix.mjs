@@ -1,4 +1,4 @@
-// Every GET API route vs every restricted login (no login, TIMESHEETS, DIRECTOR, ACCOUNTS, COORDINATOR). Routes not on the
+// Every GET API route vs every restricted login (no login, TIMESHEETS, DIRECTOR, ACCOUNTS, COORDINATOR, YARD). Routes not on the
 // MAY_ANSWER list for that login must refuse with 401/403 (generalises dirtest.mjs's sweep to all one-page roles).
 import { MAY_ANSWER, REFUSE_BY_REDIRECT } from "../expected.mjs";
 
@@ -9,7 +9,8 @@ export default {
     const routes = c.getRoutes();
     t.note(`${routes.length} GET API routes in the candidate`);
     const q = `?date=${c.today}&from=${c.lastWeek}&to=${c.today}&week=${c.lastWeek}`;
-    for (const [who, key] of [["no login", "NO_LOGIN"], ["TIMESHEETS", "TIMESHEETS"], ["DIRECTOR", "DIRECTOR"], ["ACCOUNTS", "ACCOUNTS"], ["COORDINATOR", "COORDINATOR"]]) {
+    for (const [who, key] of [["no login", "NO_LOGIN"], ["TIMESHEETS", "TIMESHEETS"], ["DIRECTOR", "DIRECTOR"], ["ACCOUNTS", "ACCOUNTS"], ["COORDINATOR", "COORDINATOR"], ["YARD", "YARD"]]) {
+      if (key !== "NO_LOGIN" && !c.users[key]) { t.note(`${who}: no test login (lib/setup.mjs TEST_ROLES) - not swept`); continue; }
       const may = MAY_ANSWER[key];
       const leaked = [], open = [];
       let refused = 0;

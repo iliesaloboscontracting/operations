@@ -29,6 +29,13 @@ export const MAY_ANSWER = {
     /^\/api\/day-review\/site-logs(\/photo|\/before-after)?$/, /^\/api\/calendar$/, /^\/api\/projects$/, /^\/api\/resources$/,
     /^\/api\/hire-(alerts|checks)$/, /^\/api\/tools$/, /^\/api\/toolboxes$/, /^\/api\/tool-issues$/, /^\/api\/purchases$/,
     /^\/api\/messages(\/|$)/, /^\/api\/documents(\/|$)/, /^\/api\/queries$/],
+  // YARD (the yard computer downstairs, Ilies 4 Nov 2026): the yard jobs (/api/yard/*, guardOrYard), the Tools register,
+  // toolboxes and faults (guardTools, the coordinator's tools access), its own phone / desktop alerts (/api/push), and
+  // what every login may ask (/api/queries = only its own; /api/messages/unread = { unread: 0 } as it doesn't chat).
+  // Nothing else of Operations - no board, Tracking, Hire, purchases, timesheets, sign-ins, chat, documents, Assistant,
+  // Directors or Accounts. checks/69-yard-role.mjs looks closer.
+  YARD: [/^\/api\/auth\//, /^\/api\/yard(\/|$)/, /^\/api\/tools$/, /^\/api\/toolboxes$/, /^\/api\/tool-issues$/, /^\/api\/push$/,
+    /^\/api\/queries$/, /^\/api\/messages\/unread$/],
 };
 
 // Routes that answer ANY signed-in login with a redirect back into the app: the owner-only Xero connect / callback
@@ -80,7 +87,7 @@ export const AUDIT_EXCEPTIONS = [
 export const EXPECTED_NOTES = [
   "/api/users answers 403 to a Manager (only Admins manage logins) - the smoke check expects 403 there, not 200.",
   "/estimating is ADMIN only: a Manager or Director gets 403 (the proxy never forwards the server keys).",
-  "Pages are client-gated: a one-page login (TIMESHEETS / ACCOUNTS / DIRECTOR) gets the page shell (200) and is sent home by AppFrame; the DATA behind it is refused by the API (403). The access matrix checks the APIs.",
+  "Pages are client-gated: a one-page login (TIMESHEETS / ACCOUNTS / DIRECTOR / COORDINATOR / YARD) gets the page shell (200) and is sent home by AppFrame; the DATA behind it is refused by the API (403). The access matrix checks the APIs.",
   "/api/directors/xero/connect and /callback answer a non-owner with a 307 back into the app (refusal by redirect, see REFUSE_BY_REDIRECT).",
   "Xero 'Refresh now' as accounts answers 4xx on the test copy (no Xero keys) - anything but 401/403 is right.",
   "Production benchmarks report estimatingDown on the copy - ESTIMATING_URL points at a closed port on purpose.",

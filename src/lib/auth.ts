@@ -6,12 +6,12 @@ import { promisify } from "util";
 import { prisma } from "./prisma";
 import { SESSION_COOKIE, sessionMaxAgeFor, signSession, verifySession } from "./session";
 import { isOwner } from "./owner";
-import { coordinatorOr, NO_DIRECTOR_ACCESS_ROLES, type Role } from "./roles";
+import { coordinatorOr, NO_DIRECTOR_ACCESS_ROLES, toolsWorkerOr, yardOr, type Role } from "./roles";
 import { UNKNOWN_RANK, rankAtLeast, rankOf } from "./roleRank";
 
 const scrypt = promisify(scryptCb) as (pw: string, salt: Buffer, len: number) => Promise<Buffer>;
 
-// The roles and the one-page logins (TIMESHEETS, ACCOUNTS, DIRECTOR, COORDINATOR) are in lib/roles.ts; their ranks in
+// The roles and the one-page logins (TIMESHEETS, ACCOUNTS, DIRECTOR, COORDINATOR, YARD) are in lib/roles.ts; their ranks in
 // lib/roleRank.ts, which fail closed (CO-001): a role the code doesn't know is refused everywhere.
 export { ROLES, homeFor, type Role } from "./roles";
 
@@ -111,6 +111,29 @@ export async function guardOrCoordinator(min: Role): Promise<NextResponse | null
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
   if (!coordinatorOr(user.role, min)) {
+    return NextResponse.json({ error: "You don't have permission to do that" }, { status: 403 });
+  }
+  return null;
+}
+
+// The yard computer's own routes (Ilies, 4 Nov 2026 - /yard, the yard jobs under /api/yard/*): `min` and up, as
+// guard(min) does, plus the YARD login - never by loosening guard() itself.
+export async function guardOrYard(min: Role): Promise<NextResponse | null> {
+  const user = await getCurrentUser();
+  if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+  if (!yardOr(user.role, min)) {
+    return NextResponse.json({ error: "You don't have permission to do that" }, { status: 403 });
+  }
+  return null;
+}
+
+// The Tools routes (register, photos, plate reading, faults, toolbox contents and checks): `min` and up, plus the
+// coordinator (2 Nov 2026) and the yard computer (Ilies, 4 Nov 2026), who work tools the same way. Creating, renaming,
+// re-supervising and retiring a toolbox stay guard("MANAGER") (/api/toolboxes POST, /api/toolboxes/[id]).
+export async function guardTools(min: Role): Promise<NextResponse | null> {
+  const user = await getCurrentUser();
+  if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+  if (!toolsWorkerOr(user.role, min)) {
     return NextResponse.json({ error: "You don't have permission to do that" }, { status: 403 });
   }
   return null;

@@ -21,9 +21,9 @@ const json = (url: string, method: string, body: unknown) =>
 
 export default function ToolboxesPage() {
   // canEdit: create, rename / re-supervise and remove a toolbox (Managers and Admins). canFill: what's in it - add
-  // and move tools, check by photo - which the coordinator does too (Ilies, 2 Nov 2026; the server enforces both).
-  const { canEdit, coordinatorOnly } = useAuth();
-  const canFill = canEdit || coordinatorOnly;
+  // and move tools, check by photo - which the coordinator does too (Ilies, 2 Nov 2026; the server enforces both), and the yard computer (4 Nov 2026).
+  const { canEdit, coordinatorOnly, yardOnly } = useAuth();
+  const canFill = canEdit || coordinatorOnly || yardOnly;
   const [boxes, setBoxes] = useState<ToolboxDTO[]>([]);
   const [tools, setTools] = useState<ToolDTO[]>([]);
   const [people, setPeople] = useState<ResourceDTO[]>([]);

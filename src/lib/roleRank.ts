@@ -3,7 +3,8 @@
 // refuses it and money is stripped for it - before this, an unknown role compared as undefined and passed every guard.
 // Plain, no server imports; `npm test` (roleRank.test.ts).
 // COORDINATOR (2 Nov 2026) is a one-page login like the others at 0 - only the guards that name it let it in.
-export const RANK: Record<string, number> = { TIMESHEETS: 0, ACCOUNTS: 0, DIRECTOR: 0, COORDINATOR: 0, VIEWER: 1, MANAGER: 2, ADMIN: 3 };
+// YARD (Ilies, 4 Nov 2026: the yard computer downstairs) is the same - 0, only guardOrYard() and the tools guard admit it.
+export const RANK: Record<string, number> = { TIMESHEETS: 0, ACCOUNTS: 0, DIRECTOR: 0, COORDINATOR: 0, YARD: 0, VIEWER: 1, MANAGER: 2, ADMIN: 3 };
 export const UNKNOWN_RANK = -1;
 
 export const rankOf = (role: string | null | undefined): number =>

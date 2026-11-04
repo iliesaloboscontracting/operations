@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser, guard, hashPassword, MIN_PASSWORD, ROLES } from "@/lib/auth";
-import { NO_DIRECTOR_ACCESS_ROLES, touchesOwnerOnlyRole } from "@/lib/roles";
+import { NO_DIRECTOR_ACCESS_ROLES, ownerOnlyRoleName, touchesOwnerOnlyRole } from "@/lib/roles";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { isOwner } from "@/lib/owner";
 import { BUILDING_AGENT_EMAIL } from "@/lib/session";
@@ -58,9 +58,10 @@ export const PATCH = withErrorHandling(async (
     if ((body.role === "DIRECTOR") !== (target.role === "DIRECTOR") && !isOwner(me?.email)) {
       return NextResponse.json({ error: "Only Iliesa can change a Director login." }, { status: 403 });
     }
-    // Coordinator logins (2 Nov 2026, Ilies: "Only you (the owner)"): the same - only the owner gives or takes it away.
+    // Coordinator logins (2 Nov 2026, Ilies: "Only you (the owner)") and the Yard login (4 Nov 2026): the same - only
+    // the owner gives or takes them away.
     if (touchesOwnerOnlyRole(target.role, body.role) && !isOwner(me?.email)) {
-      return NextResponse.json({ error: "Only Iliesa can change a Coordinator login." }, { status: 403 });
+      return NextResponse.json({ error: `Only Iliesa can change a ${ownerOnlyRoleName(target.role, body.role)} login.` }, { status: 403 });
     }
     data.role = body.role;
   }
@@ -78,7 +79,7 @@ export const PATCH = withErrorHandling(async (
     }
     const role = (data.role as string | undefined) ?? target.role;
     if (body.directorAccess && NO_DIRECTOR_ACCESS_ROLES.includes(role)) {
-      return NextResponse.json({ error: "Timesheets, Accounts and Coordinator logins can't have director access" }, { status: 400 });
+      return NextResponse.json({ error: "Timesheets, Accounts, Coordinator and Yard logins can't have director access" }, { status: 400 });
     }
     data.directorAccess = Boolean(body.directorAccess);
   }

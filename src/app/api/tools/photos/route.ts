@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getCurrentUser, guardOrCoordinator } from "@/lib/auth";
+import { getCurrentUser, guardTools } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { PHOTO_KINDS, savePhoto } from "@/lib/toolPhotos";
 
@@ -8,7 +8,7 @@ import { PHOTO_KINDS, savePhoto } from "@/lib/toolPhotos";
 // Stores one tool photo. It isn't attached to a tool yet - registering the
 // tool, reporting a fault or running a toolbox check attaches/uses it.
 export const POST = withErrorHandling(async (req: NextRequest) => {
-  const denied = await guardOrCoordinator("MANAGER");
+  const denied = await guardTools("MANAGER");
   if (denied) return denied;
   const user = await getCurrentUser();
   const body = await req.json().catch(() => ({}));

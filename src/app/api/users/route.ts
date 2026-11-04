@@ -5,7 +5,7 @@ import { normName } from "@/lib/samePerson";
 import { saveUserCreate } from "@/lib/userEdit";
 import { BUILDING_AGENT_EMAIL } from "@/lib/session";
 import { isOwner } from "@/lib/owner";
-import { touchesOwnerOnlyRole } from "@/lib/roles";
+import { ownerOnlyRoleName, touchesOwnerOnlyRole } from "@/lib/roles";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { RESERVED_NAME_ERROR, isReservedUserName } from "@/lib/infoRequests/rules";
 
@@ -43,9 +43,9 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   if (role === "DIRECTOR" && !isOwner((await getCurrentUser())?.email)) {
     return NextResponse.json({ error: "Only Iliesa can create a Director login." }, { status: 403 });
   }
-  // Coordinator logins (2 Nov 2026, Ilies: "Only you (the owner)"): the same.
+  // Coordinator logins (2 Nov 2026, Ilies: "Only you (the owner)") and the Yard login (4 Nov 2026): the same.
   if (touchesOwnerOnlyRole(null, role) && !isOwner((await getCurrentUser())?.email)) {
-    return NextResponse.json({ error: "Only Iliesa can create a Coordinator login." }, { status: 403 });
+    return NextResponse.json({ error: `Only Iliesa can create a ${ownerOnlyRoleName(null, role)} login.` }, { status: 403 });
   }
   if (password.length < MIN_PASSWORD) {
     return NextResponse.json({ error: `Password must be at least ${MIN_PASSWORD} characters` }, { status: 400 });

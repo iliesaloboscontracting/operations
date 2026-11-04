@@ -25,7 +25,9 @@ export default {
         t.status(await c.post(`/api/messages/${thread}`, who, { action: "DELETE", messageId: msg }), [403, 404], `${who} (not in it) DELETE the Manager's message`);
         t.status(await c.post(`/api/messages/${thread}`, who, { action: "SEEN" }), [403, 404], `${who} (not in it) mark the thread seen`);
       }
-      for (const who of ["VIEWER", "TIMESHEETS"]) t.status(await c.get(`/api/messages/${thread}`, who), 403, `${who} GET a thread`);
+      // YARD (the yard computer, 4 Nov 2026) doesn't chat either.
+      for (const who of ["VIEWER", "TIMESHEETS", ...(U.YARD ? ["YARD"] : [])]) t.status(await c.get(`/api/messages/${thread}`, who), 403, `${who} GET a thread`);
+      if (U.YARD) t.status(await c.post(`/api/messages/${thread}`, "YARD", { body: "yard post" }), 403, "YARD POST in a thread");
       t.status(await c.get(`/api/messages/${thread}`, null), 401, "no login GET a thread");
       const still = (await c.json(`/api/messages/${thread}`, "ACCOUNTS")).body?.messages ?? [];
       t.ok(still.length === 1 && still[0].id === msg && !still[0].edited && !still[0].deleted, "the thread is unchanged after the strangers' attempts");
@@ -57,6 +59,7 @@ export default {
       t.status(await c.patch(`/api/users/${U.DIRECTOR.id}`, "ADMIN_PLAIN", body), 403, `SEC-002: a non-owner Admin changes a DIRECTOR login's ${field}`);
     t.status(await c.patch(`/api/users/${U.MANAGER_DIRECTOR.id}`, "ADMIN_PLAIN", { password: "Release-check-z-" + Date.now() }), 403, "SEC-002: a non-owner Admin resets a director-access login's password");
     t.status(await c.post("/api/users", "ADMIN_PLAIN", { name: "RC new director " + Date.now(), email: `rc-dir-${Date.now()}@example.test`, role: "DIRECTOR", password: "Release-check-pass-1" }), 403, "a non-owner Admin creates a DIRECTOR login");
+    if (U.YARD && c.hasPath("src/lib/yardRole.test.ts")) t.status(await c.post("/api/users", "ADMIN_PLAIN", { name: "RC new yard " + Date.now(), email: `rc-yard-${Date.now()}@example.test`, role: "YARD", password: "Release-check-pass-1" }), 403, "a non-owner Admin creates a YARD login (4 Nov 2026)");
     const taken = (await c.db.user.findUnique({ where: { id: U.VIEWER.id }, select: { name: true } }))?.name;
     t.status(await c.post("/api/users", "ADMIN_PLAIN", { name: taken?.toUpperCase(), email: `rc-dup-${Date.now()}@example.test`, role: "VIEWER", password: "Release-check-pass-1" }), 400, "SEC-002: a new login with an active login's name (any case) is refused");
     t.status(await c.patch(`/api/users/${U.TIMESHEETS.id}`, "ADMIN_PLAIN", { name: taken }), 400, "SEC-002: renaming a login to another active login's name is refused");

@@ -132,6 +132,7 @@ export const TEST_ROLES = {
   ACCOUNTS: { role: "ACCOUNTS" },
   DIRECTOR: { role: "DIRECTOR" },
   COORDINATOR: { role: "COORDINATOR" }, // Alex, the project coordinator (2 Nov 2026) - checks/63-coordinator.mjs
+  YARD: { role: "YARD" }, // the yard computer downstairs (4 Nov 2026) - checks/69-yard-role.mjs
 };
 export async function makeUsers(db) {
   const tag = randomBytes(4).toString("hex");

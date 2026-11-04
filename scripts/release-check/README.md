@@ -42,7 +42,7 @@ Exit code: **0** everything passed (SKIPPED only where a check is not applicable
    `--accept-data-loss`. Any existing table dropped or changing row count is a FAIL.
 6. `npm run build`.
 7. Throwaway logins for MANAGER, MANAGER + director access, ADMIN + director access, ADMIN, VIEWER, TIMESHEETS,
-   ACCOUNTS, DIRECTOR and COORDINATOR (random passwords, in memory only - no credential files), and fresh SUPERVISOR / OFFICE
+   ACCOUNTS, DIRECTOR, COORDINATOR and YARD (random passwords, in memory only - no credential files), and fresh SUPERVISOR / OFFICE
    links for people who already have one. Two logins are known by email, not role - the owner and the Operations AI
    (Building Agent): on the COPY only their password is replaced with a random in-memory one (created if missing).
 8. Starts `next start` on 127.0.0.1:<port> with `lib/outbound-guard.cjs` preloaded: every TCP connection to a
@@ -58,7 +58,7 @@ Exit code: **0** everything passed (SKIPPED only where a check is not applicable
 | id | covers |
 |---|---|
 | smoke | pages, core APIs, site links, scope PDF, sign-in gate, logout; `/api/users` 403 for a Manager is expected |
-| access-matrix | every GET API vs no login / TIMESHEETS / DIRECTOR / ACCOUNTS / COORDINATOR - outside `expected.mjs` they must 401/403 |
+| access-matrix | every GET API vs no login / TIMESHEETS / DIRECTOR / ACCOUNTS / COORDINATOR / YARD - outside `expected.mjs` they must 401/403 |
 | director-wall | Directors screen = Tracking, writes and Estimating refused, only the owner hands out DIRECTOR |
 | tracking-integrity | every project: daily = categories = locked + estimated + invoiced = total; forecast >= spent |
 | payroll | access, hours-only CSVs, GPS / engagement hidden from Managers, supervisor hours on the link |
@@ -76,6 +76,7 @@ Exit code: **0** everything passed (SKIPPED only where a check is not applicable
 | questions-chat | only when `src/app/api/messages` exists: Accounts -> Questions access, Operations AI questions (targets, 20 a day, tag), answers change nothing, office chat roles, never on links, edit / delete own only, history, owner-only read-all without marking seen |
 | negative-auth | strangers to a one-to-one can't read / post / edit / delete / mark seen; non-owner Admins can't change or create the Building Agent or a director login; unique and reserved names; TFN / bank refused in chat; Manager chat about a QUERY refused; cross-site writes 403; security headers (writes a thread) |
 | coordinator | the COORDINATOR login: lands on /coordinator; views timesheets / sign-ins / Day Review / calendar with every write there refused; tools add / edit / move / fault / delete allowed, toolbox create / rename / re-supervise / retire refused; hire add / extend / off-hire with money fields and archiving refused and the Manager's rate and notes untouched; own purchase requests, never approve; office chat; no $ + digit in any reply (writes a hire item, a tool, a fault, a request, a thread) |
+| yard-role | only when `src/lib/yardRole.test.ts` exists: the YARD login (the yard computer, 4 Nov 2026) lands on /yard; its pages are exactly /yard + the Tools pages (AppFrame / nav checked in source); tools add / edit / move / fault / delete like the coordinator, toolbox create / rename / re-supervise / retire refused; a Manager's note amount never reaches it; board / Tracking / Hire / purchases / timesheets / sign-ins / chat / documents / Assistant / Directors / Accounts / Users refused; own alerts; only the owner creates / gives / takes away YARD, never director access; no $ + digit in any reply (writes a tool, a fault, a login) |
 | project-pickers | only when `src/lib/projectPicker.ts` exists: `/api/projects` (Hire and job forms) and in-app `/api/purchases` list inactive + completed projects, the OFFICE link's picker stays active-only, hire / purchases accept an inactive or completed project, a job on a completed project keeps its date warning, `PATCH {status: ACTIVE}` refused below Manager and done by a Manager (writes 3 projects, a hire item, a job, a request) |
 | project-notes | PP-005: `/api/projects` and `/api/projects/:id` never send a project's notes to a Viewer; Managers / Admins see them as typed, the coordinator with amounts taken out (writes a project) |
 | viewer-safety | the candidate's own `scripts/check-viewer-safety.ts` |

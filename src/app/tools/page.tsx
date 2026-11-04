@@ -28,13 +28,14 @@ const conditionPill = (c: string) =>
 
 export default function ToolsPage() {
   const [byPhoto, setByPhoto] = useState<null | (() => Promise<void>)>(null);
-  // The coordinator (2 Nov 2026, Ilies) adds, edits, moves and deletes tools the way a Manager does.
-  const { canEdit, coordinatorOnly } = useAuth();
+  // The coordinator (2 Nov 2026, Ilies) adds, edits, moves and deletes tools the way a Manager does; so does the yard
+  // computer (Ilies, 4 Nov 2026).
+  const { canEdit, coordinatorOnly, yardOnly } = useAuth();
   return (
     <>
       <RegisterPage<ToolDTO>
         config={{
-          canEdit: canEdit || coordinatorOnly,
+          canEdit: canEdit || coordinatorOnly || yardOnly,
           title: "Tools",
           subtitle: "Every tagged tool, its serial number, and the toolbox it belongs in.",
           addLabel: "Add tool by hand",

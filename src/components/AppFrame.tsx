@@ -4,7 +4,7 @@ import { useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import AuthProvider, { useAuth } from "./AuthProvider";
 import TopNav from "./TopNav";
-import { isCoordinatorPage } from "@/lib/roles";
+import { isCoordinatorPage, isYardPage } from "@/lib/roles";
 
 const BARE_PAGES = ["/login", "/setup"];
 
@@ -34,22 +34,25 @@ export default function AppFrame({ children }: { children: React.ReactNode }) {
   );
 }
 
-// The one-page roles: review-only timesheets, the invoices inbox (accounts), the directors and the coordinator.
+// The one-page roles: review-only timesheets, the invoices inbox (accounts), the directors, the coordinator and the yard.
 // Every other page sends them back to theirs. The data routes
 // refuse them anyway - this keeps the screen tidy.
 function OnePageGate({ path, children }: { path: string; children: React.ReactNode }) {
-  const { timesheetsOnly, accountsOnly, directorOnly, coordinatorOnly } = useAuth();
+  const { timesheetsOnly, accountsOnly, directorOnly, coordinatorOnly, yardOnly } = useAuth();
   const router = useRouter();
-  const home = timesheetsOnly ? "/timesheets" : accountsOnly ? "/accounts" : directorOnly ? "/directors" : coordinatorOnly ? "/coordinator" : null;
+  const home = timesheetsOnly ? "/timesheets" : accountsOnly ? "/accounts" : directorOnly ? "/directors" : coordinatorOnly ? "/coordinator"
+    : yardOnly ? "/yard" : null;
   // Directors-only logins (25 Oct 2026) have a small section: /directors and the pages under it.
   // Accounts (26 Oct 2026): /accounts and its pages, plus the invoices inbox.
   // Both have Messages, the office chat (27 Oct 2026, docs/accounts/QUESTIONS-AND-CHAT-DESIGN.md).
   // The coordinator (2 Nov 2026): his dashboard and the pages in lib/roles.ts COORDINATOR_PAGES.
+  // The yard computer (Ilies, 4 Nov 2026): /yard and the Tools pages in lib/roles.ts YARD_PAGES.
   const elsewhere = !!home && path !== home
     && !((directorOnly || accountsOnly) && path === "/messages")
     && !(directorOnly && path.startsWith("/directors/"))
     && !(accountsOnly && (path.startsWith("/accounts/") || path === "/invoices"))
-    && !(coordinatorOnly && isCoordinatorPage(path));
+    && !(coordinatorOnly && isCoordinatorPage(path))
+    && !(yardOnly && isYardPage(path));
   useEffect(() => {
     if (elsewhere && home) router.replace(home);
   }, [elsewhere, home, router]);

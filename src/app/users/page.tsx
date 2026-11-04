@@ -30,6 +30,9 @@ const ROLE_OPTIONS = [
 // works tools and hire (no dollar figures); purchase requests, messages, site & safety documents. Only the owner
 // can give or take it away (Ilies, 2 Nov 2026: "Only you (the owner)").
 const COORDINATOR_OPTION = { value: "COORDINATOR", label: "Coordinator — tools, hire, timesheets & sign-ins view; no Operations" };
+// The yard computer downstairs (Ilies, 4 Nov 2026): the yard jobs and the Tools pages, no money, nothing else of
+// Operations. Only the owner can give or take it away.
+const YARD_OPTION = { value: "YARD", label: "Yard computer: yard jobs and tools only" };
 // Directors-only login (25 Oct 2026) - only the owner can give or take it away.
 const DIRECTOR_OPTION = { value: "DIRECTOR", label: "Director — company overview only, no Operations" };
 
@@ -41,6 +44,7 @@ const ROLE_STYLE: Record<string, string> = {
   ACCOUNTS: "bg-amber-900/50 text-amber-300",
   DIRECTOR: "bg-sky-900/50 text-sky-300",
   COORDINATOR: "bg-teal-900/50 text-teal-300",
+  YARD: "bg-orange-900/50 text-orange-300",
 };
 
 function when(iso: string | null) {
@@ -82,10 +86,11 @@ export default function UsersPage() {
       key: "role",
       label: "Role",
       type: "select",
-      // The owner can pick Director and Coordinator; anyone else only sees one on someone who already has it (and can't change it).
-      options: isOwner(me?.email) ? [...ROLE_OPTIONS, COORDINATOR_OPTION, DIRECTOR_OPTION]
+      // The owner can pick Director, Coordinator and Yard; anyone else only sees one on someone who already has it (and can't change it).
+      options: isOwner(me?.email) ? [...ROLE_OPTIONS, COORDINATOR_OPTION, YARD_OPTION, DIRECTOR_OPTION]
         : (editing as UserRow | null)?.role === "DIRECTOR" ? [...ROLE_OPTIONS, DIRECTOR_OPTION]
-        : (editing as UserRow | null)?.role === "COORDINATOR" ? [...ROLE_OPTIONS, COORDINATOR_OPTION] : ROLE_OPTIONS,
+        : (editing as UserRow | null)?.role === "COORDINATOR" ? [...ROLE_OPTIONS, COORDINATOR_OPTION]
+        : (editing as UserRow | null)?.role === "YARD" ? [...ROLE_OPTIONS, YARD_OPTION] : ROLE_OPTIONS,
       full: true,
     },
     ...(!isNew

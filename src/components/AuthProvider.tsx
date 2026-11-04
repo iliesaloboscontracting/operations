@@ -22,6 +22,7 @@ interface AuthCtx {
   isDirector: boolean; // sees the Directors overview (the API checks this too)
   directorOnly: boolean; // a directors-only login (Nick, Yoel) - the Directors pages and nothing else
   coordinatorOnly: boolean; // the project coordinator (Alex) - /coordinator and its pages only (lib/roles.ts)
+  yardOnly: boolean; // the yard computer (4 Nov 2026) - /yard and the Tools pages only (lib/roles.ts YARD_PAGES)
   signOut: () => Promise<void>;
 }
 
@@ -35,6 +36,7 @@ const Ctx = createContext<AuthCtx>({
   isDirector: false,
   directorOnly: false,
   coordinatorOnly: false,
+  yardOnly: false,
   signOut: async () => {},
 });
 
@@ -76,6 +78,7 @@ export default function AuthProvider({
         isDirector: !!user?.directorAccess,
         directorOnly: user?.role === "DIRECTOR",
         coordinatorOnly: user?.role === "COORDINATOR",
+        yardOnly: user?.role === "YARD",
         signOut,
       }}
     >

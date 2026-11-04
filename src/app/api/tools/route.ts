@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getCurrentUser, guardOrCoordinator } from "@/lib/auth";
+import { getCurrentUser, guardTools } from "@/lib/auth";
 import { viewJson } from "@/lib/coordinatorView"; // the coordinator gets no dollar figure (2 Nov 2026)
 import { withErrorHandling } from "@/lib/apiHandler";
 import { createTool } from "@/lib/toolCreate";
 
 export const GET = withErrorHandling(async () => {
-  const denied = await guardOrCoordinator("VIEWER");
+  const denied = await guardTools("VIEWER");
   if (denied) return denied;
   const tools = await prisma.tool.findMany({
     orderBy: { tag: "asc" },
@@ -26,7 +26,7 @@ export const GET = withErrorHandling(async () => {
 // rules as every other way in (lib/toolCreate.ts): a serial or "plate not
 // readable", and never the same serial twice.
 export const POST = withErrorHandling(async (req: NextRequest) => {
-  const denied = await guardOrCoordinator("MANAGER");
+  const denied = await guardTools("MANAGER");
   if (denied) return denied;
   const user = await getCurrentUser();
   const body = await req.json();
@@ -38,5 +38,5 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
     needsCheck: false,
   });
   if (!result.ok) return NextResponse.json({ error: result.error, duplicate: result.duplicate ?? null }, { status: result.status });
-  return NextResponse.json(await prisma.tool.findUnique({ where: { id: result.tool.id } }), { status: 201 });
+  return viewJson(await prisma.tool.findUnique({ where: { id: result.tool.id } }), { status: 201 });
 });

@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { guardOrCoordinator } from "@/lib/auth";
+import { guardTools } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { mediaTypeOf, readPhoto } from "@/lib/toolPhotos";
 
 // GET /api/tools/photos/:id -> the image itself, for anyone signed in.
 export const GET = withErrorHandling(async (_req: NextRequest, { params: paramsP }: { params: Promise<{ id: string }> }) => {
   const params = await paramsP;
-  const denied = await guardOrCoordinator("VIEWER");
+  const denied = await guardTools("VIEWER");
   if (denied) return denied;
   const photo = await prisma.toolPhoto.findUnique({ where: { id: params.id }, select: { fileName: true } });
   if (!photo) return NextResponse.json({ error: "not found" }, { status: 404 });

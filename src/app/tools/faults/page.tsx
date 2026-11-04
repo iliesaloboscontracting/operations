@@ -35,9 +35,9 @@ function hiltiSummary(i: ToolIssueDTO) {
 }
 
 export default function FaultsPage() {
-  // The coordinator works faults and Hilti swaps too (Ilies, 2 Nov 2026).
-  const { canEdit: manager, coordinatorOnly } = useAuth();
-  const canEdit = manager || coordinatorOnly;
+  // The coordinator works faults and Hilti swaps too (Ilies, 2 Nov 2026), and so does the yard computer (4 Nov 2026).
+  const { canEdit: manager, coordinatorOnly, yardOnly } = useAuth();
+  const canEdit = manager || coordinatorOnly || yardOnly;
   const [issues, setIssues] = useState<ToolIssueDTO[]>([]);
   const [tools, setTools] = useState<ToolDTO[]>([]);
   const [loading, setLoading] = useState(true);
