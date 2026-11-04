@@ -688,6 +688,21 @@ model StockTakeLine {
   @@index([stockTakeId])
   @@index([toolId])
 }
+
+// ST-002 (Ilies approved 4 Nov 2026): one row per shelf-photo reading, reserved BEFORE the Claude call (a reading that
+// then fails still counts - it may have been charged). Caps: SCAN_LIMIT per stock take and DAILY_SCAN_LIMIT per Sydney
+// day across all stock takes (lib/stockTake/rules.ts). Append-only.
+model StockTakeScan {
+  id          String   @id @default(cuid())
+  stockTakeId String
+  day         String // Sydney date, YYYY-MM-DD
+  by          String?
+  photos      Int
+  createdAt   DateTime @default(now())
+
+  @@index([day])
+  @@index([stockTakeId])
+}
 // A supervisor's digital toolbox: the tools (by serial / LOB tag) they should have.
 model Toolbox {
   id           String    @id @default(cuid())

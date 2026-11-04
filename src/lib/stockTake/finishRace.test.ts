@@ -20,7 +20,7 @@ function matches(row: Row, where: Row, tables: Record<string, Row[]>): boolean {
       const o = v as Row;
       if ("in" in o && !(o.in as unknown[]).includes(val)) return false;
       if ("not" in o && val === o.not) return false;
-      if ("lt" in o && !(val instanceof Date && val.getTime() < (o.lt as Date).getTime())) return false;
+      if ("lt" in o && !(o.lt instanceof Date ? val instanceof Date && val.getTime() < o.lt.getTime() : typeof val === "number" && val < (o.lt as number))) return false;
       continue;
     }
     if (val !== v) return false;
@@ -171,6 +171,37 @@ test("ST-001: a running finish holds its claim - a second Finish is 409 until it
   assert.equal(fresh.applied.length, 0);
   const stale = setup("FINISHING", new Date(Date.now() - 10 * 60_000));
   assert.ok("ok" in (await finishStockTake("st", decisions, undefined, actor, stale.deps)), "a claim from a finish that died is taken over");
+});
+
+test("ST-002: each reading is reserved before the Claude call; the stock take's cap and the day's cap refuse without calling it", async () => {
+  const { scanShelf } = await import("./store");
+  const { SCAN_LIMIT, DAILY_SCAN_LIMIT, SCAN_LIMIT_HIT, DAILY_SCAN_LIMIT_HIT, sydneyDay } = await import("./rules");
+  const f = setup();
+  let calls = 0;
+  (f.deps as unknown as Row).read = async () => { calls++; assert.equal(f.tables.stockTake[0].scans, 1, "counted before the reading"); assert.equal(f.tables.stockTakeScan.length, 1); throw new Error("reading failed"); };
+  await assert.rejects(scanShelf("st", ["p1"], actor, f.deps), /reading failed/);
+  assert.equal(calls, 1);
+  assert.equal(f.tables.stockTake[0].scans, 1, "a failed reading isn't given back");
+  assert.equal(f.tables.stockTakeScan[0].day, sydneyDay(new Date()));
+  // This stock take at its cap: 429, no call.
+  f.tables.stockTake[0].scans = SCAN_LIMIT;
+  assert.deepEqual(await scanShelf("st", ["p1"], actor, f.deps), { error: SCAN_LIMIT_HIT, status: 429 });
+  // Two scans racing for the last place: the conditional increment lets one through.
+  f.tables.stockTake[0].scans = SCAN_LIMIT - 1;
+  (f.deps as unknown as Row).read = async () => { calls++; return { items: [], notes: "" }; };
+  const both = await Promise.all([scanShelf("st", ["p1"], actor, f.deps), scanShelf("st", ["p1"], actor, f.deps)]);
+  assert.deepEqual(both.map((x) => ("error" in x ? (x as { status: number }).status : 200)).sort(), [200, 429]);
+  assert.equal(f.tables.stockTake[0].scans, SCAN_LIMIT);
+  // The day's cap across every stock take.
+  const g = setup();
+  for (let i = 0; i < DAILY_SCAN_LIMIT; i++) g.tables.stockTakeScan.push({ id: `s${i}`, stockTakeId: `other${i % 3}`, day: sydneyDay(new Date()), photos: 1 });
+  let gCalls = 0;
+  (g.deps as unknown as Row).read = async () => { gCalls++; return { items: [], notes: "" }; };
+  assert.deepEqual(await scanShelf("st", ["p1"], actor, g.deps), { error: DAILY_SCAN_LIMIT_HIT, status: 429 });
+  assert.equal(gCalls, 0);
+  // A finished stock take: 409, not 429.
+  const h = setup("FINISHED");
+  assert.equal(((await scanShelf("st", ["p1"], actor, h.deps)) as { status: number }).status, 409);
 });
 
 test("ST-001: a finish refused for undecided tools claims nothing", async () => {

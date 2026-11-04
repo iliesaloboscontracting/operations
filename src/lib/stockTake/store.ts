@@ -16,7 +16,8 @@ import { compareToolbox } from "../toolboxCheck";
 import { strippedTextWrite } from "../coordinatorHire";
 import { seesAmountsStripped } from "../toolTextWrite";
 import {
-  ALREADY_APPLIED, ALREADY_OPEN, CANT_CANCEL_FINISHING, FINISH_LEASE_MS, FINISH_RUNNING, MAX_SCAN_PHOTOS, NOT_OPEN, SCAN_LIMIT, closedMessage, expectedFor,
+  ALREADY_APPLIED, ALREADY_OPEN, CANT_CANCEL_FINISHING, DAILY_SCAN_LIMIT, DAILY_SCAN_LIMIT_HIT, FINISH_LEASE_MS, FINISH_RUNNING, MAX_SCAN_PHOTOS,
+  NOT_OPEN, SCAN_LIMIT, SCAN_LIMIT_HIT, closedMessage, expectedFor, sydneyDay,
   extraError, isMissingCandidate, isOpenish, lineChange, noteError, openKeyFor, planFinish, planScan, summarise,
   type CurrentTool, type Decisions, type LineAction,
 } from "./rules";
@@ -227,19 +228,43 @@ export async function moveExtraToYard(id: string, lineId: string, actor: Actor, 
 }
 
 // ---------- a shelf photo ----------
+class ReadingRefused extends Error { constructor(readonly why: "take" | "day") { super(why); } }
+async function reserveReading(id: string, photos: number, actor: Actor, db: Db): Promise<{ scans: number } | Fail> {
+  const day = sydneyDay(new Date());
+  try {
+    return await db.$transaction(async (tx) => {
+      const r = await tx.stockTake.updateMany({ where: { id, status: "OPEN", scans: { lt: SCAN_LIMIT } }, data: { scans: { increment: 1 } } });
+      if (!r.count) throw new ReadingRefused("take");
+      if ((await tx.stockTakeScan.count({ where: { day } })) >= DAILY_SCAN_LIMIT) throw new ReadingRefused("day");
+      await tx.stockTakeScan.create({ data: { stockTakeId: id, day, by: actor.name, photos } });
+      const now = await tx.stockTake.findUnique({ where: { id }, select: { scans: true } });
+      return { scans: now?.scans ?? SCAN_LIMIT };
+    });
+  } catch (e) {
+    if (!(e instanceof ReadingRefused)) throw e;
+    if (e.why === "day") return fail(DAILY_SCAN_LIMIT_HIT, 429);
+    const s = await db.stockTake.findUnique({ where: { id }, select: { status: true } });
+    return s?.status === "OPEN" ? fail(SCAN_LIMIT_HIT, 429) : fail(closedMessage(s?.status), 409);
+  }
+}
 export async function scanShelf(id: string, photoIds: unknown, actor: Actor, deps: Deps = REAL) {
   const { db } = deps;
   const s = await openOrFail(id, db);
   if ("error" in s) return s;
   const ids = Array.isArray(photoIds) ? photoIds.filter((x): x is string => typeof x === "string") : [];
   if (ids.length === 0 || ids.length > MAX_SCAN_PHOTOS) return fail(`Add 1 to ${MAX_SCAN_PHOTOS} photos of the shelf.`, 400);
-  if (s.scans >= SCAN_LIMIT) return fail(`That's the most shelf photos one stock take can read (${SCAN_LIMIT}) - tick the rest by hand.`, 429);
+  if (s.scans >= SCAN_LIMIT) return fail(SCAN_LIMIT_HIT, 429);
   const photos = await db.toolPhoto.findMany({ where: { id: { in: ids }, kind: "CHECK" }, select: { id: true, fileName: true } });
   if (photos.length !== ids.length) return fail("One of the photos is missing - upload them again.", 400);
   const ordered = ids.map((pid) => photos.find((p) => p.id === pid)!);
 
+  // ST-002 (Ilies approved 4 Nov 2026): the reading is reserved before the Claude call, in one transaction - this
+  // stock take's count goes up only while it's OPEN and under SCAN_LIMIT, and today's readings across every stock
+  // take must be under DAILY_SCAN_LIMIT (the stock take row is written first, so two scans can't both take the last
+  // place). A reading that then fails isn't given back: it may have been charged.
+  const reserved = await reserveReading(id, ids.length, actor, db);
+  if (isFail(reserved)) return reserved;
   const reading = await deps.read(ordered.map((p) => p.fileName)); // throws VisionNotConfigured -> 503 in the route
-  await db.stockTake.update({ where: { id }, data: { scans: { increment: 1 } } });
   const tools = await db.tool.findMany({
     where: { condition: { not: "Swapped out" } },
     select: { id: true, tag: true, name: true, brand: true, model: true, serialNumber: true, condition: true, toolboxId: true, toolbox: { select: { name: true } } },
@@ -278,7 +303,7 @@ export async function scanShelf(id: string, photoIds: unknown, actor: Actor, dep
     probably: plan.probably,
     unknown: plan.unknown.map((u) => ({ description: u.description, brand: u.brand, model: u.model, lobTag: u.lobTag, serialNumber: u.serialNumber, possibly: u.possibly })),
     notes: plan.notes,
-    scansLeft: Math.max(0, SCAN_LIMIT - s.scans - 1),
+    scansLeft: Math.max(0, SCAN_LIMIT - reserved.scans),
   };
 }
 

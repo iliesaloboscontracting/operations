@@ -18,6 +18,12 @@ export const RESULTS = ["UNCHECKED", "FOUND", "NOT_FOUND", "EXTRA"] as const;
 export type Result = (typeof RESULTS)[number];
 export const CONDITIONS_SEEN = ["Good", "Needs repair"] as const;
 export const SCAN_LIMIT = 40; // shelf-photo readings per stock take (each is one Claude call - the toolbox check's)
+// ST-002 (Ilies approved 4 Nov 2026): readings per Sydney day across every stock take, counted from StockTakeScan rows
+// (one per reading, reserved before the call - failed readings count too).
+export const DAILY_SCAN_LIMIT = 120;
+export const SCAN_LIMIT_HIT = `That's the most shelf photos one stock take can read (${SCAN_LIMIT}) - tick the rest by hand.`;
+export const DAILY_SCAN_LIMIT_HIT = `That's the most shelf photos that can be read in a day (${DAILY_SCAN_LIMIT}) - tick the rest by hand, or scan again tomorrow.`;
+export const sydneyDay = (d: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: "Australia/Sydney" }).format(d);
 export const MAX_SCAN_PHOTOS = 4;
 export const NOTE_MAX = 500;
 
