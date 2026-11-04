@@ -189,6 +189,12 @@ export default {
       t.status(await send("PATCH", c.site(yard, `/yard/${p3}`), null, { action: "READY", who: "RC Sam", photo: PNG }), 409, "YD-003: pulled back, then READY -> 409");
       t.ok((await status(p3)) === "SEEN", "YD-003: it stays SEEN (with the office)");
     }
+    // YD-004: a name typed on the shared phone with a dollar figure in it is refused.
+    const y4 = (await ask("TOOLS", { item: `${tag} YD-004 name` }, { sendTo: "YARD" })).body?.request?.id;
+    if (t.ok(!!y4, "YD-004: a yard job")) {
+      t.status(await send("PATCH", c.site(yard, `/yard/${y4}`), null, { action: "ON_IT", who: "Sam $5" }), 400, "YD-004: who 'Sam $5' -> 400");
+      t.ok((await c.db.siteRequestEvent.count({ where: { requestId: y4, action: "YARD_ON_IT" } })) === 0, "YD-004: nothing recorded");
+    }
     // YD-002: only an Admin makes the shared Yard link; personal links stay Manager+.
     t.status(await c.post("/api/site-links", "MANAGER", { shared: "Yard" }), 403, "YD-002: a Manager can't make the shared Yard link");
     t.status(await c.post("/api/site-links", "ADMIN", { shared: "Yard" }), 201, "YD-002: an Admin can");

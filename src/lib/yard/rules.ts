@@ -7,6 +7,7 @@
 // allowed, and how the list is grouped. No database code (used in browsers and
 // `npm test`), and nothing here ever carries a dollar figure.
 import { OFFICE_KINDS } from "../requestTypes";
+import { assertNoMoney } from "../moneyGuard";
 
 // The three kinds a supervisor can send straight to the yard (default Yard on the form).
 export const YARD_KINDS = ["TOOLS", "MATERIALS", "DELIVERY"];
@@ -126,7 +127,10 @@ export function groupYardJobs<T extends Listable & { collectedAt?: string | null
 }
 
 // Name typed on the shared yard phone, as every shared-link action stores it: "Yard - Sam".
+// YD-004 (Ilies approved 4 Nov 2026): a "name" with a dollar figure in it is refused (null -> the
+// route answers 400 "Put your name in") - it would otherwise ride readyBy / onItBy / collectedBy onto
+// the supervisor's link. assertNoMoney is a plain regex with no imports - safe in the browser too.
 export const sharedWho = (label: string, who: unknown) => {
   const w = typeof who === "string" ? who.replace(/\s+/g, " ").trim().slice(0, 40) : "";
-  return w.length >= 2 ? `${label} - ${w}` : null;
+  return w.length >= 2 && assertNoMoney(w) ? `${label} - ${w}` : null;
 };

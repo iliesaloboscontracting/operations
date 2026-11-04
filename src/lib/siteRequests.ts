@@ -195,14 +195,16 @@ function yardProgress(r: Req) {
   if (!r.yardAt || !shown) return null;
   const ready = r.status !== "YARD" && !!r.readyAt;
   const collected = r.status === "DONE" ? last(r, "COLLECTED") : null;
+  // YD-004 (Ilies approved 4 Nov 2026): names typed on a phone go through the money rule too
+  // (sharedWho already refuses one with a dollar figure - this covers anything stored before).
   return {
     readyAt: ready ? iso(r.readyAt) : null,
-    readyBy: ready ? r.readyBy : null,
+    readyBy: ready ? linkText(r.readyBy) : null,
     readyNote: ready ? linkText(r.readyNote) : null,
     hasReadyPhoto: ready && !!r.readyPhotoFile,
-    onItBy: r.status === "YARD" ? (last(r, "YARD_ON_IT")?.by ?? null) : null,
+    onItBy: r.status === "YARD" ? linkText(last(r, "YARD_ON_IT")?.by ?? null) : null,
     collectedAt: collected ? collected.at.toISOString() : null,
-    collectedBy: collected?.by ?? null,
+    collectedBy: linkText(collected?.by ?? null),
   };
 }
 
@@ -225,11 +227,11 @@ export const yardView = (r: Req) => {
     note: linkText(r.note),
     officeNote: linkText(r.officeNote), // the Admin's note when they sent it down
     hasPhoto: !!r.photoFile,
-    requestedBy: r.requestedBy,
+    requestedBy: linkText(r.requestedBy) ?? "",
     status: r.status,
     createdAt: b.createdAt,
     yardAt: iso(r.yardAt),
-    yardBy: r.yardBy,
+    yardBy: linkText(r.yardBy),
     ...(yardProgress(r) ?? { readyAt: null, readyBy: null, readyNote: null, hasReadyPhoto: false, onItBy: null, collectedAt: null, collectedBy: null }),
   };
 };

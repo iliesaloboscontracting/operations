@@ -97,6 +97,23 @@ test("a shared-link name is required and stored 'Yard - Sam'", () => {
   assert.equal(sharedWho("Yard", "x".repeat(80))!.length, "Yard - ".length + 40);
 });
 
+test("YD-004: a name with a dollar figure is refused", () => {
+  assert.equal(sharedWho("Yard", "Sam $5"), null);
+  assert.equal(sharedWho("Yard", "$ 200 Sam"), null);
+  assert.equal(sharedWho("Yard", "Sam #5"), "Yard - Sam #5");
+});
+
+test("YD-004: names already stored with a dollar figure never reach a link or the yard", () => {
+  const r = req({
+    status: "READY", readyAt: new Date("2026-11-04T04:00:00Z"), readyBy: "Yard - Sam $5", readyPhotoFile: "1-0123456789abcdef.jpg",
+    yardBy: "Tom $10", requestedBy: "Tom $10",
+  });
+  assert.ok(!DOLLAR.test(JSON.stringify(yardView(r))));
+  assert.ok(!DOLLAR.test(JSON.stringify(siteView(r).yard)));
+  const done = req({ status: "DONE", outcome: "Collected", doneAt: new Date(), readyAt: new Date(), events: [ev("COLLECTED", "Yard - $9 Joe")] });
+  assert.ok(!DOLLAR.test(JSON.stringify(siteView(done).yard)));
+});
+
 // ---------- the list ----------
 
 test("the default list: open + ready, and collected in the last 7 days only", () => {
