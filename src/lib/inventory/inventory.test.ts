@@ -100,3 +100,11 @@ test("the shared yard phone link never takes stock; /api/yard passes the lines t
   const inApp = readFileSync(path.join(__dirname, "../../app/api/yard/[id]/route.ts"), "utf8");
   assert.match(inApp, /stock: lines\.lines/);
 });
+
+test("CI-002: the below-minimum mark is set / cleared only while the item is as it was read", () => {
+  const store = readFileSync(path.join(__dirname, "store.ts"), "utf8");
+  assert.match(store, /const asRead = \{ id: i\.id, onHand: i\.onHand, minLevel: i\.minLevel, active: i\.active \};/);
+  assert.match(store, /where: \{ \.\.\.asRead, belowMinAlertedAt: \{ not: null \} \}, data: \{ belowMinAlertedAt: null \}/);
+  assert.match(store, /where: \{ \.\.\.asRead, active: true, belowMinAlertedAt: null \}, data: \{ belowMinAlertedAt: new Date\(\) \}/);
+  assert.match(store, /if \(!count\) continue;/, "no alert when nothing matched");
+});

@@ -182,9 +182,12 @@ export async function afterStockChange(itemIds: string[]) {
   const items = await prisma.inventoryItem.findMany({ where: { id: { in: itemIds } } });
   for (const i of items) {
     const step = belowMinStep(i);
-    if (step.clear) await prisma.inventoryItem.updateMany({ where: { id: i.id, belowMinAlertedAt: { not: null } }, data: { belowMinAlertedAt: null } });
+    // CI-002 (Ilies approved 4 Nov 2026): set / clear only while the item is still as it was read (its stock, minimum and
+    // active flag) - if a movement or an edit landed in between, its own afterStockChange decides; this one skips.
+    const asRead = { id: i.id, onHand: i.onHand, minLevel: i.minLevel, active: i.active };
+    if (step.clear) await prisma.inventoryItem.updateMany({ where: { ...asRead, belowMinAlertedAt: { not: null } }, data: { belowMinAlertedAt: null } });
     if (!step.alert) continue;
-    const { count } = await prisma.inventoryItem.updateMany({ where: { id: i.id, belowMinAlertedAt: null }, data: { belowMinAlertedAt: new Date() } });
+    const { count } = await prisma.inventoryItem.updateMany({ where: { ...asRead, active: true, belowMinAlertedAt: null }, data: { belowMinAlertedAt: new Date() } });
     if (!count) continue;
     await pushToAdmins({
       title: "Stock below minimum",
