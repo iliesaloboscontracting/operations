@@ -173,5 +173,11 @@ export default {
     for (const pth of [c.site(yard, "/yard"), c.site(yard), c.site(L.sup), "/api/yard"]) await read(pth, pth === "/api/yard" ? "MANAGER" : null);
     const leaks = seen.filter(([, text]) => !noMoney(text)).map(([p]) => c.scrub(p));
     t.ok(leaks.length === 0, `no "$" + digit in any of the ${seen.length} yard / link replies`, leaks.join(", "));
+
+    // (9) Security fixes (Ilies approved YD-001..009, 4 Nov 2026). Last, because making a new shared Yard link switches
+    // off every older one - including this check's synthetic `yard` link.
+    // YD-002: only an Admin makes the shared Yard link; personal links stay Manager+.
+    t.status(await c.post("/api/site-links", "MANAGER", { shared: "Yard" }), 403, "YD-002: a Manager can't make the shared Yard link");
+    t.status(await c.post("/api/site-links", "ADMIN", { shared: "Yard" }), 201, "YD-002: an Admin can");
   },
 };

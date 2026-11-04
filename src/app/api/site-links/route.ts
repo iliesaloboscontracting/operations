@@ -46,6 +46,11 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
     return NextResponse.json({ url: siteUrl(out.secret, req.nextUrl.origin), name: out.name }, { status: 201 });
   }
   if (body.shared !== undefined) {
+    // YD-002 (Ilies approved 4 Nov 2026): the shared Yard link now works the yard's job list
+    // (ready / can't do / collected) for anyone holding it - only an Admin makes one.
+    // Personal links stay Manager+.
+    const adminOnly = await guard("ADMIN");
+    if (adminOnly) return NextResponse.json({ error: "Only an Admin can make the shared Yard link." }, { status: 403 });
     if (body.shared !== "Yard") return NextResponse.json({ error: "Unknown shared link." }, { status: 400 });
     const secret = newLinkSecret();
     const [, link] = await prisma.$transaction([

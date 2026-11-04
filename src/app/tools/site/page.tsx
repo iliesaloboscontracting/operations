@@ -47,7 +47,7 @@ const json = (url: string, method: string, body: unknown) =>
   fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 
 export default function FromSitePage() {
-  const { canEdit } = useAuth();
+  const { canEdit, isAdmin } = useAuth();
   const [subs, setSubs] = useState<Submission[]>([]);
   const [links, setLinks] = useState<SiteLinkRow[]>([]);
   const [boxes, setBoxes] = useState<ToolboxDTO[]>([]);
@@ -270,8 +270,11 @@ export default function FromSitePage() {
                       {drivers.map((p) => <option key={p.id} value={`driver:${p.id}`}>{p.name}</option>)}
                     </optgroup>
                   )}
+                  {/* YD-002 (Ilies approved 4 Nov 2026): only an Admin makes the shared Yard link. */}
                   <optgroup label="Shared">
-                    <option value="YARD">Yard - one link for anyone in the yard</option>
+                    {isAdmin
+                      ? <option value="YARD">Yard - one link for anyone in the yard</option>
+                      : <option value="" disabled>Yard link - an Admin makes this one</option>}
                   </optgroup>
                   {others.length > 0 && (
                     <optgroup label="Everyone else (office / yard link)">
@@ -305,7 +308,7 @@ export default function FromSitePage() {
                       : linkKind === "DRIVER"
                         ? "Driver link: tip dockets and fuel receipts - nothing else."
                       : linkKind === "YARD"
-                        ? "Shared yard link: tools into the inventory; each person types their name."
+                        ? "Shared yard link: yard jobs from site and tools into the inventory; each person types their name."
                         : "Office link: their requests to-do list and adding tools. No allocation needed."}
                   </p>
                 )}
