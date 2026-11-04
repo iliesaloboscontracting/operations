@@ -245,10 +245,16 @@ function MoveForm({ item, kind, sites, onClose, onSaved }: { item: ItemView; kin
 
 function HistoryPanel({ item, onClose }: { item: ItemView; onClose: () => void }) {
   const [moves, setMoves] = useState<Move[] | null>(null);
+  const [edits, setEdits] = useState<Edit[]>([]);
   const [err, setErr] = useState<string | null>(null);
   useEffect(() => {
     apiFetch(`/api/inventory/${item.id}`)
-      .then(async (r) => (r.ok ? setMoves(((await r.json()) as { movements: Move[] }).movements) : setErr(await serverErrorMessage(r, "Couldn't load the history."))))
+      .then(async (r) => {
+        if (!r.ok) return setErr(await serverErrorMessage(r, "Couldn't load the history."));
+        const d = (await r.json()) as { movements: Move[]; edits?: Edit[] };
+        setMoves(d.movements);
+        setEdits(d.edits ?? []);
+      })
       .catch(() => setErr("Couldn't load the history."));
   }, [item.id]);
   return (
@@ -275,7 +281,24 @@ function HistoryPanel({ item, onClose }: { item: ItemView; onClose: () => void }
             ))}
           </ol>
         )}
+        {/* CI-004 (Ilies approved 4 Nov 2026): every change to the item's details, who and when. */}
+        {edits.length > 0 && (
+          <>
+            <h3 className="mb-1 mt-5 text-xs font-semibold uppercase tracking-widest text-gray-500">Changes to the details</h3>
+            <ol className="space-y-1 text-xs text-gray-400">
+              {edits.map((e) => (
+                <li key={e.id}>
+                  <span className="text-gray-500">{when(e.at)}</span> · {e.by} · {EDIT_LABEL[e.field] ?? e.field}: {editValue(e.field, e.before)} → {editValue(e.field, e.after)}
+                </li>
+              ))}
+            </ol>
+          </>
+        )}
       </div>
     </div>
   );
 }
+type Edit = { id: string; field: string; before: string | null; after: string | null; by: string; at: string };
+const EDIT_LABEL: Record<string, string> = { name: "Name", category: "Category", unit: "Unit", minLevel: "Minimum", location: "Location", active: "In use" };
+const editValue = (field: string, v: string | null) =>
+  v === null ? "(blank)" : field === "active" ? (v === "true" ? "yes" : "retired") : field === "category" ? (CATEGORY_LABEL[v as keyof typeof CATEGORY_LABEL] ?? v) : v;

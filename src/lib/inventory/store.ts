@@ -9,7 +9,7 @@ import { pushToAdmins } from "../push";
 import { requestNo } from "../requestTypes";
 import { todaySydney } from "../today";
 import {
-  CATEGORY_LABEL, NO_AMOUNTS, STATUS_LABEL, belowMinStep, fmtQty, hasAmount, itemFields, planMovement, stockStatus,
+  CATEGORY_LABEL, NO_AMOUNTS, STATUS_LABEL, belowMinStep, fmtQty, hasAmount, itemEdits, itemFields, planMovement, stockStatus,
   type Category, type MoveKind,
 } from "./rules";
 
@@ -83,7 +83,7 @@ export async function createItem(body: Record<string, unknown>, actor: Actor): P
 }
 
 // Edit the fields, or retire (active false) / bring back (active true). Never deleted - the history stays.
-export async function updateItem(id: string, body: Record<string, unknown>, _actor: Actor): Promise<{ item: ItemView } | Fail> {
+export async function updateItem(id: string, body: Record<string, unknown>, actor: Actor): Promise<{ item: ItemView } | Fail> {
   const it = await prisma.inventoryItem.findUnique({ where: { id } });
   if (!it) return { error: "Not found.", status: 404 };
   const f = itemFields(body, true);
@@ -94,7 +94,12 @@ export async function updateItem(id: string, body: Record<string, unknown>, _act
   const active = data.active ?? it.active;
   const name = (f.data.name ?? it.name) as string;
   if (active && (f.data.name !== undefined || (data.active === true && !it.active)) && (await nameTaken(name, id))) return { error: NAME_TAKEN, status: 400 };
-  await prisma.inventoryItem.update({ where: { id }, data });
+  // CI-004 (Ilies approved 4 Nov 2026): one InventoryItemEdit row per field that really changed, in the same transaction.
+  const edits = itemEdits(it, { ...f.data, ...(data.active !== undefined ? { active: data.active as boolean } : {}) });
+  await prisma.$transaction(async (tx) => {
+    await tx.inventoryItem.update({ where: { id }, data });
+    for (const e of edits) await tx.inventoryItemEdit.create({ data: { itemId: id, ...e, by: actor.name, byUserId: actor.id } });
+  });
   await afterStockChange([id]); // a new minimum, or a retired item, can start or end "below minimum"
   return { item: itemView((await prisma.inventoryItem.findUnique({ where: { id } }))!) };
 }
@@ -162,7 +167,10 @@ export async function checkStockLines(lines: { itemId: string; qty: number }[]):
 }
 
 export async function itemHistory(itemId: string) {
-  const it = await prisma.inventoryItem.findUnique({ where: { id: itemId }, include: { movements: { orderBy: { at: "desc" }, take: 300 } } });
+  const it = await prisma.inventoryItem.findUnique({
+    where: { id: itemId },
+    include: { movements: { orderBy: { at: "desc" }, take: 300 }, edits: { orderBy: { at: "desc" }, take: 200 } }, // CI-004
+  });
   if (!it) return null;
   const reqIds = [...new Set(it.movements.map((m) => m.siteRequestId).filter(Boolean))] as string[];
   const reqs = reqIds.length ? await prisma.siteRequest.findMany({ where: { id: { in: reqIds } }, select: { id: true, number: true } }) : [];
@@ -173,6 +181,8 @@ export async function itemHistory(itemId: string) {
       id: m.id, kind: m.kind, change: m.change, balanceAfter: m.balanceAfter, countedQty: m.countedQty, reason: m.reason,
       siteLabel: m.siteLabel, request: m.siteRequestId ? (no.get(m.siteRequestId) ?? null) : null, siteRequestId: m.siteRequestId, by: m.by, at: m.at.toISOString(),
     })),
+    // CI-004: the details' change history - field, before, after, who, when.
+    edits: it.edits.map((e) => ({ id: e.id, field: e.field, before: e.before, after: e.after, by: e.by, at: e.at.toISOString() })),
   };
 }
 

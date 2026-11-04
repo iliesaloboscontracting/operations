@@ -156,6 +156,14 @@ export default {
     t.ok(!(await c.db.inventoryItem.findUnique({ where: { id: B }, select: { belowMinAlertedAt: true } }))?.belowMinAlertedAt, "retiring clears its below-minimum mark");
     t.status(await send("DELETE", `/api/inventory/${B}`, "ADMIN"), 405, "there's no delete");
     t.status(await send("PATCH", `/api/inventory/${B}`, "MANAGER", { onHand: 99 }), 400, "the quantity isn't edited directly");
+    // CI-004 (Ilies approved 4 Nov 2026): every edit is recorded, field by field, with before / after / who.
+    t.status(await send("PATCH", `/api/inventory/${A}`, "YARD", { minLevel: 6, location: "RC shelf C1" }), 200, "CI-004: the yard edits the minimum and the location");
+    const ed = await c.db.inventoryItemEdit.findMany({ where: { itemId: A }, orderBy: { at: "asc" } });
+    t.ok(ed.some((e) => e.field === "minLevel" && e.before === "5" && e.after === "6" && e.by === `Release check YARD` && e.byUserId === U.YARD.id)
+      && ed.some((e) => e.field === "location" && e.before === "RC shelf B2" && e.after === "RC shelf C1"), "CI-004: one row per changed field, before / after / by", JSON.stringify(ed.map((e) => [e.field, e.before, e.after, e.by])));
+    t.ok((await c.db.inventoryItemEdit.findMany({ where: { itemId: B } })).some((e) => e.field === "active" && e.before === "true" && e.after === "false"), "CI-004: retiring is recorded too");
+    const hist = await get(`/api/inventory/${A}`, "VIEWER");
+    t.ok(hist.body?.edits?.some((e) => e.field === "minLevel" && e.after === "6" && e.by), "CI-004: the item's history shows the changes");
 
     // (8) Security fixes (Ilies approved ST-006, CI-001b, CI-002..008, 4 Nov 2026).
     // CI-001b: "Stock out to a site" sites - id and name only; the yard computer gets only sites on the board a week

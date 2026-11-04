@@ -2270,6 +2270,7 @@ model InventoryItem {
   createdById       String?
   updatedAt         DateTime        @updatedAt
   movements         StockMovement[]
+  edits             InventoryItemEdit[] // CI-004: every edit, append-only
 
   @@index([active, name])
 }
@@ -2294,4 +2295,21 @@ model StockMovement {
 
   @@index([itemId, at])
   @@index([siteRequestId])
+}
+
+// CI-004 (Ilies approved 4 Nov 2026): every change to an item's details (name, category, unit, minimum, location,
+// retired / brought back) - one row per field, written in the same transaction as the change. Append-only: nothing
+// updates or deletes these. Values as text, never an amount (item text with a dollar figure is refused).
+model InventoryItemEdit {
+  id       String        @id @default(cuid())
+  itemId   String
+  item     InventoryItem @relation(fields: [itemId], references: [id])
+  field    String // name | category | unit | minLevel | location | active
+  before   String?
+  after    String?
+  by       String
+  byUserId String?
+  at       DateTime      @default(now())
+
+  @@index([itemId, at])
 }

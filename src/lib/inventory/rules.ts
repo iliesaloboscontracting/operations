@@ -62,6 +62,20 @@ export function itemFields(body: Record<string, unknown>, partial = false): { da
   return { data };
 }
 
+// CI-004 (Ilies approved 4 Nov 2026): what an edit changed, one entry per field, as text (blank = null).
+export const EDIT_FIELDS = ["name", "category", "unit", "minLevel", "location", "active"] as const;
+export type ItemEditRow = { field: string; before: string | null; after: string | null };
+export function itemEdits(before: Record<string, unknown>, change: Record<string, unknown>): ItemEditRow[] {
+  const asText = (v: unknown) => (v === null || v === undefined || v === "" ? null : String(v));
+  const out: ItemEditRow[] = [];
+  for (const f of EDIT_FIELDS) {
+    if (!(f in change)) continue;
+    const b = asText(before[f]), a = asText(change[f]);
+    if (b !== a) out.push({ field: f, before: b, after: a });
+  }
+  return out;
+}
+
 // ---------- movements ----------
 
 export type MoveKind = "IN" | "OUT" | "COUNT";

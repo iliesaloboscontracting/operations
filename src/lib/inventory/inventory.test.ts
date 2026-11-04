@@ -101,6 +101,23 @@ test("the shared yard phone link never takes stock; /api/yard passes the lines t
   assert.match(inApp, /stock: lines\.lines/);
 });
 
+test("CI-004: an edit records one row per field that really changed; the edit table is append-only", async () => {
+  const { itemEdits } = await import("./rules");
+  const before = { name: "P2 masks", category: "PPE", unit: "box", minLevel: 5, location: null, active: true };
+  assert.deepEqual(itemEdits(before, { name: "P2 masks", unit: "box", minLevel: 8, location: "Shelf B2" }), [
+    { field: "minLevel", before: "5", after: "8" }, { field: "location", before: null, after: "Shelf B2" },
+  ]);
+  assert.deepEqual(itemEdits(before, { active: false }), [{ field: "active", before: "true", after: "false" }]);
+  assert.deepEqual(itemEdits(before, { location: "" }), [], "blank stays blank");
+  assert.deepEqual(itemEdits(before, {}), []);
+  // Nothing in the app updates or deletes an edit row.
+  const walk = (d: string): string[] => require("node:fs").readdirSync(d, { withFileTypes: true }).flatMap((e: { name: string; isDirectory(): boolean }) =>
+    e.isDirectory() ? walk(path.join(d, e.name)) : /\.tsx?$/.test(e.name) ? [path.join(d, e.name)] : []);
+  for (const f of walk(path.join(__dirname, "../.."))) assert.doesNotMatch(readFileSync(f, "utf8"), /inventoryItemEdit\.(update|updateMany|delete|deleteMany|upsert)\(/, f);
+  const store = readFileSync(path.join(__dirname, "store.ts"), "utf8");
+  assert.match(store, /await prisma\.\$transaction\(async \(tx\) => \{\s*await tx\.inventoryItem\.update\(\{ where: \{ id \}, data \}\);\s*for \(const e of edits\) await tx\.inventoryItemEdit\.create/, "written in the same transaction as the change");
+});
+
 test("CI-002: the below-minimum mark is set / cleared only while the item is as it was read", () => {
   const store = readFileSync(path.join(__dirname, "store.ts"), "utf8");
   assert.match(store, /const asRead = \{ id: i\.id, onHand: i\.onHand, minLevel: i\.minLevel, active: i\.active \};/);
