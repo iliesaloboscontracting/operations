@@ -46,6 +46,11 @@ export const touchesOwnerOnlyRole = (from: string | null, to: string) =>
 const ROLE_NAME: Record<string, string> = { DIRECTOR: "Director", COORDINATOR: "Coordinator", YARD: "Yard" };
 export const ownerOnlyRoleName = (from: string | null, to: string) =>
   ROLE_NAME[OWNER_ONLY_ROLES.find((r) => (from === r) !== (to === r)) ?? ""] ?? "protected";
+// YD-009 (Ilies approved 4 Nov 2026): a login whose password, name and on/off switch only the owner changes - every
+// role in OWNER_ONLY_ROLES (today Director, Coordinator and Yard) and any login with director access (SEC-002).
+export const ownerGuardsAccount = (t: { role: string; directorAccess: boolean }) => OWNER_ONLY_ROLES.includes(t.role) || t.directorAccess;
+export const ownerGuardedName = (t: { role: string; directorAccess: boolean }) =>
+  ROLE_NAME[t.role] ? `${ROLE_NAME[t.role]} login` : t.directorAccess ? "director's login" : "login";
 
 // The one-page logins that never have director access, even if the tick was set by mistake.
 export const NO_DIRECTOR_ACCESS_ROLES: readonly string[] = ["TIMESHEETS", "ACCOUNTS", "COORDINATOR", "YARD"];

@@ -199,6 +199,20 @@ test("only the owner gives, takes away or creates YARD; never director access; n
   assert.doesNotMatch(page.slice(page.indexOf("const ROLE_OPTIONS"), page.indexOf("];", page.indexOf("const ROLE_OPTIONS"))), /YARD/, "not on the list other Admins see");
 });
 
+test("YD-009: password, name and on/off of every owner-only login (and director access) are the owner's", async () => {
+  const { ownerGuardsAccount, ownerGuardedName } = await import("./roles");
+  for (const role of ["DIRECTOR", "COORDINATOR", "YARD"]) assert.equal(ownerGuardsAccount({ role, directorAccess: false }), true, role);
+  for (const role of ["ADMIN", "MANAGER", "VIEWER", "TIMESHEETS", "ACCOUNTS"]) assert.equal(ownerGuardsAccount({ role, directorAccess: false }), false, role);
+  assert.equal(ownerGuardsAccount({ role: "MANAGER", directorAccess: true }), true);
+  for (const role of OWNER_ONLY_ROLES) assert.equal(ownerGuardsAccount({ role, directorAccess: false }), true, `every OWNER_ONLY_ROLES entry: ${role}`);
+  assert.equal(ownerGuardedName({ role: "YARD", directorAccess: false }), "Yard login");
+  assert.equal(ownerGuardedName({ role: "MANAGER", directorAccess: true }), "director's login");
+  const route = src("../app/api/users/[id]/route.ts");
+  assert.match(route, /if \(ownerGuardsAccount\(target\) && !isOwner\(me\?\.email\) && changesProtected\)/);
+  const page = src("../app/users/page.tsx");
+  assert.match(page, /const guarded = !isNew && !!editing && !isOwner\(me\?\.email\) && ownerGuardsAccount\(editing as UserRow\);/);
+});
+
 test("CO-001-R1: the yard never has director access, whatever its tick says", async () => {
   const { hasDirectorAccess } = await import("./auth");
   assert.equal(hasDirectorAccess({ email: "yard@example.test", role: "YARD", directorAccess: true }), false);

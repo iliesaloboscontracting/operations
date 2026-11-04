@@ -60,6 +60,21 @@ export default {
     t.status(await c.patch(`/api/users/${U.MANAGER_DIRECTOR.id}`, "ADMIN_PLAIN", { password: "Release-check-z-" + Date.now() }), 403, "SEC-002: a non-owner Admin resets a director-access login's password");
     t.status(await c.post("/api/users", "ADMIN_PLAIN", { name: "RC new director " + Date.now(), email: `rc-dir-${Date.now()}@example.test`, role: "DIRECTOR", password: "Release-check-pass-1" }), 403, "a non-owner Admin creates a DIRECTOR login");
     if (U.YARD && c.hasPath("src/lib/yardRole.test.ts")) t.status(await c.post("/api/users", "ADMIN_PLAIN", { name: "RC new yard " + Date.now(), email: `rc-yard-${Date.now()}@example.test`, role: "YARD", password: "Release-check-pass-1" }), 403, "a non-owner Admin creates a YARD login (4 Nov 2026)");
+    // YD-009 (Ilies approved 4 Nov 2026): every owner-only login (lib/roles.ts OWNER_ONLY_ROLES - Director, Coordinator,
+    // Yard) - its password, name and on/off switch are the owner's too.
+    if (U.YARD && c.hasPath("src/lib/yardRole.test.ts")) {
+      for (const [key, label] of [["YARD", "YARD"], ["COORDINATOR", "COORDINATOR"]]) {
+        if (!U[key]) { t.block(`no ${key} test login - YD-009 can't be checked`); continue; }
+        for (const [field, body] of [["password", { password: "Release-check-y-" + Date.now() }], ["name", { name: `RC renamed ${label}` }], ["active", { active: false }]])
+          t.status(await c.patch(`/api/users/${U[key].id}`, "ADMIN_PLAIN", body), 403, `YD-009: a non-owner Admin changes a ${label} login's ${field}`);
+      }
+      const y = await c.db.user.findUnique({ where: { id: U.YARD.id }, select: { active: true, name: true } });
+      t.ok(y?.active === true && !/^RC renamed/.test(y?.name ?? ""), "YD-009: the YARD login is unchanged");
+      t.status(await c.get("/api/auth/me", "YARD"), 200, "YD-009: its session still works (no revocation from refused changes)");
+      // The owner can - reset to the same in-memory password, so the later checks still sign in as YARD.
+      t.status(await c.patch(`/api/users/${U.YARD.id}`, "OWNER", { password: U.YARD.password }), 200, "YD-009: the owner resets the YARD login's password");
+      c.forget("YARD"); // SEC-001: the reset ended its sessions
+    }
     const taken = (await c.db.user.findUnique({ where: { id: U.VIEWER.id }, select: { name: true } }))?.name;
     t.status(await c.post("/api/users", "ADMIN_PLAIN", { name: taken?.toUpperCase(), email: `rc-dup-${Date.now()}@example.test`, role: "VIEWER", password: "Release-check-pass-1" }), 400, "SEC-002: a new login with an active login's name (any case) is refused");
     t.status(await c.patch(`/api/users/${U.TIMESHEETS.id}`, "ADMIN_PLAIN", { name: taken }), 400, "SEC-002: renaming a login to another active login's name is refused");

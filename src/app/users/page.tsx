@@ -6,7 +6,7 @@ import FormModal, { FieldDef } from "@/components/FormModal";
 import { useAuth } from "@/components/AuthProvider";
 import { isOwner } from "@/lib/owner";
 import { apiFetch } from "@/lib/apiFetch";
-import type { Role } from "@/lib/roles";
+import { OWNER_ONLY_ROLES, ownerGuardsAccount, type Role } from "@/lib/roles";
 
 interface UserRow {
   id: string;
@@ -79,8 +79,13 @@ export default function UsersPage() {
   const isNew = editing === "new";
   // Director access: only the owner hands it out, and the owner always has it.
   const canSetDirector = isOwner(me?.email) && !isNew && !isOwner((editing as UserRow | null)?.email);
+  // YD-009 (Ilies approved 4 Nov 2026): on a login only the owner looks after (a Director, Coordinator or Yard login, or
+  // one with director access), another Admin sees the name and on/off switch but can't change them or reset the password.
+  const guarded = !isNew && !!editing && !isOwner(me?.email) && ownerGuardsAccount(editing as UserRow);
   const fields: FieldDef[] = [
-    { key: "name", label: "Name", required: true, full: !isNew },
+    guarded
+      ? { key: "name", label: "Name", type: "static", staticText: (editing as UserRow).name, full: true }
+      : { key: "name", label: "Name", required: true, full: !isNew },
     ...(isNew ? ([{ key: "email", label: "Email", required: true }] as FieldDef[]) : []),
     {
       key: "role",
@@ -95,15 +100,17 @@ export default function UsersPage() {
     },
     ...(!isNew
       ? ([
-          {
-            key: "active",
-            label: "Account",
-            type: "select",
-            options: [
-              { value: "yes", label: "Active" },
-              { value: "no", label: "Deactivated (cannot sign in)" },
-            ],
-          },
+          guarded
+            ? { key: "active", label: "Account", type: "static", staticText: `${(editing as UserRow).active ? "Active" : "Deactivated"} - only Iliesa changes this login's password, name or on/off switch` , full: true }
+            : {
+                key: "active",
+                label: "Account",
+                type: "select",
+                options: [
+                  { value: "yes", label: "Active" },
+                  { value: "no", label: "Deactivated (cannot sign in)" },
+                ],
+              },
         ] as FieldDef[])
       : []),
     ...(canSetDirector
@@ -120,13 +127,15 @@ export default function UsersPage() {
           },
         ] as FieldDef[])
       : []),
-    {
-      key: "password",
-      label: isNew ? "Password (8+ characters)" : "Reset password (leave blank to keep)",
-      type: "password",
-      required: isNew,
-      full: true,
-    },
+    ...(guarded
+      ? []
+      : ([{
+          key: "password",
+          label: isNew ? "Password (8+ characters)" : "Reset password (leave blank to keep)",
+          type: "password",
+          required: isNew,
+          full: true,
+        }] as FieldDef[])),
   ];
 
   async function save(v: Record<string, any>) {
@@ -178,8 +187,11 @@ export default function UsersPage() {
           <button
             key={u.id}
             onClick={() => setEditing(u)}
-            disabled={isOwner(u.email) && !isOwner(me?.email)}
-            title={isOwner(u.email) && !isOwner(me?.email) ? "Only Iliesa can change this account" : undefined}
+            // YD-009: a Director / Coordinator / Yard login has nothing another Admin may change (role, password,
+            // name, on/off are all the owner's) - closed like the owner's own row.
+            disabled={(isOwner(u.email) || OWNER_ONLY_ROLES.includes(u.role)) && !isOwner(me?.email)}
+            title={isOwner(u.email) && !isOwner(me?.email) ? "Only Iliesa can change this account"
+              : OWNER_ONLY_ROLES.includes(u.role) && !isOwner(me?.email) ? "Only Iliesa changes this login" : undefined}
             className={`grid w-full grid-cols-[1.2fr_1.6fr_0.7fr_0.9fr_0.7fr] gap-3 border-b border-edge/60 px-3 py-2 text-left text-sm last:border-0 hover:bg-panel2/60 ${
               u.active ? "text-gray-200" : "text-gray-500"
             }`}

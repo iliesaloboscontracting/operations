@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser, guard, hashPassword, MIN_PASSWORD, ROLES } from "@/lib/auth";
-import { NO_DIRECTOR_ACCESS_ROLES, ownerOnlyRoleName, touchesOwnerOnlyRole } from "@/lib/roles";
+import { NO_DIRECTOR_ACCESS_ROLES, ownerGuardedName, ownerGuardsAccount, ownerOnlyRoleName, touchesOwnerOnlyRole } from "@/lib/roles";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { isOwner } from "@/lib/owner";
 import { BUILDING_AGENT_EMAIL } from "@/lib/session";
@@ -36,8 +36,10 @@ export const PATCH = withErrorHandling(async (
   const changesProtected = body.password !== undefined
     || (typeof body.name === "string" && normName(body.name) !== normName(target.name))
     || (body.active !== undefined && Boolean(body.active) !== target.active);
-  if ((target.role === "DIRECTOR" || target.directorAccess) && !isOwner(me?.email) && changesProtected) {
-    return NextResponse.json({ error: "Only Iliesa can change a director's password, name or access." }, { status: 403 });
+  // YD-009 (Ilies approved 4 Nov 2026): the same for every owner-only login (lib/roles.ts OWNER_ONLY_ROLES - Director,
+  // Coordinator, Yard): another Admin can't reset its password, rename it or switch it off and so take it over.
+  if (ownerGuardsAccount(target) && !isOwner(me?.email) && changesProtected) {
+    return NextResponse.json({ error: `Only Iliesa can change the password, name or on/off switch of a ${ownerGuardedName(target)}.` }, { status: 403 });
   }
 
   const data: Record<string, unknown> = {};
