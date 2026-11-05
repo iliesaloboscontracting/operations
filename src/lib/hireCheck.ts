@@ -146,7 +146,13 @@ export async function answerHire(link: ResolvedLink, body: Record<string, unknow
       if ("error" in made) return made;
       requestId = made.request.id;
       message = raise.message;
-      if (answer === "FINISHED") await prisma.resource.update({ where: { id: item.id }, data: { hireStatus: "OFF_HIRE_REQUESTED" } });
+      // Only if the office hasn't off-hired it in the meantime (OH-003) - never undoes an off-hire.
+      if (answer === "FINISHED") {
+        await prisma.resource.updateMany({
+          where: { id: item.id, offHiredOn: null, OR: [{ hireStatus: null }, { hireStatus: { not: "RETURNED" } }] },
+          data: { hireStatus: "OFF_HIRE_REQUESTED" },
+        });
+      }
       notifyNewRequest(made.request).catch(() => undefined);
     }
   }

@@ -9,7 +9,7 @@ import { pickResourceData, PAY_RATE_FIELDS } from "./resourceFields";
 import { hireRegisterError } from "./hireServer";
 import { hireDateError } from "./dateRules";
 import { formOffHireDay, hireStatusChangeError, offHiresByStatus } from "./offHire/rules";
-import { closeOffHireRequests } from "./offHire/store";
+import { closeOffHireRequests, recordOffHire } from "./offHire/store";
 import { todaySydney } from "./today";
 import { pickProject } from "./pickProject";
 import { projectFileError } from "./projectFileServer";
@@ -41,11 +41,12 @@ export async function applyResourcePatch(id: string, body: Record<string, unknow
   // does) and closes its off-hire request; once off-hired, only "Put back on hire" undoes it.
   let offHiredDay: string | null = null;
   if ("hireStatus" in data) {
-    const existing = await prisma.resource.findUnique({ where: { id }, select: { hireStatus: true, offHiredOn: true, onHireDate: true, offHireDate: true } });
+    const existing = await prisma.resource.findUnique({ where: { id }, select: { type: true, category: true, active: true, hireStatus: true, offHiredOn: true, onHireDate: true, offHireDate: true } });
     const statusError = hireStatusChangeError(existing, data.hireStatus);
     if (statusError) return { error: statusError, status: 400 };
-    if (offHiresByStatus(existing, data.hireStatus)) {
-      offHiredDay = formOffHireDay({ ...(existing ?? {}), ...data } as Parameters<typeof formOffHireDay>[0], todaySydney());
+    const next = { type: String(data.type ?? existing?.type ?? ""), category: (data.category ?? existing?.category ?? null) as string | null };
+    if (existing?.active && offHiresByStatus(existing, data.hireStatus, next)) {
+      offHiredDay = formOffHireDay({ ...existing, ...data } as Parameters<typeof formOffHireDay>[0], todaySydney());
       Object.assign(data, { offHiredOn: offHiredDay, offHiredBy: actor.name ?? null, offHiredAt: new Date() });
     }
   }
@@ -54,7 +55,11 @@ export async function applyResourcePatch(id: string, body: Record<string, unknow
     where: { id },
     data: data as any,
   });
-  if (offHiredDay) await closeOffHireRequests(id, offHiredDay, resource.offHireRef, actor.name ?? "Operations");
+  if (offHiredDay) {
+    const by = actor.name ?? "Operations";
+    await recordOffHire(prisma, id, { action: "OFF_HIRED", day: offHiredDay, ref: resource.offHireRef, via: "STATUS_BOX", by });
+    await closeOffHireRequests(id, offHiredDay, resource.offHireRef, by);
+  }
   return { resource };
 }
 

@@ -5,6 +5,8 @@ import { withErrorHandling } from "@/lib/apiHandler";
 import { sanitizeAssignment } from "@/lib/serializeResource";
 import { assertDateOpen } from "@/lib/dayLock";
 import { isoDay, logBoardEdit, siteName } from "@/lib/boardGuard/store";
+import { offHiredBefore, offHireStop } from "@/lib/hireEstimate";
+import { fmtDay } from "@/lib/dates";
 
 const JOB = { select: { date: true, title: true, shift: true } } as const;
 
@@ -22,7 +24,10 @@ export const PATCH = withErrorHandling(async (
   const body = await req.json();
 
   if (body.jobId) {
-    const current = await prisma.assignment.findUnique({ where: { id: params.id }, include: { job: JOB, resource: { select: { name: true } } } });
+    const current = await prisma.assignment.findUnique({
+      where: { id: params.id },
+      include: { job: JOB, resource: { select: { name: true, type: true, category: true, hireStatus: true, offHiredOn: true, offHireDate: true } } },
+    });
     if (!current) return NextResponse.json({ error: "not found" }, { status: 404 });
     if (current.jobId === body.jobId) return NextResponse.json(current);
 
@@ -32,6 +37,15 @@ export const PATCH = withErrorHandling(async (
     if (!targetJob) return NextResponse.json({ error: "not found" }, { status: 404 });
     const targetLocked = await assertDateOpen(targetJob.date.toISOString().slice(0, 10));
     if (targetLocked) return targetLocked;
+    // Off-hired gear can't be moved onto a day after it was called off either (OH-005).
+    const r = current.resource;
+    if (r.type === "HIRE" && r.category !== "LABOUR" && offHiredBefore(r, isoDay(targetJob.date))) {
+      const stop = offHireStop(r);
+      return NextResponse.json(
+        { error: `${r.name} was off-hired${stop ? ` on ${fmtDay(stop, { weekday: "short", day: "numeric", month: "short" })}` : ""} - put it back on hire on the Hire page first.` },
+        { status: 400 },
+      );
+    }
     // Noted once the move has gone through (BG-006), on both days when it crosses days.
     const logMove = async () => {
       const note = `${current.resource.name}: ${siteName(current.job)} -> ${siteName(targetJob)}`;

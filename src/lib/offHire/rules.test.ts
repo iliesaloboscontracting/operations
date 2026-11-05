@@ -1,7 +1,9 @@
 // One-tap off-hire rules (Ilies, 5 Nov 2026). `npm test`.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { callOffReminderDay, formOffHireDay, hireStatusChangeError, offHireError, offHireOutcome, offHireRef, offHiresByStatus } from "./rules";
+import { CLOSABLE_BY_OFF_HIRE, callOffReminderDay, formOffHireDay, hireStatusChangeError, offHireError, offHireOutcome, offHireRef, offHiresByStatus } from "./rules";
+import { RESOURCE_FIELDS } from "../resourceFields";
+import { HIRE_WRITE_FIELDS } from "../coordinatorHire";
 
 const GEAR = { type: "HIRE", category: "PLANT", onHireDate: "2026-10-26" };
 const TODAY = "2026-11-05";
@@ -38,15 +40,32 @@ test("once off-hired, a form saved afterwards can't quietly put it back on hire"
 });
 
 test("Off-hired from the Status box records a day: the expected finish if it's passed, else today", () => {
-  assert.equal(offHiresByStatus({ hireStatus: "ON_HIRE", offHiredOn: null }, "RETURNED"), true);
-  assert.equal(offHiresByStatus(null, "RETURNED"), true, "added already off-hired");
-  assert.equal(offHiresByStatus({ hireStatus: "RETURNED", offHiredOn: null }, "RETURNED"), false, "an older Returned item saved again keeps its old meaning");
-  assert.equal(offHiresByStatus({ hireStatus: "RETURNED", offHiredOn: "2026-11-03" }, "RETURNED"), false, "already off-hired");
-  assert.equal(offHiresByStatus({ hireStatus: "ON_HIRE", offHiredOn: null }, "ON_HIRE"), false);
+  const plant = { type: "HIRE", category: "PLANT" };
+  assert.equal(offHiresByStatus({ hireStatus: "ON_HIRE", offHiredOn: null }, "RETURNED", plant), true);
+  assert.equal(offHiresByStatus(null, "RETURNED", plant), true, "added already off-hired");
+  assert.equal(offHiresByStatus({ hireStatus: "RETURNED", offHiredOn: null }, "RETURNED", plant), false, "an older Returned item saved again keeps its old meaning");
+  assert.equal(offHiresByStatus({ hireStatus: "RETURNED", offHiredOn: "2026-11-03" }, "RETURNED", plant), false, "already off-hired");
+  assert.equal(offHiresByStatus({ hireStatus: "ON_HIRE", offHiredOn: null }, "ON_HIRE", plant), false);
+  // OH-004: only hire gear, by every route.
+  assert.equal(offHiresByStatus({ hireStatus: "ON_HIRE", offHiredOn: null }, "RETURNED", { type: "HIRE", category: "LABOUR" }), false, "not labour hire");
+  assert.equal(offHiresByStatus(null, "RETURNED", { type: "PERSONNEL", category: null }), false, "not a person");
+  assert.equal(offHiresByStatus(null, "RETURNED", { type: "EQUIPMENT", category: null }), false, "not our own plant");
   assert.equal(formOffHireDay({ onHireDate: "2026-10-26", offHireDate: "2026-11-02" }, TODAY), "2026-11-02");
   assert.equal(formOffHireDay({ onHireDate: "2026-10-26", offHireDate: "2026-11-12" }, TODAY), TODAY, "finish still ahead");
   assert.equal(formOffHireDay({ onHireDate: "2026-10-26", offHireDate: null }, TODAY), TODAY);
   assert.equal(formOffHireDay({ onHireDate: "2026-11-03", offHireDate: "2026-11-01" }, TODAY), TODAY, "a finish before the start isn't used");
+});
+
+test("OH-001: a request waiting on the supervisor's answer, or with the yard, isn't closed by an off-hire", () => {
+  for (const s of ["NEEDS_INFO", "YARD", "READY", "DONE", "DECLINED", "CANCELLED"]) assert.ok(!CLOSABLE_BY_OFF_HIRE.includes(s), s);
+  for (const s of ["SENT", "SEEN", "TODO", "MINE"]) assert.ok(CLOSABLE_BY_OFF_HIRE.includes(s), s);
+});
+
+test("OH-007: the off-hire fields are never settable from a form - only the Off-hired route / Status box set them", () => {
+  for (const f of ["offHiredOn", "offHireRef", "offHiredBy", "offHiredAt"]) {
+    assert.ok(!(RESOURCE_FIELDS as readonly string[]).includes(f), `${f} not in RESOURCE_FIELDS`);
+    assert.ok(!HIRE_WRITE_FIELDS.includes(f), `${f} not in the coordinator's HIRE_WRITE_FIELDS`);
+  }
 });
 
 test("what the supervisor reads, and when the office is reminded", () => {

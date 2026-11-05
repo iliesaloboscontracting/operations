@@ -127,7 +127,7 @@ export async function applyAdmin(kind: ChangeKind, recordId: string, after: Admi
     case "RESOURCE_RATE":
     case "RESOURCE_ENGAGEMENT": {
       // Approved by an Admin (cannotApprove checked it) - the PATCH's own Admin-only pay-field rule passes.
-      const out = await applyResourcePatch(recordId, after, { role: "ADMIN" });
+      const out = await applyResourcePatch(recordId, after, { role: "ADMIN", name: ctx.by });
       return "error" in out ? fail(out) : { value: pick(out.resource as unknown as Record<string, unknown>, Object.keys(after)) };
     }
     case "WORKER_TICKET": {

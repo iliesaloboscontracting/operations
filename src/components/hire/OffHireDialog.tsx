@@ -24,8 +24,11 @@ export default function OffHireDialog({
       body: JSON.stringify({ date: v.date, ref: v.ref || null }),
     });
     if (!res.ok) throw new Error(await serverErrorMessage(res, "Couldn't save the off-hire."));
-    const { closed } = await res.json();
-    onDone(`${item.name} off-hired - its hire cost stops on that day${closed ? " and the off-hire request is closed" : ""}.`);
+    const { closed, later } = await res.json();
+    onDone(
+      `${item.name} off-hired - its hire cost stops on that day${closed ? " and the off-hire request is closed" : ""}.` +
+        (later ? ` It's still booked on the board on ${later} later day${later === 1 ? "" : "s"} - take it off there.` : ""),
+    );
   }
   return (
     <FormModal

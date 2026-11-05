@@ -1074,6 +1074,22 @@ model SiteRequest {
   @@index([origin])
 }
 
+// Off-hire history (OH-002, 5 Nov 2026): every off-hire and every "put back on
+// hire" of a hire item - the day, the off-hire number and who - since both
+// change the hire cost. Append-only; never edited or deleted.
+model HireOffHireEvent {
+  id         String   @id @default(cuid())
+  resourceId String // the hire-register item
+  action     String // OFF_HIRED | BACK_ON_HIRE
+  day        String? // OFF_HIRED: the call-off day; BACK_ON_HIRE: the day it had been off-hired
+  ref        String? // the off-hire number (OFF_HIRED), or the one it had (BACK_ON_HIRE)
+  via        String // BUTTON | STATUS_BOX | ADDED
+  by         String
+  at         DateTime @default(now())
+
+  @@index([resourceId, at])
+}
+
 // Hire check (stage 3, 24 Oct 2026): a supervisor's answer about a hire-
 // register item on their site - still needed, finished (call it off), or not
 // on site. Finished / not on site / still needed past its finish each raise a

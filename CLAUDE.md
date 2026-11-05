@@ -104,7 +104,7 @@ business, without becoming unnecessarily complicated.
   `YARD` (4 Nov 2026, Ilies - the yard computer downstairs) works the same way - below VIEWER,
   `guardOrYard()` / `guardTools()` only, home `/yard`, pages `/yard/*` + the Tools pages; never money,
   never director access. Only the owner creates, renames, resets, switches off or re-roles a YARD (or
-  COORDINATOR / DIRECTOR) login (YD-009). Its login is iliesa+yard@ (Ilies: "use mine").
+  COORDINATOR / DIRECTOR) login (YD-009). Its login is yard@loboscontracting.com.au (Ilies, 5 Nov 2026; was iliesa+yard@).
   **Yard** (live 4 Nov 2026 ~21:12, `src/lib/yard/`, `src/lib/stockTake/`, `src/lib/inventory/`):
   (A) yard jobs - supervisors send TOOLS / MATERIALS / DELIVERY requests "Send to: Yard", Admins send /
   pull back; the yard (shared Yard site link or the YARD login) marks Ready with a required photo and a
@@ -242,6 +242,23 @@ business, without becoming unnecessarily complicated.
   Still needed past its finish → HIRE_EXTEND. These are system request types
   (never on the request form); no duplicates while one is open. The Hire
   page shows each item's latest answer ("From site").
+  **Off-hire** (5 Nov 2026, Ilies: "off hire should stop the cost and hire gear ... more
+  automated"; `src/lib/offHire/`): the hire cost stops on the day the office **calls the
+  supplier off** (`Resource.offHiredOn`, kept apart from `offHireDate` = expected finish;
+  `offHireStop()` in `lib/hireEstimate.ts`), not pick-up and not the supervisor's
+  "Finished". The office taps **Off-hired** (day + off-hire number, `POST
+  /api/resources/:id/off-hire`, Managers / Admins / the coordinator; DELETE = put back on
+  hire) on the Hire page, the item or the off-hire request; the Status box's "Off-hired"
+  records the day itself (today, or the expected finish if passed). A second off-hire is
+  refused (put back first); every off-hire / put-back is kept in `HireOffHireEvent`
+  (append-only). **OH-001 (Ilies, 6 Nov 2026: "yes")**: off-hiring closes the item's open
+  OFF_HIRE request for anyone who may off-hire - except one waiting on the supervisor's
+  answer (NEEDS_INFO: noted, left open) or with the yard. Supervisor "Finished" = Off-hire
+  requested: still costing to today, nothing more forecast, 8am next-working-day reminder
+  on the request. Off-hired gear leaves the board's Hire list after its day and can't be
+  put on / moved onto / copied to a later day. Still out past the expected finish = keeps
+  costing until called off. Returned with no day = no estimate, flagged on the Hire page.
+  Release check `73-off-hire`.
 - **Structure:** `src/app/` — page routes (`command`, `calendar`, `tracking`,
   `day-review`, `hire`, `plant`, `vehicles`, `labour`, `projects`, `users`,
   `bugs`, `notes`, `tools`, `completed`, `setup`, `login`) each generally

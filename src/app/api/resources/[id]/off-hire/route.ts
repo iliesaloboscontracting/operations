@@ -15,14 +15,15 @@ export const POST = withErrorHandling(async (req: NextRequest, { params: paramsP
   const body = await req.json().catch(() => ({}));
   const out = await offHireItem(id, body && typeof body === "object" ? (body as Record<string, unknown>) : {}, user.name);
   if ("error" in out) return NextResponse.json({ error: out.error }, { status: out.status });
-  return NextResponse.json({ ok: true, closed: out.closed });
+  return NextResponse.json({ ok: true, closed: out.closed, later: out.later });
 });
 
 export const DELETE = withErrorHandling(async (_req: NextRequest, { params: paramsP }: { params: Promise<{ id: string }> }) => {
   const { id } = await paramsP;
   const denied = await guardOrCoordinator("MANAGER");
   if (denied) return denied;
-  const out = await backOnHire(id);
+  const user = (await getCurrentUser())!;
+  const out = await backOnHire(id, user.name); // recorded with who (OH-002)
   if ("error" in out) return NextResponse.json({ error: out.error }, { status: out.status });
   return NextResponse.json({ ok: true });
 });

@@ -20,6 +20,9 @@ const short = (iso: string) => new Date(`${iso}T00:00:00Z`).toLocaleDateString("
 
 export type OffHireItem = { type: string; category: string | null; onHireDate: string | null };
 
+// What can be off-hired, by any route (OH-004): hire gear - not labour hire (costed by hours), not our own.
+export const isOffHireGear = (r: { type: string; category: string | null }) => r.type === "HIRE" && r.category !== "LABOUR";
+
 // Why this item can't be off-hired on `date`, or null.
 export function offHireError(item: OffHireItem, date: unknown, today: string): string | null {
   if (item.type !== "HIRE") return "Only hire items are off-hired.";
@@ -55,15 +58,17 @@ export function formOffHireDay(next: { onHireDate?: string | null; offHireDate?:
   return f && isISODate(f) && f <= today && (!next.onHireDate || f >= next.onHireDate) ? f : today;
 }
 // Whether this save off-hires the item from the Status box (so its day is recorded and its request closed).
-export const offHiresByStatus = (existing: { hireStatus: string | null; offHiredOn: string | null } | null, next: unknown) =>
-  next === "RETURNED" && !existing?.offHiredOn && existing?.hireStatus !== "RETURNED";
+// `item` is the type and category it will have after the save; only hire gear (OH-004).
+export const offHiresByStatus = (existing: { hireStatus: string | null; offHiredOn: string | null } | null, next: unknown, item: { type: string; category: string | null }) =>
+  next === "RETURNED" && isOffHireGear(item) && !existing?.offHiredOn && existing?.hireStatus !== "RETURNED";
 
 // What the supervisor sees on their request once it's done (words and dates only).
 export const offHireOutcome = (date: string, ref: string | null, today: string) =>
   `${date > today ? "Called off for" : "Off-hired"} ${short(date)}${ref ? ` - off-hire no. ${ref}` : ""}.`;
 
-// The request is closed by the off-hire unless the yard has it right now (YD-003 - leave theirs alone).
-export const CLOSABLE_BY_OFF_HIRE = ["SENT", "SEEN", "NEEDS_INFO", "TODO", "ACTIONING", "MINE", "CANT_DO", "ANSWERED"];
+// The request is closed by the off-hire unless the yard has it right now (YD-003 - leave theirs alone) or
+// it's waiting on the supervisor's answer (NEEDS_INFO - OH-001: noted on it, left open).
+export const CLOSABLE_BY_OFF_HIRE = ["SENT", "SEEN", "TODO", "ACTIONING", "MINE", "CANT_DO", "ANSWERED"];
 
 // When the office is reminded about a "Finished" nobody has called off yet: 8am on the next working day.
 export function callOffReminderDay(today: string): string {

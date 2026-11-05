@@ -211,7 +211,7 @@ function OffHirePanel({ r, reload }: { r: ResourceDTO; reload: () => Promise<voi
   const [msg, setMsg] = useState<string | null>(null);
   const stop = offHireStop(r);
   async function backOn() {
-    if (!confirm(`Put ${r.name} back on hire? Its cost runs again from the day it was off-hired.`)) return;
+    if (!confirm(`Put ${r.name} back on hire? Its cost runs again from the day it was off-hired. (To fix the off-hire day or number, do this, then tap Off-hired again.)`)) return;
     const res = await fetch(`/api/resources/${r.id}/off-hire`, { method: "DELETE" });
     setMsg(res.ok ? "Back on hire - close and reopen this item to see it." : await serverErrorMessage(res, "Couldn't change it."));
     if (res.ok) await reload();
@@ -226,7 +226,7 @@ function OffHirePanel({ r, reload }: { r: ResourceDTO; reload: () => Promise<voi
             {r.offHireRef && ` · off-hire no. ${r.offHireRef}`}
             {r.offHiredBy && <span className="text-gray-500"> · by {r.offHiredBy}</span>}
           </span>
-          <button type="button" onClick={() => setOpen(true)} className="text-xs text-brand-400 underline">Change</button>
+          {/* To change the day or number: put it back on hire, then Off-hired again - both are kept in its history (OH-002). */}
           <button type="button" onClick={backOn} className="text-xs text-gray-400 underline">Put back on hire</button>
         </div>
       ) : (

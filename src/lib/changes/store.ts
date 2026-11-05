@@ -313,7 +313,7 @@ export async function decide(by: ChangeUser, id: string, body: Record<string, un
       if ("error" in out) return stale(`${out.error} Nothing was changed.`, rec.value);
       return { nowValue: out.value };
     }
-    const out = A3_RULES[kind].recordType === "Resource" ? await applyResourcePatch(p.recordId, after, { role: null }) : await applyProjectPatch(p.recordId, after);
+    const out = A3_RULES[kind].recordType === "Resource" ? await applyResourcePatch(p.recordId, after, { role: null, name: `${by.name} (approved ${proposalRef(p.number)})` }) : await applyProjectPatch(p.recordId, after);
     if ("error" in out) return stale(`${out.error} Nothing was changed.`, rec.value);
     return { nowValue: pickValue(kind, ("resource" in out ? out.resource : out.project) as unknown as Record<string, unknown>) };
   }, (note) => stale(note, null));
