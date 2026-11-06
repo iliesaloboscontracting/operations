@@ -334,9 +334,21 @@ function MoveToStaff({ row, people, onSave }: { row: AttendanceRow; people: Reso
   );
 }
 
+// Why a sign-in was added by the office - picked, not typed (Ilies, 6 Nov 2026); "Other" still types one.
+const MISSED_REASONS = [
+  "Phone flat / no phone",
+  "No signal on site",
+  "Forgot to sign in",
+  "QR code wouldn't scan",
+  "Signed in on the wrong site",
+  "Supervisor confirmed they were on site",
+];
+const OTHER_REASON = "OTHER";
+
 function AddMissed({ job, date, people, onSave }: { job: AttendanceJob; date: string; people: ResourceDTO[]; onSave: (body: Record<string, unknown>) => Promise<unknown> }) {
-  const [v, setV] = useState({ who: "", hireName: "", company: "", in: `${date}T07:00`, out: "", reason: "", endOpen: false });
+  const [v, setV] = useState({ who: "", hireName: "", company: "", in: `${date}T07:00`, out: "", pick: "", reason: "", endOpen: false });
   const hire = v.who === "HIRE";
+  const reason = v.pick === OTHER_REASON ? v.reason.trim() : v.pick;
   const allocatedIds = new Set(job.allocated.map((p) => p.id));
   // Fix 2a (2 Nov 2026): an earlier day needs its sign-out too - only today's can be left open (still on site).
   const needsOut = date !== new Date().toLocaleDateString("en-CA", { timeZone: "Australia/Sydney" });
@@ -359,10 +371,20 @@ function AddMissed({ job, date, people, onSave }: { job: AttendanceJob; date: st
       )}
       <label className="flex flex-col gap-0.5 text-gray-400">In<input type="datetime-local" className={inp} value={v.in} onChange={(e) => setV({ ...v, in: e.target.value })} /></label>
       <label className="flex flex-col gap-0.5 text-gray-400">{needsOut ? "Out (needed)" : "Out (leave empty if still on site)"}<input type="datetime-local" className={inp} value={v.out} onChange={(e) => setV({ ...v, out: e.target.value })} /></label>
-      <label className="flex min-w-[12rem] flex-1 flex-col gap-0.5 text-gray-400">
+      <label className="flex flex-col gap-0.5 text-gray-400">
         Reason
-        <input className={inp} value={v.reason} onChange={(e) => setV({ ...v, reason: e.target.value })} placeholder="e.g. phone flat - supervisor confirmed" />
+        <select className={inp} value={v.pick} onChange={(e) => setV({ ...v, pick: e.target.value })}>
+          <option value="">Pick…</option>
+          {MISSED_REASONS.map((r) => <option key={r} value={r}>{r}</option>)}
+          <option value={OTHER_REASON}>Other – type it…</option>
+        </select>
       </label>
+      {v.pick === OTHER_REASON && (
+        <label className="flex min-w-[12rem] flex-1 flex-col gap-0.5 text-gray-400">
+          Other reason
+          <input className={inp} value={v.reason} onChange={(e) => setV({ ...v, reason: e.target.value })} placeholder="e.g. new starter, no app yet" autoFocus />
+        </label>
+      )}
       {/* TF-006: with a sign-out filled in, ending another open sign-in is the office's choice (an open one always ends it). */}
       {v.out && (
         <label className="flex items-center gap-1.5 text-gray-300" title="If they still have a sign-in open somewhere else, it ends at this sign-in time (kept with a note).">
@@ -371,14 +393,14 @@ function AddMissed({ job, date, people, onSave }: { job: AttendanceJob; date: st
       )}
       <button
         className={btn}
-        disabled={!v.who || !v.in || (needsOut && !v.out) || v.reason.trim().length < 3 || (hire && (!v.hireName.trim() || !v.company.trim()))}
+        disabled={!v.who || !v.in || (needsOut && !v.out) || reason.length < 3 || (hire && (!v.hireName.trim() || !v.company.trim()))}
         onClick={() =>
           onSave({
             ...(job.kind === "POINT" ? { place: job.place, vehicleId: job.vehicleId } : { jobId: job.id }),
             ...(hire ? { hire: { name: v.hireName, company: v.company } } : { resourceId: v.who }),
             signInAt: fromLocal(v.in),
             signOutAt: fromLocal(v.out),
-            reason: v.reason,
+            reason,
             ...(v.out && v.endOpen ? { endOpen: true } : {}),
           })
         }
