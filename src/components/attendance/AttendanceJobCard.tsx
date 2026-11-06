@@ -277,7 +277,8 @@ export default function AttendanceJobCard({
 // The office changing a sign-in: times and/or status, always with a reason.
 function EditRow({ row, onSave }: { row: AttendanceRow; onSave: (body: Record<string, unknown>) => Promise<unknown> }) {
   const init = { in: toLocal(row.signInAt), out: toLocal(row.signOutAt), status: row.status };
-  const [v, setV] = useState({ ...init, reason: "" });
+  const [v, setV] = useState({ ...init, pick: "", reason: "" });
+  const reason = v.pick === OTHER_REASON ? v.reason.trim() : v.pick;
   // Only what was actually changed (the inputs drop seconds - an untouched
   // time mustn't count as an edit).
   const changes = {
@@ -297,14 +298,24 @@ function EditRow({ row, onSave }: { row: AttendanceRow; onSave: (body: Record<st
           <option value="REJECTED">Wasn&apos;t there</option>
         </select>
       </label>
-      <label className="flex min-w-[12rem] flex-1 flex-col gap-0.5 text-gray-400">
+      <label className="flex flex-col gap-0.5 text-gray-400">
         Reason (kept with the change)
-        <input className={inp} value={v.reason} onChange={(e) => setV({ ...v, reason: e.target.value })} placeholder="e.g. forgot to sign out - supervisor says 3:30pm" />
+        <select className={inp} value={v.pick} onChange={(e) => setV({ ...v, pick: e.target.value })}>
+          <option value="">Pick…</option>
+          {CHANGE_REASONS.map((r) => <option key={r} value={r}>{r}</option>)}
+          <option value={OTHER_REASON}>Other – type it…</option>
+        </select>
       </label>
+      {v.pick === OTHER_REASON && (
+        <label className="flex min-w-[12rem] flex-1 flex-col gap-0.5 text-gray-400">
+          Other reason
+          <input className={inp} value={v.reason} onChange={(e) => setV({ ...v, reason: e.target.value })} placeholder="e.g. forgot to sign out - supervisor says 3:30pm" autoFocus />
+        </label>
+      )}
       <button
         className={btn}
-        disabled={v.reason.trim().length < 3 || !v.in || Object.keys(changes).length === 0}
-        onClick={() => onSave({ ...changes, reason: v.reason })}
+        disabled={reason.length < 3 || !v.in || Object.keys(changes).length === 0}
+        onClick={() => onSave({ ...changes, reason })}
       >
         Save
       </button>
@@ -342,6 +353,15 @@ const MISSED_REASONS = [
   "QR code wouldn't scan",
   "Signed in on the wrong site",
   "Supervisor confirmed they were on site",
+];
+// Why the office changed a sign-in - picked the same way (Ilies, 7 Nov 2026).
+const CHANGE_REASONS = [
+  "Forgot to sign out",
+  "Signed in before getting to site",
+  "Signed out after leaving site",
+  "Phone flat / no signal",
+  "Supervisor confirmed the times",
+  "Wasn't on site",
 ];
 const OTHER_REASON = "OTHER";
 
