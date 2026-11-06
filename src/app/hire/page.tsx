@@ -7,7 +7,7 @@ import type { FieldDef } from "@/components/FormModal";
 import { ResourceDTO } from "@/lib/types";
 import { whereToday } from "@/lib/resource";
 import { fmtDay, parseISO, parseLooseDate } from "@/lib/dates";
-import { hireEstimate, offHireAlert, offHireMissing, offHireStop, HIRE_STATUS_LABEL } from "@/lib/hireEstimate";
+import { hireEstimate, offHireAlert, offHireDone, offHireMissing, offHireStop, HIRE_STATUS_LABEL } from "@/lib/hireEstimate";
 import { serverErrorMessage } from "@/lib/apiFetch";
 import { useAuth } from "@/components/AuthProvider";
 import PageShell from "@/components/PageShell";
@@ -76,9 +76,20 @@ const TAB_GROUPS = [
 type SiteCheck = { answer: "STILL_NEEDED" | "FINISHED" | "NOT_ON_SITE"; by: string; at: string; note: string | null };
 const CHECK_TEXT = { STILL_NEEDED: "Still needed", FINISHED: "Finished", NOT_ON_SITE: "Not on site" };
 const CHECK_TONE = { STILL_NEEDED: "text-emerald-400", FINISHED: "text-amber-400", NOT_ON_SITE: "text-red-400" };
-function SiteCheckCell({ c }: { c?: SiteCheck }) {
+// The office's off-hire wins (Ilies, 6 Nov 2026: "the guys onsite app has priority over the office system"):
+// a site answer given on or before the off-hire day is shown greyed as old, never as the item's state.
+function SiteCheckCell({ c, r }: { c?: SiteCheck; r: ResourceDTO }) {
   if (!c) return <span className="text-gray-500">—</span>;
   const when = new Date(c.at).toLocaleDateString("en-AU", { timeZone: "Australia/Sydney", day: "numeric", month: "short" });
+  const stop = offHireStop(r);
+  const day = new Intl.DateTimeFormat("en-CA", { timeZone: "Australia/Sydney" }).format(new Date(c.at));
+  if (offHireMissing(r) || (stop && day <= stop)) {
+    return (
+      <span title={c.note ?? undefined} className="text-xs text-gray-600">
+        <span className="line-through decoration-gray-600/60">{CHECK_TEXT[c.answer]} · {c.by.split(" ")[0]}, {when}</span> (before off-hire)
+      </span>
+    );
+  }
   return (
     <span title={c.note ?? undefined}>
       <span className={CHECK_TONE[c.answer]}>{CHECK_TEXT[c.answer]}</span>
@@ -351,6 +362,8 @@ export default function HirePage() {
         searchText: (r) => `${r.name} ${r.agency} ${r.role} ${r.hireRef ?? ""} ${projectName(r.hireProjectId)}`,
         newDefaults: { type: "HIRE", category: tab, ownership: "HIRED", role: isLabour ? "General labour" : "", hireStatus: isLabour ? "" : "BOOKED" },
         header: (_rows, reload) => <ComingOffHire onChanged={() => void reload()} />,
+        // Off-hired gear drops off the list once its off-hire day has come (Ilies, 6 Nov 2026).
+        hidden: isLabour ? undefined : { test: (r) => offHireDone(r, today), label: "Show off-hired" },
         // Off-hire from the item itself (labour hire is costed by hours, never off-hired here).
         detail: isLabour || !canWork ? undefined : (r, reload) => <OffHirePanel r={r} reload={reload} />,
         tabs: tabBar,
@@ -365,7 +378,7 @@ export default function HirePage() {
             : [
                 { label: "Project", render: (r: ResourceDTO) => projectName(r.hireProjectId) },
                 { label: "Status", render: (r: ResourceDTO) => statusText(r) },
-                { label: "From site", render: (r: ResourceDTO) => <SiteCheckCell c={checks[r.id]} /> },
+                { label: "From site", render: (r: ResourceDTO) => <SiteCheckCell c={checks[r.id]} r={r} /> },
               ]),
           {
             label: "Start",

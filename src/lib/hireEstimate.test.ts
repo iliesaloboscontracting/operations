@@ -1,7 +1,7 @@
 // The hire estimate and off-hire (Ilies, 5 Nov 2026: the cost stops on the day it's called off). Made-up rates. `npm test`.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { hireEstimate, hireEstimateDays, hireStillToCome, isOffHired, offHireAlert, offHiredBefore, offHireMissing, offHireStop, type HireLike } from "./hireEstimate";
+import { hireEstimate, hireEstimateDays, hireStillToCome, isOffHired, offHireAlert, offHireDone, offHiredBefore, offHireMissing, offHireStop, type HireLike } from "./hireEstimate";
 
 // On hire Mon 26 Oct 2026, $100 a day (made up), $50 delivery + $40 pick-up, expected finish Fri 6 Nov.
 const ITEM: HireLike = { onHireDate: "2026-10-26", offHireDate: "2026-11-06", hireRate: 100, hireRateUnit: "DAY", hireDeliveryCost: 50, hireCollectionCost: 40, hireStatus: "ON_HIRE" };
@@ -54,6 +54,15 @@ test("Returned with no date at all: no estimate (it used to grow every day), fla
   assert.deepEqual(hireEstimateDays(lost, TODAY), []);
   assert.equal(hireStillToCome(lost, TODAY), 0);
   assert.equal(offHiredBefore(lost, TODAY), true);
+});
+
+test("the hire lists leave off gear that's gone back - not one called off for a later day", () => {
+  assert.equal(offHireDone({ ...ITEM, hireStatus: "RETURNED", offHireDate: "2026-11-04" }, TODAY), true, "the rock breaker case: Returned, 4 Nov");
+  assert.equal(offHireDone({ ...ITEM, hireStatus: "RETURNED", offHiredOn: TODAY }, TODAY), true, "off-hired today");
+  assert.equal(offHireDone({ ...ITEM, hireStatus: "RETURNED", offHiredOn: "2026-11-09" }, TODAY), false, "called off for Monday");
+  assert.equal(offHireDone({ ...ITEM, hireStatus: "RETURNED", offHireDate: null }, TODAY), true, "returned with no day");
+  assert.equal(offHireDone({ ...ITEM, hireStatus: "OFF_HIRE_REQUESTED" }, TODAY), false, "finished on site, not called off");
+  assert.equal(offHireDone(ITEM, TODAY), false);
 });
 
 test("an older Returned item keeps stopping on its finish date", () => {

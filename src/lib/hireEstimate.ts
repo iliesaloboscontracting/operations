@@ -85,6 +85,12 @@ export function offHireStop(r: HireLike): string | null {
 export const offHireMissing = (r: HireLike) => r.hireStatus === "RETURNED" && offHireStop(r) == null;
 // Called off (or returned): finished, nothing more to forecast.
 export const isOffHired = (r: HireLike) => r.hireStatus === "RETURNED" || offHireStop(r) != null;
+// Gone back as of `today`: off-hired on or before today, or returned with no day (a call-off booked for
+// a later day isn't, yet). The hire lists leave these out until "Show off-hired" (Ilies, 6 Nov 2026).
+export const offHireDone = (r: HireLike, today: string) => {
+  const stop = offHireStop(r);
+  return isOffHired(r) && !(stop && stop > today);
+};
 // Off the board from the day after its off-hire day (and at once when the date is missing).
 export const offHiredBefore = (r: HireLike, day: string) => {
   const stop = offHireStop(r);

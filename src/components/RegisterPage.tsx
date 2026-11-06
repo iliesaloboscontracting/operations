@@ -31,6 +31,8 @@ export interface RegisterConfig<T> {
   itemNoun?: string;
   detail?: (row: T, reload: () => Promise<void>) => React.ReactNode; // extra panel in the edit modal (existing rows only)
   extraActions?: (reload: () => Promise<void>) => React.ReactNode; // more buttons beside "Add" (editors only)
+  // Rows left out until "Show ..." is ticked - e.g. off-hired hire items (Ilies, 6 Nov 2026).
+  hidden?: { test: (row: T) => boolean; label: string };
   // Who may add and edit here - Managers and Admins unless the page says otherwise (the coordinator on Hire and
   // Tools, 2 Nov 2026); canDelete false hides Delete in the edit form (the server refuses it anyway).
   canEdit?: boolean;
@@ -67,6 +69,7 @@ export default function RegisterPage<T extends { id: string }>({
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
+  const [showHidden, setShowHidden] = useState(false);
   const [editing, setEditing] = useState<T | "new" | null>(null);
 
   const url = config.query ? `${config.api}?${config.query}` : config.api;
@@ -87,10 +90,12 @@ export default function RegisterPage<T extends { id: string }>({
     return rows.filter(
       (r) =>
         (!q || config.searchText(r).toLowerCase().includes(q)) &&
-        (!status || !config.statusOf || config.statusOf(r) === status)
+        (!status || !config.statusOf || config.statusOf(r) === status) &&
+        (showHidden || !config.hidden?.test(r))
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, search, status]);
+  }, [rows, search, status, showHidden]);
+  const hiddenCount = config.hidden ? rows.filter((r) => config.hidden!.test(r)).length : 0;
 
   const sections = useMemo(() => {
     const map = new Map<string, T[]>();
@@ -182,6 +187,12 @@ export default function RegisterPage<T extends { id: string }>({
               </option>
             ))}
           </select>
+        )}
+        {config.hidden && hiddenCount > 0 && (
+          <label className="flex cursor-pointer items-center gap-1.5 text-sm text-gray-400">
+            <input type="checkbox" checked={showHidden} onChange={(e) => setShowHidden(e.target.checked)} className="accent-brand-500" />
+            {config.hidden.label} ({hiddenCount})
+          </label>
         )}
       </div>
 
