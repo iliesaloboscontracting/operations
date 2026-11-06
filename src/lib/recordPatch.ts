@@ -51,15 +51,26 @@ export async function applyResourcePatch(id: string, body: Record<string, unknow
     }
   }
 
+  if (offHiredDay) {
+    // N1: only if nobody off-hired it a moment ago (the button), and its history row in the same go.
+    const day = offHiredDay;
+    const by = actor.name ?? "Operations";
+    const resource = await prisma.$transaction(async (tx) => {
+      const n = await tx.resource.updateMany({ where: { id, offHiredOn: null }, data: data as any });
+      if (!n.count) return null;
+      const row = await tx.resource.findUniqueOrThrow({ where: { id } });
+      await recordOffHire(tx, id, { action: "OFF_HIRED", day, ref: row.offHireRef, via: "STATUS_BOX", by });
+      return row;
+    });
+    if (!resource) return { error: "Someone has just off-hired it - close this window and reopen it to see when.", status: 409 };
+    await closeOffHireRequests(id, day, resource.offHireRef, by);
+    return { resource };
+  }
+
   const resource = await prisma.resource.update({
     where: { id },
     data: data as any,
   });
-  if (offHiredDay) {
-    const by = actor.name ?? "Operations";
-    await recordOffHire(prisma, id, { action: "OFF_HIRED", day: offHiredDay, ref: resource.offHireRef, via: "STATUS_BOX", by });
-    await closeOffHireRequests(id, offHiredDay, resource.offHireRef, by);
-  }
   return { resource };
 }
 

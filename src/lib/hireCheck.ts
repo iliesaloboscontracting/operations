@@ -22,6 +22,7 @@ import { todaySydney } from "./today";
 import { daysBetween } from "./dates";
 import { fromSydneyLocal } from "./shiftTimes";
 import { CALL_OFF_REMINDER, callOffReminderDay } from "./offHire/rules";
+import { closeOffHireRequests } from "./offHire/store";
 
 export const HIRE_ANSWERS = ["STILL_NEEDED", "FINISHED", "NOT_ON_SITE"] as const;
 export type HireAnswer = (typeof HIRE_ANSWERS)[number];
@@ -147,13 +148,22 @@ export async function answerHire(link: ResolvedLink, body: Record<string, unknow
       requestId = made.request.id;
       message = raise.message;
       // Only if the office hasn't off-hired it in the meantime (OH-003) - never undoes an off-hire.
+      let alreadyOff = false;
       if (answer === "FINISHED") {
-        await prisma.resource.updateMany({
+        const n = await prisma.resource.updateMany({
           where: { id: item.id, offHiredOn: null, OR: [{ hireStatus: null }, { hireStatus: { not: "RETURNED" } }] },
           data: { hireStatus: "OFF_HIRE_REQUESTED" },
         });
+        // N2: it was off-hired a moment ago - close the request just made (no reminder, no alert).
+        if (!n.count) {
+          const off = await prisma.resource.findUnique({ where: { id: item.id }, select: { offHiredOn: true, offHireRef: true, offHireDate: true } });
+          const day = off?.offHiredOn ?? off?.offHireDate ?? todaySydney();
+          await closeOffHireRequests(item.id, day, off?.offHireRef ?? null, "Operations");
+          alreadyOff = true;
+          message = "The office has already called it off - thanks.";
+        }
       }
-      notifyNewRequest(made.request).catch(() => undefined);
+      if (!alreadyOff) notifyNewRequest(made.request).catch(() => undefined);
     }
   }
   await prisma.hireCheck.create({ data: { resourceId: item.id, projectId, siteLinkId: link.id, answer, note, by, requestId } });
