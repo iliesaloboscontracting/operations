@@ -54,7 +54,9 @@ export default function AttendanceJobCard({
   // "Sign out selected" (24 Oct 2026): tick the ones who forgot, one time for all.
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [outAt, setOutAt] = useState("");
-  const [outReason, setOutReason] = useState("Forgot to sign out");
+  const [outPick, setOutPick] = useState(SIGN_OUT_REASONS[0]);
+  const [outOther, setOutOther] = useState("");
+  const outReason = outPick === OTHER_REASON ? outOther.trim() : outPick;
   const [outNote, setOutNote] = useState<string | null>(null);
   const [addNote, setAddNote] = useState<string | null>(null); // TF-006: how many other open sign-ins an add ended
   const stillIn = job.rows.filter((r) => !r.signOutAt && r.status !== "REJECTED");
@@ -132,10 +134,16 @@ export default function AttendanceJobCard({
           {picked.size > 0 && (
             <>
               <input type="datetime-local" className={inp} value={outAt} onChange={(e) => setOutAt(e.target.value)} />
-              <input className={`${inp} min-w-0 flex-1`} value={outReason} onChange={(e) => setOutReason(e.target.value)} placeholder="Reason" />
+              <select className={inp} value={outPick} onChange={(e) => setOutPick(e.target.value)} aria-label="Reason">
+                {SIGN_OUT_REASONS.map((r) => <option key={r} value={r}>{r}</option>)}
+                <option value={OTHER_REASON}>Other – type it…</option>
+              </select>
+              {outPick === OTHER_REASON && (
+                <input className={`${inp} min-w-0 flex-1`} value={outOther} onChange={(e) => setOutOther(e.target.value)} placeholder="Other reason" autoFocus />
+              )}
               <button
                 className={btn}
-                disabled={!outAt || outReason.trim().length < 3}
+                disabled={!outAt || outReason.length < 3}
                 onClick={async () => {
                   setOutNote(null);
                   const out = await send("/api/attendance/sign-out", "POST", { ids: [...picked], signOutAt: fromLocal(outAt), reason: outReason });
@@ -362,6 +370,13 @@ const CHANGE_REASONS = [
   "Phone flat / no signal",
   "Supervisor confirmed the times",
   "Wasn't on site",
+];
+// Why the office signed several people out at once - picked the same way (Ilies, 7 Nov 2026).
+const SIGN_OUT_REASONS = [
+  "Forgot to sign out",
+  "Phone flat / no signal",
+  "Left site without signing out",
+  "Supervisor confirmed the finish time",
 ];
 const OTHER_REASON = "OTHER";
 
