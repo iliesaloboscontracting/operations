@@ -46,6 +46,7 @@ export default function AttendanceJobCard({
   const [editing, setEditing] = useState<string | null>(null);
   const [history, setHistory] = useState<string | null>(null);
   const [moving, setMoving] = useState<string | null>(null); // fix 4: the hire row being moved onto a staff member
+  const [removing, setRemoving] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [handing, setHanding] = useState(false);
   const [handTo, setHandTo] = useState("");
@@ -248,10 +249,7 @@ export default function AttendanceJobCard({
                 {canRemove && (
                   <button
                     className={`${quiet} shrink-0 self-center text-red-300`}
-                    onClick={() => {
-                      const reason = window.prompt(`Remove ${r.name}'s sign-in (in ${r.in}${r.out ? `, out ${r.out}` : ""})? It won't count for any hours. Why?`, "Signed in twice");
-                      if (reason && reason.trim().length >= 3) send(`/api/attendance/${r.id}`, "DELETE", { reason });
-                    }}
+                    onClick={() => setRemoving(removing === r.id ? null : r.id)}
                   >
                     Delete
                   </button>
@@ -267,6 +265,7 @@ export default function AttendanceJobCard({
                 </ul>
               )}
               {editing === r.id && <EditRow row={r} onSave={(b) => send(`/api/attendance/${r.id}`, "PATCH", b).then((o) => o && setEditing(null))} />}
+              {removing === r.id && <RemoveRow row={r} onCancel={() => setRemoving(null)} onSave={(b) => send(`/api/attendance/${r.id}`, "DELETE", b).then((o) => o && setRemoving(null))} />}
               {moving === r.id && <MoveToStaff row={r} people={people} onSave={(b) => send(`/api/attendance/${r.id}/person`, "POST", b).then((o) => o && setMoving(null))} />}
             </div>
           ))}
@@ -331,6 +330,37 @@ function EditRow({ row, onSave }: { row: AttendanceRow; onSave: (body: Record<st
   );
 }
 
+// An Admin deleting a sign-in (e.g. signed in twice) - the reason is picked, not typed (Ilies, 8 Nov 2026).
+function RemoveRow({ row, onSave, onCancel }: { row: AttendanceRow; onSave: (body: Record<string, unknown>) => Promise<unknown>; onCancel: () => void }) {
+  const [pick, setPick] = useState(REMOVE_REASONS[0]);
+  const [other, setOther] = useState("");
+  const reason = pick === OTHER_REASON ? other.trim() : pick;
+  return (
+    <div className="mt-2 flex flex-wrap items-end gap-2 rounded-md border border-red-500/40 bg-red-500/5 p-2 text-xs">
+      <div className="w-full text-gray-300">
+        Delete {row.name}&apos;s sign-in (in {row.in}{row.out ? `, out ${row.out}` : ""})? It won&apos;t count for any hours.
+      </div>
+      <label className="flex flex-col gap-0.5 text-gray-400">
+        Reason (kept)
+        <select className={inp} value={pick} onChange={(e) => setPick(e.target.value)}>
+          {REMOVE_REASONS.map((r) => <option key={r} value={r}>{r}</option>)}
+          <option value={OTHER_REASON}>Other – type it…</option>
+        </select>
+      </label>
+      {pick === OTHER_REASON && (
+        <label className="flex min-w-[12rem] flex-1 flex-col gap-0.5 text-gray-400">
+          Other reason
+          <input className={inp} value={other} onChange={(e) => setOther(e.target.value)} autoFocus />
+        </label>
+      )}
+      <button className="rounded-lg bg-red-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-red-500 disabled:opacity-50" disabled={reason.length < 3} onClick={() => onSave({ reason })}>
+        Delete sign-in
+      </button>
+      <button className={quiet} onClick={onCancel}>Cancel</button>
+    </div>
+  );
+}
+
 // The office adding a sign-in that was missed (Lobos crew or a hire worker).
 // Fix 4 (2 Nov 2026): a hire sign-in that was really Lobos staff - pick who it was (the likely ones first) and why.
 function MoveToStaff({ row, people, onSave }: { row: AttendanceRow; people: ResourceDTO[]; onSave: (body: Record<string, unknown>) => Promise<unknown> }) {
@@ -377,6 +407,13 @@ const SIGN_OUT_REASONS = [
   "Phone flat / no signal",
   "Left site without signing out",
   "Supervisor confirmed the finish time",
+];
+// Why an Admin deleted a sign-in - picked the same way (Ilies, 8 Nov 2026).
+const REMOVE_REASONS = [
+  "Signed in twice",
+  "Signed in on the wrong site",
+  "Signed in for someone else",
+  "Test sign-in",
 ];
 const OTHER_REASON = "OTHER";
 
