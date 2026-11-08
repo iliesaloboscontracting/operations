@@ -27,7 +27,8 @@ const OPERATIONS = [
   { href: "/attendance", label: "Sign-ins" },
   { href: "/timesheets", label: "Timesheets" },
   { href: "/tracking", label: "Project Tracking" },
-  { href: "/production", label: "Production" },
+  // Production has no tab (Ilies, 8 Nov 2026: "hide the tab only") - /production still works by its address
+  // (with Offer to Estimating), and Directors -> Production is unchanged.
   { href: "/documents", label: "Documents" },
   { href: "/assistant", label: "Assistant" },
   { href: "/bugs", label: "Bug Reports" },
@@ -259,7 +260,7 @@ export default function TopNav() {
             <Divider />
           </>
         )}
-        {OPERATIONS.filter((i) => (i.href !== "/tracking" && i.href !== "/invoices" && i.href !== "/assistant" && i.href !== "/attendance" && i.href !== "/timesheets" && i.href !== "/requests" && i.href !== "/office-requests" && i.href !== "/purchases" && i.href !== "/questions" && i.href !== "/messages" && i.href !== "/receipts" && i.href !== "/production" && i.href !== "/documents") || canEdit).filter((i) => i.href !== "/questions" || myQuestions >= 0).map((i) => (
+        {OPERATIONS.filter((i) => (i.href !== "/tracking" && i.href !== "/invoices" && i.href !== "/assistant" && i.href !== "/attendance" && i.href !== "/timesheets" && i.href !== "/requests" && i.href !== "/office-requests" && i.href !== "/purchases" && i.href !== "/questions" && i.href !== "/messages" && i.href !== "/receipts" && i.href !== "/documents") || canEdit).filter((i) => i.href !== "/questions" || myQuestions >= 0).map((i) => (
           <NavTab
             key={i.href}
             href={i.href}
