@@ -28,7 +28,8 @@ export const MAY_ANSWER = {
   COORDINATOR: [/^\/api\/auth\//, /^\/api\/timesheets$/, /^\/api\/attendance$/, /^\/api\/day-review$/, /^\/api\/day-review\/dockets$/,
     /^\/api\/day-review\/site-logs(\/photo|\/before-after)?$/, /^\/api\/calendar$/, /^\/api\/projects$/, /^\/api\/resources$/,
     /^\/api\/hire-(alerts|checks)$/, /^\/api\/tools$/, /^\/api\/toolboxes$/, /^\/api\/tool-issues$/, /^\/api\/stock-takes$/, /^\/api\/purchases$/,
-    /^\/api\/messages(\/|$)/, /^\/api\/documents(\/|$)/, /^\/api\/queries$/, /^\/api\/inventory$/],
+    /^\/api\/messages(\/|$)/, /^\/api\/documents(\/|$)/, /^\/api\/queries$/, /^\/api\/inventory$/,
+    /^\/api\/faults(\/(checks|flags))?$/], // vehicle & plant faults + pre-start checks (8 Nov 2026, guardFaults; checks/74-prestart.mjs)
   // Both: the yard stock take list (/api/stock-takes, Yard Stage B 4 Nov 2026 - Tools access; checks/71-stock-take.mjs)
   // and the consumables inventory (/api/inventory, Yard Stage C 4 Nov 2026 - Tools access; checks/72-inventory.mjs).
   // YARD (the yard computer downstairs, Ilies 4 Nov 2026): the yard jobs (/api/yard/*, guardOrYard), the Tools register,
@@ -37,7 +38,8 @@ export const MAY_ANSWER = {
   // Nothing else of Operations - no board, Tracking, Hire, purchases, timesheets, sign-ins, chat, documents, Assistant,
   // Directors or Accounts. checks/69-yard-role.mjs looks closer.
   YARD: [/^\/api\/auth\//, /^\/api\/yard(\/|$)/, /^\/api\/tools$/, /^\/api\/toolboxes$/, /^\/api\/tool-issues$/, /^\/api\/stock-takes$/, /^\/api\/push$/,
-    /^\/api\/queries$/, /^\/api\/messages\/unread$/, /^\/api\/inventory$/],
+    /^\/api\/queries$/, /^\/api\/messages\/unread$/, /^\/api\/inventory$/,
+    /^\/api\/faults(\/(checks|flags))?$/], // vehicle & plant faults + pre-start checks (8 Nov 2026, guardFaults; checks/74-prestart.mjs)
 };
 
 // Routes that answer ANY signed-in login with a redirect back into the app: the owner-only Xero connect / callback

@@ -6,12 +6,17 @@ import { effectiveStatus, STATUS_LABEL, whereToday, money } from "@/lib/resource
 import ServiceHistory from "@/components/ServiceHistory";
 import { TruckIndicatorsPanel } from "@/components/receipts/Indicators";
 import { AssetDatesCell, AssetDatesPanel, AssetDatesProvider } from "@/components/assets/AssetDates";
+import { FaultFlagBadge, FaultFlagsProvider } from "@/components/faults/FaultFlags";
+import { useAuth } from "@/components/AuthProvider";
 
 const TYPES = ["Hook", "Tipper", "Ute", "Other"];
 
 export default function VehiclesPage() {
+  const { canEdit } = useAuth();
   return (
     <AssetDatesProvider>
+    {/* Open faults from the pre-start checks (8 Nov 2026): an icon by the name, information only. */}
+    <FaultFlagsProvider enabled={canEdit}>
     <RegisterPage<ResourceDTO>
       config={{
         title: "Vehicles",
@@ -34,7 +39,7 @@ export default function VehiclesPage() {
         ],
         newDefaults: { type: "VEHICLE", category: "Tipper", role: "Vehicle", ownership: "OWNED", status: "AVAILABLE" },
         columns: [
-          { label: "Vehicle", render: (r) => <span className="font-medium">{r.name}</span> },
+          { label: "Vehicle", render: (r) => <span className="inline-flex items-center gap-1.5 font-medium">{r.name}<FaultFlagBadge resourceId={r.id} /></span> },
           { label: "Rego", render: (r) => r.identifier },
           { label: "Rego / insurance / service", render: (r) => <AssetDatesCell resourceId={r.id} /> },
           { label: "Load size", render: (r) => r.loadSize },
@@ -66,6 +71,7 @@ export default function VehiclesPage() {
         ],
       }}
     />
+    </FaultFlagsProvider>
     </AssetDatesProvider>
   );
 }

@@ -35,6 +35,9 @@ export const yardOr = (role: string, min: Role) => role === "YARD" || rankAtLeas
 // The Tools routes (register, toolboxes' contents and checks, faults, photos): `min` and up, plus the coordinator and
 // the yard computer, who work tools the same way (Ilies, 2 and 4 Nov 2026). Never anyone else below `min`.
 export const toolsWorkerOr = (role: string, min: Role) => role === "COORDINATOR" || role === "YARD" || rankAtLeast(role, min);
+// Vehicle & plant faults (/faults, the pre-start checks - Ilies, 8 Nov 2026): Managers and Admins, the coordinator and
+// the yard computer - exactly those four. Never Viewer, TIMESHEETS, ACCOUNTS or DIRECTOR.
+export const faultsWorker = (role: string) => role === "COORDINATOR" || role === "YARD" || rankAtLeast(role, "MANAGER");
 
 // Logins only the owner gives, takes away or creates: DIRECTOR (25 Oct 2026), COORDINATOR (2 Nov 2026, Ilies: "Only
 // you (the owner)") and YARD (4 Nov 2026). True when a change from `from` to `to` (from = null for a new login) touches
@@ -68,6 +71,7 @@ export function homeFor(role: Role) {
 export const COORDINATOR_PAGES = [
   "/coordinator", "/timesheets", "/attendance", "/day-review", "/calendar",
   "/tools", "/tools/toolboxes", "/tools/faults", "/yard/stocktake", "/yard/inventory", "/hire", "/purchases", "/messages", "/documents",
+  "/faults", // vehicle & plant faults and the pre-start checks (8 Nov 2026)
 ] as const;
 export function isCoordinatorPage(path: string): boolean {
   const p = (path.split(/[?#]/)[0] || "/").replace(/\/+$/, "") || "/";
@@ -80,7 +84,8 @@ export const coordinatorHref = (href: string, coordinatorOnly: boolean): string 
 
 // The pages the YARD login may open (Ilies, 4 Nov 2026) - AppFrame sends it home (/yard) from any other; the APIs refuse
 // it anyway. /yard and any page under it (the yard jobs); the Tools register, toolboxes and faults - not /tools/site.
-export const YARD_PAGES = ["/yard", "/tools", "/tools/toolboxes", "/tools/faults"] as const;
+// /faults (8 Nov 2026): vehicle & plant faults and the pre-start checks.
+export const YARD_PAGES = ["/yard", "/tools", "/tools/toolboxes", "/tools/faults", "/faults"] as const;
 export function isYardPage(path: string): boolean {
   const p = (path.split(/[?#]/)[0] || "/").replace(/\/+$/, "") || "/";
   return (YARD_PAGES as readonly string[]).includes(p) || p.startsWith("/yard/");

@@ -137,6 +137,10 @@ async function main() {
     await checkDenied("GET /api/messages (office logins only)", "/api/messages");
     await checkDenied("GET /api/messages/directory (office logins only)", "/api/messages/directory");
     await checkDenied("GET /api/assets/dates (D4: Managers read asset expiry dates; Viewers nothing)", "/api/assets/dates");
+    // Vehicle & plant faults and pre-start checks (8 Nov 2026): Managers, Admins, the coordinator and the yard only.
+    await checkDenied("GET /api/faults (Managers, Admins, coordinator, yard only)", "/api/faults");
+    await checkDenied("GET /api/faults/flags (Managers, Admins, coordinator, yard only)", "/api/faults/flags");
+    await checkDenied("GET /api/faults/checks (Managers, Admins, coordinator, yard only)", "/api/faults/checks");
 
     // The Project File (brief 11): every project's page data, as a Viewer -
     // no money keys, no internal notes, and only crew-visible contacts.

@@ -10,7 +10,8 @@ import path from "node:path";
 import { noMoney } from "../lib/context.mjs";
 
 const PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
-const YARD_PAGES = ["/yard", "/tools", "/tools/toolboxes", "/tools/faults"];
+// + /faults (vehicle & plant faults and the pre-start checks, 8 Nov 2026), when the build has it.
+const YARD_PAGES_BASE = ["/yard", "/tools", "/tools/toolboxes", "/tools/faults"];
 
 export default {
   id: "yard-role", title: "Yard login: own screen, tools work like the coordinator, refused everywhere else, no dollar figures",
@@ -33,6 +34,8 @@ export default {
 
     // (2) Its pages load. Pages are client-gated (EXPECTED_NOTES): any other page is sent home to /yard by AppFrame -
     // checked here in the candidate's source, since a fetch can't run the page; the APIs behind them refuse it (3, 5).
+    const faultsPage = c.hasPath("src/app/faults/page.tsx");
+    const YARD_PAGES = [...YARD_PAGES_BASE, ...(faultsPage ? ["/faults"] : [])];
     const pages = YARD_PAGES.filter((pg) => pg !== "/yard" || c.hasPath("src/app/yard/page.tsx"));
     if (!pages.includes("/yard")) t.note("no src/app/yard/page.tsx in the candidate (the yard jobs branch) - /yard not loaded");
     for (const pg of pages) {
@@ -41,14 +44,14 @@ export default {
     }
     const roles = src("src/lib/roles.ts");
     const listed = (roles.match(/export const YARD_PAGES = \[([^\]]*)\]/)?.[1] ?? "").match(/"[^"]+"/g)?.map((x) => x.slice(1, -1)) ?? [];
-    t.ok(JSON.stringify(listed) === JSON.stringify(YARD_PAGES), "its pages are exactly /yard, /tools, /tools/toolboxes, /tools/faults (lib/roles.ts YARD_PAGES)", listed.join(", "));
+    t.ok(JSON.stringify(listed) === JSON.stringify(YARD_PAGES), `its pages are exactly ${YARD_PAGES.join(", ")} (lib/roles.ts YARD_PAGES)`, listed.join(", "));
     t.ok(/role === "YARD" \? "\/yard"/.test(roles), "homeFor(YARD) is /yard");
     const frame = src("src/components/AppFrame.tsx");
     t.ok(/yardOnly \? "\/yard"/.test(frame) && /!\(yardOnly && isYardPage\(path\)\)/.test(frame), "AppFrame sends it home from every other page");
     // Yard jobs, the stock take (Yard Stage B, 4 Nov 2026, when the build has it) and Tools - nothing else.
     const nav = (src("src/components/TopNav.tsx").match(/const YARD = \[([\s\S]*?)\];/)?.[1] ?? "").match(/href: "[^"]+"/g)?.map((h) => h.slice(7, -1)) ?? [];
     // + Consumables (Yard Stage C, 4 Nov 2026), when the build has it.
-    const navWant = ["/yard", ...(c.hasPath("src/app/yard/stocktake/page.tsx") ? ["/yard/stocktake"] : []), ...(c.hasPath("src/app/yard/inventory/page.tsx") ? ["/yard/inventory"] : []), "/tools"];
+    const navWant = ["/yard", ...(c.hasPath("src/app/yard/stocktake/page.tsx") ? ["/yard/stocktake"] : []), ...(c.hasPath("src/app/yard/inventory/page.tsx") ? ["/yard/inventory"] : []), "/tools", ...(faultsPage ? ["/faults"] : [])];
     t.ok(JSON.stringify(nav) === JSON.stringify(navWant), `the nav shows only ${navWant.join(", ")}`, nav.join(", "));
 
     // (3) What it may look at: the Tools register, toolboxes, faults, its own alerts.

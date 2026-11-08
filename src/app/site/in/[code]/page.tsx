@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, use } from "react";
 import SiteBrand from "@/components/site/SiteBrand";
+import PrestartCheck, { type PrestartResult } from "@/components/site/PrestartCheck";
 import { Camera, Car, Home, Loader2, LogIn, LogOut } from "lucide-react";
 import { serverErrorMessage } from "@/lib/apiFetch";
 import { resizePhoto } from "@/lib/imageResize";
@@ -35,6 +36,9 @@ export default function CrewSignInPage({ params: paramsP }: { params: Promise<{ 
   const [done, setDone] = useState<string | null>(null);
   // Signed in on a truck: the odometer photo comes next (Receipts R1).
   const [odometer, setOdometer] = useState<string | null>(null);
+  // ...and the pre-start after it (sign-in), or the post-check (sign-out) - 8 Nov 2026. Skippable ("Do it later").
+  const [prestart, setPrestart] = useState<string | null>(null);
+  const [checkSent, setCheckSent] = useState<PrestartResult["sent"]>([]);
   // Regional travel (2 Nov 2026): after a sign-in / sign-out the phone may be offered the travel page or "Travelling home".
   const [travel, setTravel] = useState<{ link: boolean; home: boolean }>({ link: false, home: false });
   // Accounts stage 2 (Ilies: GPS "with sign in", "do not change the way the current sign in works"): the
@@ -94,6 +98,8 @@ export default function CrewSignInPage({ params: paramsP }: { params: Promise<{ 
       const r = await send(action, me!, action === "IN" ? { gps: gps.current ?? { status: "TIMEOUT" } } : {});
       setDone(r.message);
       if (typeof r.odometer === "string") setOdometer(r.odometer);
+      if (typeof r.prestart === "string") setPrestart(r.prestart);
+      if (typeof r.postcheck === "string") setPrestart(r.postcheck);
       if (typeof r.travelPass === "string") store(PASS_KEY, r.travelPass);
       setTravel({ link: !!r.travelLink, home: !!r.travelHome });
     } catch (e) {
@@ -117,9 +123,19 @@ export default function CrewSignInPage({ params: paramsP }: { params: Promise<{ 
         <div className="py-16 text-center text-gray-500"><Loader2 className="mx-auto animate-spin" /></div>
       ) : done && odometer ? (
         <Odometer token={odometer} signedIn={done} onDone={(m) => { setOdometer(null); setDone(`${done} ${m}`); }} />
+      ) : done && prestart ? (
+        <PrestartCheck token={prestart} banner={done}
+          onDone={(r) => { setPrestart(null); setCheckSent(r.sent); setDone(`${done} ${r.message}`); }}
+          onSkip={() => setPrestart(null)} />
       ) : done ? (
         <div className="space-y-4 text-center">
           <div className="rounded-2xl bg-emerald-500/15 px-4 py-6 text-lg font-semibold text-emerald-300">✓ {done}</div>
+          {checkSent.length > 0 && (
+            <div className="rounded-xl border border-edge bg-panel p-3 text-left text-sm text-gray-300">
+              <div className="mb-1 font-semibold text-gray-100">Sent to the office:</div>
+              {checkSent.map((f, i) => <div key={i}>• {f.itemLabel} - {f.priority}{f.markedDown ? " (marked Down)" : ""}</div>)}
+            </div>
+          )}
           {travel.home ? <TravellingHome /> : <p className="text-sm text-gray-500">You can close this page.</p>}
           {travel.link && !travel.home && <TravelLink />}
         </div>

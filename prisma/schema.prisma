@@ -2335,3 +2335,97 @@ model InventoryItemEdit {
 
   @@index([itemId, at])
 }
+// Vehicle & plant pre-start checks (stage 1, Ilies approved 8 Nov 2026; src/lib/prestart/). Crew signing in on a Lobos
+// truck's QR do a pre-start after the odometer photo; signing out there, a short post-check. Each item is OK / Fault /
+// N/A; a fault needs words, a priority and at least one photo. Signing in itself never changes or waits on it ("Do it
+// later" is allowed - a sign-in with no PRE row reads "No pre-start" for the office). No money anywhere.
+// Resource-type agnostic (stage 2: QR stickers on owned plant, no sign-in - attendanceId null, an hour-meter reading
+// added then); the checklist is chosen by resource type and versioned in code (lib/prestart/checklists.ts).
+// Plain ids, like SiteAttendance.vehicleId - the name is kept as it was.
+model PrestartCheck {
+  id           String       @id @default(cuid())
+  resourceId   String // the truck / machine (a Resource)
+  resourceName String // its name when checked
+  resourceType String // VEHICLE (stage 1); EQUIPMENT / ATTACHMENT (stage 2)
+  kind         String // PRE | POST
+  attendanceId String? // the truck sign-in it goes with (null for stage 2's plant stickers)
+  personId     String? // the Labour-register person; null for a hire worker
+  personName   String
+  deviceId     String?
+  checklist    String // e.g. "truck-pre.v1"
+  answers      String // JSON [{ key, label, answer: OK | FAULT | NA }]
+  faultCount   Int          @default(0) // new faults reported with it
+  seenCount    Int          @default(0) // known faults confirmed "Still there" with it
+  createdAt    DateTime     @default(now())
+  faults       AssetFault[]
+
+  @@unique([attendanceId, kind]) // one PRE and one POST per sign-in
+  @@index([resourceId, createdAt])
+}
+
+// A fault on a truck / machine, from a check (or later by hand). Worked OPEN -> IN_HAND -> FIXED by the office
+// (Managers, Admins, the coordinator, the yard computer). DO_NOT_USE sets the machine DOWN (markedDown = this fault
+// did it); fixing it offers putting it back to Available. "Still there" from the next person is a sighting
+// (lastSeenAt / lastSeenBy / seenCount + a SEEN event), never a second fault.
+model AssetFault {
+  id           String            @id @default(cuid())
+  resourceId   String
+  resourceName String
+  checkId      String?
+  check        PrestartCheck?    @relation(fields: [checkId], references: [id], onDelete: SetNull)
+  itemKey      String? // the checklist item it was reported on
+  itemLabel    String?
+  description  String // no dollar amounts (taken out), 500 characters
+  priority     String // LOW | HIGH | URGENT | DO_NOT_USE
+  status       String            @default("OPEN") // OPEN | IN_HAND | FIXED
+  reportedBy   String
+  reportedAt   DateTime          @default(now())
+  lastSeenAt   DateTime?
+  lastSeenBy   String?
+  seenCount    Int               @default(0)
+  markedDown   Boolean           @default(false)
+  fixedAt      DateTime?
+  fixedBy      String?
+  fixNote      String?
+  updatedAt    DateTime          @updatedAt
+  media        AssetFaultMedia[]
+  events       AssetFaultEvent[]
+
+  @@index([resourceId, status])
+  @@index([status])
+}
+
+// A photo (stage 3: a short video) sent with a fault. Uploaded first (faultId null), attached when the check is sent -
+// only to a fault of the same sign-in. Files in TOOL_PHOTO_DIR (lib/toolPhotos.ts), served only behind a login.
+model AssetFaultMedia {
+  id           String      @id @default(cuid())
+  faultId      String?
+  fault        AssetFault? @relation(fields: [faultId], references: [id], onDelete: SetNull)
+  resourceId   String
+  attendanceId String? // the sign-in it was sent from (stage 2: null)
+  deviceId     String?
+  kind         String      @default("PHOTO") // PHOTO | VIDEO (stage 3)
+  fileName     String
+  mime         String
+  sha256       String
+  createdAt    DateTime    @default(now())
+
+  @@index([attendanceId])
+  @@index([faultId])
+  @@index([deviceId, createdAt])
+}
+
+// Everything that happened to a fault. Append-only: nothing updates or deletes these.
+model AssetFaultEvent {
+  id      String     @id @default(cuid())
+  faultId String
+  fault   AssetFault @relation(fields: [faultId], references: [id])
+  at      DateTime   @default(now())
+  by      String
+  action  String // REPORTED | SEEN | STATUS | PRIORITY | NOTE | DOWN | BACK_AVAILABLE
+  from    String?
+  to      String?
+  note    String?
+
+  @@index([faultId, at])
+}

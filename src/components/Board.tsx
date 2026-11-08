@@ -21,6 +21,7 @@ import {
 import DateTabs from "./DateTabs";
 import ResourceSidebar from "./ResourceSidebar";
 import { TicketFlagsProvider } from "./compliance/TicketFlags";
+import { FaultFlagsProvider } from "./faults/FaultFlags";
 import JobGridHeader from "./JobGridHeader";
 import JobRow from "./JobRow";
 import JobFormModal from "./JobFormModal";
@@ -486,6 +487,8 @@ export default function Board() {
   return (
     // Expired-ticket flags (stage 5): Managers and Admins only, information only.
     <TicketFlagsProvider enabled={canEdit}>
+    {/* Open vehicle & plant faults (pre-start checks, 8 Nov 2026): the same, information only. */}
+    <FaultFlagsProvider enabled={canEdit}>
     <div className="flex h-full flex-col">
       <header className="border-b border-edge px-4 py-4 lg:px-6">
         <div className="flex items-center justify-between gap-3">
@@ -653,6 +656,7 @@ export default function Board() {
 
       {canEdit && <CommandAssistant resources={resources} boardRows={boardRows} onAssign={handleAssign} />}
     </div>
+    </FaultFlagsProvider>
     </TicketFlagsProvider>
   );
 }

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { nameWithoutAmounts } from "@/lib/dailyLog/money";
-import { jobLabel, makeOdometerToken, makeTravelPass, openJob, pointOf, readTicket, sydneyTime, takesSignIns } from "@/lib/signin";
+import { jobLabel, makeOdometerToken, makePrestartToken, makeTravelPass, openJob, pointOf, readTicket, sydneyTime, takesSignIns } from "@/lib/signin";
 import { endOutOnSignIn, hasRegionalWork, homeOffered } from "@/lib/travel/store";
 import { passAllowed } from "@/lib/travel/rules";
 import { looksLikeLobos } from "@/lib/staffMatch";
@@ -137,6 +137,8 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
       ...(await travelFor(who.resourceId, deviceId, where.date, { jobId: where.jobId, method: ticket.method, allocatedIds: where.allocatedIds })),
       // On a truck: the next screen asks for an odometer photo (Receipts R1).
       ...(where.place === "VEHICLE" ? { odometer: makeOdometerToken(signedIn.id) } : {}),
+      // ...then the pre-start checklist (8 Nov 2026). The sign-in above is already saved - the check never holds it up.
+      ...(where.place === "VEHICLE" ? { prestart: makePrestartToken(signedIn.id, "PRE") } : {}),
     });
   }
 
@@ -154,6 +156,8 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
       ...(await travelFor(who.resourceId, deviceId, where.date, { jobId: where.jobId, method: ticket.method, allocatedIds: where.allocatedIds })),
       // Regional job: "Travelling home" comes next on the phone.
       ...(open.jobId && (await homeOffered(who.resourceId, where.projectId)) ? { travelHome: true } : {}),
+      // Off a truck: the short post-check comes next (8 Nov 2026), for the sign-in just closed.
+      ...(open.place === "VEHICLE" && open.vehicleId ? { postcheck: makePrestartToken(open.id, "POST") } : {}),
     });
   }
   return bad("Unknown request.");

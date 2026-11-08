@@ -6,7 +6,7 @@ import { promisify } from "util";
 import { prisma } from "./prisma";
 import { SESSION_COOKIE, sessionMaxAgeFor, signSession, verifySession } from "./session";
 import { isOwner } from "./owner";
-import { coordinatorOr, NO_DIRECTOR_ACCESS_ROLES, toolsWorkerOr, yardOr, type Role } from "./roles";
+import { coordinatorOr, faultsWorker, NO_DIRECTOR_ACCESS_ROLES, toolsWorkerOr, yardOr, type Role } from "./roles";
 import { UNKNOWN_RANK, rankAtLeast, rankOf } from "./roleRank";
 
 const scrypt = promisify(scryptCb) as (pw: string, salt: Buffer, len: number) => Promise<Buffer>;
@@ -137,6 +137,16 @@ export async function guardTools(min: Role): Promise<NextResponse | null> {
     return NextResponse.json({ error: "You don't have permission to do that" }, { status: 403 });
   }
   return null;
+}
+
+// Vehicle & plant faults and pre-start checks (/faults, /api/faults/*, 8 Nov 2026 - Ilies): Managers, Admins, the
+// coordinator and the yard computer, exactly (lib/roles.ts faultsWorker). Returns the user, whose name goes on the
+// fault's history. Never by loosening guard() itself.
+export async function guardFaults(): Promise<{ denied: NextResponse } | { user: AuthUser }> {
+  const user = await getCurrentUser();
+  if (!user) return { denied: NextResponse.json({ error: "Not signed in" }, { status: 401 }) };
+  if (!faultsWorker(user.role)) return { denied: NextResponse.json({ error: "You don't have permission to do that" }, { status: 403 }) };
+  return { user };
 }
 
 // Looking at timesheets: Managers and Admins, plus the review-only

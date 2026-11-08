@@ -84,6 +84,21 @@ export function readOdometerToken(token: unknown, now = Date.now()): string | nu
   return kind === "O" && attendanceId && Number(exp) >= now ? attendanceId : null;
 }
 
+// --- the pre-start / post-check after a truck sign-in / sign-out (8 Nov 2026) -
+// Signing in on a truck's QR returns a PRE token, signing out there a POST token, each tied to that sign-in; the
+// checklist screen (and its photos) send it back. 2 hours - "Do it later" just lets it run out. Only VEHICLE points.
+const PRESTART_MS = 2 * 3_600_000;
+export type PrestartKind = "PRE" | "POST";
+export function makePrestartToken(attendanceId: string, kind: PrestartKind, now = Date.now()) {
+  return sign(`S|${attendanceId}|${kind}|${now + PRESTART_MS}`);
+}
+export function readPrestartToken(token: unknown, now = Date.now()): { attendanceId: string; kind: PrestartKind } | null {
+  const p = unsign(token);
+  if (!p) return null;
+  const [k, attendanceId, kind, exp] = p.split("|");
+  return k === "S" && attendanceId && (kind === "PRE" || kind === "POST") && Number(exp) >= now ? { attendanceId, kind } : null;
+}
+
 // --- the travel pass: this phone is this worker (regional travel, 2 Nov 2026) --
 // Travel starts before anyone is at a site QR, so the phone needs to say who it is without a scan. A real sign-in
 // or sign-out (a scan) gives a Labour-register person's phone this pass, tied to the person and the phone's device

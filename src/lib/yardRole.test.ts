@@ -178,8 +178,8 @@ test("the screen: AppFrame sends the yard home, the nav shows only its tabs, the
   assert.match(frame, /!\(yardOnly && isYardPage\(path\)\)/);
   assert.match(src("../components/AuthProvider.tsx"), /yardOnly: user\?\.role === "YARD"/);
   const nav = src("../components/TopNav.tsx");
-  // Yard Stage B (4 Nov 2026) adds the stock take tab; Stage C the consumables.
-  assert.match(nav, /const YARD = \[\s*\{ href: "\/yard", label: "Yard jobs" \},\s*\{ href: "\/yard\/stocktake", label: "Stock take" \},\s*\{ href: "\/yard\/inventory", label: "Consumables" \}, \/\/ Yard Stage C \(4 Nov 2026\)\s*\{ href: "\/tools", label: "Tools" \},\s*\];/);
+  // Yard Stage B (4 Nov 2026) adds the stock take tab; Stage C the consumables; the pre-start checks (8 Nov 2026) Faults.
+  assert.match(nav, /const YARD = \[\s*\{ href: "\/yard", label: "Yard jobs" \},\s*\{ href: "\/yard\/stocktake", label: "Stock take" \},\s*\{ href: "\/yard\/inventory", label: "Consumables" \}, \/\/ Yard Stage C \(4 Nov 2026\)\s*\{ href: "\/tools", label: "Tools" \},\s*\{ href: "\/faults", label: "Faults" \}, \/\/ vehicle & plant faults, pre-start checks \(8 Nov 2026\)\s*\];/);
   assert.match(src("../components/tools/ToolsTabs.tsx"), /yardHref\(t\.href, yardOnly\)/);
   assert.match(src("../app/tools/page.tsx"), /canEdit: canEdit \|\| coordinatorOnly \|\| yardOnly/);
   assert.match(src("../app/tools/toolboxes/page.tsx"), /const canFill = canEdit \|\| coordinatorOnly \|\| yardOnly;/);

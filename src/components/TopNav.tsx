@@ -40,6 +40,8 @@ const REGISTERS = [
   { href: "/labour", label: "Labour" },
   { href: "/hire", label: "Hire" },
   { href: "/tools", label: "Tools" },
+  // Vehicle & plant faults and the pre-start checks (8 Nov 2026) - Managers and Admins (the route refuses a Viewer).
+  { href: "/faults", label: "Faults" },
 ];
 
 function NavTab({
@@ -119,6 +121,7 @@ const COORDINATOR = [
   { href: "/day-review", label: "Day Review" },
   { href: "/calendar", label: "Calendar" },
   { href: "/tools", label: "Tools" },
+  { href: "/faults", label: "Faults" }, // vehicle & plant faults, pre-start checks (8 Nov 2026)
   { href: "/hire", label: "Hire" },
   { href: "/purchases", label: "Purchases" },
   { href: "/messages", label: "Messages" },
@@ -131,6 +134,7 @@ const YARD = [
   { href: "/yard/stocktake", label: "Stock take" },
   { href: "/yard/inventory", label: "Consumables" }, // Yard Stage C (4 Nov 2026)
   { href: "/tools", label: "Tools" },
+  { href: "/faults", label: "Faults" }, // vehicle & plant faults, pre-start checks (8 Nov 2026)
 ];
 // The invoices inbox is an Operations page as well as an Accounts tab: an Admin who got there from the
 // Accounts screen stays on the Accounts screen.
@@ -271,7 +275,7 @@ export default function TopNav() {
           />
         ))}
         <Divider />
-        {REGISTERS.map((i) => (
+        {REGISTERS.filter((i) => i.href !== "/faults" || canEdit).map((i) => (
           <NavTab
             key={i.href}
             href={i.href}

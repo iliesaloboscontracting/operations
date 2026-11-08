@@ -5,6 +5,7 @@ import { AssignmentDTO, DragResourcePayload } from "@/lib/types";
 import { columnFor, CREW_ROLE_OPTIONS, isLabourHire } from "@/lib/resource";
 import HireTag from "./HireTag";
 import { TicketFlagBadge } from "./compliance/TicketFlags";
+import { FaultFlagBadge } from "./faults/FaultFlags";
 
 export default function AssignedChip({
   assignment,
@@ -68,6 +69,7 @@ export default function AssignedChip({
       {/* Hired plant / equipment / tools: who it's from and when it's due back. */}
       {column === "hire" && <HireTag resource={r} className="max-w-[9rem]" />}
       {isCrew && <TicketFlagBadge resourceId={r.id} />}
+      {!isCrew && <FaultFlagBadge resourceId={r.id} />}
       {conflict > 0 && <span className="text-amber-300">⚠</span>}
       {isCrew && (
         <select
