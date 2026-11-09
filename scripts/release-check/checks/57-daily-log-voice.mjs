@@ -88,6 +88,15 @@ export default {
     const big = Buffer.alloc(7 * 1024 * 1024); // a real 7 MB body, so the request is whole
     t.status({ status: await raw({ "content-type": "multipart/form-data; boundary=x", "content-length": String(big.length) }, big) }, 413, "a Content-Length over 6.25 MB -> 413 before reading it");
 
+    // Villi, 9 Nov 2026: a log over the 10 MB request limit arrives cut short - 413 "too big", never "not one you can log today".
+    const logsBefore = await c.db.dailyLog.count({ where: { jobId: job.id } });
+    const huge = JSON.stringify({ jobId: job.id, photos: [`data:image/jpeg;base64,${"A".repeat(11 * 1024 * 1024)}`] });
+    const tooBig = await fetch(`${c.base}${c.site(L.sup, "/log")}`, { method: "POST", headers: { "content-type": "application/json" }, body: huge });
+    const tooBigBody = await tooBig.json().catch(() => ({}));
+    t.status(tooBig, 413, "a daily log over 10 MB -> 413");
+    t.ok(/too big/i.test(tooBigBody.error ?? "") && !/can log today/i.test(tooBigBody.error ?? ""), "...saying it's too big, not 'not one you can log today'", tooBigBody.error);
+    t.ok((await c.db.dailyLog.count({ where: { jobId: job.id } })) === logsBefore, "...and nothing saved");
+
     // Links that can't use it: revoked supervisor, expired hand-over; a hand-over sending another job.
     const revoked = await makeLink(c.db, "SUPERVISOR", L.sup.resourceId);
     await c.db.siteLink.update({ where: { id: revoked.id }, data: { revokedAt: new Date() } });

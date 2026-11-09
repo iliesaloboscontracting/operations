@@ -4,6 +4,7 @@ import { resolveLink } from "@/lib/siteLinks";
 import { isPilotLink, linkLogView, submitLog } from "@/lib/dailyLog/store";
 import { linkSafe } from "@/lib/dailyLog/rules";
 import { AMOUNTS_NOTICE } from "@/lib/dailyLog/money";
+import { readJsonBody } from "@/lib/jsonBody";
 
 // The daily site log from a pilot supervisor's link (Task K, 25 Oct 2026).
 // GET  -> the jobs they can log now, each with the crew and signed hours (from
@@ -31,8 +32,11 @@ export const GET = withErrorHandling(async (_req: NextRequest, { params: paramsP
 export const POST = withErrorHandling(async (req: NextRequest, { params: paramsP }: { params: Promise<{ token: string }> }) => {
   const { link, res } = await linkFor((await paramsP).token);
   if (!link) return res;
-  const body = await req.json().catch(() => ({}));
-  const out = await submitLog(link, body && typeof body === "object" ? body : {}, new Date());
+  // A log over Next's 10 MB limit (lots of photos) arrives cut short - say so, rather than "not one you can log today"
+  // (Villi, 9 Nov 2026).
+  const read = await readJsonBody(req, "This log is too big to send - take a photo or two out and send again.");
+  if ("denied" in read) return read.denied;
+  const out = await submitLog(link, read.b, new Date());
   if ("error" in out) return NextResponse.json({ error: out.error }, { status: out.status });
   return safe({ log: out.log, amountsNotice: out.amountsRemoved ? AMOUNTS_NOTICE : null }, 201);
 });
