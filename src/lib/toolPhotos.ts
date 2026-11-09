@@ -36,6 +36,16 @@ export function photoDir() {
 // Takes a data URL from the browser, checks it is an image of an allowed type
 // and size, and writes it under a random file name. Returns the file name.
 export async function savePhoto(dataUrl: unknown): Promise<{ fileName: string } | { error: string }> {
+  const p = preparePhoto(dataUrl);
+  if ("error" in p) return p;
+  await writePreparedPhoto(p);
+  return { fileName: p.fileName };
+}
+
+// The same checks as savePhoto, without writing anything yet (PS-001, 9 Nov 2026): the fault-photo route records the
+// photo against its limits first and writes the file only once it's allowed. The name is one safePath accepts.
+export type PreparedPhoto = { fileName: string; mime: "image/jpeg" | "image/png" | "image/webp"; bytes: Buffer };
+export function preparePhoto(dataUrl: unknown): PreparedPhoto | { error: string } {
   if (typeof dataUrl !== "string") return { error: "No photo was sent." };
   const m = dataUrl.match(/^data:(image\/[a-z]+);base64,([A-Za-z0-9+/=]+)$/);
   if (!m || !ALLOWED.has(m[1])) return { error: "The photo must be a JPEG, PNG or WebP image." };
@@ -44,10 +54,11 @@ export async function savePhoto(dataUrl: unknown): Promise<{ fileName: string } 
   if (bytes.length > MAX_BYTES) return { error: "The photo is too large - try again (it should shrink automatically)." };
   const real = imageTypeOf(bytes);
   if (!real) return { error: "The photo must be a JPEG, PNG or WebP image." };
-  const fileName = `${Date.now()}-${randomBytes(8).toString("hex")}.${ALLOWED.get(real)}`;
+  return { fileName: `${Date.now()}-${randomBytes(8).toString("hex")}.${ALLOWED.get(real)}`, mime: real, bytes };
+}
+export async function writePreparedPhoto(p: PreparedPhoto): Promise<void> {
   await fs.mkdir(photoDir(), { recursive: true });
-  await fs.writeFile(path.join(photoDir(), fileName), bytes);
-  return { fileName };
+  await fs.writeFile(safePath(p.fileName), p.bytes);
 }
 
 // File names are only ever ones savePhoto made - refuse anything else so a

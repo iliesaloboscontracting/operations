@@ -48,8 +48,44 @@ export const LIMITS = {
   minFixNote: 3,
   photosPerFault: 6,
   photosPerSignIn: 20,
-  photosPerDeviceDay: 60,
+  photosPerDeviceDay: 60, // a hint only - the phone says which device it is (PS-001)
+  photosPerMachineDay: 80, // one machine, every sign-in and phone, one Sydney day (PS-001; stage 2's plant too)
+  photosAllDay: 400, // every machine, one Sydney day (PS-001)
+  alertGapMinutes: 15, // at most one phone alert per machine in this long (PS-002)
+  alertsPerMachineDay: 6, // and at most this many a Sydney day
 } as const;
+
+// PS-001 (9 Nov 2026): a fault photo is kept only under every cap. `counts` include the photo being added (it's
+// recorded first, then counted, in one transaction - so parallel uploads can't all slip under). Plain words, 429.
+export type PhotoCounts = { signIn: number; machineDay: number; allDay: number; deviceDay: number; sameOnSignIn: number };
+export function photoRefusal(c: PhotoCounts): { error: string; status: number } | null {
+  if (c.sameOnSignIn > 1) return { error: "That photo is already added.", status: 409 };
+  if (c.signIn > LIMITS.photosPerSignIn) return { error: `That's ${LIMITS.photosPerSignIn} photos for this sign-in - send the check.`, status: 429 };
+  if (c.machineDay > LIMITS.photosPerMachineDay) return { error: "This machine has had all the fault photos it can take today - call the office.", status: 429 };
+  if (c.allDay > LIMITS.photosAllDay) return { error: "Too many fault photos today - call the office.", status: 429 };
+  if (c.deviceDay > LIMITS.photosPerDeviceDay) return { error: "Too many photos from this phone today - call the office.", status: 429 };
+  return null;
+}
+
+// PS-002 (9 Nov 2026): one phone alert per check (all its Urgent / Do-not-use faults together), and per machine at
+// most one every 15 minutes and 6 a Sydney day. `sentAt` = when this machine's alerts were SENT today.
+export type AlertDecision = "SENT" | "HELD_RECENT" | "HELD_DAY";
+export function alertDecision(sentAt: Date[], now: Date): AlertDecision {
+  if (sentAt.some((d) => now.getTime() - d.getTime() < LIMITS.alertGapMinutes * 60_000)) return "HELD_RECENT";
+  if (sentAt.length >= LIMITS.alertsPerMachineDay) return "HELD_DAY";
+  return "SENT";
+}
+// The one alert for a check: Do not use if any fault is, else Urgent; each fault on a line. Null = nothing to alert.
+export function alertMessage(machine: string, by: string, faults: { itemLabel: string; priority: string; description: string; markedDown: boolean }[]) {
+  const loud = faults.filter((f) => alertFor(f.priority));
+  if (!loud.length) return null;
+  const worst: FaultPriority = loud.some((f) => f.priority === "DO_NOT_USE") ? "DO_NOT_USE" : "URGENT";
+  const lines = loud.map((f) => `${PRIORITY_LABEL[f.priority as FaultPriority] ?? f.priority} - ${f.itemLabel}: ${f.description}`.slice(0, 160));
+  return {
+    title: `${PRIORITY_DOT[worst]} ${PRIORITY_LABEL[worst]} - ${machine}${loud.length > 1 ? ` (${loud.length} faults)` : ""}`,
+    body: `${lines.join("\n")}\n${by}${loud.some((f) => f.markedDown) ? " · marked Down on the register" : ""}`,
+  };
+}
 
 // Free text from a phone or the office: one line of spaces tidied, every dollar amount taken out, cut to `max`.
 export function cleanText(v: unknown, max: number): string {
@@ -129,13 +165,15 @@ export function alertFor(priority: string): { urgency: "high"; sticky: true } | 
 export const marksDown = (priority: string, resourceStatus: string) => priority === "DO_NOT_USE" && resourceStatus !== "DOWN";
 
 // Fixing a fault: "Put it back to Available" is offered only when this fault set it DOWN, it is still DOWN, and no
-// other open Do-not-use fault is on the machine.
+// other open Do-not-use fault is on the machine. PS-008 (9 Nov 2026): and nothing has changed the machine's record since
+// this fault's Down - its updatedAt is still the one that Down left - so a later, unrelated Down is never undone here.
 export function offerBackToAvailable(
-  fault: { id: string; markedDown: boolean },
-  resourceStatus: string,
+  fault: { id: string; markedDown: boolean; markedDownAt: Date | string | null },
+  machine: { status: string; updatedAt: Date | string } | null,
   faultsOnMachine: { id: string; priority: string; status: string }[],
 ): boolean {
-  if (!fault.markedDown || resourceStatus !== "DOWN") return false;
+  if (!fault.markedDown || !fault.markedDownAt || !machine || machine.status !== "DOWN") return false;
+  if (new Date(machine.updatedAt).getTime() !== new Date(fault.markedDownAt).getTime()) return false;
   return !faultsOnMachine.some((f) => f.id !== fault.id && f.priority === "DO_NOT_USE" && isOpenStatus(f.status));
 }
 

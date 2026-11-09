@@ -110,6 +110,12 @@ function FaultCard({ f, patch }: { f: FaultDTO; patch: (id: string, body: Record
         </div>
         <div className="text-right text-[11px] text-gray-500">
           Reported {when(f.reportedAt)} by {f.reportedBy}
+          {/* PS-004: where it came from - staff or hire (and their company), and how they signed in. */}
+          {f.source && (
+            <div className={f.source.staff ? "" : "text-amber-300"}>
+              {f.source.staff ? "Staff" : `Hire${f.source.company ? ` - ${f.source.company}` : ""}`} · {f.source.method}{f.source.point ? ` (${f.source.point})` : ""}
+            </div>
+          )}
           {f.lastSeenAt && <div>Still there: {when(f.lastSeenAt)} ({f.lastSeenBy}){f.seenCount > 1 ? ` · seen ${f.seenCount} times` : ""}</div>}
           {f.fixedAt && <div>Fixed {when(f.fixedAt)} by {f.fixedBy}</div>}
         </div>

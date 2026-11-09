@@ -37,7 +37,8 @@ export default function PrestartCheck({ token, banner, onDone, onSkip }: { token
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch(`/api/site/in/prestart?token=${encodeURIComponent(token)}`).then(async (res) => {
+    // PS-005: the token goes in a header, never the address (the photo and the check send it in the body).
+    fetch("/api/site/in/prestart", { headers: { "x-prestart-token": token }, cache: "no-store" }).then(async (res) => {
       if (!res.ok) return setDead(await serverErrorMessage(res, "The checklist didn't load - check your signal."));
       const v: View = await res.json();
       if (v.done) return setDead("That check is already in - thanks.");

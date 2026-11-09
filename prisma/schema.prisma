@@ -2384,6 +2384,9 @@ model AssetFault {
   lastSeenBy   String?
   seenCount    Int               @default(0)
   markedDown   Boolean           @default(false)
+  // PS-008 (9 Nov 2026): the machine record's updatedAt as this fault's Down left it. "Back to Available" is only
+  // offered / allowed while the record is still exactly that - any later change to it (another status, an edit) wins.
+  markedDownAt DateTime?
   fixedAt      DateTime?
   fixedBy      String?
   fixNote      String?
@@ -2405,6 +2408,7 @@ model AssetFaultMedia {
   attendanceId String? // the sign-in it was sent from (stage 2: null)
   deviceId     String?
   kind         String      @default("PHOTO") // PHOTO | VIDEO (stage 3)
+  checkKind    String? // PRE | POST - the check it was sent for; it can only go on that check's faults (PS-006)
   fileName     String
   mime         String
   sha256       String
@@ -2413,6 +2417,23 @@ model AssetFaultMedia {
   @@index([attendanceId])
   @@index([faultId])
   @@index([deviceId, createdAt])
+  @@index([resourceId, createdAt]) // the per-machine daily cap (PS-001)
+  @@index([createdAt])
+}
+
+// PS-002 (9 Nov 2026): every decision about a phone alert for a machine's Urgent / Do-not-use faults - SENT (one push
+// for the whole check), or held back because one went in the last 15 minutes (HELD_RECENT) or the machine has had its
+// daily number (HELD_DAY). Kept in the database so the throttle survives a restart. The faults are saved and listed
+// either way. Append-only.
+model AssetFaultAlert {
+  id         String   @id @default(cuid())
+  resourceId String
+  checkId    String?
+  decision   String // SENT | HELD_RECENT | HELD_DAY
+  faultIds   String // JSON array
+  at         DateTime @default(now())
+
+  @@index([resourceId, at])
 }
 
 // Everything that happened to a fault. Append-only: nothing updates or deletes these.
