@@ -74,8 +74,17 @@ export async function linkView(ctx: LinkCtx) {
 }
 
 class Refused extends Error { constructor(public p: Problem) { super(p.error); } }
-// Interactive transactions wait their turn (SQLite takes one writer at a time) rather than failing under a burst.
+// Interactive transactions wait their turn rather than failing under a burst.
 const TX = { maxWait: 15_000, timeout: 15_000 };
+// SQLite lets one writer in at a time, and two interactive transactions that overlap can time out on each other's
+// locks (seen with 30 photos at once). Production is one server process, so this module's writes go one after another
+// here - each still counts inside its own transaction, so the caps hold even if two ever did overlap.
+const queue = globalThis as unknown as { __prestartQueue?: Promise<unknown> };
+function oneAtATime<T>(fn: () => Promise<T>): Promise<T> {
+  const run = (queue.__prestartQueue ?? Promise.resolve()).then(fn, fn);
+  queue.__prestartQueue = run.catch(() => undefined);
+  return run;
+}
 
 // POST photo: kept for this sign-in and check (PRE / POST), not yet on a fault; none once the check is in.
 // PS-001 (9 Nov 2026): the row is recorded first and then everything is counted in the same transaction - this
@@ -89,12 +98,14 @@ export async function linkPhoto(ctx: LinkCtx, dataUrl: unknown, deviceId: unknow
   const dev = typeof deviceId === "string" && deviceId ? deviceId.slice(0, 64) : ctx.deviceId;
   let id: string;
   try {
-    id = await prisma.$transaction(async (tx) => {
-      if (await tx.prestartCheck.findUnique({ where: { attendanceId_kind: { attendanceId: ctx.attendanceId, kind: ctx.kind } }, select: { id: true } }))
-        throw new Refused(problem("That check is already in - thanks.", 409));
+    id = await oneAtATime(() => prisma.$transaction(async (tx) => {
+      // The write comes first: SQLite gives one transaction the write lock at a time, so the others wait here and then
+      // count what the earlier ones added (a transaction that read first and wrote later could deadlock under a burst).
       const m = await tx.assetFaultMedia.create({
         data: { resourceId: ctx.machine.id, attendanceId: ctx.attendanceId, deviceId: dev, kind: "PHOTO", checkKind: ctx.kind, fileName: prepared.fileName, mime: prepared.mime, sha256 },
       });
+      if (await tx.prestartCheck.findUnique({ where: { attendanceId_kind: { attendanceId: ctx.attendanceId, kind: ctx.kind } }, select: { id: true } }))
+        throw new Refused(problem("That check is already in - thanks.", 409));
       const today = { gte: sydneyMidnight() };
       const [signIn, machineDay, allDay, deviceDay, sameOnSignIn] = await Promise.all([
         tx.assetFaultMedia.count({ where: { attendanceId: ctx.attendanceId } }),
@@ -106,7 +117,7 @@ export async function linkPhoto(ctx: LinkCtx, dataUrl: unknown, deviceId: unknow
       const refused = photoRefusal({ signIn, machineDay, allDay, deviceDay, sameOnSignIn });
       if (refused) throw new Refused(refused);
       return m.id;
-    }, TX);
+    }, TX));
   } catch (e) {
     if (e instanceof Refused) return e.p;
     throw e;
@@ -135,12 +146,14 @@ export async function alertForCheck(machine: { id: string; name: string }, check
   const msg = alertMessage(machine.name, by, faults);
   if (!msg) return null;
   const loud = faults.filter((f) => alertFor(f.priority)).map((f) => f.id);
-  const decision = await prisma.$transaction(async (tx) => {
-    const sent = await tx.assetFaultAlert.findMany({ where: { resourceId: machine.id, decision: "SENT", at: { gte: sydneyMidnight() } }, select: { at: true } });
+  const decision = await oneAtATime(() => prisma.$transaction(async (tx) => {
+    // The row first (the write lock - see linkPhoto), then the decision from the ones before it.
+    const row = await tx.assetFaultAlert.create({ data: { resourceId: machine.id, checkId, decision: "PENDING", faultIds: JSON.stringify(loud), at: now } });
+    const sent = await tx.assetFaultAlert.findMany({ where: { resourceId: machine.id, decision: "SENT", at: { gte: sydneyMidnight() }, id: { not: row.id } }, select: { at: true } });
     const d = alertDecision(sent.map((s) => s.at), now);
-    await tx.assetFaultAlert.create({ data: { resourceId: machine.id, checkId, decision: d, faultIds: JSON.stringify(loud), at: now } });
+    await tx.assetFaultAlert.update({ where: { id: row.id }, data: { decision: d } });
     return d;
-  }, TX);
+  }, TX));
   if (decision === "SENT") await pushToAdmins({ ...msg, url: "/faults", tag: `fault-machine-${machine.id}`, sticky: true }, "high");
   return decision;
 }
@@ -159,13 +172,8 @@ export async function submitCheck(ctx: LinkCtx, body: unknown) {
   const by = ctx.person.name;
   let result: { checkId: string; created: { id: string; itemLabel: string; priority: FaultPriority; description: string; markedDown: boolean }[] };
   try {
-    result = await prisma.$transaction(async (tx) => {
-      if (await tx.prestartCheck.findUnique({ where: { attendanceId_kind: { attendanceId: ctx.attendanceId, kind: ctx.kind } }, select: { id: true } }))
-        throw new Refused(problem("That check is already in - thanks.", 409));
-      if (allMedia.length) {
-        const mine = await tx.assetFaultMedia.count({ where: { id: { in: allMedia }, attendanceId: ctx.attendanceId, checkKind: ctx.kind, faultId: null } });
-        if (mine !== allMedia.length) throw new Refused(problem("A photo didn't go through - take it again.", 400));
-      }
+    result = await oneAtATime(() => prisma.$transaction(async (tx) => {
+      // Written first (see linkPhoto); a second check for the sign-in hits the unique key -> 409.
       const check = await tx.prestartCheck.create({
         data: {
           resourceId: ctx.machine.id, resourceName: ctx.machine.name, resourceType: ctx.machine.type, kind: ctx.kind, attendanceId: ctx.attendanceId,
@@ -173,6 +181,10 @@ export async function submitCheck(ctx: LinkCtx, body: unknown) {
           faultCount: faults.length, seenCount: stillThere.length,
         },
       });
+      if (allMedia.length) {
+        const mine = await tx.assetFaultMedia.count({ where: { id: { in: allMedia }, attendanceId: ctx.attendanceId, checkKind: ctx.kind, faultId: null } });
+        if (mine !== allMedia.length) throw new Refused(problem("A photo didn't go through - take it again.", 400));
+      }
       let status = ctx.machine.status;
       const created: { id: string; itemLabel: string; priority: FaultPriority; description: string; markedDown: boolean }[] = [];
       for (const f of faults) {
@@ -200,7 +212,7 @@ export async function submitCheck(ctx: LinkCtx, body: unknown) {
         await tx.assetFaultEvent.create({ data: { faultId: id, by, action: "SEEN", note: `Still there (${ctx.kind === "PRE" ? "pre-start" : "post-check"})` } });
       }
       return { checkId: check.id, created };
-    }, TX);
+    }, TX));
   } catch (e) {
     if (e instanceof Refused) return e.p;
     if ((e as { code?: string }).code === "P2002") return problem("That check is already in - thanks.", 409);
@@ -294,7 +306,7 @@ export async function updateFault(id: string, body: Record<string, unknown>, by:
   const wantBack = to === "FIXED" && body.backToAvailable === true;
 
   try {
-    return await prisma.$transaction(async (tx) => {
+    return await oneAtATime(() => prisma.$transaction(async (tx) => {
       let back = false;
       if (to !== undefined) {
         const moved = await tx.assetFault.updateMany({
@@ -329,7 +341,7 @@ export async function updateFault(id: string, body: Record<string, unknown>, by:
         }
       }
       return { ok: true as const, backToAvailable: back };
-    }, TX);
+    }, TX));
   } catch (e) {
     if (e instanceof Refused) return e.p;
     throw e;
