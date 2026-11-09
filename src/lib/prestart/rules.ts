@@ -47,34 +47,90 @@ export const LIMITS = {
   minDescription: 3,
   minFixNote: 3,
   photosPerFault: 6,
-  photosPerSignIn: 20,
+  photosPerSignIn: 30, // stage 1b (10 Nov 2026): 5 walk-around photos + retakes + fault photos (was 20)
   photosPerDeviceDay: 60, // a hint only - the phone says which device it is (PS-001)
   photosPerMachineDay: 80, // one machine, every sign-in and phone, one Sydney day (PS-001; stage 2's plant too)
   photosAllDay: 400, // every machine, one Sydney day (PS-001)
   alertGapMinutes: 15, // at most one phone alert per machine in this long (PS-002)
-  alertsPerMachineDay: 6, // and at most this many a Sydney day
+  alertsPerMachineDay: 6, // and at most this many a Sydney day (Do not use ignores it - PS-011)
+  queueWaiting: 50, // PS-009: more photo / check writes than this waiting -> 503 "Busy - try again"
+  walkaroundMonths: 12, // walk-around photos are deleted this long after they were taken (Ilies, 10 Nov 2026)
 } as const;
 
 // PS-001 (9 Nov 2026): a fault photo is kept only under every cap. `counts` include the photo being added (it's
 // recorded first, then counted, in one transaction - so parallel uploads can't all slip under). Plain words, 429.
 export type PhotoCounts = { signIn: number; machineDay: number; allDay: number; deviceDay: number; sameOnSignIn: number };
-export function photoRefusal(c: PhotoCounts): { error: string; status: number } | null {
+export type PhotoRefusal = { error: string; status: number; capFull?: true };
+export function photoRefusal(c: PhotoCounts): PhotoRefusal | null {
   if (c.sameOnSignIn > 1) return { error: "That photo is already added.", status: 409 };
   if (c.signIn > LIMITS.photosPerSignIn) return { error: `That's ${LIMITS.photosPerSignIn} photos for this sign-in - send the check.`, status: 429 };
-  if (c.machineDay > LIMITS.photosPerMachineDay) return { error: "This machine has had all the fault photos it can take today - call the office.", status: 429 };
-  if (c.allDay > LIMITS.photosAllDay) return { error: "Too many fault photos today - call the office.", status: 429 };
+  // capFull (PS-010): the day's photo limit for the machine / everyone is used up - an Urgent / Do-not-use fault can
+  // still be sent without a photo, and the walk-around is let through.
+  if (c.machineDay > LIMITS.photosPerMachineDay)
+    return { error: "This machine has had all the photos it can take today - call the office. You can still send an Urgent or Do-not-use fault without a photo.", status: 429, capFull: true };
+  if (c.allDay > LIMITS.photosAllDay)
+    return { error: "Too many photos today - call the office. You can still send an Urgent or Do-not-use fault without a photo.", status: 429, capFull: true };
   if (c.deviceDay > LIMITS.photosPerDeviceDay) return { error: "Too many photos from this phone today - call the office.", status: 429 };
   return null;
 }
 
+// PS-009 (10 Nov 2026): the same caps read before anything is written (no transaction, no queue) - `c` is what's
+// there now, so it is checked as if this photo were added. A fast 429 with nothing written; the count inside the
+// transaction stays the authority.
+export const photoPrecheck = (c: PhotoCounts) =>
+  photoRefusal({ signIn: c.signIn + 1, machineDay: c.machineDay + 1, allDay: c.allDay + 1, deviceDay: c.deviceDay + 1, sameOnSignIn: c.sameOnSignIn + 1 });
+
+// PS-010 (10 Nov 2026): the day's photo limit is full for this machine (or everyone) - re-counted on the server when
+// the check is sent, never taken from the phone.
+export const photoCapFull = (c: { machineDay: number; allDay: number }) => c.machineDay >= LIMITS.photosPerMachineDay || c.allDay >= LIMITS.photosAllDay;
+// ...and then an Urgent or Do-not-use fault may go without a photo (Low / High still need one).
+export const photoWaived = (priority: string, capFull: boolean) => capFull && (priority === "URGENT" || priority === "DO_NOT_USE");
+export const PHOTO_LIMIT_NOTE = "Photo couldn't be added - the day's photo limit was reached.";
+
 // PS-002 (9 Nov 2026): one phone alert per check (all its Urgent / Do-not-use faults together), and per machine at
-// most one every 15 minutes and 6 a Sydney day. `sentAt` = when this machine's alerts were SENT today.
+// most one every 15 minutes and 6 a Sydney day. `sent` = this machine's alerts SENT today (and whether each had a
+// Do-not-use fault). PS-011 (10 Nov 2026): an alert with a Do-not-use fault ignores the daily cap and Urgent alerts -
+// it is held back only by a Do-not-use alert already SENT for the machine in the last 15 minutes.
 export type AlertDecision = "SENT" | "HELD_RECENT" | "HELD_DAY";
-export function alertDecision(sentAt: Date[], now: Date): AlertDecision {
-  if (sentAt.some((d) => now.getTime() - d.getTime() < LIMITS.alertGapMinutes * 60_000)) return "HELD_RECENT";
-  if (sentAt.length >= LIMITS.alertsPerMachineDay) return "HELD_DAY";
+export function alertDecision(sent: { at: Date; doNotUse: boolean }[], now: Date, doNotUse = false): AlertDecision {
+  const recent = (s: { at: Date }) => now.getTime() - s.at.getTime() < LIMITS.alertGapMinutes * 60_000;
+  if (doNotUse) return sent.some((s) => s.doNotUse && recent(s)) ? "HELD_RECENT" : "SENT";
+  if (sent.some(recent)) return "HELD_RECENT";
+  if (sent.length >= LIMITS.alertsPerMachineDay) return "HELD_DAY";
   return "SENT";
 }
+
+// ---------- walk-around photos (stage 1b, Ilies 10 Nov 2026) ----------
+// Required on the FIRST truck pre-start of the Sydney day for that truck - i.e. when no pre-start today has a DONE or
+// LIMIT walk-around. Later ones the same day may add them (OPTIONAL). Decided on the server, again when it's sent.
+export const walkaroundRequired = (earlierToday: { walkaround: string | null }[]) =>
+  !earlierToday.some((c) => c.walkaround === "DONE" || c.walkaround === "LIMIT");
+// { [slot]: mediaId } as sent. Required: all five, unless the day's photo limit is full (LIMIT - let through).
+export function validateWalkaround(raw: unknown, slots: readonly { key: string; label: string }[], o: { required: boolean; capFull: boolean })
+  : { ok: true; photos: Record<string, string>; status: "DONE" | "LIMIT" | "OPTIONAL" | null } | { ok: false; error: string } {
+  const r = raw == null ? {} : raw;
+  if (typeof r !== "object" || Array.isArray(r)) return { ok: false, error: "Something's wrong with the walk-around photos - take them again." };
+  const keys = new Set(slots.map((s) => s.key));
+  const photos: Record<string, string> = {};
+  for (const [k, v] of Object.entries(r as Record<string, unknown>)) {
+    if (!keys.has(k) || !isId(v)) return { ok: false, error: "Something's wrong with the walk-around photos - take them again." };
+    photos[k] = v;
+  }
+  if (new Set(Object.values(photos)).size !== Object.values(photos).length) return { ok: false, error: "Each walk-around photo is a different one." };
+  if (!slots.length) return Object.keys(photos).length ? { ok: false, error: "No walk-around photos on this check." } : { ok: true, photos, status: null };
+  if (!o.required) return { ok: true, photos, status: "OPTIONAL" };
+  const missing = slots.filter((s) => !photos[s.key]);
+  if (!missing.length) return { ok: true, photos, status: "DONE" };
+  if (o.capFull) return { ok: true, photos, status: "LIMIT" };
+  return { ok: false, error: `Take the walk-around photos first: ${missing.map((s) => s.label).join(", ")}.` };
+}
+// Walk-around photos are kept 12 months from when they were taken; fault photos are never removed by age.
+export function walkaroundCutoff(now: Date): Date {
+  const d = new Date(now.getTime());
+  d.setUTCMonth(d.getUTCMonth() - LIMITS.walkaroundMonths);
+  return d;
+}
+export const walkaroundExpired = (m: { role: string; createdAt: Date }, now: Date) => m.role === "WALKAROUND" && m.createdAt < walkaroundCutoff(now);
 // The one alert for a check: Do not use if any fault is, else Urgent; each fault on a line. Null = nothing to alert.
 export function alertMessage(machine: string, by: string, faults: { itemLabel: string; priority: string; description: string; markedDown: boolean }[]) {
   const loud = faults.filter((f) => alertFor(f.priority));
@@ -103,7 +159,7 @@ const isId = (v: unknown): v is string => typeof v === "string" && /^[A-Za-z0-9_
 
 // A phone's check, as sent: { answers: { [itemKey]: "OK" | "FAULT" | "NA" }, faults: [{ itemKey, description,
 // priority, mediaIds }], stillThere: [faultId] }. `open` = the machine's open faults (OPEN / IN_HAND).
-export function validateSubmission(list: Checklist, body: unknown, open: OpenFaultRef[]): { ok: true; value: Submission } | { ok: false; error: string } {
+export function validateSubmission(list: Checklist, body: unknown, open: OpenFaultRef[], o: { capFull?: boolean } = {}): { ok: true; value: Submission } | { ok: false; error: string } {
   const b = (body && typeof body === "object" ? body : {}) as Record<string, unknown>;
   const raw = (b.answers && typeof b.answers === "object" && !Array.isArray(b.answers) ? b.answers : null) as Record<string, unknown> | null;
   if (!raw) return { ok: false, error: "Answer every item." };
@@ -139,7 +195,7 @@ export function validateSubmission(list: Checklist, body: unknown, open: OpenFau
     const media = Array.isArray(f.mediaIds) ? f.mediaIds : [];
     if (!media.every(isId)) return { ok: false, error: "Something's wrong with a photo - take it again." };
     const mediaIds = [...new Set(media as string[])];
-    if (mediaIds.length < 1) return { ok: false, error: `Add a photo of the fault on "${item.label}".` };
+    if (mediaIds.length < 1 && !photoWaived(f.priority, !!o.capFull)) return { ok: false, error: `Add a photo of the fault on "${item.label}".` };
     if (mediaIds.length > LIMITS.photosPerFault) return { ok: false, error: `At most ${LIMITS.photosPerFault} photos for one fault.` };
     if (mediaIds.some((m) => usedMedia.has(m))) return { ok: false, error: "A photo can go with one fault only." };
     mediaIds.forEach((m) => usedMedia.add(m));

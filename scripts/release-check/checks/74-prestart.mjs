@@ -1,14 +1,17 @@
-// Vehicle & plant pre-start checks (stage 1, Ilies approved 8 Nov 2026; security fixes PS-001..008, 9 Nov 2026). A truck
-// QR sign-in hands the phone a pre-start token (a site poster or the office point never does); the checklist and its
-// fault photos ride the link with no money; a valid check makes the check and its faults in one go, a second is refused
-// (409), a fault without a photo is refused, another sign-in's or an already-used photo is refused, Do not use marks the
-// truck Down, "Still there" records a sighting instead of a second fault, sign-out hands over the post-check, forged /
-// expired / non-truck tokens are refused, and the office side (/api/faults*) is open to exactly ADMIN, MANAGER,
-// COORDINATOR and YARD. Security fixes: photo caps per sign-in / machine (rotated phone ids and parallel uploads can't
-// get past them), one throttled alert per check, the PRE token closed at sign-out, the token never read from the
-// address, the stale-photo cleanup, the report's source on /faults, back-to-Available refused after an unrelated change.
-// WRITES on the test copy: five trucks, drivers, a project with a job today, QR links, sign-ins, checks, faults, photos
-// (seeded cap rows removed again; trucks and drivers switched off and the links revoked at the end).
+// Vehicle & plant pre-start checks (stage 1, Ilies approved 8 Nov 2026; security fixes PS-001..008, 9 Nov 2026; stage 1b
+// walk-around photos + PS-009..011, 10 Nov 2026). A truck QR sign-in hands the phone a pre-start token (a site poster
+// or the office point never does); the checklist and its photos ride the link with no money; a valid check makes the
+// check and its faults in one go, a second is refused (409), a fault without a photo is refused, another sign-in's or
+// an already-used photo is refused, Do not use marks the truck Down, "Still there" records a sighting instead of a
+// second fault, sign-out hands over the post-check, forged / expired / non-truck tokens are refused, and the office side
+// (/api/faults*) is open to exactly ADMIN, MANAGER, COORDINATOR and YARD. Security fixes: photo caps per sign-in /
+// machine (rotated phone ids and parallel uploads can't get past them), one throttled alert per check, the PRE token
+// closed at sign-out, the token never read from the address, the stale-photo cleanup, the report's source on /faults,
+// back-to-Available refused after an unrelated change. Stage 1b: the day's first pre-start for a truck needs the five
+// walk-around photos and the odometer, later ones don't; the Checks tab shows them; 12-month retention; PS-009 (read-only
+// pre-check), PS-010 (Urgent / Do not use and the walk-around get through when the day's limit is full), PS-011.
+// WRITES on the test copy: six trucks, drivers, a project with a job today, QR links, sign-ins, checks, faults, photos,
+// odometer readings (seeded cap rows removed again; trucks and drivers switched off and the links revoked at the end).
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -21,13 +24,14 @@ const PNG_BYTES = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAD
 const uniqPng = () => `data:image/png;base64,${Buffer.concat([PNG_BYTES, randomBytes(16)]).toString("base64")}`;
 const PRE = ["tyres", "lights", "brakes", "horn", "mirrors", "seatbelt", "fluids", "leaks", "tipper", "load", "safety-kit", "body"];
 const POST = ["new-damage", "driving-faults", "tray", "parked"];
+const SLOTS = ["FRONT", "BACK", "DRIVER", "PASSENGER", "CAB"];
 const allOk = (keys) => Object.fromEntries(keys.map((k) => [k, "OK"]));
 const ALLOWED = ["ADMIN", "MANAGER", "COORDINATOR", "YARD"];
 const REFUSED = ["VIEWER", "TIMESHEETS", "ACCOUNTS", "DIRECTOR"];
 
 export default {
-  id: "prestart", title: "Pre-start checks: truck QR token, checklist + faults, Do not use = Down, still there, caps, alerts, office roles, no $",
-  writes: true, timeoutMs: 360_000,
+  id: "prestart", title: "Pre-start checks: truck QR token, checklist + faults, walk-around photos, Do not use = Down, caps, alerts, office roles, no $",
+  writes: true, timeoutMs: 480_000,
   applies: (c) => c.hasPath("src/lib/prestart/rules.ts") || "the candidate has no pre-start checks",
   async run(t, c) {
     const db = c.db;
@@ -74,16 +78,32 @@ export default {
     };
     // PS-005: the view reads the token from a header only.
     const view = async (token) => keep(await c.req("GET", "/api/site/in/prestart", null, undefined, { "x-prestart-token": token }));
-    const photo = async (token, p = uniqPng(), deviceId) => keep(await c.post("/api/site/in/prestart/photo", null, { token, photo: p, ...(deviceId ? { deviceId } : {}) }));
+    const photo = async (token, p = uniqPng(), deviceId, slot) => keep(await c.post("/api/site/in/prestart/photo", null, { token, photo: p, ...(deviceId ? { deviceId } : {}), ...(slot ? { slot } : {}) }));
     const submit = async (token, body) => keep(await c.post("/api/site/in/prestart", null, { token, ...body }));
+    // Stage 1b: the five walk-around photos for a sign-in, and its odometer photo (Receipts R1's own route).
+    const walkAll = async (token) => {
+      const out = {};
+      for (const s of SLOTS) out[s] = (await photo(token, uniqPng(), undefined, s)).body?.id;
+      return out;
+    };
+    const odometer = async (odoToken) => keep(await c.post("/api/site/in/odometer", null, { token: odoToken, dataUrl: uniqPng() }));
+    // Sign in on a truck and do the day's first pre-start properly (walk-around + odometer); returns the sign-in reply.
+    const firstCheck = async (tr, who, body) => {
+      const s = await onTruck(tr, "IN", who);
+      await odometer(s.body?.odometer);
+      const walkaround = await walkAll(s.body?.prestart);
+      const r = await submit(s.body?.prestart, { ...body, walkaround: { ...walkaround, ...(body.walkaround ?? {}) } });
+      return { sign: s, res: r, walkaround };
+    };
 
     // (1) Only a truck QR sign-in hands out a pre-start token.
     const inA = await sign(point.secret, point.id, "IN", A);
     if (!t.ok(inA.status === 200 && typeof inA.body.prestart === "string", "a truck QR sign-in returns a pre-start token", inA.status)) return;
     t.ok(typeof inA.body.odometer === "string", "the odometer token still comes first, unchanged");
+    t.ok(inA.body.walkaroundRequired === true, "stage 1b: the truck's first sign-in of the day is told the walk-around is needed");
     const tokA = inA.body.prestart;
     const inOffice = await sign(office.secret, office.id, "IN", C);
-    t.ok(inOffice.status === 200 && !inOffice.body.prestart && !inOffice.body.odometer, "the office point sign-in gets no pre-start token", inOffice.status);
+    t.ok(inOffice.status === 200 && !inOffice.body.prestart && !inOffice.body.odometer && inOffice.body.walkaroundRequired === undefined, "the office point sign-in gets no pre-start token", inOffice.status);
     await sign(office.secret, office.id, "OUT", C);
     const inSite = await sign(poster.secret, job.id, "IN", C);
     t.ok(inSite.status === 200 && !inSite.body.prestart, "a site-poster sign-in gets no pre-start token", inSite.status);
@@ -92,15 +112,17 @@ export default {
     // (2) The checklist - the token in a header; PS-005: never from the address.
     const v = await view(tokA);
     t.ok(v.status === 200 && v.body?.checklist?.id === "truck-pre.v1" && v.body.checklist.items.length === 12 && v.body.done === false, "GET (header token): the truck pre-start (12 items), not done", v.status);
+    t.ok(v.body?.walkaround?.required === true && v.body.walkaround.slots?.length === 5 && v.body.odometer === "MISSING", "stage 1b: the view asks for the five walk-around photos and says the odometer is missing");
     t.status(await keep(await c.get(`/api/site/in/prestart?token=${encodeURIComponent(tokA)}`, null)), 401, "PS-005: a token in the query string is not accepted");
 
-    // (3) Photos: real image bytes only; the same photo twice on one sign-in refused.
+    // (3) Photos: real image bytes only; the same photo twice on one sign-in refused; a slot that isn't on the check.
     const m1 = await photo(tokA);
     t.status(m1, 201, "a fault photo is stored for the sign-in");
     t.status(await photo(tokA, `data:image/png;base64,${Buffer.from("not really a picture").toString("base64")}`), 400, "a 'photo' that isn't image bytes is refused");
     const twice = uniqPng();
     const m2 = await photo(tokA, twice);
     t.status(await photo(tokA, twice), 409, "PS-001: the same photo twice on one sign-in is refused");
+    t.status(await photo(tokA, uniqPng(), undefined, "ROOF"), 400, "stage 1b: a walk-around slot that isn't on the check is refused");
     const attA = await db.prestartCheck.count({ where: { resourceId: truck.id } });
 
     // (4) A fault needs a photo; foreign media is refused; nothing is saved by a refusal.
@@ -115,21 +137,34 @@ export default {
     t.status(foreign, 400, "another sign-in's photo is refused");
     t.ok((await db.prestartCheck.count({ where: { resourceId: truck.id } })) === attA && (await db.assetFault.count({ where: { resourceId: truck.id } })) === 0, "refused checks saved nothing");
 
-    // (5) A valid check: the check, two faults, photos attached, Do not use marks the truck Down, the history.
-    const ok = await submit(tokA, { answers, faults: [
+    // (5) Stage 1b: the day's first pre-start needs the five walk-around photos and the odometer.
+    const goodFaults = [
       { itemKey: "tyres", description: "Front left flat, quote was $450", priority: "DO_NOT_USE", mediaIds: [m1.body?.id] },
       { itemKey: "lights", description: "Beacon out", priority: "URGENT", mediaIds: [m2.body?.id] },
-    ] });
-    t.ok(ok.status === 201 && ok.body?.sent?.length === 2, "a valid pre-start is saved with its two faults", ok.status);
+    ];
+    t.status(await submit(tokA, { answers, faults: goodFaults }), 400, "stage 1b: the first pre-start of the day without the walk-around photos is refused");
+    const walkA = await walkAll(tokA);
+    t.ok(SLOTS.every((s) => !!walkA[s]), "the five walk-around photos are stored");
+    t.status(await submit(tokA, { answers, faults: goodFaults, walkaround: walkA }), 400, "stage 1b: ...and with them but without the odometer photo");
+    t.status(await odometer(inA.body.odometer), 201, "the odometer photo is sent (its own route, unchanged)");
+    t.ok((await view(tokA)).body?.odometer === "SENT", "the view now says the odometer is in");
+    t.status(await submit(tokA, { answers, faults: goodFaults, walkaround: { ...walkA, CAB: undefined } }), 400, "...and with only four walk-around photos");
+    t.status(await submit(tokA, { answers, faults: goodFaults, walkaround: { ...walkA, FRONT: m1.body?.id } }), 400, "...and with a fault photo in a walk-around slot");
+    t.status(await submit(tokA, { answers, faults: goodFaults, walkaround: { ...walkA, FRONT: walkA.BACK, BACK: walkA.FRONT } }), 400, "...and with two photos in each other's slots");
+    t.ok((await db.prestartCheck.count({ where: { resourceId: truck.id } })) === attA, "none of those refusals saved a check");
+    const ok = await submit(tokA, { answers, faults: goodFaults, walkaround: walkA });
+    t.ok(ok.status === 201 && ok.body?.sent?.length === 2 && ok.body?.walkaround === "DONE", "a valid first pre-start is saved with its two faults and the walk-around", ok.status);
+    const checkA = await db.prestartCheck.findFirst({ where: { resourceId: truck.id, personId: A.id, kind: "PRE" } });
+    t.ok(checkA?.walkaround === "DONE" && (await db.assetFaultMedia.count({ where: { checkId: checkA.id, role: "WALKAROUND" } })) === 5, "the five walk-around photos are on the check");
     const faults = await db.assetFault.findMany({ where: { resourceId: truck.id }, include: { media: true, events: true } });
     const fT = faults.find((f) => f.itemKey === "tyres"), fL = faults.find((f) => f.itemKey === "lights");
-    t.ok(fT && fL && fT.media.length === 1 && fL.media.length === 1, "each fault has its photo attached");
+    t.ok(fT && fL && fT.media.length === 1 && fL.media.length === 1, "each fault has its photo attached (walk-around photos aren't on faults)");
     t.ok(fT?.priority === "DO_NOT_USE" && fT.markedDown === true && !!fT.markedDownAt && fL?.markedDown === false, "the Do-not-use fault is the one that marked it Down (and when)");
     t.ok((await db.resource.findUnique({ where: { id: truck.id } }))?.status === "DOWN", "Do not use: the truck is DOWN on the register");
     t.ok(fT?.events.some((e) => e.action === "REPORTED") && fT.events.some((e) => e.action === "DOWN"), "the history has Reported and Marked Down");
     t.ok(noMoney(fT?.description ?? "$1"), "the dollar amount was taken out of the words");
     const al1 = await db.assetFaultAlert.findMany({ where: { resourceId: truck.id } });
-    t.ok(al1.length === 1 && al1[0].decision === "SENT" && JSON.parse(al1[0].faultIds).length === 2, "PS-002: ONE alert decision for the check's two loud faults", JSON.stringify(al1.map((a) => a.decision)));
+    t.ok(al1.length === 1 && al1[0].decision === "SENT" && al1[0].doNotUse === true && JSON.parse(al1[0].faultIds).length === 2, "PS-002: ONE alert decision for the check's two loud faults", JSON.stringify(al1.map((a) => a.decision)));
 
     // (6) Once only; no photos after; used photos can't move.
     t.status(await submit(tokA, { answers: allOk(PRE) }), 409, "a second pre-start for the same sign-in -> 409");
@@ -137,11 +172,13 @@ export default {
     const vB = await view(tokB);
     const known = vB.body?.openFaults ?? [];
     t.ok(known.some((f) => f.id === fT?.id) && known.every((f) => !/Tester/.test(f.reportedBy)), "the next driver sees the open faults, reporter by first name only");
+    t.ok(vB.body?.walkaround?.required === false && vB.body.walkaround.earlier?.by === "Rcdrivera" && !/Tester/.test(JSON.stringify(vB.body.walkaround)), "stage 1b: the next driver sees the photos as optional - 'taken at ... by' first name only");
     t.status(await submit(tokB, { answers: { ...allOk(PRE), body: "FAULT" }, faults: [{ itemKey: "body", description: "Dent on door", priority: "LOW", mediaIds: [m1.body?.id] }] }), 400, "a photo already on a fault (another sign-in's) is refused");
+    t.status(await submit(tokB, { answers: allOk(PRE), walkaround: { FRONT: walkA.FRONT } }), 400, "stage 1b: another sign-in's walk-around photo is refused");
 
-    // (7) Still there: a sighting, not a second fault.
+    // (7) Still there: a sighting, not a second fault - and a later pre-start the same day goes without photos.
     const seen = await submit(tokB, { answers: { ...allOk(PRE), tyres: "FAULT" }, stillThere: [fT?.id] });
-    t.status(seen, 201, "the next driver confirms the known fault 'Still there'");
+    t.ok(seen.status === 201 && seen.body?.walkaround === "OPTIONAL", "stage 1b: a second pre-start the same day is accepted with no walk-around photos or odometer", seen.status);
     const fT2 = await db.assetFault.findUnique({ where: { id: fT?.id }, include: { events: true } });
     t.ok(fT2?.seenCount === 1 && fT2.lastSeenBy === B.name && !!fT2.lastSeenAt && fT2.events.some((e) => e.action === "SEEN"), "the sighting is recorded (seen count, who, when, SEEN in the history)");
     t.ok((await db.assetFault.count({ where: { resourceId: truck.id } })) === 2, "no duplicate fault was made");
@@ -151,11 +188,13 @@ export default {
     const outA = await sign(point.secret, point.id, "OUT", A);
     t.ok(outA.status === 200 && typeof outA.body.postcheck === "string", "a truck sign-out returns a post-check token", outA.status);
     const pv = await view(outA.body.postcheck);
-    t.ok(pv.status === 200 && pv.body?.checklist?.id === "truck-post.v1", "GET: the truck post-check");
+    t.ok(pv.status === 200 && pv.body?.checklist?.id === "truck-post.v1" && pv.body.walkaround === null, "GET: the truck post-check (no walk-around)");
+    t.status(await photo(outA.body.postcheck, uniqPng(), undefined, "FRONT"), 400, "stage 1b: no walk-around photos on a post-check");
     t.status(await submit(outA.body.postcheck, { answers: allOk(POST) }), 201, "a post-check with no faults is saved");
     {
       const D = await mkPerson("d");
       const inD = await onTruck(truck, "IN", D);
+      t.ok(inD.body?.walkaroundRequired === false, "stage 1b: a later sign-in the same day is told the photos are optional");
       const mPre = await photo(inD.body?.prestart);
       t.status(mPre, 201, "a photo under the pre-start");
       const outD = await onTruck(truck, "OUT", D);
@@ -172,60 +211,82 @@ export default {
     t.status(await view(tokA.slice(0, -3) + "AAA"), 401, "a tampered token is refused");
     if (secret) {
       const forge = (payload) => `${Buffer.from(payload).toString("base64url")}.${createHmac("sha256", `${secret}:site-signin`).update(payload).digest("base64url").slice(0, 22)}`;
-      const aId = (await db.prestartCheck.findFirst({ where: { resourceId: truck.id, personId: A.id, kind: "PRE" } }))?.attendanceId;
-      t.status(await view(forge(`S|${aId}|POST|${Date.now() - 1000}`)), 401, "an expired token is refused");
+      t.status(await view(forge(`S|${checkA?.attendanceId}|POST|${Date.now() - 1000}`)), 401, "an expired token is refused");
       const officeAtt = await db.siteAttendance.findFirst({ where: { resourceId: C.id, place: "OFFICE" } });
       t.ok([400, 404].includes((await view(forge(`S|${officeAtt?.id}|PRE|${Date.now() + 60_000}`))).status), "a token for a sign-in that isn't on a truck is refused");
     } else t.note("test AUTH_SECRET not readable - expired-token case not checked");
 
-    // (10) PS-001: the caps. Truck 2: one sign-in can't pass 20, whatever phone id it gives.
+    // (10) PS-001: the caps. Truck 2: one sign-in can't pass 30, whatever phone id it gives.
     const t2 = await mkTruck();
     const E = await mkPerson("e"), F = await mkPerson("f"), G = await mkPerson("g");
     const tokE = (await onTruck(t2, "IN", E)).body?.prestart;
     const statusesE = [];
-    for (let i = 0; i < 21; i++) statusesE.push((await photo(tokE, uniqPng(), `rc74-rotated-${tag}-${i}`)).status);
-    t.ok(statusesE.slice(0, 20).every((s) => s === 201) && statusesE[20] === 429, "PS-001: the 21st photo on one sign-in is refused (429) even with a new phone id each time", statusesE.join(","));
-    // Parallel uploads from one sign-in never get past its 20.
+    for (let i = 0; i < 31; i++) statusesE.push((await photo(tokE, uniqPng(), `rc74-rotated-${tag}-${i}`)).status);
+    t.ok(statusesE.slice(0, 30).every((s) => s === 201) && statusesE[30] === 429, "PS-001: the 31st photo on one sign-in is refused (429) even with a new phone id each time", statusesE.join(","));
+    // Parallel uploads from one sign-in never get past its 30.
     const tokF = (await onTruck(t2, "IN", F)).body?.prestart;
-    const par = await Promise.all(Array.from({ length: 30 }, () => photo(tokF)));
+    const par = await Promise.all(Array.from({ length: 40 }, () => photo(tokF)));
     const fOk = par.filter((r) => r.status === 201).length;
-    const fRows = await db.assetFaultMedia.count({ where: { resourceId: t2.id, attendanceId: { not: null }, deviceId: `rc74-${F.id}` } }).catch(() => -1);
-    t.ok(fOk === 20 && par.every((r) => r.status === 201 || r.status === 429), "PS-001: 30 photos at once from one sign-in - exactly 20 kept, the rest 429, nothing else", `${fOk} kept; ${par.map((r) => r.status).join(",")}`);
-    t.ok(fRows <= 20, "and no more than 20 rows recorded for it", fRows);
+    const fRows = await db.assetFaultMedia.count({ where: { resourceId: t2.id, deviceId: `rc74-${F.id}` } }).catch(() => -1);
+    t.ok(fOk <= 30 && fOk >= 1 && par.every((r) => [201, 429, 503].includes(r.status)), "PS-001: 40 photos at once from one sign-in - at most 30 kept, the rest 429 / 503, nothing else", `${fOk} kept; ${par.map((r) => r.status).join(",")}`);
+    t.ok(fRows === fOk, "and exactly the kept ones are recorded", `${fRows} rows, ${fOk} kept`);
     // The machine's day: seed it to 75, then 10 at once from a new sign-in - only 5 get in; then 429 in plain words.
     const today0 = await db.assetFaultMedia.count({ where: { resourceId: t2.id } });
-    const need = Math.max(0, 75 - today0);
-    for (let i = 0; i < need; i++) {
+    for (let i = 0; i < Math.max(0, 75 - today0); i++) {
       const r = await db.assetFaultMedia.create({ data: { resourceId: t2.id, attendanceId: null, kind: "PHOTO", fileName: `rc-seed-${tag}-${i}`, mime: "image/png", sha256: `rc-seed-${tag}-${i}` } });
       seeded.push(r.id);
     }
-    const tokG = (await onTruck(t2, "IN", G)).body?.prestart;
+    const inG = await onTruck(t2, "IN", G);
+    const tokG = inG.body?.prestart;
     const parG = await Promise.all(Array.from({ length: 10 }, () => photo(tokG)));
     const gOk = parG.filter((r) => r.status === 201).length;
     const machineToday = await db.assetFaultMedia.count({ where: { resourceId: t2.id } });
     t.ok(gOk === 5 && machineToday === 80, "PS-001: at 75 for the machine, 10 at once - exactly 5 kept, the machine stops at 80", `${gOk} kept, ${machineToday} today`);
+    // PS-009: a cap already full answers at once, with nothing written; PS-010: it says the day is full (capFull).
+    const before = await db.assetFaultMedia.count({ where: {} });
     const over = await photo(tokG);
-    t.ok(over.status === 429 && /machine/.test(over.body?.error ?? ""), "PS-001: over the machine's daily cap -> 429, said in plain words", over.status);
+    t.ok(over.status === 429 && over.body?.capFull === true && /machine/.test(over.body?.error ?? "") && /Urgent|Do-not-use/.test(over.body?.error ?? ""), "PS-001/010: over the machine's daily cap -> 429, capFull, plain words saying an Urgent / Do-not-use fault can still go", over.status);
+    t.ok((await db.assetFaultMedia.count({ where: {} })) === before, "PS-009: the refused photo wrote nothing");
+    // PS-010: with the day full, G's first pre-start on truck 2 goes through without walk-around photos (LIMIT), an Urgent
+    // fault without a photo is accepted and noted, a Low one without a photo is still refused.
+    t.status(await odometer(inG.body?.odometer), 201, "G sends the odometer photo");
+    t.status(await submit(tokG, { answers: { ...allOk(PRE), horn: "FAULT" }, faults: [{ itemKey: "horn", description: "Horn dead", priority: "LOW", mediaIds: [] }] }), 400, "PS-010: a Low fault without a photo is still refused when the day is full");
+    const lim = await submit(tokG, { answers: { ...allOk(PRE), horn: "FAULT" }, faults: [{ itemKey: "horn", description: "Horn dead", priority: "URGENT", mediaIds: [] }] });
+    t.ok(lim.status === 201 && lim.body?.walkaround === "LIMIT", "PS-010: with the day's limit full, the first pre-start goes through - walk-around recorded LIMIT", lim.status);
+    const fG = await db.assetFault.findFirst({ where: { resourceId: t2.id } });
+    t.ok(!!fG?.photoNote && /limit/.test(fG.photoNote), "PS-010: the Urgent fault without a photo carries the 'photo couldn't be added' note");
+    const faultsT2 = (await c.json(`/api/faults?resource=${t2.id}`, "MANAGER")).body?.faults ?? [];
+    t.ok(faultsT2[0]?.photoNote === fG?.photoNote, "PS-010: /faults shows the note");
 
-    // (11) PS-002: two Urgent checks on one machine within 15 minutes -> one alert sent, the second held (both saved).
+    // (11) PS-002 / PS-011: two Urgent checks within 15 minutes -> one sent, one held; a Do-not-use one isn't held by them.
     const t3 = await mkTruck();
-    const H = await mkPerson("h"), I = await mkPerson("i");
-    for (const who of [H, I]) {
-      const tk = (await onTruck(t3, "IN", who)).body?.prestart;
-      const mp = await photo(tk);
-      t.status(await submit(tk, { answers: { ...allOk(PRE), brakes: "FAULT" }, faults: [{ itemKey: "brakes", description: `Spongy pedal ${who.id.slice(-4)}`, priority: "URGENT", mediaIds: [mp.body?.id] }] }), 201, "an Urgent check is saved");
-    }
+    const H = await mkPerson("h"), I = await mkPerson("i"), P = await mkPerson("p");
+    const fh = await firstCheck(t3, H, { answers: { ...allOk(PRE), brakes: "FAULT" }, faults: [] });
+    t.status(fh.res, 400, "(H's Urgent fault needs its photo first)");
+    const tkH = fh.sign.body?.prestart;
+    const mh = await photo(tkH);
+    t.status(await submit(tkH, { answers: { ...allOk(PRE), brakes: "FAULT" }, faults: [{ itemKey: "brakes", description: "Spongy pedal", priority: "URGENT", mediaIds: [mh.body?.id] }], walkaround: fh.walkaround }), 201, "an Urgent first pre-start is saved");
+    const tkI = (await onTruck(t3, "IN", I)).body?.prestart;
+    const mi = await photo(tkI);
+    t.status(await submit(tkI, { answers: { ...allOk(PRE), brakes: "FAULT" }, faults: [{ itemKey: "brakes", description: "Still spongy", priority: "URGENT", mediaIds: [mi.body?.id] }] }), 201, "a second Urgent pre-start is saved");
+    const tkP = (await onTruck(t3, "IN", P)).body?.prestart;
+    const mp = await photo(tkP);
+    t.status(await submit(tkP, { answers: { ...allOk(PRE), leaks: "FAULT" }, faults: [{ itemKey: "leaks", description: "Oil pouring out", priority: "DO_NOT_USE", mediaIds: [mp.body?.id] }] }), 201, "then a Do-not-use one");
     const al3 = (await db.assetFaultAlert.findMany({ where: { resourceId: t3.id }, orderBy: { at: "asc" } })).map((a) => a.decision);
-    t.ok(JSON.stringify(al3) === JSON.stringify(["SENT", "HELD_RECENT"]), "PS-002: the first sends, the second within 15 minutes is held back (recorded)", al3.join(","));
-    t.ok((await db.assetFault.count({ where: { resourceId: t3.id, priority: "URGENT" } })) === 2, "both Urgent faults are saved and listed anyway");
+    t.ok(JSON.stringify(al3) === JSON.stringify(["SENT", "HELD_RECENT", "SENT"]), "PS-002: the second Urgent within 15 min is held; PS-011: the Do-not-use one is sent anyway", al3.join(","));
+    t.ok((await db.assetFault.count({ where: { resourceId: t3.id } })) === 3, "all three faults are saved and listed");
 
     // (12) PS-008: back to Available refused after an unrelated change; regression: one truck's token can't touch another.
     const t4 = await mkTruck();
     const J = await mkPerson("j");
-    const tokJ = (await onTruck(t4, "IN", J)).body?.prestart;
+    const inJ = await onTruck(t4, "IN", J);
+    const tokJ = inJ.body?.prestart;
+    await odometer(inJ.body?.odometer);
     t.status(await submit(tokJ, { answers: { ...allOk(PRE), tyres: "FAULT" }, stillThere: [fT?.id] }), 400, "truck 4's token can't confirm a fault on truck 1");
+    t.status(await submit(tokJ, { answers: allOk(PRE), walkaround: fh.walkaround }), 400, "truck 4's token can't use truck 3's walk-around photos");
+    const walkJ = await walkAll(tokJ);
     const mJ = await photo(tokJ);
-    t.status(await submit(tokJ, { answers: { ...allOk(PRE), leaks: "FAULT" }, faults: [{ itemKey: "leaks", description: "Hydraulic leak", priority: "DO_NOT_USE", mediaIds: [mJ.body?.id] }] }), 201, "truck 4: a Do-not-use fault marks it Down");
+    t.status(await submit(tokJ, { answers: { ...allOk(PRE), leaks: "FAULT" }, faults: [{ itemKey: "leaks", description: "Hydraulic leak", priority: "DO_NOT_USE", mediaIds: [mJ.body?.id] }], walkaround: walkJ }), 201, "truck 4: a Do-not-use fault marks it Down");
     const fJ = await db.assetFault.findFirst({ where: { resourceId: t4.id } });
     t.ok((await c.json(`/api/faults?resource=${t4.id}`, "MANAGER")).body?.faults?.[0]?.canBackToAvailable === true, "back to Available is offered while nothing else has changed it");
     t.status(await c.patch(`/api/resources/${t4.id}`, "MANAGER", { status: "AVAILABLE" }), 200, "the office puts truck 4 back on the register by hand");
@@ -234,7 +295,7 @@ export default {
     t.status(await c.patch(`/api/faults/${fJ?.id}`, "MANAGER", { status: "FIXED", note: "Hose replaced", backToAvailable: true }), 409, "PS-008: fixing it with back to Available is refused");
     t.ok((await db.resource.findUnique({ where: { id: t4.id } }))?.status === "DOWN" && (await db.assetFault.findUnique({ where: { id: fJ?.id } }))?.status === "OPEN", "the other Down stands and the fault is unchanged");
 
-    // (13) The office side: exactly the four roles; PS-004: where the report came from.
+    // (13) The office side: exactly the four roles; PS-004: where the report came from; stage 1b: the Checks tab photos.
     for (const pth of ["/api/faults", "/api/faults/flags", `/api/faults/checks?date=${c.today}`]) {
       t.status(await c.get(pth, null), 401, `${pth.split("?")[0]}: no login refused`);
       for (const who of ALLOWED) t.status(await c.get(pth, who), 200, `${pth.split("?")[0]}: ${who}`);
@@ -252,10 +313,22 @@ export default {
     t.ok(list[0].source?.staff === true && list[0].source?.method === "Truck QR" && !!list[0].source?.point, "PS-004: the report's source - staff, Truck QR, which truck", JSON.stringify(list[0].source ?? null));
     t.ok(noMoney(JSON.stringify(list)), "no $ figure in the office list");
     await sign(point.secret, point.id, "IN", C);
-    const day = (await c.json(`/api/faults/checks?date=${c.today}`, "YARD")).body?.signIns ?? [];
-    const rowA = day.find((s) => s.person === A.name), rowC = day.find((s) => s.person === C.name);
+    const day = (await c.json(`/api/faults/checks?date=${c.today}`, "ADMIN")).body?.signIns ?? [];
+    const rowA = day.find((s) => s.person === A.name), rowC = day.find((s) => s.person === C.name), rowB = day.find((s) => s.person === B.name);
     t.ok(rowA?.preStatus?.startsWith("Done") && rowA?.postStatus === "Done" && rowA.pre?.answers?.length === 12, "Checks: A's pre-start and post-check, with the answers");
+    t.ok(rowA?.pre?.walkaround === "DONE" && rowA.pre.walkaroundPhotos?.length === 5 && rowA.pre.walkaroundPhotos.every((p) => !!p.label) && rowA.odometer?.photoIds?.length === 1,
+      "stage 1b: Checks (ADMIN) - A's five walk-around photos with their labels, and the odometer photo");
+    t.ok(rowB?.pre?.walkaround === "OPTIONAL" && rowB.pre.walkaroundPhotos?.length === 0, "stage 1b: Checks - B's later pre-start: optional, no photos");
     t.ok(rowC?.preStatus === "No pre-start", "Checks: a sign-in with no check reads 'No pre-start'");
+    const wId = rowA?.pre?.walkaroundPhotos?.[0]?.id, oId = rowA?.odometer?.photoIds?.[0];
+    t.status(await c.get(`/api/faults/media/${wId}`, "ADMIN"), 200, "stage 1b: an ADMIN opens a walk-around photo full size");
+    t.status(await c.get(`/api/faults/odometer/${oId}`, "YARD"), 200, "stage 1b: the yard opens the odometer photo from the Checks tab");
+    for (const who of ["VIEWER", "ACCOUNTS"]) {
+      t.status(await c.get(`/api/faults/media/${wId}`, who), 403, `stage 1b: the walk-around photo - ${who} refused`);
+      t.status(await c.get(`/api/faults/odometer/${oId}`, who), 403, `stage 1b: the odometer photo - ${who} refused`);
+    }
+    const tip = await db.receiptPhoto.findFirst({ where: { odometerReadingId: null }, select: { id: true } });
+    if (tip) t.status(await c.get(`/api/faults/odometer/${tip.id}`, "MANAGER"), 404, "stage 1b: a receipt photo that isn't an odometer's is never served there");
 
     // (14) Working a fault: conditional, a note to fix, back to Available only where this fault set it Down.
     t.status(await c.patch(`/api/faults/${fT?.id}`, "MANAGER", { status: "FIXED", note: "" }), 400, "Fixed with no note is refused");
@@ -270,39 +343,60 @@ export default {
     t.ok((await db.assetFault.findUnique({ where: { id: fL?.id } }))?.status === "OPEN", "and that refusal changed nothing");
     t.status(await c.patch(`/api/faults/${fL?.id}`, "MANAGER", { status: "FIXED", note: "Bulb replaced" }), 200, "it's fixed without touching the register");
 
-    // (15) PS-003: the cleanup removes only stale, unattached fault photos (run directly - the tick waits for 3am).
+    // (15) PS-009: a burst bigger than the queue - only 201 / 429 / 503, never more than the sign-in's 30.
+    {
+      const t6 = await mkTruck();
+      const Q = await mkPerson("q");
+      const tokQ = (await onTruck(t6, "IN", Q)).body?.prestart;
+      const burst = await Promise.all(Array.from({ length: 70 }, () => photo(tokQ)));
+      const kept = burst.filter((r) => r.status === 201).length, busy = burst.filter((r) => r.status === 503).length;
+      t.ok(kept <= 30 && burst.every((r) => [201, 429, 503].includes(r.status)), "PS-009: 70 photos at once - at most 30 kept, the rest 429 or 503 'Busy', no errors", burst.map((r) => r.status).join(","));
+      t.note(`PS-009 burst: ${kept} kept, ${busy} turned away as busy`);
+    }
+
+    // (16) PS-003 + stage 1b retention: run directly (the tick waits for 3am).
     const photoDir = env.TOOL_PHOTO_DIR;
     const tsxCli = path.join(c.p.appDir, "node_modules", "tsx", "dist", "cli.mjs");
-    if (!photoDir || !existsSync(tsxCli)) t.note("PS-003 cleanup not run: no TOOL_PHOTO_DIR in the test env or no tsx");
+    if (!photoDir || !existsSync(tsxCli)) t.note("cleanup not run: no TOOL_PHOTO_DIR in the test env or no tsx");
     else {
       const K = await mkPerson("k");
       const tokK = (await onTruck(t3, "IN", K)).body?.prestart;
-      const stale = await photo(tokK), fresh = await photo(tokK);
-      const longAgo = new Date(Date.now() - 25 * 3_600_000);
-      await db.assetFaultMedia.update({ where: { id: stale.body?.id }, data: { createdAt: longAgo } });
-      await db.assetFaultMedia.update({ where: { id: mediaId }, data: { createdAt: longAgo } }); // attached - stays
+      const stale = await photo(tokK), fresh = await photo(tokK), staleWalk = await photo(tokK, uniqPng(), undefined, "FRONT");
+      const ago = (h) => new Date(Date.now() - h * 3_600_000);
+      const monthsAgo = (m) => { const d = new Date(); d.setUTCMonth(d.getUTCMonth() - m); return d; };
       const rowOf = (id) => db.assetFaultMedia.findUnique({ where: { id } });
-      const staleFile = path.join(photoDir, (await rowOf(stale.body?.id))?.fileName ?? "x");
-      const attachedFile = path.join(photoDir, (await rowOf(mediaId))?.fileName ?? "x");
+      const fileOf = async (id) => path.join(photoDir, (await rowOf(id))?.fileName ?? "x");
+      const oldWalk = walkA.FRONT, newWalk = walkA.BACK, sentWalk25h = walkA.DRIVER;
+      await db.assetFaultMedia.update({ where: { id: stale.body?.id }, data: { createdAt: ago(25) } });
+      await db.assetFaultMedia.update({ where: { id: staleWalk.body?.id }, data: { createdAt: ago(25) } }); // unsent walk-around
+      await db.assetFaultMedia.update({ where: { id: sentWalk25h }, data: { createdAt: ago(25) } }); // sent walk-around - stays
+      await db.assetFaultMedia.update({ where: { id: mediaId }, data: { createdAt: monthsAgo(13) } }); // a fault photo - never by age
+      await db.assetFaultMedia.update({ where: { id: oldWalk }, data: { createdAt: monthsAgo(13) } }); // sent walk-around, 13 months
+      const files = { stale: await fileOf(stale.body?.id), staleWalk: await fileOf(staleWalk.body?.id), oldWalk: await fileOf(oldWalk), fault: await fileOf(mediaId), newWalk: await fileOf(newWalk) };
       const other = path.join(photoDir, `rc-keep-${tag}.txt`);
       writeFileSync(other, "not a fault photo");
       const script = path.join(c.p.files, `rc74-cleanup-${tag}.mts`);
-      writeFileSync(script, `import { cleanupUnattachedMedia } from ${JSON.stringify("file:///" + path.join(c.p.appDir, "src", "lib", "prestart", "store.ts").split(path.sep).join("/"))};\nconst r = await cleanupUnattachedMedia();\nconsole.log("RESULT " + JSON.stringify(r));\nprocess.exit(0);\n`);
+      const store = "file:///" + path.join(c.p.appDir, "src", "lib", "prestart", "store.ts").split(path.sep).join("/");
+      writeFileSync(script, `import { cleanupUnattachedMedia, cleanupOldWalkaround } from ${JSON.stringify(store)};\nconst a = await cleanupUnattachedMedia();\nconst b = await cleanupOldWalkaround();\nconsole.log("RESULT " + JSON.stringify({ a, b }));\nprocess.exit(0);\n`);
       let out = "";
       try {
         const childEnv = { ...process.env, ...env };
-        delete childEnv.FAULT_PHOTO_CLEANUP;
+        delete childEnv.FAULT_PHOTO_CLEANUP; delete childEnv.WALKAROUND_RETENTION;
         out = execFileSync(process.execPath, [tsxCli, script], { cwd: c.p.appDir, env: childEnv, encoding: "utf8", timeout: 120_000 });
       } catch (e) { out = String(e?.stdout ?? ""); }
       const res = JSON.parse(out.match(/RESULT (.*)/)?.[1] ?? "{}");
-      t.ok((res.removed ?? 0) >= 1, "PS-003: the cleanup ran and removed the stale unattached photo", JSON.stringify(res));
-      t.ok(!(await rowOf(stale.body?.id)) && !existsSync(staleFile), "PS-003: its row and its file are gone");
-      t.ok(!!(await rowOf(fresh.body?.id)), "PS-003: a fresh unattached photo is kept (under 24 hours)");
-      t.ok(!!(await rowOf(mediaId)) && existsSync(attachedFile), "PS-003: an old photo on a fault is kept, file and row");
-      t.ok(existsSync(other), "PS-003: other files in the photo folder are never touched");
+      t.ok((res.a?.removed ?? 0) >= 2 && (res.b?.removed ?? 0) >= 1, "the cleanups ran", JSON.stringify(res));
+      t.ok(!(await rowOf(stale.body?.id)) && !existsSync(files.stale), "PS-003: a stale unattached fault photo - row and file gone");
+      t.ok(!(await rowOf(staleWalk.body?.id)) && !existsSync(files.staleWalk), "stage 1b: an unsent walk-around photo over 24 h - row and file gone");
+      t.ok(!!(await rowOf(sentWalk25h)), "PS-003 doesn't touch a walk-around photo sent with its check");
+      t.ok(!!(await rowOf(fresh.body?.id)), "a fresh unattached photo is kept (under 24 hours)");
+      t.ok(!(await rowOf(oldWalk)) && !existsSync(files.oldWalk), "stage 1b: a walk-around photo over 12 months old - row and file gone");
+      t.ok(!!(await rowOf(newWalk)) && existsSync(files.newWalk), "stage 1b: a newer walk-around photo is kept");
+      t.ok(!!(await rowOf(mediaId)) && existsSync(files.fault), "fault photos are never removed by age (13 months old, kept)");
+      t.ok(existsSync(other), "other files in the photo folder are never touched");
     }
 
-    // (16) Nothing with a dollar figure ever went to a phone.
+    // (17) Nothing with a dollar figure ever went to a phone.
     const leaked = linkBodies.filter((b) => !noMoney(b));
     t.ok(leaked.length === 0, `no $ figure in any of the ${linkBodies.length} link replies`, `${leaked.length} with $`);
 

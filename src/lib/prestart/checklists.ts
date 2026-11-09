@@ -86,3 +86,18 @@ export function checklistFor(resourceType: string, kind: CheckKind, opts: { plan
 export const okLabelOf = (i: ChecklistItem) => i.okLabel ?? "OK";
 export const faultLabelOf = (i: ChecklistItem) => i.faultLabel ?? "Fault";
 export const answerLabel = (i: ChecklistItem, a: Answer) => (a === "OK" ? okLabelOf(i) : a === "FAULT" ? faultLabelOf(i) : "N/A");
+
+// Walk-around photos (stage 1b, Ilies 10 Nov 2026): five camera photos on a truck's pre-start - required on the first
+// pre-start of the day for that truck, optional on later ones. The odometer photo is its own step (Receipts R1), not a
+// slot here. Trucks only for now; plant (stage 2) can get its own list.
+export const TRUCK_WALKAROUND = [
+  { key: "FRONT", label: "Front" },
+  { key: "BACK", label: "Back" },
+  { key: "DRIVER", label: "Driver's side" },
+  { key: "PASSENGER", label: "Passenger's side" },
+  { key: "CAB", label: "Inside the cab (wide shot)" },
+] as const;
+export type WalkaroundSlot = (typeof TRUCK_WALKAROUND)[number]["key"];
+export const walkaroundSlotsFor = (resourceType: string, kind: CheckKind): readonly { key: string; label: string }[] =>
+  resourceType === "VEHICLE" && kind === "PRE" ? TRUCK_WALKAROUND : [];
+export const slotLabel = (key: string | null) => TRUCK_WALKAROUND.find((s) => s.key === key)?.label ?? key ?? "";

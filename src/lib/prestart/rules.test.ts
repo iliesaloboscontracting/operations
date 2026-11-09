@@ -1,9 +1,10 @@
 // Vehicle & plant pre-start checks (stage 1, 8 Nov 2026) - the plain rules. `npm test`.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { CHECKLISTS, PLANT_PRE, TRUCK_POST, TRUCK_PRE, answerLabel, checklistFor } from "./checklists";
+import { CHECKLISTS, PLANT_PRE, TRUCK_POST, TRUCK_PRE, TRUCK_WALKAROUND, answerLabel, checklistFor, walkaroundSlotsFor } from "./checklists";
 import {
-  LIMITS, alertDecision, alertFor, alertMessage, canMove, cleanText, firstName, marksDown, offerBackToAvailable, photoRefusal, sortFaults, validateSubmission, worstPriority,
+  LIMITS, alertDecision, alertFor, alertMessage, canMove, cleanText, firstName, marksDown, offerBackToAvailable, photoCapFull, photoPrecheck, photoRefusal, photoWaived,
+  sortFaults, validateSubmission, validateWalkaround, walkaroundCutoff, walkaroundExpired, walkaroundRequired, worstPriority,
 } from "./rules";
 import { assertNoMoney } from "../moneyGuard";
 import { faultsWorker, isCoordinatorPage, isYardPage } from "../roles";
@@ -123,11 +124,14 @@ test("PS-008: a later change to the machine (an unrelated Down, any edit) stops 
   assert.equal(offerBackToAvailable({ ...f, markedDownAt: null }, { status: "DOWN", updatedAt: at }, []), false); // made before PS-008
 });
 
-test("PS-001: photo caps - sign-in 20, machine 80 a day, all 400 a day, the same photo twice, phone 60 (hint)", () => {
+test("PS-001: photo caps - sign-in 30 (stage 1b), machine 80 a day, all 400 a day, the same photo twice, phone 60 (hint)", () => {
   const ok = { signIn: 1, machineDay: 1, allDay: 1, deviceDay: 1, sameOnSignIn: 1 };
   assert.equal(photoRefusal(ok), null);
-  assert.equal(photoRefusal({ ...ok, signIn: 20, machineDay: 80, allDay: 400, deviceDay: 60 }), null);
-  assert.equal(photoRefusal({ ...ok, signIn: 21 })?.status, 429);
+  assert.equal(photoRefusal({ ...ok, signIn: 30, machineDay: 80, allDay: 400, deviceDay: 60 }), null);
+  assert.equal(photoRefusal({ ...ok, signIn: 31 })?.status, 429);
+  assert.equal(photoRefusal({ ...ok, signIn: 31 })?.capFull, undefined); // the sign-in's own cap isn't "the day is full"
+  assert.equal(photoRefusal({ ...ok, machineDay: 81 })?.capFull, true);
+  assert.equal(photoRefusal({ ...ok, allDay: 401 })?.capFull, true);
   assert.match(photoRefusal({ ...ok, machineDay: 81 })?.error ?? "", /machine/);
   assert.equal(photoRefusal({ ...ok, machineDay: 81 })?.status, 429);
   assert.equal(photoRefusal({ ...ok, allDay: 401 })?.status, 429);
@@ -140,11 +144,12 @@ test("PS-001: photo caps - sign-in 20, machine 80 a day, all 400 a day, the same
 test("PS-002: one alert per machine per 15 minutes, 6 a day; one message per check", () => {
   const now = new Date("2026-11-08T03:00:00Z");
   const ago = (m: number) => new Date(now.getTime() - m * 60_000);
+  const u = (m: number) => ({ at: ago(m), doNotUse: false });
   assert.equal(alertDecision([], now), "SENT");
-  assert.equal(alertDecision([ago(14)], now), "HELD_RECENT");
-  assert.equal(alertDecision([ago(15)], now), "SENT");
-  assert.equal(alertDecision([ago(20), ago(40), ago(60), ago(80), ago(100), ago(120)], now), "HELD_DAY");
-  assert.equal(alertDecision([ago(20), ago(40), ago(60), ago(80), ago(100)], now), "SENT");
+  assert.equal(alertDecision([u(14)], now), "HELD_RECENT");
+  assert.equal(alertDecision([u(15)], now), "SENT");
+  assert.equal(alertDecision([u(20), u(40), u(60), u(80), u(100), u(120)], now), "HELD_DAY");
+  assert.equal(alertDecision([u(20), u(40), u(60), u(80), u(100)], now), "SENT");
   const f = (priority: string, markedDown = false) => ({ itemLabel: "Tyres", priority, description: "Flat", markedDown });
   assert.equal(alertMessage("Tipper", "Juan", [f("LOW"), f("HIGH")]), null);
   const one = alertMessage("Tipper", "Juan", [f("URGENT"), f("LOW")]);
@@ -175,4 +180,78 @@ test("faults are worked by exactly ADMIN, MANAGER, COORDINATOR and YARD; their p
   for (const r of ["ADMIN", "MANAGER", "COORDINATOR", "YARD"]) assert.equal(faultsWorker(r), true, r);
   for (const r of ["VIEWER", "TIMESHEETS", "ACCOUNTS", "DIRECTOR", "", "OWNER", "admin"]) assert.equal(faultsWorker(r), false, r);
   assert.ok(isCoordinatorPage("/faults") && isYardPage("/faults"));
+});
+
+// ---------- stage 1b (10 Nov 2026) and PS-009 / 010 / 011 ----------
+
+test("walk-around: required on the first pre-start of the day, optional after a DONE or LIMIT one", () => {
+  assert.equal(walkaroundRequired([]), true);
+  assert.equal(walkaroundRequired([{ walkaround: null }, { walkaround: "OPTIONAL" }]), true); // skipped / older ones don't count
+  assert.equal(walkaroundRequired([{ walkaround: "DONE" }]), false);
+  assert.equal(walkaroundRequired([{ walkaround: "LIMIT" }]), false);
+  assert.equal(walkaroundSlotsFor("VEHICLE", "PRE").length, 5);
+  assert.equal(walkaroundSlotsFor("VEHICLE", "POST").length, 0);
+  assert.equal(walkaroundSlotsFor("EQUIPMENT", "PRE").length, 0);
+});
+
+test("walk-around: all five needed when required; LIMIT when the day's photo limit is full; optional otherwise", () => {
+  const all = Object.fromEntries(TRUCK_WALKAROUND.map((s, i) => [s.key, `m${i}`]));
+  const four = { ...all }; delete (four as Record<string, string>).CAB;
+  const v = (raw: unknown, required: boolean, capFull = false) => validateWalkaround(raw, TRUCK_WALKAROUND, { required, capFull });
+  assert.deepEqual(v(all, true), { ok: true, photos: all, status: "DONE" });
+  const missing = v(four, true);
+  assert.ok(!missing.ok && /Inside the cab/.test(missing.error));
+  assert.ok(!v(undefined, true).ok);
+  assert.equal((v(four, true, true) as { status: string }).status, "LIMIT");
+  assert.equal((v(undefined, false) as { status: string }).status, "OPTIONAL");
+  assert.equal((v(four, false) as { status: string }).status, "OPTIONAL");
+  assert.ok(!v({ ...all, ROOF: "x" }, true).ok, "an unknown slot is refused");
+  assert.ok(!v({ ...all, BACK: "m0" }, true).ok, "one photo in two slots is refused");
+  assert.ok(!v({ FRONT: "../x" }, false).ok);
+  assert.deepEqual(validateWalkaround(undefined, [], { required: true, capFull: false }), { ok: true, photos: {}, status: null });
+  assert.ok(!validateWalkaround({ FRONT: "m1" }, [], { required: false, capFull: false }).ok, "no slots on a post-check");
+});
+
+test("retention: walk-around photos over 12 months go; newer ones and fault photos stay", () => {
+  const now = new Date("2026-11-10T00:00:00Z");
+  assert.equal(walkaroundCutoff(now).toISOString(), "2025-11-10T00:00:00.000Z");
+  assert.equal(walkaroundExpired({ role: "WALKAROUND", createdAt: new Date("2025-11-09T23:59:59Z") }, now), true);
+  assert.equal(walkaroundExpired({ role: "WALKAROUND", createdAt: new Date("2025-11-10T00:00:01Z") }, now), false);
+  assert.equal(walkaroundExpired({ role: "FAULT", createdAt: new Date("2020-01-01T00:00:00Z") }, now), false);
+});
+
+test("PS-009: the read-only pre-check refuses once a cap is already reached", () => {
+  const z = { signIn: 0, machineDay: 0, allDay: 0, deviceDay: 0, sameOnSignIn: 0 };
+  assert.equal(photoPrecheck(z), null);
+  assert.equal(photoPrecheck({ ...z, signIn: 29 }), null);
+  assert.equal(photoPrecheck({ ...z, signIn: 30 })?.status, 429);
+  assert.equal(photoPrecheck({ ...z, machineDay: 80 })?.capFull, true);
+  assert.equal(photoPrecheck({ ...z, allDay: 400 })?.capFull, true);
+  assert.equal(photoPrecheck({ ...z, sameOnSignIn: 1 })?.status, 409);
+});
+
+test("PS-010: Urgent / Do-not-use may go without a photo only when the day's photo limit is full", () => {
+  assert.equal(photoCapFull({ machineDay: 79, allDay: 399 }), false);
+  assert.equal(photoCapFull({ machineDay: 80, allDay: 0 }), true);
+  assert.equal(photoCapFull({ machineDay: 0, allDay: 400 }), true);
+  for (const p of ["URGENT", "DO_NOT_USE"]) { assert.equal(photoWaived(p, true), true); assert.equal(photoWaived(p, false), false); }
+  for (const p of ["LOW", "HIGH"]) assert.equal(photoWaived(p, true), false);
+  const answers = { ...allOk(), tyres: "FAULT" };
+  const f = (priority: string) => ({ answers, faults: [{ itemKey: "tyres", description: "Flat tyre", priority, mediaIds: [] }] });
+  assert.ok(validateSubmission(TRUCK_PRE, f("URGENT"), [], { capFull: true }).ok);
+  assert.ok(validateSubmission(TRUCK_PRE, f("DO_NOT_USE"), [], { capFull: true }).ok);
+  assert.ok(!validateSubmission(TRUCK_PRE, f("URGENT"), []).ok, "not when the limit isn't full");
+  assert.ok(!validateSubmission(TRUCK_PRE, f("HIGH"), [], { capFull: true }).ok, "never for Low / High");
+});
+
+test("PS-011: Do not use ignores the daily cap and Urgent alerts; only a recent Do-not-use alert holds it", () => {
+  const now = new Date("2026-11-10T03:00:00Z");
+  const s = (m: number, doNotUse = false) => ({ at: new Date(now.getTime() - m * 60_000), doNotUse });
+  const six = [s(20), s(40), s(60), s(80), s(100), s(120)];
+  assert.equal(alertDecision(six, now), "HELD_DAY");
+  assert.equal(alertDecision(six, now, true), "SENT");
+  assert.equal(alertDecision([s(5)], now, true), "SENT", "a recent Urgent-only alert doesn't hold a Do-not-use one");
+  assert.equal(alertDecision([s(5, true)], now, true), "HELD_RECENT");
+  assert.equal(alertDecision([s(16, true)], now, true), "SENT");
+  assert.equal(alertDecision([s(5, true)], now, false), "HELD_RECENT", "an Urgent one is still held by any recent alert");
 });

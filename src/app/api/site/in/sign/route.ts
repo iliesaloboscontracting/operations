@@ -4,6 +4,7 @@ import { withErrorHandling } from "@/lib/apiHandler";
 import { nameWithoutAmounts } from "@/lib/dailyLog/money";
 import { jobLabel, makeOdometerToken, makePrestartToken, makeTravelPass, openJob, pointOf, readTicket, sydneyTime, takesSignIns } from "@/lib/signin";
 import { endOutOnSignIn, hasRegionalWork, homeOffered } from "@/lib/travel/store";
+import { walkaroundRequiredFor } from "@/lib/prestart/store";
 import { passAllowed } from "@/lib/travel/rules";
 import { looksLikeLobos } from "@/lib/staffMatch";
 import { todaySydney } from "@/lib/today";
@@ -139,6 +140,10 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
       ...(where.place === "VEHICLE" ? { odometer: makeOdometerToken(signedIn.id) } : {}),
       // ...then the pre-start checklist (8 Nov 2026). The sign-in above is already saved - the check never holds it up.
       ...(where.place === "VEHICLE" ? { prestart: makePrestartToken(signedIn.id, "PRE") } : {}),
+      // Stage 1b (10 Nov 2026): the day's first pre-start for this truck needs the walk-around photos and the odometer
+      // (no "Can't now"). Only a hint for the screen - a failure here never touches the sign-in, and the check decides.
+      ...(where.place === "VEHICLE" && where.vehicleId
+        ? { walkaroundRequired: await walkaroundRequiredFor(where.vehicleId, "VEHICLE").catch(() => false) } : {}),
     });
   }
 

@@ -36,6 +36,10 @@ export default function CrewSignInPage({ params: paramsP }: { params: Promise<{ 
   const [done, setDone] = useState<string | null>(null);
   // Signed in on a truck: the odometer photo comes next (Receipts R1).
   const [odometer, setOdometer] = useState<string | null>(null);
+  // Stage 1b (10 Nov 2026): the day's first pre-start for this truck needs the odometer (no "Can't now") and the
+  // walk-around photos. The token stays for the pre-start screen, which can take a missing odometer photo too.
+  const [odoRequired, setOdoRequired] = useState(false);
+  const [odoToken, setOdoToken] = useState<string | null>(null);
   // ...and the pre-start after it (sign-in), or the post-check (sign-out) - 8 Nov 2026. Skippable ("Do it later").
   const [prestart, setPrestart] = useState<string | null>(null);
   const [checkSent, setCheckSent] = useState<PrestartResult["sent"]>([]);
@@ -97,7 +101,8 @@ export default function CrewSignInPage({ params: paramsP }: { params: Promise<{ 
       if (action === "IN") for (let i = 0; i < 15 && !gps.current; i++) await new Promise((r) => setTimeout(r, 100));
       const r = await send(action, me!, action === "IN" ? { gps: gps.current ?? { status: "TIMEOUT" } } : {});
       setDone(r.message);
-      if (typeof r.odometer === "string") setOdometer(r.odometer);
+      if (typeof r.odometer === "string") { setOdometer(r.odometer); setOdoToken(r.odometer); }
+      setOdoRequired(r.walkaroundRequired === true);
       if (typeof r.prestart === "string") setPrestart(r.prestart);
       if (typeof r.postcheck === "string") setPrestart(r.postcheck);
       if (typeof r.travelPass === "string") store(PASS_KEY, r.travelPass);
@@ -122,9 +127,10 @@ export default function CrewSignInPage({ params: paramsP }: { params: Promise<{ 
       ) : !scan ? (
         <div className="py-16 text-center text-gray-500"><Loader2 className="mx-auto animate-spin" /></div>
       ) : done && odometer ? (
-        <Odometer token={odometer} signedIn={done} onDone={(m) => { setOdometer(null); setDone(`${done} ${m}`); }} />
+        <Odometer token={odometer} signedIn={done} required={odoRequired && !!prestart} onDone={(m) => { setOdometer(null); setDone(`${done} ${m}`); }}
+          onSkipAll={(m) => { setOdometer(null); setPrestart(null); setDone(`${done} ${m}`); }} />
       ) : done && prestart ? (
-        <PrestartCheck token={prestart} banner={done}
+        <PrestartCheck token={prestart} banner={done} odometerToken={odoToken}
           onDone={(r) => { setPrestart(null); setCheckSent(r.sent); setDone(`${done} ${r.message}`); }}
           onSkip={() => setPrestart(null)} />
       ) : done ? (
@@ -231,18 +237,20 @@ function TravelLinkArrived() {
   return <a href="/site/in/travel" className="block text-sm text-brand-300 underline">Tap Arrived on the travel page when you get home</a>;
 }
 
-// After signing in on a truck's QR: a photo of the odometer, or "Can't now".
-function Odometer({ token, signedIn, onDone }: { token: string; signedIn: string; onDone: (message: string) => void }) {
+// After signing in on a truck's QR: a photo of the odometer, or "Can't now". Stage 1b: on the day's first pre-start
+// for the truck it's required - no "Can't now"; "Do it later" skips the odometer and the whole pre-start.
+function Odometer({ token, signedIn, required, onDone, onSkipAll }: { token: string; signedIn: string; required: boolean; onDone: (message: string) => void; onSkipAll: (message: string) => void }) {
   const file = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  async function send(body: Record<string, unknown>) {
+  async function send(body: Record<string, unknown>, all = false) {
     setBusy(true);
     setError(null);
     try {
       const res = await fetch("/api/site/in/odometer", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token, ...body }) });
       if (!res.ok) throw new Error(await serverErrorMessage(res, "Couldn't send - check your signal and try again."));
-      onDone((await res.json()).message);
+      const m = (await res.json()).message;
+      if (all) onSkipAll(m); else onDone(m);
     } catch (e) {
       setError((e as Error).message);
       setBusy(false);
@@ -252,14 +260,16 @@ function Odometer({ token, signedIn, onDone }: { token: string; signedIn: string
     <div className="space-y-4">
       <div className="rounded-2xl bg-emerald-500/15 px-4 py-4 text-center text-base font-semibold text-emerald-300">✓ {signedIn}</div>
       <h1 className="text-xl font-semibold text-gray-100">Odometer photo</h1>
-      <p className="text-sm text-gray-400">A photo of the odometer, so the office can track the truck&apos;s km.</p>
+      <p className="text-sm text-gray-400">A photo of the odometer, so the office can track the truck&apos;s km.{required ? " First check of the day on this truck - it's needed, with the walk-around photos." : ""}</p>
       <button className={`${big} bg-brand-600`} disabled={busy} onClick={() => file.current?.click()}>
         {busy ? <Loader2 className="animate-spin" /> : <Camera />} Take the photo
       </button>
       <input ref={file} type="file" accept="image/*" capture="environment" className="hidden"
         onChange={async (e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) send({ dataUrl: await resizePhoto(f) }); }} />
       {error && <div className="rounded-lg bg-red-900/30 px-3 py-2 text-sm text-red-300">{error}</div>}
-      <button className="w-full py-2 text-sm text-gray-400" disabled={busy} onClick={() => send({ skip: true })}>Can&apos;t now</button>
+      {required
+        ? <button className="w-full py-2 text-sm text-gray-400" disabled={busy} onClick={() => send({ skip: true }, true)}>Do it later (skip the pre-start)</button>
+        : <button className="w-full py-2 text-sm text-gray-400" disabled={busy} onClick={() => send({ skip: true })}>Can&apos;t now</button>}
     </div>
   );
 }

@@ -122,6 +122,7 @@ function FaultCard({ f, patch }: { f: FaultDTO; patch: (id: string, body: Record
       </div>
       <p className="mt-2 whitespace-pre-wrap text-sm text-gray-200">{f.description}</p>
       {f.fixNote && <p className="mt-1 text-xs text-emerald-300">Fix: {f.fixNote}</p>}
+      {f.photoNote && <p className="mt-1 text-xs text-amber-300">{f.photoNote}</p>}
       {f.mediaIds.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-2">
           {f.mediaIds.map((m) => (
@@ -205,6 +206,32 @@ function ChecksTab() {
                   <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${tone(s.postStatus)}`}>Post-check: {s.postStatus}</span>
                 </button>
                 {openRow === s.id && (
+                  <>
+                  {/* Stage 1b (10 Nov 2026): the walk-around photos and the odometer - click one for the full size. */}
+                  {(s.pre?.walkaround || s.odometer) && (
+                    <div className="mt-2 pl-6">
+                      <div className="mb-1 text-xs text-gray-400">
+                        Walk-around: {s.pre?.walkaround === "DONE" ? "taken" : s.pre?.walkaround === "LIMIT" ? "photos couldn't be added (the day's photo limit)" : s.pre?.walkaround === "OPTIONAL" ? "optional (not the day's first)" : "-"}
+                        {" · "}Odometer: {!s.odometer ? "not sent" : s.odometer.status === "SKIPPED" ? "skipped" : s.odometer.km != null ? `${s.odometer.km.toLocaleString("en-AU")} km` : "sent, not read yet"}
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {s.pre?.walkaroundPhotos.map((p) => (
+                          <a key={p.id} href={`/api/faults/media/${p.id}`} target="_blank" rel="noreferrer" className="text-center text-[10px] text-gray-400">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={`/api/faults/media/${p.id}`} alt={p.label} className="h-20 w-20 rounded-md border border-edge object-cover" />
+                            {p.label}
+                          </a>
+                        ))}
+                        {s.odometer?.photoIds.map((id) => (
+                          <a key={id} href={`/api/faults/odometer/${id}`} target="_blank" rel="noreferrer" className="text-center text-[10px] text-gray-400">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={`/api/faults/odometer/${id}`} alt="Odometer" className="h-20 w-20 rounded-md border border-edge object-cover" />
+                            Odometer
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   <div className="mt-2 grid gap-3 pl-6 sm:grid-cols-2">
                     {([["Pre-start", s.pre], ["Post-check", s.post]] as const).map(([label, c]) => (
                       <div key={label} className="rounded-lg border border-edge bg-panel2 p-3 text-xs">
@@ -226,6 +253,7 @@ function ChecksTab() {
                       </div>
                     ))}
                   </div>
+                  </>
                 )}
               </li>
             ))}

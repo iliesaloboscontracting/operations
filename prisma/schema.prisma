@@ -2355,6 +2355,10 @@ model PrestartCheck {
   checklist    String // e.g. "truck-pre.v1"
   answers      String // JSON [{ key, label, answer: OK | FAULT | NA }]
   faultCount   Int          @default(0) // new faults reported with it
+  // Walk-around photos (stage 1b, Ilies 10 Nov 2026), truck pre-starts: DONE (the five taken - the day's first must),
+  // LIMIT (the daily photo limit was full - let through, PS-010), OPTIONAL (a later pre-start the same day), null (none
+  // asked - a post-check, or before stage 1b). The photos are AssetFaultMedia rows with role WALKAROUND and this checkId.
+  walkaround   String?
   seenCount    Int          @default(0) // known faults confirmed "Still there" with it
   createdAt    DateTime     @default(now())
   faults       AssetFault[]
@@ -2387,6 +2391,9 @@ model AssetFault {
   // PS-008 (9 Nov 2026): the machine record's updatedAt as this fault's Down left it. "Back to Available" is only
   // offered / allowed while the record is still exactly that - any later change to it (another status, an edit) wins.
   markedDownAt DateTime?
+  // PS-010 (10 Nov 2026): an Urgent / Do-not-use fault let through without a photo because the day's photo limit was
+  // full - says so on /faults.
+  photoNote    String?
   fixedAt      DateTime?
   fixedBy      String?
   fixNote      String?
@@ -2409,6 +2416,12 @@ model AssetFaultMedia {
   deviceId     String?
   kind         String      @default("PHOTO") // PHOTO | VIDEO (stage 3)
   checkKind    String? // PRE | POST - the check it was sent for; it can only go on that check's faults (PS-006)
+  // Stage 1b (10 Nov 2026): FAULT (a fault's photo, faultId once sent) or WALKAROUND (the pre-start's walk-around: slot
+  // FRONT | BACK | DRIVER | PASSENGER | CAB, checkId once sent). Unsent ones of either kind are removed after 24 h
+  // (PS-003); walk-around photos are removed 12 months after they were taken; fault photos are never auto-deleted.
+  role         String      @default("FAULT")
+  slot         String?
+  checkId      String?
   fileName     String
   mime         String
   sha256       String
@@ -2419,6 +2432,8 @@ model AssetFaultMedia {
   @@index([deviceId, createdAt])
   @@index([resourceId, createdAt]) // the per-machine daily cap (PS-001)
   @@index([createdAt])
+  @@index([checkId])
+  @@index([role, createdAt])
 }
 
 // PS-002 (9 Nov 2026): every decision about a phone alert for a machine's Urgent / Do-not-use faults - SENT (one push
@@ -2430,6 +2445,7 @@ model AssetFaultAlert {
   resourceId String
   checkId    String?
   decision   String // SENT | HELD_RECENT | HELD_DAY
+  doNotUse   Boolean  @default(false) // PS-011: the alert included a Do-not-use fault
   faultIds   String // JSON array
   at         DateTime @default(now())
 

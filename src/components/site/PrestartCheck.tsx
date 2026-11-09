@@ -13,9 +13,17 @@ import { LIMITS, PRIORITIES, PRIORITY_HINT, PRIORITY_LABEL, PRIORITY_TONE, type 
 // wrong, how bad (Low / High / Urgent / Do not use) and at least one photo - camera or gallery. The truck's open faults
 // are at the top with "Still there", so the next driver confirms one instead of reporting it again. "Do it later"
 // skips it - the sign-in is already saved either way. No money anywhere on this screen.
+// Stage 1b (10 Nov 2026): a truck pre-start has five walk-around photos (camera only) - needed on the truck's first
+// pre-start of the day, with the odometer photo; optional after that ("This morning's photos were taken at ... by ...").
+// PS-010: when the day's photo limit is full, an Urgent / Do-not-use fault can go without a photo and the walk-around
+// is let through (the server checks the limit itself).
 
 type KnownFault = { id: string; itemKey: string | null; itemLabel: string | null; description: string; priority: FaultPriority; priorityLabel: string; reportedOn: string; reportedBy: string };
-type View = { kind: "PRE" | "POST"; machine: string; title: string; checklist: { id: string; items: ChecklistItem[] }; done: boolean; openFaults: KnownFault[] };
+type Walk = { required: boolean; slots: { key: string; label: string }[]; earlier: { at: string | null; by: string; limit: boolean } | null };
+type View = {
+  kind: "PRE" | "POST"; machine: string; title: string; checklist: { id: string; items: ChecklistItem[] }; done: boolean; openFaults: KnownFault[];
+  walkaround: Walk | null; odometer: "SENT" | "MISSING" | null;
+};
 type Photo = { id: string; preview: string };
 type Draft = { description: string; priority: FaultPriority | null; photos: Photo[]; open: boolean };
 export type PrestartResult = { message: string; sent: { itemLabel: string; priority: string; markedDown: boolean }[] };
@@ -26,7 +34,7 @@ const input =
 const ANSWER_ON: Record<Answer, string> = { OK: "border-emerald-500 bg-emerald-600 text-white", FAULT: "border-red-500 bg-red-600 text-white", NA: "border-gray-500 bg-gray-600 text-white" };
 const emptyDraft = (): Draft => ({ description: "", priority: null, photos: [], open: true });
 
-export default function PrestartCheck({ token, banner, onDone, onSkip }: { token: string; banner?: string; onDone: (r: PrestartResult) => void; onSkip: () => void }) {
+export default function PrestartCheck({ token, banner, odometerToken, onDone, onSkip }: { token: string; banner?: string; odometerToken?: string | null; onDone: (r: PrestartResult) => void; onSkip: () => void }) {
   const [view, setView] = useState<View | null>(null);
   const [dead, setDead] = useState<string | null>(null);
   const [answers, setAnswers] = useState<Record<string, Answer>>({});
@@ -35,6 +43,9 @@ export default function PrestartCheck({ token, banner, onDone, onSkip }: { token
   const [uploading, setUploading] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [walk, setWalk] = useState<Record<string, Photo>>({});
+  const [capFull, setCapFull] = useState(false); // PS-010: the day's photo limit is full (the server said so on a photo)
+  const [odo, setOdo] = useState<"SENT" | "MISSING" | null>(null);
 
   useEffect(() => {
     // PS-005: the token goes in a header, never the address (the photo and the check send it in the body).
@@ -43,6 +54,7 @@ export default function PrestartCheck({ token, banner, onDone, onSkip }: { token
       const v: View = await res.json();
       if (v.done) return setDead("That check is already in - thanks.");
       setView(v);
+      setOdo(v.odometer);
     }, () => setDead("The checklist didn't load - check your signal."));
   }, [token]);
 
@@ -59,10 +71,14 @@ export default function PrestartCheck({ token, banner, onDone, onSkip }: { token
   const covered = (key: string) => view.openFaults.some((f) => f.itemKey === key && still.has(f.id));
   const draftOf = (key: string) => drafts[key] ?? emptyDraft();
   const needsDraft = (key: string) => answers[key] === "FAULT" && (!covered(key) || drafts[key]?.open);
-  const draftReady = (d: Draft) => d.description.trim().length >= LIMITS.minDescription && !!d.priority && d.photos.length > 0;
+  const loud = (p: FaultPriority | null) => p === "URGENT" || p === "DO_NOT_USE";
+  const draftReady = (d: Draft) => d.description.trim().length >= LIMITS.minDescription && !!d.priority && (d.photos.length > 0 || (capFull && loud(d.priority)));
   const unanswered = view.checklist.items.filter((i) => !answers[i.key]).length;
   const notReady = view.checklist.items.filter((i) => needsDraft(i.key) && !draftReady(draftOf(i.key)));
-  const canSend = unanswered === 0 && notReady.length === 0 && uploading === 0 && !busy;
+  const w = view.walkaround;
+  const walkMissing = w && w.required && !capFull ? w.slots.filter((s) => !walk[s.key]) : [];
+  const odoMissing = !!w?.required && odo !== "SENT";
+  const canSend = unanswered === 0 && notReady.length === 0 && walkMissing.length === 0 && !odoMissing && uploading === 0 && !busy;
 
   const setDraft = (key: string, patch: Partial<Draft>) => setDrafts((d) => ({ ...d, [key]: { ...(d[key] ?? emptyDraft()), ...patch } }));
   function answer(key: string, a: Answer) {
@@ -79,22 +95,36 @@ export default function PrestartCheck({ token, banner, onDone, onSkip }: { token
       if (!drafts[f.itemKey]) setDrafts((d) => ({ ...d, [f.itemKey!]: { ...emptyDraft(), open: false } }));
     }
   }
-  async function addPhoto(key: string, file: File | undefined) {
-    if (!file) return;
+  // One photo up: a fault's (no slot) or a walk-around slot's. A 429 with capFull = the day's limit is full.
+  async function upload(file: File, slot?: string): Promise<Photo> {
+    const preview = await resizePhoto(file);
+    const res = await fetch("/api/site/in/prestart/photo", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token, photo: preview, deviceId: deviceId(), ...(slot ? { slot } : {}) }) });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      if (j.capFull) setCapFull(true);
+      throw new Error(typeof j.error === "string" ? j.error : "The photo didn't send - try again.");
+    }
+    return { id: j.id, preview };
+  }
+  async function busyWith(fn: () => Promise<void>) {
     setError(null);
     setUploading((n) => n + 1);
-    try {
-      const preview = await resizePhoto(file);
-      const res = await fetch("/api/site/in/prestart/photo", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token, photo: preview, deviceId: deviceId() }) });
-      if (!res.ok) throw new Error(await serverErrorMessage(res, "The photo didn't send - try again."));
-      const { id } = await res.json();
-      setDrafts((d) => { const cur = d[key] ?? emptyDraft(); return { ...d, [key]: { ...cur, photos: [...cur.photos, { id, preview }] } }; });
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setUploading((n) => n - 1);
-    }
+    try { await fn(); } catch (e) { setError((e as Error).message); } finally { setUploading((n) => n - 1); }
   }
+  const addPhoto = (key: string, file: File | undefined) => file && busyWith(async () => {
+    const p = await upload(file);
+    setDrafts((d) => { const cur = d[key] ?? emptyDraft(); return { ...d, [key]: { ...cur, photos: [...cur.photos, p] } }; });
+  });
+  const addWalk = (slot: string, file: File | undefined) => file && busyWith(async () => {
+    const p = await upload(file, slot);
+    setWalk((x) => ({ ...x, [slot]: p }));
+  });
+  // The odometer photo, when it was skipped or failed before (the same route as the odometer step).
+  const addOdometer = (file: File | undefined) => file && odometerToken && busyWith(async () => {
+    const res = await fetch("/api/site/in/odometer", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: odometerToken, dataUrl: await resizePhoto(file) }) });
+    if (!res.ok) throw new Error(await serverErrorMessage(res, "The odometer photo didn't send - try again."));
+    setOdo("SENT");
+  });
   async function send() {
     if (!view) return;
     setBusy(true);
@@ -106,7 +136,7 @@ export default function PrestartCheck({ token, banner, onDone, onSkip }: { token
       });
       const res = await fetch("/api/site/in/prestart", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token, answers, faults, stillThere: [...still], deviceId: deviceId() }),
+        body: JSON.stringify({ token, answers, faults, stillThere: [...still], deviceId: deviceId(), walkaround: Object.fromEntries(Object.entries(walk).map(([k, p]) => [k, p.id])) }),
       });
       if (!res.ok) throw new Error(await serverErrorMessage(res, "Couldn't send - check your signal and try again."));
       const r = await res.json();
@@ -148,6 +178,39 @@ export default function PrestartCheck({ token, banner, onDone, onSkip }: { token
         </div>
       )}
 
+      {capFull && (
+        <div className="rounded-xl border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">
+          The day&apos;s photo limit for this truck is reached. You can still send an Urgent or Do-not-use fault without a photo, and the walk-around is noted as not possible.
+        </div>
+      )}
+
+      {w && (
+        <div className="space-y-2 rounded-2xl border border-edge bg-panel p-3">
+          <div className="flex items-center justify-between gap-2">
+            <div className="text-base font-semibold text-gray-100">Walk-around photos</div>
+            <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${w.required ? "bg-red-500/15 text-red-300" : "bg-gray-700/60 text-gray-300"}`}>{w.required ? "Needed" : "Optional"}</span>
+          </div>
+          <p className="text-xs text-gray-400">
+            {w.required
+              ? "First check of the day on this truck - a photo of each, with the camera."
+              : w.earlier
+                ? (w.earlier.limit ? `This morning's photos couldn't be added (the day's photo limit) - ${w.earlier.by}, ${w.earlier.at}. Add them if you can.` : `This morning's photos were taken at ${w.earlier.at} by ${w.earlier.by}. Add more if something's changed.`)
+                : "Optional."}
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            {w.slots.map((s) => <SlotPhoto key={s.key} label={s.label} photo={walk[s.key]} busy={uploading > 0} onPhoto={(f) => addWalk(s.key, f)} />)}
+            {w.required && (
+              <div className={`rounded-xl border p-2 ${odo === "SENT" ? "border-emerald-500/50" : "border-edge"}`}>
+                <div className="text-sm text-gray-200">Odometer</div>
+                {odo === "SENT" ? <div className="mt-1 text-sm text-emerald-300">✓ Sent</div>
+                  : odometerToken ? <CameraButton busy={uploading > 0} label="Take photo" onPhoto={addOdometer} />
+                  : <div className="mt-1 text-xs text-gray-400">Sign in again to take it.</div>}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="space-y-3">
         {view.checklist.items.map((item) => {
           const a = answers[item.key];
@@ -170,7 +233,7 @@ export default function PrestartCheck({ token, banner, onDone, onSkip }: { token
                 </div>
               )}
               {needsDraft(item.key) && (
-                <FaultForm draft={d} busy={uploading > 0} onChange={(p) => setDraft(item.key, p)} onPhoto={(f) => addPhoto(item.key, f)} />
+                <FaultForm draft={d} busy={uploading > 0} capFull={capFull} onChange={(p) => setDraft(item.key, p)} onPhoto={(f) => addPhoto(item.key, f)} />
               )}
             </div>
           );
@@ -183,7 +246,7 @@ export default function PrestartCheck({ token, banner, onDone, onSkip }: { token
       </button>
       {!canSend && !busy && (
         <p className="text-center text-xs text-gray-500">
-          {uploading ? "Sending the photo..." : unanswered ? `${unanswered} item${unanswered > 1 ? "s" : ""} still to answer.` : notReady.length ? `Finish the fault on "${notReady[0].label}" - what's wrong, how bad, and a photo.` : ""}
+          {uploading ? "Sending the photo..." : walkMissing.length ? `Walk-around photos still to take: ${walkMissing.map((s) => s.label).join(", ")}.` : odoMissing ? "The odometer photo is still to take." : unanswered ? `${unanswered} item${unanswered > 1 ? "s" : ""} still to answer.` : notReady.length ? `Finish the fault on "${notReady[0].label}" - what's wrong, how bad, and a photo.` : ""}
         </p>
       )}
       <button className="w-full py-2 text-sm text-gray-400" disabled={busy} onClick={onSkip}>Do it later</button>
@@ -191,7 +254,32 @@ export default function PrestartCheck({ token, banner, onDone, onSkip }: { token
   );
 }
 
-function FaultForm({ draft, busy, onChange, onPhoto }: { draft: Draft; busy: boolean; onChange: (p: Partial<Draft>) => void; onPhoto: (f: File | undefined) => void }) {
+// A walk-around slot: camera only (no gallery input - best effort, some phones still offer files).
+function SlotPhoto({ label, photo, busy, onPhoto }: { label: string; photo?: Photo; busy: boolean; onPhoto: (f: File | undefined) => void }) {
+  return (
+    <div className={`rounded-xl border p-2 ${photo ? "border-emerald-500/50" : "border-edge"}`}>
+      <div className="text-sm text-gray-200">{label}</div>
+      {photo && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={photo.preview} alt={label} className="mt-1 h-20 w-full rounded-lg object-cover" />
+      )}
+      <CameraButton busy={busy} label={photo ? "Retake" : "Take photo"} onPhoto={onPhoto} />
+    </div>
+  );
+}
+function CameraButton({ busy, label, onPhoto }: { busy: boolean; label: string; onPhoto: (f: File | undefined) => void }) {
+  const camera = useRef<HTMLInputElement>(null);
+  return (
+    <>
+      <button disabled={busy} onClick={() => camera.current?.click()} className="mt-1 flex w-full items-center justify-center gap-1.5 rounded-lg bg-brand-600 px-2 py-2.5 text-sm font-semibold text-white disabled:opacity-50">
+        <Camera size={16} /> {label}
+      </button>
+      <input ref={camera} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; onPhoto(f); }} />
+    </>
+  );
+}
+
+function FaultForm({ draft, busy, capFull, onChange, onPhoto }: { draft: Draft; busy: boolean; capFull: boolean; onChange: (p: Partial<Draft>) => void; onPhoto: (f: File | undefined) => void }) {
   const camera = useRef<HTMLInputElement>(null);
   const gallery = useRef<HTMLInputElement>(null);
   return (
@@ -211,7 +299,7 @@ function FaultForm({ draft, busy, onChange, onPhoto }: { draft: Draft; busy: boo
         </div>
       </div>
       <div>
-        <div className="mb-1 text-sm text-gray-400">Photo (at least one)</div>
+        <div className="mb-1 text-sm text-gray-400">Photo (at least one{capFull ? " - or none for Urgent / Do not use, the limit is reached" : ""})</div>
         {draft.photos.length > 0 && (
           <div className="mb-2 flex flex-wrap gap-2">
             {draft.photos.map((p) => (

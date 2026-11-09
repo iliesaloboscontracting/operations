@@ -13,13 +13,14 @@ import { todaySydney } from "../today";
 import { pushToAdmins } from "../push";
 import { preparePhoto, removePhoto, writePreparedPhoto } from "../toolPhotos";
 import type { Prisma } from "@prisma/client";
-import { checklistFor, type Checklist } from "./checklists";
+import { checklistFor, slotLabel, walkaroundSlotsFor, type Checklist } from "./checklists";
 import {
-  LIMITS, OPEN_STATUSES, PRIORITY_LABEL, STATUS_LABEL, alertDecision, alertFor, alertMessage, canMove, cleanText, firstName, isOpenStatus, isPriority, marksDown,
-  offerBackToAvailable, photoRefusal, sortFaults, validateSubmission, worstPriority, type FaultPriority, type FaultStatus,
+  LIMITS, OPEN_STATUSES, PHOTO_LIMIT_NOTE, PRIORITY_LABEL, STATUS_LABEL, alertDecision, alertFor, alertMessage, canMove, cleanText, firstName, isOpenStatus,
+  isPriority, marksDown, offerBackToAvailable, photoCapFull, photoPrecheck, photoRefusal, sortFaults, validateSubmission, validateWalkaround, walkaroundCutoff,
+  walkaroundRequired, worstPriority, type FaultPriority, type FaultStatus,
 } from "./rules";
 
-export type Problem = { error: string; status: number };
+export type Problem = { error: string; status: number; capFull?: true };
 const problem = (error: string, status = 400): Problem => ({ error, status });
 const sydneyMidnight = (day = todaySydney()) => fromSydneyLocal(`${day}T00:00`)!;
 const dayOf = (d: Date) => new Intl.DateTimeFormat("en-AU", { timeZone: "Australia/Sydney", day: "numeric", month: "short" }).format(d);
@@ -53,12 +54,35 @@ export async function linkContext(token: unknown): Promise<LinkCtx | Problem> {
 const openFaultsOf = (resourceId: string) =>
   prisma.assetFault.findMany({ where: { resourceId, status: { in: OPEN_STATUSES } }, orderBy: { reportedAt: "desc" }, take: 30 });
 
-// GET: the checklist, the machine's open faults (first name of who reported it only), and whether it's done already.
+// Stage 1b (10 Nov 2026): today's pre-starts for this machine, earliest first - the first of the day must have the
+// walk-around photos (rules.ts walkaroundRequired). Decided here, and again when the check is sent.
+const preToday = (db: Prisma.TransactionClient | typeof prisma, resourceId: string, notId?: string) =>
+  db.prestartCheck.findMany({
+    where: { resourceId, kind: "PRE", createdAt: { gte: sydneyMidnight() }, ...(notId ? { id: { not: notId } } : {}) },
+    select: { walkaround: true, personName: true, createdAt: true }, orderBy: { createdAt: "asc" },
+  });
+// Is a walk-around needed for this machine's pre-start now? (The sign-in reply says so, for the odometer step.)
+export async function walkaroundRequiredFor(resourceId: string, resourceType: string): Promise<boolean> {
+  if (!walkaroundSlotsFor(resourceType, "PRE").length) return false;
+  return walkaroundRequired(await preToday(prisma, resourceId));
+}
+// The odometer photo of this sign-in (Receipts R1's OdometerReading): sent, or not (missing / "Can't now").
+const odometerSent = async (db: Prisma.TransactionClient | typeof prisma, attendanceId: string) => {
+  const r = await db.odometerReading.findUnique({ where: { siteAttendanceId: attendanceId }, select: { status: true } });
+  return !!r && r.status !== "SKIPPED";
+};
+
+// GET: the checklist, the machine's open faults (first name of who reported it only), whether it's done already, and
+// (truck pre-start) the walk-around: required or not, who took this morning's, and whether the odometer is in.
 export async function linkView(ctx: LinkCtx) {
-  const [open, done] = await Promise.all([
+  const slots = walkaroundSlotsFor(ctx.machine.type, ctx.kind);
+  const [open, done, today, odo] = await Promise.all([
     openFaultsOf(ctx.machine.id),
     prisma.prestartCheck.findUnique({ where: { attendanceId_kind: { attendanceId: ctx.attendanceId, kind: ctx.kind } }, select: { id: true } }),
+    slots.length ? preToday(prisma, ctx.machine.id) : Promise.resolve([]),
+    slots.length ? odometerSent(prisma, ctx.attendanceId) : Promise.resolve(true),
   ]);
+  const first = today.find((c) => c.walkaround === "DONE" || c.walkaround === "LIMIT");
   return {
     kind: ctx.kind,
     machine: linkLabel(ctx.machine.name, "Truck"),
@@ -70,6 +94,12 @@ export async function linkView(ctx: LinkCtx) {
       priorityLabel: PRIORITY_LABEL[f.priority as FaultPriority] ?? f.priority, reportedOn: dayOf(f.reportedAt), reportedBy: linkLabel(firstName(f.reportedBy), "Someone"),
     })),
     limits: { photosPerFault: LIMITS.photosPerFault, description: LIMITS.description },
+    walkaround: slots.length ? {
+      required: walkaroundRequired(today), slots,
+      // "This morning's photos were taken at 6:12 by Turori" - first name only on a link.
+      earlier: first ? { at: sydneyTime(first.createdAt), by: linkLabel(firstName(first.personName), "someone"), limit: first.walkaround === "LIMIT" } : null,
+    } : null,
+    odometer: slots.length ? (odo ? "SENT" : "MISSING") : null,
   };
 }
 
@@ -79,34 +109,57 @@ const TX = { maxWait: 15_000, timeout: 15_000 };
 // SQLite lets one writer in at a time, and two interactive transactions that overlap can time out on each other's
 // locks (seen with 30 photos at once). Production is one server process, so this module's writes go one after another
 // here - each still counts inside its own transaction, so the caps hold even if two ever did overlap.
-const queue = globalThis as unknown as { __prestartQueue?: Promise<unknown> };
+const queue = globalThis as unknown as { __prestartQueue?: Promise<unknown>; __prestartWaiting?: number };
 function oneAtATime<T>(fn: () => Promise<T>): Promise<T> {
-  const run = (queue.__prestartQueue ?? Promise.resolve()).then(fn, fn);
+  queue.__prestartWaiting = (queue.__prestartWaiting ?? 0) + 1;
+  const done = () => { queue.__prestartWaiting = Math.max(0, (queue.__prestartWaiting ?? 1) - 1); };
+  const run = (queue.__prestartQueue ?? Promise.resolve()).then(fn, fn).finally(done);
   queue.__prestartQueue = run.catch(() => undefined);
   return run;
 }
+// PS-009: how many writes are waiting their turn - over LIMITS.queueWaiting a photo is turned away (503) at once.
+export const queueWaiting = () => queue.__prestartWaiting ?? 0;
 
 // POST photo: kept for this sign-in and check (PRE / POST), not yet on a fault; none once the check is in.
 // PS-001 (9 Nov 2026): the row is recorded first and then everything is counted in the same transaction - this
 // sign-in (20), this machine today across every sign-in and phone (80, by resourceId so stage 2's plant gets it too),
 // every machine today (400), the same photo twice on this sign-in, and the phone (60, a hint - the phone names
 // itself). Over any of them the transaction is undone and nothing is written. The file is written only after.
-export async function linkPhoto(ctx: LinkCtx, dataUrl: unknown, deviceId: unknown): Promise<{ id: string } | Problem> {
+// Stage 1b: `slot` = a walk-around photo (FRONT / BACK / DRIVER / PASSENGER / CAB - truck pre-start only), kept as
+// role WALKAROUND; otherwise a fault photo. Both count against the same caps.
+export async function linkPhoto(ctx: LinkCtx, dataUrl: unknown, deviceId: unknown, slot?: unknown): Promise<{ id: string } | Problem> {
+  const slots = walkaroundSlotsFor(ctx.machine.type, ctx.kind);
+  if (slot != null && !slots.some((s) => s.key === slot)) return problem("That photo slot isn't on this check.");
+  const role = slot != null ? "WALKAROUND" : "FAULT";
   const prepared = preparePhoto(dataUrl);
   if ("error" in prepared) return problem(prepared.error);
   const sha256 = createHash("sha256").update(prepared.bytes).digest("hex");
   const dev = typeof deviceId === "string" && deviceId ? deviceId.slice(0, 64) : ctx.deviceId;
+  // PS-009: the caps read first, with nothing written and no place in the queue - a full cap answers straight away.
+  const today = { gte: sydneyMidnight() };
+  const [pSignIn, pMachine, pAll, pDevice, pSame] = await Promise.all([
+    prisma.assetFaultMedia.count({ where: { attendanceId: ctx.attendanceId } }),
+    prisma.assetFaultMedia.count({ where: { resourceId: ctx.machine.id, createdAt: today } }),
+    prisma.assetFaultMedia.count({ where: { createdAt: today } }),
+    dev ? prisma.assetFaultMedia.count({ where: { deviceId: dev, createdAt: today } }) : Promise.resolve(0),
+    prisma.assetFaultMedia.count({ where: { attendanceId: ctx.attendanceId, sha256 } }),
+  ]);
+  const early = photoPrecheck({ signIn: pSignIn, machineDay: pMachine, allDay: pAll, deviceDay: pDevice, sameOnSignIn: pSame });
+  if (early) return early;
+  if (queueWaiting() > LIMITS.queueWaiting) return problem("Busy - try again.", 503);
   let id: string;
   try {
     id = await oneAtATime(() => prisma.$transaction(async (tx) => {
       // The write comes first: SQLite gives one transaction the write lock at a time, so the others wait here and then
       // count what the earlier ones added (a transaction that read first and wrote later could deadlock under a burst).
       const m = await tx.assetFaultMedia.create({
-        data: { resourceId: ctx.machine.id, attendanceId: ctx.attendanceId, deviceId: dev, kind: "PHOTO", checkKind: ctx.kind, fileName: prepared.fileName, mime: prepared.mime, sha256 },
+        data: {
+          resourceId: ctx.machine.id, attendanceId: ctx.attendanceId, deviceId: dev, kind: "PHOTO", checkKind: ctx.kind, role, slot: role === "WALKAROUND" ? (slot as string) : null,
+          fileName: prepared.fileName, mime: prepared.mime, sha256,
+        },
       });
       if (await tx.prestartCheck.findUnique({ where: { attendanceId_kind: { attendanceId: ctx.attendanceId, kind: ctx.kind } }, select: { id: true } }))
         throw new Refused(problem("That check is already in - thanks.", 409));
-      const today = { gte: sydneyMidnight() };
       const [signIn, machineDay, allDay, deviceDay, sameOnSignIn] = await Promise.all([
         tx.assetFaultMedia.count({ where: { attendanceId: ctx.attendanceId } }),
         tx.assetFaultMedia.count({ where: { resourceId: ctx.machine.id, createdAt: today } }),
@@ -146,11 +199,12 @@ export async function alertForCheck(machine: { id: string; name: string }, check
   const msg = alertMessage(machine.name, by, faults);
   if (!msg) return null;
   const loud = faults.filter((f) => alertFor(f.priority)).map((f) => f.id);
+  const doNotUse = faults.some((f) => f.priority === "DO_NOT_USE");
   const decision = await oneAtATime(() => prisma.$transaction(async (tx) => {
     // The row first (the write lock - see linkPhoto), then the decision from the ones before it.
-    const row = await tx.assetFaultAlert.create({ data: { resourceId: machine.id, checkId, decision: "PENDING", faultIds: JSON.stringify(loud), at: now } });
-    const sent = await tx.assetFaultAlert.findMany({ where: { resourceId: machine.id, decision: "SENT", at: { gte: sydneyMidnight() }, id: { not: row.id } }, select: { at: true } });
-    const d = alertDecision(sent.map((s) => s.at), now);
+    const row = await tx.assetFaultAlert.create({ data: { resourceId: machine.id, checkId, decision: "PENDING", doNotUse, faultIds: JSON.stringify(loud), at: now } });
+    const sent = await tx.assetFaultAlert.findMany({ where: { resourceId: machine.id, decision: "SENT", at: { gte: sydneyMidnight() }, id: { not: row.id } }, select: { at: true, doNotUse: true } });
+    const d = alertDecision(sent, now, doNotUse);
     await tx.assetFaultAlert.update({ where: { id: row.id }, data: { decision: d } });
     return d;
   }, TX));
@@ -163,14 +217,21 @@ export async function alertForCheck(machine: { id: string; name: string }, check
 // alert that fails never fails the check).
 export async function submitCheck(ctx: LinkCtx, body: unknown) {
   const open = await openFaultsOf(ctx.machine.id);
-  const v = validateSubmission(ctx.list, body, open.map((f) => ({ id: f.id, itemKey: f.itemKey })));
+  // PS-010: is the day's photo limit full for this machine (or everyone)? Counted here, never taken from the phone.
+  const today = { gte: sydneyMidnight() };
+  const capFull = photoCapFull({
+    machineDay: await prisma.assetFaultMedia.count({ where: { resourceId: ctx.machine.id, createdAt: today } }),
+    allDay: await prisma.assetFaultMedia.count({ where: { createdAt: today } }),
+  });
+  const v = validateSubmission(ctx.list, body, open.map((f) => ({ id: f.id, itemKey: f.itemKey })), { capFull });
   if (!v.ok) return problem(v.error);
+  const slots = walkaroundSlotsFor(ctx.machine.type, ctx.kind);
   const { answers, faults, stillThere } = v.value;
   const allMedia = faults.flatMap((f) => f.mediaIds);
   const b = (body && typeof body === "object" ? body : {}) as Record<string, unknown>;
   const deviceId = typeof b.deviceId === "string" && b.deviceId ? b.deviceId.slice(0, 64) : ctx.deviceId;
   const by = ctx.person.name;
-  let result: { checkId: string; created: { id: string; itemLabel: string; priority: FaultPriority; description: string; markedDown: boolean }[] };
+  let result: { checkId: string; walkaround: string | null; created: { id: string; itemLabel: string; priority: FaultPriority; description: string; markedDown: boolean }[] };
   try {
     result = await oneAtATime(() => prisma.$transaction(async (tx) => {
       // Written first (see linkPhoto); a second check for the sign-in hits the unique key -> 409.
@@ -182,8 +243,28 @@ export async function submitCheck(ctx: LinkCtx, body: unknown) {
         },
       });
       if (allMedia.length) {
-        const mine = await tx.assetFaultMedia.count({ where: { id: { in: allMedia }, attendanceId: ctx.attendanceId, checkKind: ctx.kind, faultId: null } });
+        const mine = await tx.assetFaultMedia.count({ where: { id: { in: allMedia }, attendanceId: ctx.attendanceId, checkKind: ctx.kind, role: "FAULT", faultId: null } });
         if (mine !== allMedia.length) throw new Refused(problem("A photo didn't go through - take it again.", 400));
+      }
+      // Stage 1b: the walk-around. "First of the day" decided again now, against every other pre-start already in -
+      // two drivers at once can't leave the day without photos. Required = the five photos and the odometer.
+      let walkaround: string | null = null;
+      if (slots.length) {
+        const required = walkaroundRequired(await preToday(tx, ctx.machine.id, check.id));
+        const w = validateWalkaround(b.walkaround, slots, { required, capFull });
+        if (!w.ok) throw new Refused(problem(w.error, 400));
+        if (required && !(await odometerSent(tx, ctx.attendanceId))) throw new Refused(problem("Take the odometer photo first.", 400));
+        for (const [s, mediaId] of Object.entries(w.photos)) {
+          const ok = await tx.assetFaultMedia.updateMany({
+            where: { id: mediaId, attendanceId: ctx.attendanceId, checkKind: ctx.kind, role: "WALKAROUND", slot: s, faultId: null, checkId: null },
+            data: { checkId: check.id },
+          });
+          if (ok.count !== 1) throw new Refused(problem("A walk-around photo didn't go through - take it again.", 400));
+        }
+        walkaround = w.status;
+        await tx.prestartCheck.update({ where: { id: check.id }, data: { walkaround } });
+      } else if (b.walkaround != null && Object.keys(b.walkaround as object).length) {
+        throw new Refused(problem("No walk-around photos on this check.", 400));
       }
       let status = ctx.machine.status;
       const created: { id: string; itemLabel: string; priority: FaultPriority; description: string; markedDown: boolean }[] = [];
@@ -194,9 +275,10 @@ export async function submitCheck(ctx: LinkCtx, body: unknown) {
           data: {
             resourceId: ctx.machine.id, resourceName: ctx.machine.name, checkId: check.id, itemKey: f.itemKey, itemLabel: f.itemLabel,
             description: f.description, priority: f.priority, reportedBy: by, markedDown: !!down, markedDownAt: down,
+            photoNote: f.mediaIds.length ? null : PHOTO_LIMIT_NOTE, // PS-010: let through without a photo
           },
         });
-        const attached = await tx.assetFaultMedia.updateMany({ where: { id: { in: f.mediaIds }, attendanceId: ctx.attendanceId, checkKind: ctx.kind, faultId: null }, data: { faultId: row.id } });
+        const attached = await tx.assetFaultMedia.updateMany({ where: { id: { in: f.mediaIds }, attendanceId: ctx.attendanceId, checkKind: ctx.kind, role: "FAULT", faultId: null }, data: { faultId: row.id } });
         if (attached.count !== f.mediaIds.length) throw new Refused(problem("A photo didn't go through - take it again.", 400));
         await tx.assetFaultEvent.create({ data: { faultId: row.id, by, action: "REPORTED", to: f.priority, note: `${ctx.kind === "PRE" ? "Pre-start" : "Post-check"}: ${f.itemLabel}` } });
         if (down) await tx.assetFaultEvent.create({ data: { faultId: row.id, by, action: "DOWN", to: "DOWN", note: "Marked Down on the register (Do not use)" } });
@@ -211,7 +293,7 @@ export async function submitCheck(ctx: LinkCtx, body: unknown) {
         if (seen.count !== 1) throw new Refused(problem("That fault has been fixed or changed - reload the page.", 409));
         await tx.assetFaultEvent.create({ data: { faultId: id, by, action: "SEEN", note: `Still there (${ctx.kind === "PRE" ? "pre-start" : "post-check"})` } });
       }
-      return { checkId: check.id, created };
+      return { checkId: check.id, walkaround, created };
     }, TX));
   } catch (e) {
     if (e instanceof Refused) return e.p;
@@ -224,9 +306,10 @@ export async function submitCheck(ctx: LinkCtx, body: unknown) {
   await alertForCheck(ctx.machine, result.checkId, by, result.created).catch((e) => console.error("fault alert", e instanceof Error ? e.message : "failed"));
   const sent = result.created.map((f) => ({ itemLabel: f.itemLabel, priority: PRIORITY_LABEL[f.priority], markedDown: f.markedDown }));
   const what = ctx.kind === "PRE" ? "Pre-start" : "Post-check";
+  const limitNote = result.walkaround === "LIMIT" ? " Walk-around photos couldn't be added (the day's photo limit) - noted." : "";
   return {
-    ok: true as const, id: result.checkId, sent, seen: stillThere.length,
-    message: sent.length ? `${what} sent - ${sent.length} fault${sent.length > 1 ? "s" : ""} sent to the office.` : `${what} sent - thanks.`,
+    ok: true as const, id: result.checkId, sent, seen: stillThere.length, walkaround: result.walkaround,
+    message: (sent.length ? `${what} sent - ${sent.length} fault${sent.length > 1 ? "s" : ""} sent to the office.` : `${what} sent - thanks.`) + limitNote,
   };
 }
 
@@ -238,7 +321,7 @@ export type FaultDTO = {
   priority: FaultPriority; priorityLabel: string; status: FaultStatus; statusLabel: string;
   reportedBy: string; reportedAt: string; lastSeenAt: string | null; lastSeenBy: string | null; seenCount: number;
   markedDown: boolean; fixedAt: string | null; fixedBy: string | null; fixNote: string | null;
-  checkKind: string | null; mediaIds: string[]; canBackToAvailable: boolean;
+  checkKind: string | null; mediaIds: string[]; canBackToAvailable: boolean; photoNote: string | null;
   // PS-004 (9 Nov 2026): where the report came from, so the office can spot one that doesn't look right.
   source: { staff: boolean; company: string | null; method: string; point: string | null; runBy: string | null } | null;
   events: { at: string; by: string; action: string; from: string | null; to: string | null; note: string | null }[];
@@ -276,7 +359,7 @@ export async function listFaults(q: { status?: string | null; resourceId?: strin
       status: f.status as FaultStatus, statusLabel: STATUS_LABEL[f.status as FaultStatus] ?? f.status,
       reportedBy: f.reportedBy, reportedAt: f.reportedAt.toISOString(), lastSeenAt: f.lastSeenAt?.toISOString() ?? null, lastSeenBy: f.lastSeenBy, seenCount: f.seenCount,
       markedDown: f.markedDown, fixedAt: f.fixedAt?.toISOString() ?? null, fixedBy: f.fixedBy, fixNote: f.fixNote, checkKind: f.check?.kind ?? null,
-      mediaIds: f.media.map((m) => m.id),
+      mediaIds: f.media.map((m) => m.id), photoNote: f.photoNote,
       // Offered while it's open (ticked when fixing) - the same rule decides again when it's applied.
       canBackToAvailable: isOpenStatus(f.status) && offerBackToAvailable(f, machineOf.get(f.resourceId) ?? null, siblings.filter((s) => s.resourceId === f.resourceId)),
       source: (() => {
@@ -348,7 +431,11 @@ export async function updateFault(id: string, body: Record<string, unknown>, by:
   }
 }
 
-export const faultMedia = (id: string) => prisma.assetFaultMedia.findUnique({ where: { id }, select: { fileName: true, mime: true, faultId: true } });
+export const faultMedia = (id: string) => prisma.assetFaultMedia.findUnique({ where: { id }, select: { fileName: true, mime: true, faultId: true, checkId: true } });
+// The odometer photo of a truck sign-in, for the Checks tab - only a photo that belongs to an odometer reading (never a
+// tip docket or fuel receipt).
+export const odometerPhoto = (id: string) =>
+  prisma.receiptPhoto.findFirst({ where: { id, odometerReadingId: { not: null } }, select: { fileName: true } });
 
 // The board / register icon: each machine with an open fault -> how many and the worst priority.
 export async function faultFlags(): Promise<Record<string, { open: number; worst: FaultPriority }>> {
@@ -372,10 +459,17 @@ export async function checksForDay(day: string) {
     ? await prisma.prestartCheck.findMany({ where: { attendanceId: { in: signIns.map((s) => s.id) } }, include: { faults: { select: { id: true, itemLabel: true, priority: true, status: true } } } })
     : [];
   const of = (id: string, kind: string) => checks.find((c) => c.attendanceId === id && c.kind === kind);
+  // Stage 1b: each check's walk-around photos, and each sign-in's odometer photo and reading (km once read).
+  const [walk, odos] = checks.length || signIns.length ? await Promise.all([
+    prisma.assetFaultMedia.findMany({ where: { checkId: { in: checks.map((c) => c.id) }, role: "WALKAROUND" }, select: { id: true, checkId: true, slot: true }, orderBy: { createdAt: "asc" } }),
+    prisma.odometerReading.findMany({ where: { siteAttendanceId: { in: signIns.map((s) => s.id) } }, select: { siteAttendanceId: true, status: true, km: true, photos: { select: { id: true } } } }),
+  ]) : [[], []];
   const view = (c: (typeof checks)[number] | undefined) => c ? {
     at: sydneyTime(c.createdAt), checklist: c.checklist, faultCount: c.faultCount, seenCount: c.seenCount,
     answers: (JSON.parse(c.answers) as { key: string; label: string; answer: string }[]),
     faults: c.faults.map((f) => ({ id: f.id, itemLabel: f.itemLabel, priority: PRIORITY_LABEL[f.priority as FaultPriority] ?? f.priority, status: STATUS_LABEL[f.status as FaultStatus] ?? f.status })),
+    walkaround: c.walkaround,
+    walkaroundPhotos: walk.filter((m) => m.checkId === c.id).map((m) => ({ id: m.id, slot: m.slot, label: slotLabel(m.slot) })),
   } : null;
   return {
     day,
@@ -385,6 +479,10 @@ export async function checksForDay(day: string) {
         id: s.id, person: s.company ? `${s.workerName} (${s.company})` : s.workerName, machine: s.placeLabel ?? "Truck", machineId: s.vehicleId,
         signedIn: sydneyTime(s.signInAt), signedOut: sydneyTime(s.signOutAt),
         pre, post,
+        odometer: (() => {
+          const o = odos.find((r) => r.siteAttendanceId === s.id);
+          return o ? { status: o.status, km: o.km, photoIds: o.photos.map((p) => p.id) } : null;
+        })(),
         preStatus: pre ? (pre.faultCount ? `Done - ${pre.faultCount} fault${pre.faultCount > 1 ? "s" : ""}` : "Done") : "No pre-start",
         postStatus: post ? (post.faultCount ? `Done - ${post.faultCount} fault${post.faultCount > 1 ? "s" : ""}` : "Done") : s.signOutAt ? "No post-check" : "Still signed in",
       };
@@ -400,7 +498,7 @@ export const STALE_MEDIA_HOURS = 24;
 export async function cleanupUnattachedMedia(now = new Date()): Promise<{ removed: number } | { skipped: true }> {
   if (process.env.FAULT_PHOTO_CLEANUP === "off") return { skipped: true };
   const stale = await prisma.assetFaultMedia.findMany({
-    where: { faultId: null, createdAt: { lt: new Date(now.getTime() - STALE_MEDIA_HOURS * 3_600_000) } },
+    where: { faultId: null, checkId: null, createdAt: { lt: new Date(now.getTime() - STALE_MEDIA_HOURS * 3_600_000) } },
     select: { id: true, fileName: true },
     take: 1000,
   });
@@ -413,7 +511,29 @@ export async function cleanupUnattachedMedia(now = new Date()): Promise<{ remove
       if ((e as { code?: string }).code !== "ENOENT") continue;
     }
     // Only if it is still unattached (it can't be, but the row is the record of the file).
-    removed += (await prisma.assetFaultMedia.deleteMany({ where: { id: m.id, faultId: null } })).count;
+    removed += (await prisma.assetFaultMedia.deleteMany({ where: { id: m.id, faultId: null, checkId: null } })).count;
+  }
+  return { removed };
+}
+
+// Stage 1b (Ilies, 10 Nov 2026): walk-around photos are deleted 12 months after they were taken - sent or not; the
+// file first (only the file the row names, one savePhoto made), then the row. Fault photos are never removed by age.
+// WALKAROUND_RETENTION=off stops it.
+export async function cleanupOldWalkaround(now = new Date()): Promise<{ removed: number } | { skipped: true }> {
+  if (process.env.WALKAROUND_RETENTION === "off") return { skipped: true };
+  const old = await prisma.assetFaultMedia.findMany({
+    where: { role: "WALKAROUND", faultId: null, createdAt: { lt: walkaroundCutoff(now) } },
+    select: { id: true, fileName: true },
+    take: 1000,
+  });
+  let removed = 0;
+  for (const m of old) {
+    try {
+      await removePhoto(m.fileName);
+    } catch (e) {
+      if ((e as { code?: string }).code !== "ENOENT") continue;
+    }
+    removed += (await prisma.assetFaultMedia.deleteMany({ where: { id: m.id, role: "WALKAROUND", faultId: null } })).count;
   }
   return { removed };
 }
@@ -422,12 +542,14 @@ export async function cleanupUnattachedMedia(now = new Date()): Promise<{ remove
 // harmless (it removes the same kind of rows, or nothing).
 const cleanupState = globalThis as unknown as { __faultPhotoCleanupDay?: string };
 export async function faultPhotoCleanupTick(now = new Date()) {
-  if (process.env.FAULT_PHOTO_CLEANUP === "off") return null;
+  if (process.env.FAULT_PHOTO_CLEANUP === "off" && process.env.WALKAROUND_RETENTION === "off") return null;
   const hour = Number(new Intl.DateTimeFormat("en-AU", { timeZone: "Australia/Sydney", hour: "numeric", hourCycle: "h23" }).format(now));
   const today = todaySydney();
   if (hour < 3 || cleanupState.__faultPhotoCleanupDay === today) return null;
   cleanupState.__faultPhotoCleanupDay = today;
   const r = await cleanupUnattachedMedia(now);
   if ("removed" in r) console.log(`fault photo cleanup: ${r.removed} removed`);
-  return r;
+  const w = await cleanupOldWalkaround(now);
+  if ("removed" in w) console.log(`walk-around photos over 12 months: ${w.removed} removed`);
+  return { unsent: r, walkaround: w };
 }
