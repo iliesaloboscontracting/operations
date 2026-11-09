@@ -17,10 +17,11 @@ import { checklistFor, slotLabel, walkaroundSlotsFor, type Checklist } from "./c
 import {
   LIMITS, OPEN_STATUSES, PHOTO_LIMIT_NOTE, PRIORITY_LABEL, STATUS_LABEL, alertDecision, alertFor, alertMessage, canMove, cleanText, firstName, isOpenStatus,
   isPriority, marksDown, offerBackToAvailable, photoCapFull, photoPrecheck, photoRefusal, sortFaults, validateSubmission, validateWalkaround, walkaroundCutoff,
+  capNotice, capsFull, type PhotoCap, type PhotoRole,
   walkaroundRequired, worstPriority, type FaultPriority, type FaultStatus,
 } from "./rules";
 
-export type Problem = { error: string; status: number; capFull?: true };
+export type Problem = { error: string; status: number; capFull?: true; cap?: PhotoCap };
 const problem = (error: string, status = 400): Problem => ({ error, status });
 const sydneyMidnight = (day = todaySydney()) => fromSydneyLocal(`${day}T00:00`)!;
 const dayOf = (d: Date) => new Intl.DateTimeFormat("en-AU", { timeZone: "Australia/Sydney", day: "numeric", month: "short" }).format(d);
@@ -126,11 +127,12 @@ export const queueWaiting = () => queue.__prestartWaiting ?? 0;
 // every machine today (400), the same photo twice on this sign-in, and the phone (60, a hint - the phone names
 // itself). Over any of them the transaction is undone and nothing is written. The file is written only after.
 // Stage 1b: `slot` = a walk-around photo (FRONT / BACK / DRIVER / PASSENGER / CAB - truck pre-start only), kept as
-// role WALKAROUND; otherwise a fault photo. Both count against the same caps.
+// role WALKAROUND; otherwise a fault photo. PS-012 (10 Nov 2026): the machine's day is counted per kind (15 walk-around,
+// 65 fault photos), under the shared all-day ceiling - so fault photos can't use up the walk-around's allowance.
 export async function linkPhoto(ctx: LinkCtx, dataUrl: unknown, deviceId: unknown, slot?: unknown): Promise<{ id: string } | Problem> {
   const slots = walkaroundSlotsFor(ctx.machine.type, ctx.kind);
   if (slot != null && !slots.some((s) => s.key === slot)) return problem("That photo slot isn't on this check.");
-  const role = slot != null ? "WALKAROUND" : "FAULT";
+  const role: PhotoRole = slot != null ? "WALKAROUND" : "FAULT";
   const prepared = preparePhoto(dataUrl);
   if ("error" in prepared) return problem(prepared.error);
   const sha256 = createHash("sha256").update(prepared.bytes).digest("hex");
@@ -139,13 +141,16 @@ export async function linkPhoto(ctx: LinkCtx, dataUrl: unknown, deviceId: unknow
   const today = { gte: sydneyMidnight() };
   const [pSignIn, pMachine, pAll, pDevice, pSame] = await Promise.all([
     prisma.assetFaultMedia.count({ where: { attendanceId: ctx.attendanceId } }),
-    prisma.assetFaultMedia.count({ where: { resourceId: ctx.machine.id, createdAt: today } }),
+    prisma.assetFaultMedia.count({ where: { resourceId: ctx.machine.id, role, createdAt: today } }),
     prisma.assetFaultMedia.count({ where: { createdAt: today } }),
     dev ? prisma.assetFaultMedia.count({ where: { deviceId: dev, createdAt: today } }) : Promise.resolve(0),
     prisma.assetFaultMedia.count({ where: { attendanceId: ctx.attendanceId, sha256 } }),
   ]);
-  const early = photoPrecheck({ signIn: pSignIn, machineDay: pMachine, allDay: pAll, deviceDay: pDevice, sameOnSignIn: pSame });
-  if (early) return early;
+  const early = photoPrecheck({ role, signIn: pSignIn, roleMachineDay: pMachine, allDay: pAll, deviceDay: pDevice, sameOnSignIn: pSame });
+  if (early) {
+    if (early.capFull) await noticeFullCaps(ctx.machine).catch((e) => console.error("photo limit notice", e instanceof Error ? e.message : "failed"));
+    return early;
+  }
   if (queueWaiting() > LIMITS.queueWaiting) return problem("Busy - try again.", 503);
   let id: string;
   try {
@@ -160,21 +165,26 @@ export async function linkPhoto(ctx: LinkCtx, dataUrl: unknown, deviceId: unknow
       });
       if (await tx.prestartCheck.findUnique({ where: { attendanceId_kind: { attendanceId: ctx.attendanceId, kind: ctx.kind } }, select: { id: true } }))
         throw new Refused(problem("That check is already in - thanks.", 409));
-      const [signIn, machineDay, allDay, deviceDay, sameOnSignIn] = await Promise.all([
+      const [signIn, roleMachineDay, allDay, deviceDay, sameOnSignIn] = await Promise.all([
         tx.assetFaultMedia.count({ where: { attendanceId: ctx.attendanceId } }),
-        tx.assetFaultMedia.count({ where: { resourceId: ctx.machine.id, createdAt: today } }),
+        tx.assetFaultMedia.count({ where: { resourceId: ctx.machine.id, role, createdAt: today } }),
         tx.assetFaultMedia.count({ where: { createdAt: today } }),
         dev ? tx.assetFaultMedia.count({ where: { deviceId: dev, createdAt: today } }) : Promise.resolve(0),
         tx.assetFaultMedia.count({ where: { attendanceId: ctx.attendanceId, sha256 } }),
       ]);
-      const refused = photoRefusal({ signIn, machineDay, allDay, deviceDay, sameOnSignIn });
+      const refused = photoRefusal({ role, signIn, roleMachineDay, allDay, deviceDay, sameOnSignIn });
       if (refused) throw new Refused(refused);
       return m.id;
     }, TX));
   } catch (e) {
-    if (e instanceof Refused) return e.p;
+    if (e instanceof Refused) {
+      if (e.p.capFull) await noticeFullCaps(ctx.machine).catch((err) => console.error("photo limit notice", err instanceof Error ? err.message : "failed"));
+      return e.p;
+    }
     throw e;
   }
+  // PS-012: this photo may have just filled an allowance - tell the Admins once (never fails the upload).
+  await noticeFullCaps(ctx.machine).catch((e) => console.error("photo limit notice", e instanceof Error ? e.message : "failed"));
   try {
     await writePreparedPhoto(prepared);
   } catch (e) {
@@ -182,6 +192,33 @@ export async function linkPhoto(ctx: LinkCtx, dataUrl: unknown, deviceId: unknow
     throw e;
   }
   return { id };
+}
+
+// PS-012 (10 Nov 2026): when a machine's walk-around or fault allowance, or the all-day ceiling, is full, ONE push to the
+// Admins per cap per machine per Sydney day (the ceiling once for everyone). PhotoCapNotice's unique key records it -
+// a second fill the same day (or a restart, or two uploads at once) sends nothing more. No money in it.
+export async function noticeFullCaps(machine: { id: string; name: string }): Promise<PhotoCap[]> {
+  const today = { gte: sydneyMidnight() };
+  const [walkaroundMachineDay, faultMachineDay, allDay] = await Promise.all([
+    prisma.assetFaultMedia.count({ where: { resourceId: machine.id, role: "WALKAROUND", createdAt: today } }),
+    prisma.assetFaultMedia.count({ where: { resourceId: machine.id, role: "FAULT", createdAt: today } }),
+    prisma.assetFaultMedia.count({ where: { createdAt: today } }),
+  ]);
+  const day = todaySydney();
+  const sent: PhotoCap[] = [];
+  for (const cap of capsFull({ walkaroundMachineDay, faultMachineDay, allDay })) {
+    const resourceId = cap === "ALL" ? "*" : machine.id;
+    try {
+      await prisma.photoCapNotice.create({ data: { resourceId, cap, day } });
+    } catch (e) {
+      if ((e as { code?: string }).code === "P2002") continue; // already told today
+      throw e;
+    }
+    sent.push(cap);
+    const msg = capNotice(cap, linkLabel(machine.name, "a truck"));
+    await pushToAdmins({ ...msg, url: "/faults", tag: `photo-limit-${cap}-${resourceId}` }, "normal").catch((e) => console.error("photo limit push", e instanceof Error ? e.message : "failed"));
+  }
+  return sent;
 }
 
 // Do not use: the machine goes DOWN (only if it isn't already). Returns the machine record's updatedAt as that write
@@ -219,11 +256,13 @@ export async function submitCheck(ctx: LinkCtx, body: unknown) {
   const open = await openFaultsOf(ctx.machine.id);
   // PS-010: is the day's photo limit full for this machine (or everyone)? Counted here, never taken from the phone.
   const today = { gte: sydneyMidnight() };
-  const capFull = photoCapFull({
-    machineDay: await prisma.assetFaultMedia.count({ where: { resourceId: ctx.machine.id, createdAt: today } }),
-    allDay: await prisma.assetFaultMedia.count({ where: { createdAt: today } }),
-  });
-  const v = validateSubmission(ctx.list, body, open.map((f) => ({ id: f.id, itemKey: f.itemKey })), { capFull });
+  // PS-012: per kind - a fault's photo is waived only when the FAULT allowance (or the ceiling) is full, the walk-around
+  // let through only when the WALK-AROUND allowance (or the ceiling) is full.
+  const allDay = await prisma.assetFaultMedia.count({ where: { createdAt: today } });
+  const roleDay = (role: PhotoRole) => prisma.assetFaultMedia.count({ where: { resourceId: ctx.machine.id, role, createdAt: today } });
+  const faultFull = photoCapFull("FAULT", { roleMachineDay: await roleDay("FAULT"), allDay });
+  const walkFull = photoCapFull("WALKAROUND", { roleMachineDay: await roleDay("WALKAROUND"), allDay });
+  const v = validateSubmission(ctx.list, body, open.map((f) => ({ id: f.id, itemKey: f.itemKey })), { capFull: faultFull });
   if (!v.ok) return problem(v.error);
   const slots = walkaroundSlotsFor(ctx.machine.type, ctx.kind);
   const { answers, faults, stillThere } = v.value;
@@ -251,7 +290,7 @@ export async function submitCheck(ctx: LinkCtx, body: unknown) {
       let walkaround: string | null = null;
       if (slots.length) {
         const required = walkaroundRequired(await preToday(tx, ctx.machine.id, check.id));
-        const w = validateWalkaround(b.walkaround, slots, { required, capFull });
+        const w = validateWalkaround(b.walkaround, slots, { required, capFull: walkFull });
         if (!w.ok) throw new Refused(problem(w.error, 400));
         if (required && !(await odometerSent(tx, ctx.attendanceId))) throw new Refused(problem("Take the odometer photo first.", 400));
         for (const [s, mediaId] of Object.entries(w.photos)) {

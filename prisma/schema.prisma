@@ -2466,3 +2466,16 @@ model AssetFaultEvent {
 
   @@index([faultId, at])
 }
+
+// PS-012 (10 Nov 2026): a machine's walk-around or fault photo allowance (or everyone's all-day ceiling - resourceId "*")
+// filled on a Sydney day. The unique key makes the Admins' one push per cap per machine per day fire once - surviving a
+// restart and two uploads at once. Append-only.
+model PhotoCapNotice {
+  id         String   @id @default(cuid())
+  resourceId String // the machine, or "*" for the all-day ceiling
+  cap        String // WALKAROUND | FAULT | ALL
+  day        String // YYYY-MM-DD, Sydney
+  at         DateTime @default(now())
+
+  @@unique([resourceId, cap, day])
+}

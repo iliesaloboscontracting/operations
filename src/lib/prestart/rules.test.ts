@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { CHECKLISTS, PLANT_PRE, TRUCK_POST, TRUCK_PRE, TRUCK_WALKAROUND, answerLabel, checklistFor, walkaroundSlotsFor } from "./checklists";
 import {
-  LIMITS, alertDecision, alertFor, alertMessage, canMove, cleanText, firstName, marksDown, offerBackToAvailable, photoCapFull, photoPrecheck, photoRefusal, photoWaived,
+  LIMITS, alertDecision, alertFor, alertMessage, canMove, capNotice, capsFull, cleanText, firstName, marksDown, offerBackToAvailable, photoCapFull, photoPrecheck, photoRefusal, photoWaived,
   sortFaults, validateSubmission, validateWalkaround, walkaroundCutoff, walkaroundExpired, walkaroundRequired, worstPriority,
 } from "./rules";
 import { assertNoMoney } from "../moneyGuard";
@@ -124,20 +124,24 @@ test("PS-008: a later change to the machine (an unrelated Down, any edit) stops 
   assert.equal(offerBackToAvailable({ ...f, markedDownAt: null }, { status: "DOWN", updatedAt: at }, []), false); // made before PS-008
 });
 
-test("PS-001: photo caps - sign-in 30 (stage 1b), machine 80 a day, all 400 a day, the same photo twice, phone 60 (hint)", () => {
-  const ok = { signIn: 1, machineDay: 1, allDay: 1, deviceDay: 1, sameOnSignIn: 1 };
+test("PS-001 / PS-012: photo caps - sign-in 30, per machine a day 15 walk-around / 65 fault, all 400, same photo twice, phone 60", () => {
+  const ok = { role: "FAULT" as const, signIn: 1, roleMachineDay: 1, allDay: 1, deviceDay: 1, sameOnSignIn: 1 };
+  const walk = { ...ok, role: "WALKAROUND" as const };
   assert.equal(photoRefusal(ok), null);
-  assert.equal(photoRefusal({ ...ok, signIn: 30, machineDay: 80, allDay: 400, deviceDay: 60 }), null);
+  assert.equal(photoRefusal({ ...ok, signIn: 30, roleMachineDay: 65, allDay: 400, deviceDay: 60 }), null);
+  assert.equal(photoRefusal({ ...walk, roleMachineDay: 15 }), null);
   assert.equal(photoRefusal({ ...ok, signIn: 31 })?.status, 429);
   assert.equal(photoRefusal({ ...ok, signIn: 31 })?.capFull, undefined); // the sign-in's own cap isn't "the day is full"
-  assert.equal(photoRefusal({ ...ok, machineDay: 81 })?.capFull, true);
-  assert.equal(photoRefusal({ ...ok, allDay: 401 })?.capFull, true);
-  assert.match(photoRefusal({ ...ok, machineDay: 81 })?.error ?? "", /machine/);
-  assert.equal(photoRefusal({ ...ok, machineDay: 81 })?.status, 429);
-  assert.equal(photoRefusal({ ...ok, allDay: 401 })?.status, 429);
+  assert.deepEqual([photoRefusal({ ...ok, roleMachineDay: 66 })?.cap, photoRefusal({ ...ok, roleMachineDay: 66 })?.status], ["FAULT", 429]);
+  assert.match(photoRefusal({ ...ok, roleMachineDay: 66 })?.error ?? "", /Urgent/);
+  assert.equal(photoRefusal({ ...walk, roleMachineDay: 16 })?.cap, "WALKAROUND");
+  assert.equal(photoRefusal({ ...walk, roleMachineDay: 16 })?.capFull, true);
+  assert.equal(photoRefusal({ ...ok, allDay: 401 })?.cap, "ALL");
+  assert.equal(photoRefusal({ ...walk, allDay: 401 })?.cap, "ALL");
   assert.equal(photoRefusal({ ...ok, deviceDay: 61 })?.status, 429);
   assert.equal(photoRefusal({ ...ok, sameOnSignIn: 2 })?.status, 409);
-  assert.equal(LIMITS.photosPerMachineDay, 80);
+  assert.equal(LIMITS.walkaroundPerMachineDay, 15);
+  assert.equal(LIMITS.faultPhotosPerMachineDay, 65);
   assert.equal(LIMITS.photosAllDay, 400);
 });
 
@@ -221,19 +225,22 @@ test("retention: walk-around photos over 12 months go; newer ones and fault phot
 });
 
 test("PS-009: the read-only pre-check refuses once a cap is already reached", () => {
-  const z = { signIn: 0, machineDay: 0, allDay: 0, deviceDay: 0, sameOnSignIn: 0 };
+  const z = { role: "FAULT" as const, signIn: 0, roleMachineDay: 0, allDay: 0, deviceDay: 0, sameOnSignIn: 0 };
   assert.equal(photoPrecheck(z), null);
   assert.equal(photoPrecheck({ ...z, signIn: 29 }), null);
   assert.equal(photoPrecheck({ ...z, signIn: 30 })?.status, 429);
-  assert.equal(photoPrecheck({ ...z, machineDay: 80 })?.capFull, true);
+  assert.equal(photoPrecheck({ ...z, roleMachineDay: 65 })?.cap, "FAULT");
+  assert.equal(photoPrecheck({ ...z, roleMachineDay: 64 }), null);
+  assert.equal(photoPrecheck({ ...z, role: "WALKAROUND", roleMachineDay: 15 })?.cap, "WALKAROUND");
+  assert.equal(photoPrecheck({ ...z, role: "WALKAROUND", roleMachineDay: 14 }), null);
   assert.equal(photoPrecheck({ ...z, allDay: 400 })?.capFull, true);
   assert.equal(photoPrecheck({ ...z, sameOnSignIn: 1 })?.status, 409);
 });
 
 test("PS-010: Urgent / Do-not-use may go without a photo only when the day's photo limit is full", () => {
-  assert.equal(photoCapFull({ machineDay: 79, allDay: 399 }), false);
-  assert.equal(photoCapFull({ machineDay: 80, allDay: 0 }), true);
-  assert.equal(photoCapFull({ machineDay: 0, allDay: 400 }), true);
+  assert.equal(photoCapFull("FAULT", { roleMachineDay: 64, allDay: 399 }), false);
+  assert.equal(photoCapFull("FAULT", { roleMachineDay: 65, allDay: 0 }), true);
+  assert.equal(photoCapFull("FAULT", { roleMachineDay: 0, allDay: 400 }), true);
   for (const p of ["URGENT", "DO_NOT_USE"]) { assert.equal(photoWaived(p, true), true); assert.equal(photoWaived(p, false), false); }
   for (const p of ["LOW", "HIGH"]) assert.equal(photoWaived(p, true), false);
   const answers = { ...allOk(), tyres: "FAULT" };
@@ -254,4 +261,32 @@ test("PS-011: Do not use ignores the daily cap and Urgent alerts; only a recent 
   assert.equal(alertDecision([s(5, true)], now, true), "HELD_RECENT");
   assert.equal(alertDecision([s(16, true)], now, true), "SENT");
   assert.equal(alertDecision([s(5, true)], now, false), "HELD_RECENT", "an Urgent one is still held by any recent alert");
+});
+
+// ---------- PS-012 (10 Nov 2026): the caps split by kind, and the once-a-day notice ----------
+
+test("PS-012: fault photos filling their allowance never let the walk-around through; walk-around full does", () => {
+  // The walk-around's own allowance and the ceiling decide LIMIT - never the fault photos.
+  assert.equal(photoCapFull("WALKAROUND", { roleMachineDay: 0, allDay: 100 }), false); // even with 65 fault photos today
+  assert.equal(photoCapFull("WALKAROUND", { roleMachineDay: 15, allDay: 100 }), true);
+  assert.equal(photoCapFull("WALKAROUND", { roleMachineDay: 0, allDay: 400 }), true);
+  // ...and a fault's photo is waived only when the FAULT allowance or the ceiling is full.
+  assert.equal(photoCapFull("FAULT", { roleMachineDay: 0, allDay: 100 }), false); // even with the walk-around full
+  const all = Object.fromEntries(TRUCK_WALKAROUND.map((s, i) => [s.key, `m${i}`]));
+  const four = { ...all } as Record<string, string>; delete four.CAB;
+  assert.ok(!validateWalkaround(four, TRUCK_WALKAROUND, { required: true, capFull: photoCapFull("WALKAROUND", { roleMachineDay: 3, allDay: 70 }) }).ok);
+  assert.equal((validateWalkaround(four, TRUCK_WALKAROUND, { required: true, capFull: photoCapFull("WALKAROUND", { roleMachineDay: 15, allDay: 70 }) }) as { status: string }).status, "LIMIT");
+});
+
+test("PS-012: which caps are full, and the notice to the Admins (no money)", () => {
+  assert.deepEqual(capsFull({ walkaroundMachineDay: 14, faultMachineDay: 64, allDay: 399 }), []);
+  assert.deepEqual(capsFull({ walkaroundMachineDay: 15, faultMachineDay: 0, allDay: 0 }), ["WALKAROUND"]);
+  assert.deepEqual(capsFull({ walkaroundMachineDay: 0, faultMachineDay: 65, allDay: 0 }), ["FAULT"]);
+  assert.deepEqual(capsFull({ walkaroundMachineDay: 15, faultMachineDay: 65, allDay: 400 }), ["WALKAROUND", "FAULT", "ALL"]);
+  const w = capNotice("WALKAROUND", "Hook Truck - XO20TL");
+  assert.equal(w.title, "Photo limit reached on Hook Truck - XO20TL today");
+  assert.match(w.body, /pre-starts may go through without photos\. Check Faults → Checks\./);
+  assert.match(capNotice("FAULT", "Tipper").body, /Urgent \/ Do-not-use/);
+  assert.match(capNotice("ALL", "x").title, /all trucks/);
+  for (const c of ["WALKAROUND", "FAULT", "ALL"] as const) { const m = capNotice(c, "T"); assert.ok(assertNoMoney(m.title + m.body)); }
 });

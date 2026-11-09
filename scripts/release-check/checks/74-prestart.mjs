@@ -230,33 +230,62 @@ export default {
     const fRows = await db.assetFaultMedia.count({ where: { resourceId: t2.id, deviceId: `rc74-${F.id}` } }).catch(() => -1);
     t.ok(fOk <= 30 && fOk >= 1 && par.every((r) => [201, 429, 503].includes(r.status)), "PS-001: 40 photos at once from one sign-in - at most 30 kept, the rest 429 / 503, nothing else", `${fOk} kept; ${par.map((r) => r.status).join(",")}`);
     t.ok(fRows === fOk, "and exactly the kept ones are recorded", `${fRows} rows, ${fOk} kept`);
-    // The machine's day: seed it to 75, then 10 at once from a new sign-in - only 5 get in; then 429 in plain words.
-    const today0 = await db.assetFaultMedia.count({ where: { resourceId: t2.id } });
-    for (let i = 0; i < Math.max(0, 75 - today0); i++) {
-      const r = await db.assetFaultMedia.create({ data: { resourceId: t2.id, attendanceId: null, kind: "PHOTO", fileName: `rc-seed-${tag}-${i}`, mime: "image/png", sha256: `rc-seed-${tag}-${i}` } });
-      seeded.push(r.id);
-    }
+    // PS-012: the machine's FAULT photo allowance (65 a day): seed it to 60, then 10 at once - only 5 get in; then 429.
+    const seedMedia = async (resourceId, role, count) => {
+      for (let i = 0; i < count; i++) {
+        const k = `rc-seed-${tag}-${seeded.length}`;
+        const r = await db.assetFaultMedia.create({ data: { resourceId, attendanceId: null, kind: "PHOTO", role, slot: role === "WALKAROUND" ? "FRONT" : null, fileName: k, mime: "image/png", sha256: k } });
+        seeded.push(r.id);
+      }
+    };
+    const faultsToday = () => db.assetFaultMedia.count({ where: { resourceId: t2.id, role: "FAULT" } });
+    await seedMedia(t2.id, "FAULT", Math.max(0, 60 - (await faultsToday())));
     const inG = await onTruck(t2, "IN", G);
     const tokG = inG.body?.prestart;
     const parG = await Promise.all(Array.from({ length: 10 }, () => photo(tokG)));
     const gOk = parG.filter((r) => r.status === 201).length;
-    const machineToday = await db.assetFaultMedia.count({ where: { resourceId: t2.id } });
-    t.ok(gOk === 5 && machineToday === 80, "PS-001: at 75 for the machine, 10 at once - exactly 5 kept, the machine stops at 80", `${gOk} kept, ${machineToday} today`);
-    // PS-009: a cap already full answers at once, with nothing written; PS-010: it says the day is full (capFull).
+    const faultT2 = await faultsToday();
+    t.ok(gOk === 5 && faultT2 === 65, "PS-001/012: at 60 fault photos for the machine, 10 at once - exactly 5 kept, it stops at 65", `${gOk} kept, ${faultT2} today`);
+    // PS-009: a cap already full answers at once, with nothing written; PS-010/012: it says which allowance is full.
     const before = await db.assetFaultMedia.count({ where: {} });
     const over = await photo(tokG);
-    t.ok(over.status === 429 && over.body?.capFull === true && /machine/.test(over.body?.error ?? "") && /Urgent|Do-not-use/.test(over.body?.error ?? ""), "PS-001/010: over the machine's daily cap -> 429, capFull, plain words saying an Urgent / Do-not-use fault can still go", over.status);
+    t.ok(over.status === 429 && over.body?.capFull === true && over.body?.cap === "FAULT" && /Urgent|Do-not-use/.test(over.body?.error ?? ""), "PS-012: over the machine's FAULT allowance -> 429, cap FAULT, plain words saying an Urgent / Do-not-use fault can still go", over.status);
     t.ok((await db.assetFaultMedia.count({ where: {} })) === before, "PS-009: the refused photo wrote nothing");
-    // PS-010: with the day full, G's first pre-start on truck 2 goes through without walk-around photos (LIMIT), an Urgent
-    // fault without a photo is accepted and noted, a Low one without a photo is still refused.
+    const notices = (resourceId, cap) => db.photoCapNotice.count({ where: { resourceId, cap, day: c.today } });
+    t.ok((await notices(t2.id, "FAULT")) === 1, "PS-012: ONE notice recorded for the machine's full fault allowance today");
+    await photo(tokG);
+    t.ok((await notices(t2.id, "FAULT")) === 1, "PS-012: hitting it again the same day records nothing new");
+    // PS-012: fault photos filling their allowance do NOT excuse the walk-around - still required, and its own photos fit.
     t.status(await odometer(inG.body?.odometer), 201, "G sends the odometer photo");
-    t.status(await submit(tokG, { answers: { ...allOk(PRE), horn: "FAULT" }, faults: [{ itemKey: "horn", description: "Horn dead", priority: "LOW", mediaIds: [] }] }), 400, "PS-010: a Low fault without a photo is still refused when the day is full");
-    const lim = await submit(tokG, { answers: { ...allOk(PRE), horn: "FAULT" }, faults: [{ itemKey: "horn", description: "Horn dead", priority: "URGENT", mediaIds: [] }] });
-    t.ok(lim.status === 201 && lim.body?.walkaround === "LIMIT", "PS-010: with the day's limit full, the first pre-start goes through - walk-around recorded LIMIT", lim.status);
+    t.status(await submit(tokG, { answers: { ...allOk(PRE), horn: "FAULT" }, faults: [{ itemKey: "horn", description: "Horn dead", priority: "LOW", mediaIds: [] }] }), 400, "PS-010: a Low fault without a photo is still refused when the fault allowance is full");
+    t.status(await submit(tokG, { answers: { ...allOk(PRE), horn: "FAULT" }, faults: [{ itemKey: "horn", description: "Horn dead", priority: "URGENT", mediaIds: [] }] }), 400,
+      "PS-012: with only the FAULT allowance full, the first pre-start without walk-around photos is still refused");
+    const walkG = await walkAll(tokG);
+    t.ok(SLOTS.every((s) => !!walkG[s]), "PS-012: the walk-around photos still upload (their own allowance)");
+    const lim = await submit(tokG, { answers: { ...allOk(PRE), horn: "FAULT" }, faults: [{ itemKey: "horn", description: "Horn dead", priority: "URGENT", mediaIds: [] }], walkaround: walkG });
+    t.ok(lim.status === 201 && lim.body?.walkaround === "DONE", "PS-012: ...and the pre-start is accepted with them (DONE, not LIMIT); the Urgent fault goes without a photo (PS-010)", lim.status);
     const fG = await db.assetFault.findFirst({ where: { resourceId: t2.id } });
     t.ok(!!fG?.photoNote && /limit/.test(fG.photoNote), "PS-010: the Urgent fault without a photo carries the 'photo couldn't be added' note");
     const faultsT2 = (await c.json(`/api/faults?resource=${t2.id}`, "MANAGER")).body?.faults ?? [];
     t.ok(faultsT2[0]?.photoNote === fG?.photoNote, "PS-010: /faults shows the note");
+    // PS-012: a full WALK-AROUND allowance (15) gives LIMIT; fault photos still go; an Urgent fault still needs its photo.
+    {
+      const t7 = await mkTruck();
+      const R = await mkPerson("r");
+      await seedMedia(t7.id, "WALKAROUND", 15);
+      const inR = await onTruck(t7, "IN", R);
+      const tokR = inR.body?.prestart;
+      const ws = await photo(tokR, uniqPng(), undefined, "FRONT");
+      t.ok(ws.status === 429 && ws.body?.cap === "WALKAROUND", "PS-012: over the machine's walk-around allowance -> 429, cap WALKAROUND", ws.status);
+      t.ok((await notices(t7.id, "WALKAROUND")) === 1 && (await notices(t7.id, "FAULT")) === 0, "PS-012: one walk-around notice for that machine, no fault notice");
+      const fr = await photo(tokR);
+      t.status(fr, 201, "PS-012: its fault photos still go (separate allowance)");
+      await odometer(inR.body?.odometer);
+      t.status(await submit(tokR, { answers: { ...allOk(PRE), horn: "FAULT" }, faults: [{ itemKey: "horn", description: "Horn dead", priority: "URGENT", mediaIds: [] }] }), 400,
+        "PS-012: with only the walk-around allowance full, an Urgent fault still needs its photo");
+      const rl = await submit(tokR, { answers: { ...allOk(PRE), horn: "FAULT" }, faults: [{ itemKey: "horn", description: "Horn dead", priority: "URGENT", mediaIds: [fr.body?.id] }] });
+      t.ok(rl.status === 201 && rl.body?.walkaround === "LIMIT", "PS-012: a full walk-around allowance lets the pre-start through - LIMIT", rl.status);
+    }
 
     // (11) PS-002 / PS-011: two Urgent checks within 15 minutes -> one sent, one held; a Do-not-use one isn't held by them.
     const t3 = await mkTruck();
@@ -394,6 +423,37 @@ export default {
       t.ok(!!(await rowOf(newWalk)) && existsSync(files.newWalk), "stage 1b: a newer walk-around photo is kept");
       t.ok(!!(await rowOf(mediaId)) && existsSync(files.fault), "fault photos are never removed by age (13 months old, kept)");
       t.ok(existsSync(other), "other files in the photo folder are never touched");
+    }
+
+    // (16b) PS-012: the all-day ceiling (400 across every machine) full -> LIMIT for both kinds, one notice for everyone.
+    {
+      // Sydney midnight today, as the server counts "today" (UTC+10 or +11).
+      const sydHour = new Intl.DateTimeFormat("en-CA", { timeZone: "Australia/Sydney", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", hourCycle: "h23" });
+      const midnight = [10, 11].map((h) => new Date(Date.parse(`${c.today}T00:00:00Z`) - h * 3_600_000))
+        .find((d) => sydHour.format(d).replace(",", "") === `${c.today} 00`);
+      const allToday = await db.assetFaultMedia.count({ where: { createdAt: { gte: midnight ?? new Date(Date.now() - 86_400_000) } } });
+      await seedMedia(`rc-seed-all-${tag}`, "FAULT", Math.max(0, 400 - allToday));
+      const t8 = await mkTruck();
+      const S = await mkPerson("s");
+      const inS = await onTruck(t8, "IN", S);
+      const tokS = inS.body?.prestart;
+      const a1 = await photo(tokS, uniqPng(), undefined, "FRONT"), a2 = await photo(tokS);
+      t.ok(a1.status === 429 && a1.body?.cap === "ALL" && a2.status === 429 && a2.body?.cap === "ALL", "PS-012: the all-day ceiling full -> 429 cap ALL, walk-around and fault photos alike", `${a1.status}/${a1.body?.cap} ${a2.status}/${a2.body?.cap}`);
+      t.ok((await notices("*", "ALL")) === 1, "PS-012: ONE notice for the all-day ceiling (for everyone, not per machine)");
+      await photo(tokS);
+      t.ok((await notices("*", "ALL")) === 1, "PS-012: ...and nothing new on the next refusal");
+      await odometer(inS.body?.odometer);
+      const al = await submit(tokS, { answers: { ...allOk(PRE), horn: "FAULT" }, faults: [{ itemKey: "horn", description: "Horn dead", priority: "DO_NOT_USE", mediaIds: [] }] });
+      t.ok(al.status === 201 && al.body?.walkaround === "LIMIT", "PS-012: with the ceiling full, LIMIT for the walk-around and a Do-not-use fault without a photo", al.status);
+      t.ok(!!(await db.assetFault.findFirst({ where: { resourceId: t8.id } }))?.photoNote, "...with its 'photo couldn't be added' note");
+      await db.assetFaultMedia.deleteMany({ where: { id: { in: seeded } } });
+    }
+
+    // (16c) PS-015: the crew are told the photos are kept 12 months and seen by the office.
+    {
+      let src = "";
+      try { src = readFileSync(path.join(c.p.appDir, "src", "components", "site", "PrestartCheck.tsx"), "utf8"); } catch { /* missing */ }
+      t.ok(src.includes("These photos are kept for 12 months and seen by the office."), "PS-015: the walk-around step says the photos are kept 12 months and seen by the office");
     }
 
     // (17) Nothing with a dollar figure ever went to a phone.

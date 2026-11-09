@@ -20,6 +20,7 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   const ctx = await linkContext(read.b.token);
   if ("error" in ctx) return reply({ error: ctx.error }, ctx.status);
   const out = await linkPhoto(ctx, read.b.photo, read.b.deviceId, read.b.slot);
-  if ("error" in out) return reply({ error: out.error, ...(out.capFull ? { capFull: true } : {}) }, out.status);
+  // PS-012: cap says which allowance is full - WALKAROUND, FAULT or ALL (the all-day ceiling: both).
+  if ("error" in out) return reply({ error: out.error, ...(out.capFull ? { capFull: true, cap: out.cap } : {}) }, out.status);
   return reply(out, 201);
 });

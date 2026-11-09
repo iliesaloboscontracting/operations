@@ -49,7 +49,10 @@ export const LIMITS = {
   photosPerFault: 6,
   photosPerSignIn: 30, // stage 1b (10 Nov 2026): 5 walk-around photos + retakes + fault photos (was 20)
   photosPerDeviceDay: 60, // a hint only - the phone says which device it is (PS-001)
-  photosPerMachineDay: 80, // one machine, every sign-in and phone, one Sydney day (PS-001; stage 2's plant too)
+  // One machine, every sign-in and phone, one Sydney day (PS-001), split by kind (PS-012, 10 Nov 2026) so fault photos
+  // can never use up the walk-around's allowance (or the other way round). By resource, so stage 2's plant gets them too.
+  walkaroundPerMachineDay: 15, // 5 walk-around photos + retakes + an optional second set
+  faultPhotosPerMachineDay: 65,
   photosAllDay: 400, // every machine, one Sydney day (PS-001)
   alertGapMinutes: 15, // at most one phone alert per machine in this long (PS-002)
   alertsPerMachineDay: 6, // and at most this many a Sydney day (Do not use ignores it - PS-011)
@@ -57,19 +60,25 @@ export const LIMITS = {
   walkaroundMonths: 12, // walk-around photos are deleted this long after they were taken (Ilies, 10 Nov 2026)
 } as const;
 
-// PS-001 (9 Nov 2026): a fault photo is kept only under every cap. `counts` include the photo being added (it's
-// recorded first, then counted, in one transaction - so parallel uploads can't all slip under). Plain words, 429.
-export type PhotoCounts = { signIn: number; machineDay: number; allDay: number; deviceDay: number; sameOnSignIn: number };
-export type PhotoRefusal = { error: string; status: number; capFull?: true };
+// PS-001 (9 Nov 2026): a photo is kept only under every cap. `counts` include the photo being added (it's recorded
+// first, then counted, in one transaction - so parallel uploads can't all slip under). Plain words, 429.
+// PS-012 (10 Nov 2026): the machine's day is counted for the photo's own kind - walk-around or fault.
+export type PhotoRole = "FAULT" | "WALKAROUND";
+export type PhotoCap = "WALKAROUND" | "FAULT" | "ALL";
+export const machineCapFor = (role: PhotoRole) => (role === "WALKAROUND" ? LIMITS.walkaroundPerMachineDay : LIMITS.faultPhotosPerMachineDay);
+export type PhotoCounts = { role: PhotoRole; signIn: number; roleMachineDay: number; allDay: number; deviceDay: number; sameOnSignIn: number };
+export type PhotoRefusal = { error: string; status: number; capFull?: true; cap?: PhotoCap };
+export const CAP_MESSAGE: Record<PhotoCap, string> = {
+  WALKAROUND: "This truck's walk-around photos for today are used up - send the pre-start without them; it's noted for the office.",
+  FAULT: "This truck has had all the fault photos it can take today - call the office. You can still send an Urgent or Do-not-use fault without a photo.",
+  ALL: "Too many photos today - call the office. You can still send an Urgent or Do-not-use fault without a photo, and the pre-start without walk-around photos.",
+};
 export function photoRefusal(c: PhotoCounts): PhotoRefusal | null {
   if (c.sameOnSignIn > 1) return { error: "That photo is already added.", status: 409 };
   if (c.signIn > LIMITS.photosPerSignIn) return { error: `That's ${LIMITS.photosPerSignIn} photos for this sign-in - send the check.`, status: 429 };
-  // capFull (PS-010): the day's photo limit for the machine / everyone is used up - an Urgent / Do-not-use fault can
-  // still be sent without a photo, and the walk-around is let through.
-  if (c.machineDay > LIMITS.photosPerMachineDay)
-    return { error: "This machine has had all the photos it can take today - call the office. You can still send an Urgent or Do-not-use fault without a photo.", status: 429, capFull: true };
-  if (c.allDay > LIMITS.photosAllDay)
-    return { error: "Too many photos today - call the office. You can still send an Urgent or Do-not-use fault without a photo.", status: 429, capFull: true };
+  // capFull (PS-010): that allowance is used up for the day - the phone says what can still go without a photo.
+  if (c.roleMachineDay > machineCapFor(c.role)) return { error: CAP_MESSAGE[c.role], status: 429, capFull: true, cap: c.role };
+  if (c.allDay > LIMITS.photosAllDay) return { error: CAP_MESSAGE.ALL, status: 429, capFull: true, cap: "ALL" };
   if (c.deviceDay > LIMITS.photosPerDeviceDay) return { error: "Too many photos from this phone today - call the office.", status: 429 };
   return null;
 }
@@ -78,11 +87,26 @@ export function photoRefusal(c: PhotoCounts): PhotoRefusal | null {
 // there now, so it is checked as if this photo were added. A fast 429 with nothing written; the count inside the
 // transaction stays the authority.
 export const photoPrecheck = (c: PhotoCounts) =>
-  photoRefusal({ signIn: c.signIn + 1, machineDay: c.machineDay + 1, allDay: c.allDay + 1, deviceDay: c.deviceDay + 1, sameOnSignIn: c.sameOnSignIn + 1 });
+  photoRefusal({ ...c, signIn: c.signIn + 1, roleMachineDay: c.roleMachineDay + 1, allDay: c.allDay + 1, deviceDay: c.deviceDay + 1, sameOnSignIn: c.sameOnSignIn + 1 });
 
-// PS-010 (10 Nov 2026): the day's photo limit is full for this machine (or everyone) - re-counted on the server when
-// the check is sent, never taken from the phone.
-export const photoCapFull = (c: { machineDay: number; allDay: number }) => c.machineDay >= LIMITS.photosPerMachineDay || c.allDay >= LIMITS.photosAllDay;
+// PS-010 / PS-012: is that kind's allowance for this machine (or the all-day ceiling) full? Re-counted on the server when
+// the check is sent, never taken from the phone. The walk-around may be let through (LIMIT) only when the WALK-AROUND
+// allowance or the ceiling is full; a fault's photo is waived only when the FAULT allowance or the ceiling is full.
+export const photoCapFull = (role: PhotoRole, c: { roleMachineDay: number; allDay: number }) =>
+  c.roleMachineDay >= machineCapFor(role) || c.allDay >= LIMITS.photosAllDay;
+// PS-012: the caps that are full now - each one tells the Admins once a Sydney day (per machine; ALL once for everyone).
+export function capsFull(c: { walkaroundMachineDay: number; faultMachineDay: number; allDay: number }): PhotoCap[] {
+  const out: PhotoCap[] = [];
+  if (c.walkaroundMachineDay >= LIMITS.walkaroundPerMachineDay) out.push("WALKAROUND");
+  if (c.faultMachineDay >= LIMITS.faultPhotosPerMachineDay) out.push("FAULT");
+  if (c.allDay >= LIMITS.photosAllDay) out.push("ALL");
+  return out;
+}
+export function capNotice(cap: PhotoCap, machine: string): { title: string; body: string } {
+  if (cap === "ALL") return { title: "Photo limit reached for all trucks today", body: "Pre-starts may go through without walk-around photos, and Urgent / Do-not-use faults without photos. Check Faults → Checks." };
+  if (cap === "WALKAROUND") return { title: `Photo limit reached on ${machine} today`, body: "Its walk-around photos are used up - pre-starts may go through without photos. Check Faults → Checks." };
+  return { title: `Photo limit reached on ${machine} today`, body: "Its fault photos are used up - Urgent / Do-not-use faults may go through without photos. Check Faults." };
+}
 // ...and then an Urgent or Do-not-use fault may go without a photo (Low / High still need one).
 export const photoWaived = (priority: string, capFull: boolean) => capFull && (priority === "URGENT" || priority === "DO_NOT_USE");
 export const PHOTO_LIMIT_NOTE = "Photo couldn't be added - the day's photo limit was reached.";

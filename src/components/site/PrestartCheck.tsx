@@ -44,7 +44,10 @@ export default function PrestartCheck({ token, banner, odometerToken, onDone, on
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [walk, setWalk] = useState<Record<string, Photo>>({});
-  const [capFull, setCapFull] = useState(false); // PS-010: the day's photo limit is full (the server said so on a photo)
+  // PS-010 / PS-012: the day's allowance is full - for walk-around photos and / or fault photos (the server said so on a
+  // photo; it checks again itself when the check is sent).
+  const [walkFull, setWalkFull] = useState(false);
+  const [faultFull, setFaultFull] = useState(false);
   const [odo, setOdo] = useState<"SENT" | "MISSING" | null>(null);
 
   useEffect(() => {
@@ -72,11 +75,11 @@ export default function PrestartCheck({ token, banner, odometerToken, onDone, on
   const draftOf = (key: string) => drafts[key] ?? emptyDraft();
   const needsDraft = (key: string) => answers[key] === "FAULT" && (!covered(key) || drafts[key]?.open);
   const loud = (p: FaultPriority | null) => p === "URGENT" || p === "DO_NOT_USE";
-  const draftReady = (d: Draft) => d.description.trim().length >= LIMITS.minDescription && !!d.priority && (d.photos.length > 0 || (capFull && loud(d.priority)));
+  const draftReady = (d: Draft) => d.description.trim().length >= LIMITS.minDescription && !!d.priority && (d.photos.length > 0 || (faultFull && loud(d.priority)));
   const unanswered = view.checklist.items.filter((i) => !answers[i.key]).length;
   const notReady = view.checklist.items.filter((i) => needsDraft(i.key) && !draftReady(draftOf(i.key)));
   const w = view.walkaround;
-  const walkMissing = w && w.required && !capFull ? w.slots.filter((s) => !walk[s.key]) : [];
+  const walkMissing = w && w.required && !walkFull ? w.slots.filter((s) => !walk[s.key]) : [];
   const odoMissing = !!w?.required && odo !== "SENT";
   const canSend = unanswered === 0 && notReady.length === 0 && walkMissing.length === 0 && !odoMissing && uploading === 0 && !busy;
 
@@ -95,13 +98,17 @@ export default function PrestartCheck({ token, banner, odometerToken, onDone, on
       if (!drafts[f.itemKey]) setDrafts((d) => ({ ...d, [f.itemKey!]: { ...emptyDraft(), open: false } }));
     }
   }
-  // One photo up: a fault's (no slot) or a walk-around slot's. A 429 with capFull = the day's limit is full.
+  // One photo up: a fault's (no slot) or a walk-around slot's. A 429 with capFull = that day's allowance is full (cap:
+  // WALKAROUND, FAULT, or ALL for both).
   async function upload(file: File, slot?: string): Promise<Photo> {
     const preview = await resizePhoto(file);
     const res = await fetch("/api/site/in/prestart/photo", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token, photo: preview, deviceId: deviceId(), ...(slot ? { slot } : {}) }) });
     const j = await res.json().catch(() => ({}));
     if (!res.ok) {
-      if (j.capFull) setCapFull(true);
+      if (j.capFull) {
+        if (j.cap === "WALKAROUND" || j.cap === "ALL") setWalkFull(true);
+        if (j.cap === "FAULT" || j.cap === "ALL") setFaultFull(true);
+      }
       throw new Error(typeof j.error === "string" ? j.error : "The photo didn't send - try again.");
     }
     return { id: j.id, preview };
@@ -178,9 +185,14 @@ export default function PrestartCheck({ token, banner, odometerToken, onDone, on
         </div>
       )}
 
-      {capFull && (
+      {walkFull && (
         <div className="rounded-xl border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">
-          The day&apos;s photo limit for this truck is reached. You can still send an Urgent or Do-not-use fault without a photo, and the walk-around is noted as not possible.
+          The walk-around photo limit for this truck today is reached. Send the pre-start without them - it&apos;s noted for the office.
+        </div>
+      )}
+      {faultFull && (
+        <div className="rounded-xl border border-amber-500/50 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">
+          The fault photo limit for this truck today is reached. You can still send an Urgent or Do-not-use fault without a photo.
         </div>
       )}
 
@@ -197,6 +209,8 @@ export default function PrestartCheck({ token, banner, odometerToken, onDone, on
                 ? (w.earlier.limit ? `Today's photos couldn't be added (the day's photo limit) - ${w.earlier.by}, ${w.earlier.at}. Add them if you can.` : `Today's photos were taken at ${w.earlier.at} by ${w.earlier.by}. Add more if something's changed.`)
                 : "Optional."}
           </p>
+          {/* PS-015 (Ilies, 10 Nov 2026): say plainly who sees them and for how long. */}
+          <p className="text-xs text-gray-500">These photos are kept for 12 months and seen by the office.</p>
           <div className="grid grid-cols-2 gap-2">
             {w.slots.map((s) => <SlotPhoto key={s.key} label={s.label} photo={walk[s.key]} busy={uploading > 0} onPhoto={(f) => addWalk(s.key, f)} />)}
             {w.required && (
@@ -233,7 +247,7 @@ export default function PrestartCheck({ token, banner, odometerToken, onDone, on
                 </div>
               )}
               {needsDraft(item.key) && (
-                <FaultForm draft={d} busy={uploading > 0} capFull={capFull} onChange={(p) => setDraft(item.key, p)} onPhoto={(f) => addPhoto(item.key, f)} />
+                <FaultForm draft={d} busy={uploading > 0} capFull={faultFull} onChange={(p) => setDraft(item.key, p)} onPhoto={(f) => addPhoto(item.key, f)} />
               )}
             </div>
           );
