@@ -277,6 +277,12 @@ function LogSteps({ api, job, voice, onBack, onSaved }: { api: string; job: LogJ
                 <button className="rounded-lg bg-panel2 p-2" aria-label="Less" onClick={() => set(r.code, r.hours - 0.5)}><Minus size={16} /></button>
                 <input className="w-16 rounded-lg border border-edge bg-panel2 px-2 py-2 text-center text-base text-gray-100" inputMode="decimal" value={r.hours} onChange={(e) => set(r.code, Number(e.target.value) || 0)} />
                 <button className="rounded-lg bg-panel2 p-2" aria-label="More" onClick={() => set(r.code, r.hours + 0.5)}><Plus size={16} /></button>
+                {/* One tap puts what's left (or takes what's over) on this code - no sums on a big crew (Villi, 9 Nov 2026). */}
+                {!fits && placed > 0 && r.hours + left >= 0 && (
+                  <button className="rounded-lg border border-brand-500/60 px-2 py-2 text-xs font-medium text-brand-300" onClick={() => set(r.code, r.hours + left)}>
+                    {left > 0 ? `+${h(left)}` : `−${h(-left)}`}
+                  </button>
+                )}
                 <button className="p-1 text-gray-500" aria-label="Remove" onClick={() => setRows(rows.filter((x) => x.code !== r.code))}><X size={16} /></button>
               </div>
             ))}
