@@ -194,7 +194,7 @@ export default function PrestartCheck({ token, banner, odometerToken, onDone, on
             {w.required
               ? "First check of the day on this truck - a photo of each, with the camera."
               : w.earlier
-                ? (w.earlier.limit ? `This morning's photos couldn't be added (the day's photo limit) - ${w.earlier.by}, ${w.earlier.at}. Add them if you can.` : `This morning's photos were taken at ${w.earlier.at} by ${w.earlier.by}. Add more if something's changed.`)
+                ? (w.earlier.limit ? `Today's photos couldn't be added (the day's photo limit) - ${w.earlier.by}, ${w.earlier.at}. Add them if you can.` : `Today's photos were taken at ${w.earlier.at} by ${w.earlier.by}. Add more if something's changed.`)
                 : "Optional."}
           </p>
           <div className="grid grid-cols-2 gap-2">
