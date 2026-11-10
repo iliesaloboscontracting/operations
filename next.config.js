@@ -7,7 +7,8 @@ const nextConfig = {
   // (Next 15: was experimental.serverComponentsExternalPackages. The
   // instrumentation hook - src/instrumentation.ts - is on by default now.)
   // unpdf (document search, LCI phase 6): its bundled pdf.js is loaded by Node as-is.
-  serverExternalPackages: ["web-push", "unpdf"],
+  // The AWS SDK (large uploads, 10 Nov 2026 - the media bucket): server only, loaded by Node as-is.
+  serverExternalPackages: ["web-push", "unpdf", "@aws-sdk/client-s3", "@aws-sdk/s3-request-presigner"],
   // SEC-009 (27 Oct 2026): no "X-Powered-By: Next.js".
   poweredByHeader: false,
   // SEC-009: on every response. SAMEORIGIN (not DENY) because our own pages show files in frames; the camera,

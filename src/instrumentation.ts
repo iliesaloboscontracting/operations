@@ -23,6 +23,7 @@ export async function register() {
     const { signInAlertsTick } = await import("./lib/signinAlerts");
     const { remindUnconfirmedPosters } = await import("./lib/confirmReminders");
     const { mondayWaitingTick } = await import("./lib/directorsWaiting/store");
+    const { abortStaleMultipart } = await import("./lib/media/protocol");
     setInterval(() => {
       // Xero (read-only, G3): once a day from 2am Sydney, after the backup. Does nothing until set up and connected.
       nightlyXeroSync().catch((e) => console.error("xero nightly", e instanceof Error ? e.message : "failed"));
@@ -60,6 +61,10 @@ export async function register() {
       // Directors (10 Nov 2026): Monday 8am-noon Sydney, one phone alert per director with something waiting on them
       // ("N things waiting on you"), once a week. DIRECTOR_WAITING_REMINDER=off stops it.
       mondayWaitingTick().catch((e) => console.error("directors waiting reminder", e instanceof Error ? e.message : "failed"));
+      // Large uploads (10 Nov 2026): at most every 30 min, an unfinished multipart upload to the media bucket older than
+      // 24 h is ABORTED (the bucket has no lifecycle rules) - never a finished object, never a record (the MediaObject
+      // row stays). OFF by default - it runs only with MEDIA_ABORT_STALE=on (awaiting Ilies's approval); never while the bucket isn't set up.
+      abortStaleMultipart().catch((e) => console.error("media abort stale", e instanceof Error ? e.message : "failed"));
     }, 60_000);
   }
 }

@@ -1524,9 +1524,11 @@ model SiteLogPhoto {
   jobId        String
   day          String // YYYY-MM-DD - the job's date
   phase        String // BEFORE | AFTER
-  fileName     String // savePhoto name (lib/toolPhotos.ts)
+  fileName     String // savePhoto name (lib/toolPhotos.ts), or "media:<MediaObject id>" for a bucket upload (10 Nov 2026)
   siteLinkId   String
   takenBy      String // the link person's name
+  kind         String    @default("PHOTO") // PHOTO | VIDEO (large uploads, 10 Nov 2026 - videos only come through the bucket)
+  mediaId      String? // the MediaObject (bucket upload); null for a photo saved the old way
   createdAt    DateTime  @default(now())
   hiddenAt     DateTime?
   hiddenBy     String? // who removed it (the link person's name)
@@ -2493,9 +2495,10 @@ model AssetFaultMedia {
   role         String      @default("FAULT")
   slot         String?
   checkId      String?
-  fileName     String
+  fileName     String // savePhoto name, or "media:<MediaObject id>" for a bucket upload (10 Nov 2026)
   mime         String
   sha256       String
+  mediaId      String? // large uploads (10 Nov 2026): the MediaObject in the bucket; null for a photo saved the old way
   createdAt    DateTime    @default(now())
 
   @@index([attendanceId])
@@ -2607,4 +2610,52 @@ model HourMeterEvent {
   at      DateTime @default(now())
 
   @@index([checkId, at])
+}
+
+// Large uploads (Ilies, 10 Nov 2026, option A): a photo or video the phone sent straight to the private media bucket
+// (Lightsail object storage) with a short-lived signed address Operations gave it. One row per upload, made when the
+// upload starts - kept forever, like everything else (nothing here is ever deleted). PENDING until the phone says it's
+// done and the server has checked the object itself (size, first bytes); READY = shown, REJECTED = kept, never shown.
+// lib/media/.
+model MediaObject {
+  id           String    @id @default(cuid())
+  area         String // DAILY_LOG | DELAY | BEFORE_AFTER | FAULT | WALKAROUND | HOUR_METER
+  kind         String // PHOTO | VIDEO
+  mime         String // the type the phone declared - pinned in the signed upload address
+  bytes        Int // the size the phone declared at the start (the caps count this)
+  storedBytes  Int? // the size the bucket reported (HEAD) when it was checked
+  objectKey    String    @unique // <area>/<yyyy>/<mm>/<random>.<ext> - made here, never by the phone
+  versionId    String? // the bucket's version of the checked object - every read is pinned to it
+  state        String    @default("PENDING") // PENDING | READY | REJECTED
+  rejectReason String? // SIZE | TYPE | TOO_LONG | FULL | CAP ... (REJECTED only)
+  uploadId     String? // the multipart upload (null = one PUT)
+  partCount    Int       @default(1)
+  partsDone    Int       @default(0)
+  // Who it belongs to - only the fields the area uses are set.
+  siteLinkId   String? // supervisor / hand-over link (daily log, delays, before / after)
+  attendanceId String? // truck sign-in (pre-start)
+  sessionId    String? // plant check session (pre-start, plant QR)
+  resourceId   String? // the truck / machine
+  jobId        String?
+  logId        String? // the DailyLog revision that first used it
+  faultId      String?
+  phase        String? // BEFORE | AFTER
+  slot         String? // walk-around slot / HOUR_METER
+  checkKind    String? // PRE | POST (pre-start)
+  takenBy      String? // the person's name on the link / sign-in
+  deviceId     String?
+  sha256       String? // the phone's own hash of the file, when it sent one
+  durationSec  Float? // a video's length as the phone read it
+  linkedId     String? // the row it became: SiteLogPhoto / AssetFaultMedia id (null for log / delay media)
+  createdAt    DateTime  @default(now())
+  completedAt  DateTime? // the phone said it was done
+  verifiedAt   DateTime? // the server's checks ran (READY or REJECTED)
+  abortedAt    DateTime? // an unfinished multipart upload stopped after 24 h (the record stays PENDING)
+
+  @@index([siteLinkId, createdAt])
+  @@index([attendanceId, createdAt])
+  @@index([sessionId, createdAt])
+  @@index([jobId])
+  @@index([createdAt])
+  @@index([state, createdAt])
 }
