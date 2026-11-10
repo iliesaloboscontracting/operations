@@ -173,7 +173,7 @@ export default function PrestartCheck({ token, banner, odometerToken, onDone, on
       {banner && <Banner text={banner} />}
       <div>
         <h1 className="flex items-center gap-2 text-xl font-semibold text-gray-100"><ClipboardCheck size={22} /> {view.title}</h1>
-        <p className="text-sm text-gray-400">{view.machine}{view.kind === "PRE" ? " - before you drive." : " - before you go."}</p>
+        <p className="text-sm text-gray-400">{view.machine}{view.kind === "PRE" ? (noun === "machine" ? " - before you start." : " - before you drive.") : " - before you go."}</p>
       </div>
 
       {view.openFaults.length > 0 && (

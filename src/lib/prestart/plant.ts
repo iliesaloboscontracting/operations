@@ -159,7 +159,7 @@ export async function plantChecksForDay(day: string) {
           id: c.id, kind: c.kind, at: sydneyTime(c.createdAt), person: s?.company ? `${c.personName} (${s.company})` : c.personName, staff: !!c.personId,
           checklist: c.checklist, answers: JSON.parse(c.answers) as { key: string; label: string; answer: string }[],
           walkaround: c.walkaround,
-          walkaroundPhotos: media.filter((m) => m.checkId === c.id && m.role === "WALKAROUND").map((m) => ({ id: m.id, slot: m.slot, label: slotLabel(m.slot) })),
+          walkaroundPhotos: media.filter((m) => m.checkId === c.id && m.role === "WALKAROUND").map((m) => ({ id: m.id, slot: m.slot, label: slotLabel(m.slot, "EQUIPMENT") })),
           hourMeter: c.hourMeter, hourMeterPrev: c.hourMeterPrev, hourMeterFlag: c.hourMeterFlag, meterPhotoId: meter?.id ?? null,
           faultCount: c.faultCount, seenCount: c.seenCount,
           faults: c.faults.map((f) => ({ id: f.id, itemLabel: f.itemLabel, priority: PRIORITY_LABEL[f.priority as FaultPriority] ?? f.priority, status: STATUS_LABEL[f.status as FaultStatus] ?? f.status })),

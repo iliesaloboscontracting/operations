@@ -48,6 +48,8 @@ test("plant: the checklist and walk-around by type; first of the day needs the w
   assert.equal(walkaroundSlotsFor("VEHICLE", "PRE").length, 5, "trucks unchanged");
   assert.equal(slotLabel("LEFT"), "Left side");
   assert.equal(slotLabel(HOUR_METER_SLOT), "Hour meter");
+  assert.equal(slotLabel("CAB", "EQUIPMENT"), "Inside the cab");
+  assert.equal(slotLabel("CAB"), "Inside the cab (wide shot)", "trucks keep their label");
   assert.equal(walkaroundRequired([]), true);
   assert.equal(walkaroundRequired([{ walkaround: "DONE" }]), false);
 });

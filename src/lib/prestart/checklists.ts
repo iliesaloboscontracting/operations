@@ -110,5 +110,10 @@ export const walkaroundSlotsFor = (resourceType: string, kind: CheckKind): reado
   kind !== "PRE" ? [] : resourceType === "VEHICLE" ? TRUCK_WALKAROUND : resourceType === "EQUIPMENT" ? PLANT_WALKAROUND : [];
 // The hour-meter photo on every plant check (stage 2) - its own slot, kept as role METER.
 export const HOUR_METER_SLOT = "HOUR_METER";
-export const slotLabel = (key: string | null) =>
-  key === HOUR_METER_SLOT ? "Hour meter" : TRUCK_WALKAROUND.find((s) => s.key === key)?.label ?? PLANT_WALKAROUND.find((s) => s.key === key)?.label ?? key ?? "";
+// The label for a stored slot - plant ("EQUIPMENT") slots read as plant ("Inside the cab"), trucks as trucks.
+export const slotLabel = (key: string | null, resourceType = "VEHICLE") => {
+  if (key === HOUR_METER_SLOT) return "Hour meter";
+  const lists = resourceType === "EQUIPMENT" ? [PLANT_WALKAROUND, TRUCK_WALKAROUND] : [TRUCK_WALKAROUND, PLANT_WALKAROUND];
+  for (const l of lists) { const s = (l as readonly { key: string; label: string }[]).find((x) => x.key === key); if (s) return s.label; }
+  return key ?? "";
+};
