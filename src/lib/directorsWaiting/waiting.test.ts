@@ -8,7 +8,7 @@ import { canProposeKind, cannotApprove, type ChangeUser } from "../changes/rules
 import { SAME_PERSON } from "../samePerson";
 import {
   GROUPS, WHY, countWaiting, directorPeople, groupItems, mondayDecision, mondayWindow, notSetUp, reminderKey, reminderOff,
-  reminderPush, waitingOnText, waitingText, whoCanApprove, whyItMatters, askIliesText, canAskAgain, type Login, type WaitingItem,
+  reminderPush, waitingOnText, waitingText, whoCanApprove, whyItMatters, askIliesText, askKey, askCounts, sydneyWeekStart, ASK_STATE, type Login, type WaitingItem,
 } from "./rules";
 
 const OWNER = "iliesa@loboscontracting.com.au";
@@ -60,15 +60,23 @@ test("how long: today, days, then weeks", () => {
   assert.equal(waitingText("2026-10-24T00:00:00Z", now), "2 weeks");
 });
 
-test("decisions not made yet: the dictionary's BLOCKED items, each with what's needed; asking again after a week", () => {
+test("decisions not made yet: the dictionary's BLOCKED items, each with what's needed; once a Sydney week (PS-039 claim key)", () => {
   const n = notSetUp();
   assert.ok(n.length >= 2 && n.every((x) => x.key && x.name && x.needed));
   assert.ok(n.some((x) => /variation/i.test(x.name)) && n.some((x) => /incident/i.test(x.name)));
   assert.match(askIliesText("Variations", "No variation register yet"), /please set up "Variations".*What's needed: No variation register yet\./);
-  const now = new Date("2026-11-10T00:00:00Z");
-  assert.ok(canAskAgain(null, now));
-  assert.ok(!canAskAgain(new Date("2026-11-05T00:00:00Z"), now));
-  assert.ok(canAskAgain(new Date("2026-11-03T00:00:00Z"), now));
+  // Sydney Monday 9 Nov 2026 00:30 AEDT is still Sunday 8 Nov in UTC - the week is Sydney's.
+  assert.equal(sydneyWeekStart(new Date("2026-11-08T13:30:00Z")), "2026-11-09");
+  assert.equal(sydneyWeekStart(new Date("2026-11-08T12:30:00Z")), "2026-11-02", "Sunday 11:30pm Sydney: last week");
+  assert.equal(sydneyWeekStart(new Date("2026-11-15T12:59:00Z")), "2026-11-09", "Sunday 11:59pm Sydney: same week");
+  // One claim key per login, item and week: a second tap the same week hits the same unique row; next week a new one.
+  const tue = new Date("2026-11-10T00:00:00Z"), sun = new Date("2026-11-15T10:00:00Z"), nextMon = new Date("2026-11-15T21:00:00Z");
+  assert.equal(askKey("u1", "F11", tue), askKey("u1", "F11", sun));
+  assert.notEqual(askKey("u1", "F11", tue), askKey("u1", "F11", nextMon));
+  assert.notEqual(askKey("u1", "F11", tue), askKey("u1", "S2", tue));
+  assert.notEqual(askKey("u1", "F11", tue), askKey("u2", "F11", tue));
+  // A failed send is not "sent"; one in flight or done is.
+  assert.ok(!askCounts(ASK_STATE.FAILED) && askCounts(ASK_STATE.SENDING) && askCounts(ASK_STATE.SENT));
 });
 
 test("contract values: a director proposes; the same person (Nick's other login, by id) can't approve; the other director can; the owner never", () => {

@@ -89,9 +89,21 @@ export const notSetUp = () =>
 export const askIliesText = (name: string, needed: string) =>
   `From the Directors screen (Waiting on you): please set up "${name}" - it isn't available yet. What's needed: ${needed}.`;
 
-// A director may send it again a week after the last time.
-export const ASK_AGAIN_DAYS = 7;
-export const canAskAgain = (lastSent: Date | null, now: Date) => !lastSent || now.getTime() - lastSent.getTime() >= ASK_AGAIN_DAYS * 86_400_000;
+// Once a week (Monday to Sunday, Sydney) per login per item. PS-039 (Ilies approved, 10 Nov 2026): the send is CLAIMED
+// first - a ShiftReminder row whose (jobId, kind) is unique - so two quick taps can't both send; only the request that
+// makes the row sends. The row's `people` holds where the send got to; a FAILED claim may be taken again (the row is
+// kept, never deleted).
+export const ASK_STATE = { SENDING: 0, SENT: 1, FAILED: -1 } as const;
+const WEEKDAY: Record<string, number> = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6 };
+// The Sydney Monday (YYYY-MM-DD) of the week `now` falls in.
+export function sydneyWeekStart(now: Date): string {
+  const p = sydneyParts(now);
+  const d = new Date(Date.UTC(Number(p.year), Number(p.month) - 1, Number(p.day)));
+  d.setUTCDate(d.getUTCDate() - (WEEKDAY[p.weekday] ?? 0));
+  return d.toISOString().slice(0, 10);
+}
+export const askKey = (userId: string, item: string, now: Date) => `${userId}:${item}:${sydneyWeekStart(now)}`;
+export const askCounts = (state: number) => state !== ASK_STATE.FAILED; // a failed send isn't "sent"
 
 // ---------- counting ----------
 

@@ -110,11 +110,18 @@ export default {
     await db.user.update({ where: { id: A2.id }, data: { role: A2.wasRole && A2.wasRole !== "DIRECTOR" ? A2.wasRole : "ADMIN", directorAccess: true } });
 
     // (5) Send to Ilies: once (a one-to-one office-chat message to the owner); the owner can't send to himself.
+    // PS-039: two taps at the same moment -> exactly one message; the other 409 (the claim row is unique).
     const key = decisions[0]?.action?.key;
     const before = await db.message.count();
-    t.status(await c.post("/api/directors/waiting/ask", "RC79_A", { key }), 200, "A sends a decision to Ilies");
-    t.ok((await db.message.count()) === before + 1, "one office-chat message");
-    t.status(await c.post("/api/directors/waiting/ask", "RC79_A", { key }), 409, "a second send the same week is refused");
+    const pair2 = await Promise.all([1, 2].map(() => c.post("/api/directors/waiting/ask", "RC79_A", { key })));
+    const codes = pair2.map((r) => r.status).sort();
+    t.ok(codes.join(",") === "200,409", "PS-039: two Send to Ilies at once -> one 200, one 409", codes.join(","));
+    t.ok((await db.message.count()) === before + 1, "PS-039: exactly one office-chat message from the two");
+    const claimRows = await db.shiftReminder.findMany({ where: { kind: "DIRECTOR_ASK_ILIES", jobId: { startsWith: `${A.id}:${key}:` } }, select: { people: true } });
+    t.ok(claimRows.length === 1 && claimRows[0].people === 1, "one claim row, marked sent", JSON.stringify(claimRows));
+    const again = await c.post("/api/directors/waiting/ask", "RC79_A", { key });
+    t.ok(again.status === 409 && /already sent to Ilies this week/i.test((await again.json().catch(() => ({})))?.error ?? ""), "a second send the same week is refused (409, already sent this week)", again.status);
+    t.ok((await db.message.count()) === before + 1, "still one message");
     const sentRow = items((await c.json("/api/directors/waiting", "RC79_A")).body).find((i) => i.id === decisions[0].id);
     t.ok(sentRow && sentRow.sentAt && !sentRow.counts && sentRow.action?.type === "NONE", "it shows as sent to Ilies and no longer counts");
     t.status(await c.post("/api/directors/waiting/ask", "OWNER", { key }), 400, "the owner doesn't send to himself");
@@ -169,6 +176,35 @@ export default {
       try { out = execFileSync(process.execPath, [tsxCli, script], { cwd: c.p.appDir, env: childEnv, encoding: "utf8", timeout: 180_000 }); } catch (e) { out = String(e?.stdout ?? ""); }
       try { return JSON.parse(out.match(/RESULT (.*)/)?.[1] ?? "null"); } catch { return null; }
     };
+
+    // PS-039: a failed send can be tried again. sendToIlies run directly (through tsx) with a sender that fails: no
+    // message, the claim kept and marked FAILED (-1); then the ordinary send takes the claim again -> one message, SENT.
+    const key2 = decisions[1]?.action?.key;
+    const ask = (failing) => {
+      const script = path.join(c.p.files, `rc79-ask-${tag}-${Math.random().toString(36).slice(2, 8)}.mts`);
+      writeFileSync(script, [
+        `import { sendToIlies } from ${JSON.stringify(store)};`,
+        `const me = ${JSON.stringify({ id: A.id, email: A.email, name: A.name, role: "DIRECTOR", directorAccess: true })};`,
+        `const r = await sendToIlies(me, ${JSON.stringify(key2)}, new Date(), ${failing ? `{ send: async () => ({ error: "test failure", status: 502 }) }` : "{}"});`,
+        `console.log("RESULT " + JSON.stringify(r));`,
+        `process.exit(0);`,
+      ].join("\n"));
+      let out = "";
+      try { out = execFileSync(process.execPath, [tsxCli, script], { cwd: c.p.appDir, env: { ...process.env, ...env }, encoding: "utf8", timeout: 120_000 }); } catch (e) { out = String(e?.stdout ?? ""); }
+      try { return JSON.parse(out.match(/RESULT (.*)/)?.[1] ?? "null"); } catch { return null; }
+    };
+    const claim2 = () => db.shiftReminder.findMany({ where: { kind: "DIRECTOR_ASK_ILIES", jobId: { startsWith: `${A.id}:${key2}:` } }, select: { people: true } });
+    const m0 = await db.message.count();
+    const failed = ask(true);
+    const c1 = await claim2();
+    t.ok(failed?.status === 502 && (await db.message.count()) === m0 && c1.length === 1 && c1[0].people === -1, "PS-039: a failed send sends nothing; its claim is kept, marked failed", JSON.stringify({ failed, c1 }));
+    const shown = items((await c.json("/api/directors/waiting", "RC79_A")).body).find((i) => i.id === decisions[1].id);
+    t.ok(shown?.action?.type === "SEND_TO_ILIES" && shown.counts, "after a failed send the button is back and it still counts");
+    const retry = ask(false);
+    const c2 = await claim2();
+    t.ok(retry?.ok === true && (await db.message.count()) === m0 + 1 && c2.length === 1 && c2[0].people === 1, "PS-039: the retry takes the claim again - one message, marked sent", JSON.stringify({ retry, c2 }));
+    t.status(await c.post("/api/directors/waiting/ask", "RC79_A", { key: key2 }), 409, "and then it's sent for this week");
+
     const rows = (week) => db.shiftReminder.findMany({ where: { kind: "DIRECTOR_WAITING", jobId: { endsWith: `:${week}` } }, select: { jobId: true, people: true } });
     const mine = (list, id) => list.filter((r) => r.jobId === `${id}:${MONDAY}`);
     const off = remind(aedt(MONDAY, "08:30").toISOString(), { DIRECTOR_WAITING_REMINDER: "off" });

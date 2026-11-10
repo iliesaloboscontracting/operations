@@ -16,7 +16,7 @@ import { startThread } from "../messages/store";
 import { canMessage, chatName } from "../messages/rules";
 import { pushToUsers } from "../push";
 import {
-  DIRECTORS_SCREEN_START, REMINDER_KIND, askIliesText, canAskAgain, countWaiting, directorPeople, groupItems, mondayDecision,
+  ASK_STATE, DIRECTORS_SCREEN_START, REMINDER_KIND, askCounts, askIliesText, askKey, countWaiting, directorPeople, groupItems, mondayDecision,
   mondayWindow, notSetUp, reminderKey, reminderOff, reminderPush, waitingOnText, whoCanApprove, whyItMatters,
   type Login, type WaitingItem,
 } from "./rules";
@@ -128,14 +128,16 @@ export async function loadWaiting(me: Viewer, now = new Date()): Promise<Waiting
   }
 
   // 4. Decisions not made yet: the overview's "Not available yet", one line each; "Send to Ilies" (office chat).
-  const asks = await prisma.shiftReminder.findMany({ where: { kind: ASK_KIND, jobId: { startsWith: `${me.id}:` } }, orderBy: { sentAt: "desc" }, select: { jobId: true, sentAt: true } });
+  const asks = (await prisma.shiftReminder.findMany({ where: { kind: ASK_KIND, jobId: { startsWith: `${me.id}:` } }, orderBy: { sentAt: "desc" }, select: { jobId: true, sentAt: true, people: true } }))
+    .filter((a) => askCounts(a.people)); // a failed send isn't "sent"
   const owner = isOwner(me.email);
   for (const n of notSetUp()) {
     const last = asks.find((a) => a.jobId.startsWith(askPrefix(me.id, n.key)))?.sentAt ?? null;
+    const thisWeek = asks.some((a) => a.jobId === askKey(me.id, n.key, now));
     items.push({
       id: `ns:${n.key}`, group: "DECISIONS", kind: "NOT_SET_UP", what: `${n.name} - what's needed: ${n.needed}`, why: whyItMatters("NOT_SET_UP", { kpiName: n.name }),
       since: new Date(DIRECTORS_SCREEN_START).toISOString(), counts: !owner && !last,
-      action: owner ? { type: "NONE", text: "Yours to set up." } : canAskAgain(last, now) ? { type: "SEND_TO_ILIES", key: n.key } : { type: "NONE", text: "Sent to Ilies." },
+      action: owner ? { type: "NONE", text: "Yours to set up." } : thisWeek ? { type: "NONE", text: "Sent to Ilies this week." } : { type: "SEND_TO_ILIES", key: n.key },
       sentAt: last ? last.toISOString() : null,
     });
   }
@@ -145,20 +147,46 @@ export async function loadWaiting(me: Viewer, now = new Date()): Promise<Waiting
 }
 
 // "Send to Ilies": a one-to-one office-chat message to the owner (the existing chat - he gets its phone alert, can
-// reply, and it's kept with its history). Once a week per item per login.
-export async function sendToIlies(me: Viewer, key: string, now = new Date()): Promise<{ ok: true } | { error: string; status: number }> {
+// reply, and it's kept with its history). Once a week (Monday-Sunday, Sydney) per item per login.
+// PS-039: claim first, then send. The claim is a ShiftReminder row keyed (login:item:week, DIRECTOR_ASK_ILIES) - unique
+// on (jobId, kind) - so of two requests at once only one makes the row and sends; the other gets 409. A failed send
+// marks its claim FAILED (kept) and the next tap takes it again; so does a claim stuck SENDING for over 5 minutes.
+const STUCK_MS = 5 * 60_000;
+type Send = (me: Viewer, toUserId: string, body: string) => Promise<{ id: string } | { error: string; status: number }>;
+const chatSend: Send = (me, toUserId, body) =>
+  startThread({ userId: me.id, role: me.role, email: me.email, name: chatName(me.name, me.email, me.role) }, { toUserId, body });
+
+export async function sendToIlies(me: Viewer, key: string, now = new Date(), opts: { send?: Send } = {}): Promise<{ ok: true } | { error: string; status: number }> {
   const item = notSetUp().find((n) => n.key === key);
   if (!item) return { error: "Not found.", status: 404 };
   if (isOwner(me.email)) return { error: "That's you - nothing to send.", status: 400 };
   if (!canMessage(me.role)) return { error: "Your login can't send messages.", status: 403 };
-  const last = await prisma.shiftReminder.findFirst({ where: { kind: ASK_KIND, jobId: { startsWith: askPrefix(me.id, key) } }, orderBy: { sentAt: "desc" }, select: { sentAt: true } });
-  if (!canAskAgain(last?.sentAt ?? null, now)) return { error: "Already sent to Ilies this week.", status: 409 };
   const ownerLogin = await prisma.user.findFirst({ where: { email: OWNER_EMAIL, active: true }, select: { id: true } });
   if (!ownerLogin) return { error: "Ilies's login isn't active.", status: 409 };
-  const sent = await startThread({ userId: me.id, role: me.role, email: me.email, name: chatName(me.name, me.email, me.role) }, { toUserId: ownerLogin.id, body: askIliesText(item.name, item.needed) });
-  if ("error" in sent) return sent;
-  // Recorded once it has gone (one row per login, item and day - a second tap the same day finds it there).
-  await prisma.shiftReminder.create({ data: { jobId: `${askPrefix(me.id, key)}${now.toISOString().slice(0, 10)}`, kind: ASK_KIND } }).catch(() => null);
+
+  const jobId = askKey(me.id, key, now);
+  let claimed = await prisma.shiftReminder.create({ data: { jobId, kind: ASK_KIND, people: ASK_STATE.SENDING, sentAt: now } }).then(() => true, () => false);
+  if (!claimed) {
+    // The row is there: take it again only if its send failed (or is stuck) - one conditional update, so one winner.
+    claimed = (await prisma.shiftReminder.updateMany({
+      where: { jobId, kind: ASK_KIND, OR: [{ people: ASK_STATE.FAILED }, { people: ASK_STATE.SENDING, sentAt: { lt: new Date(now.getTime() - STUCK_MS) } }] },
+      data: { people: ASK_STATE.SENDING, sentAt: now },
+    })).count === 1;
+  }
+  if (!claimed) return { error: "Already sent to Ilies this week.", status: 409 };
+
+  const mark = (people: number) => prisma.shiftReminder.updateMany({ where: { jobId, kind: ASK_KIND }, data: { people } }).catch(() => null);
+  let sent: Awaited<ReturnType<Send>>;
+  try {
+    sent = await (opts.send ?? chatSend)(me, ownerLogin.id, askIliesText(item.name, item.needed));
+  } catch {
+    sent = { error: "Couldn't send it - try again.", status: 502 };
+  }
+  if ("error" in sent) {
+    await mark(ASK_STATE.FAILED);
+    return sent;
+  }
+  await mark(ASK_STATE.SENT);
   return { ok: true };
 }
 
