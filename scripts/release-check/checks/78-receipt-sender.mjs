@@ -81,11 +81,15 @@ export default {
       let out = "";
       try {
         const childEnv = { ...process.env, ...env };
-        delete childEnv.RECEIPT_READING; // on for this one process only - its reader is the stand-in above
+        // On for this one process only - its reader is the stand-in above. Set, not deleted: Prisma loads the test
+        // .env on import and would put RECEIPT_READING=off back.
+        childEnv.RECEIPT_READING = "on";
         delete childEnv.ANTHROPIC_API_KEY;
         out = execFileSync(process.execPath, [tsxCli, script], { cwd: c.p.appDir, env: childEnv, encoding: "utf8", timeout: 120_000 });
       } catch (e) { out = String(e?.stdout ?? "") + String(e?.stderr ?? ""); }
       t.ok(/RESULT done/.test(out), "the reading pipeline ran with the stand-in reader", out.includes("RESULT") ? "" : "no RESULT line");
+      const tried = await db.receipt.findMany({ where: { id: { in: [rA.id, rB.id, rF.id] } }, select: { status: true } });
+      t.ok(tried.every((r) => r.status !== "SENT"), "...and read all three (none still waiting)", tried.map((r) => r.status).join(","));
 
       const reasons = (r) => { try { return JSON.parse(r?.checkReasons ?? "[]"); } catch { return []; } };
       const [a, b, f] = await Promise.all([rA, rB, rF].map((r) => db.receipt.findUnique({ where: { id: r.id } })));
