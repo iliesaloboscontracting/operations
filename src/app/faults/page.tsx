@@ -9,6 +9,7 @@ import { ChevronDown, ChevronRight, Truck } from "lucide-react";
 import PageShell from "@/components/PageShell";
 import { useAuth } from "@/components/AuthProvider";
 import { PriorityBadge } from "@/components/site/PrestartCheck";
+import MediaTile from "@/components/media/MediaTile";
 import { apiFetch, serverErrorMessage } from "@/lib/apiFetch";
 import { localISODate } from "@/lib/resource";
 import { LIMITS, PRIORITIES, PRIORITY_LABEL, type FaultPriority } from "@/lib/prestart/rules";
@@ -125,11 +126,10 @@ function FaultCard({ f, patch }: { f: FaultDTO; patch: (id: string, body: Record
       {f.photoNote && <p className="mt-1 text-xs text-amber-300">{f.photoNote}</p>}
       {f.mediaIds.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-2">
+          {/* Large uploads (10 Nov 2026): a fault video plays here with a Download link (MediaTile). */}
           {f.mediaIds.map((m) => (
-            <a key={m} href={`/api/faults/media/${m}`} target="_blank" rel="noreferrer">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={`/api/faults/media/${m}`} alt="Fault photo" className="h-24 w-24 rounded-md border border-edge object-cover" />
-            </a>
+            <MediaTile key={m} src={`/api/faults/media/${m}`} video={f.videoIds?.includes(m)} alt={f.videoIds?.includes(m) ? "Fault video" : "Fault photo"}
+              imgClassName={f.videoIds?.includes(m) ? "h-40 max-w-full rounded-md border border-edge" : "h-24 w-24 rounded-md border border-edge object-cover"} />
           ))}
         </div>
       )}

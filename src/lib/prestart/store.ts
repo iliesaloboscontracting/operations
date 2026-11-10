@@ -13,6 +13,8 @@ import { todaySydney } from "../today";
 import { pushToAdmins } from "../push";
 import { preparePhoto, writePreparedPhoto } from "../toolPhotos";
 import type { Prisma } from "@prisma/client";
+import { mediaOn } from "../media/store";
+import { mediaCeilingFull, phoneConfig } from "../media/protocol";
 import { HOUR_METER_SLOT, checklistFor, slotLabel, walkaroundSlotsFor, type Checklist } from "./checklists";
 import { plantChecksForDay, plantSource } from "./plant";
 import { oneAtATime, queueWaiting, TX } from "./queue";
@@ -32,7 +34,7 @@ const dayOf = (d: Date) => new Intl.DateTimeFormat("en-AU", { timeZone: "Austral
 
 // A check is tied to a truck sign-in (attendanceId) or - stage 2, plant QR stickers - to a plant check session
 // (sessionId: the scan, the name, Start / End of shift). Exactly one of the two is set; photos and the check hang off it.
-type LinkCtx = {
+export type LinkCtx = {
   attendanceId: string | null; sessionId: string | null; kind: PrestartKind; deviceId: string | null;
   person: { id: string | null; name: string };
   machine: { id: string; name: string; type: string; status: string };
@@ -143,6 +145,9 @@ export async function linkView(ctx: LinkCtx) {
     odometer: truckOdo ? (odo ? "SENT" : "MISSING") : null,
     // Stage 2: every plant check needs the hour meter - a photo and the hours typed; the last reading as a hint.
     hourMeter: isPlant(ctx) ? { required: true, last } : null,
+    // Large uploads (10 Nov 2026): photos at full quality and fault videos (up to 2 minutes) go straight to the bucket;
+    // null = the old way (shrunk photos through /api/site/in/prestart/photo). Walk-around / hour meter stay photos.
+    media: mediaOn() ? phoneConfig(["PHOTO", "VIDEO"]) : null,
   };
 }
 
@@ -159,15 +164,40 @@ export { queueWaiting };
 // role WALKAROUND; otherwise a fault photo. PS-012 (10 Nov 2026): the machine's day is counted per kind (15 walk-around,
 // 65 fault photos), under the shared all-day ceiling - so fault photos can't use up the walk-around's allowance.
 export async function linkPhoto(ctx: LinkCtx, dataUrl: unknown, deviceId: unknown, slot?: unknown): Promise<{ id: string } | Problem> {
-  const slots = walkaroundSlotsFor(ctx.machine.type, ctx.kind);
-  const meter = slot === HOUR_METER_SLOT && isPlant(ctx); // stage 2: the hour-meter photo
-  if (slot != null && !meter && !slots.some((s) => s.key === slot)) return problem("That photo slot isn't on this check.");
-  const role: PhotoRole = meter ? "METER" : slot != null ? "WALKAROUND" : "FAULT";
+  const role = photoRoleFor(ctx, slot);
+  if (!role) return problem("That photo slot isn't on this check.");
   const prepared = preparePhoto(dataUrl);
   if ("error" in prepared) return problem(prepared.error);
   const sha256 = createHash("sha256").update(prepared.bytes).digest("hex");
   const dev = typeof deviceId === "string" && deviceId ? deviceId.slice(0, 64) : ctx.deviceId;
   // PS-009: the caps read first, with nothing written and no place in the queue - a full cap answers straight away.
+  const early = await photoPrecheckFor(ctx, role, sha256, dev);
+  // PS-016: a refusal writes nothing at all - no notice either (a cap only fills on a kept photo, below).
+  if (early) return early;
+  const kept = await recordFaultMedia(ctx, { role, slot: role === "FAULT" ? null : (slot as string), fileName: prepared.fileName, mime: prepared.mime, sha256, kind: "PHOTO", deviceId: dev });
+  if ("error" in kept) return kept;
+  const id = kept.id;
+  try {
+    await writePreparedPhoto(prepared);
+  } catch (e) {
+    await prisma.assetFaultMedia.delete({ where: { id } }).catch(() => {});
+    throw e;
+  }
+  return { id };
+}
+
+// Which kind of photo this is on this check: a fault's (no slot), a walk-around slot's, or (plant) the hour meter's.
+// null = a slot that isn't on this check.
+export function photoRoleFor(ctx: LinkCtx, slot: unknown): PhotoRole | null {
+  const slots = walkaroundSlotsFor(ctx.machine.type, ctx.kind);
+  const meter = slot === HOUR_METER_SLOT && isPlant(ctx); // stage 2: the hour-meter photo
+  if (slot != null && !meter && !slots.some((s) => s.key === slot)) return null;
+  return meter ? "METER" : slot != null ? "WALKAROUND" : "FAULT";
+}
+
+// PS-009: the caps as they stand, checked as if one more were added - nothing written. Also used before a bucket upload
+// starts (large uploads, 10 Nov 2026).
+export async function photoPrecheckFor(ctx: LinkCtx, role: PhotoRole, sha256: string, dev: string | null): Promise<Problem | null> {
   const today = { gte: sydneyMidnight() };
   const [pSignIn, pMachine, pAll, pDevice, pSame] = await Promise.all([
     prisma.assetFaultMedia.count({ where: bindOf(ctx) }),
@@ -176,19 +206,29 @@ export async function linkPhoto(ctx: LinkCtx, dataUrl: unknown, deviceId: unknow
     dev ? prisma.assetFaultMedia.count({ where: { deviceId: dev, createdAt: today } }) : Promise.resolve(0),
     prisma.assetFaultMedia.count({ where: { ...bindOf(ctx), sha256 } }),
   ]);
-  const early = photoPrecheck({ role, signIn: pSignIn, roleMachineDay: pMachine, allDay: pAll, deviceDay: pDevice, sameOnSignIn: pSame });
-  // PS-016: a refusal writes nothing at all - no notice either (a cap only fills on a kept photo, below).
-  if (early) return early;
+  return photoPrecheck({ role, signIn: pSignIn, roleMachineDay: pMachine, allDay: pAll, deviceDay: pDevice, sameOnSignIn: pSame });
+}
+
+// PS-001: the media row recorded first, then everything counted in the same transaction (see linkPhoto) - over any cap
+// and nothing is written. Then (PS-012 / PS-016) a cap this kept photo filled is told once. Shared by the old photo
+// route (the file is written after) and the bucket uploads (large uploads, 10 Nov 2026: fileName "media:<id>", the
+// object already checked in the bucket; a video counts as fault media under the same caps).
+export async function recordFaultMedia(ctx: LinkCtx, m: {
+  role: PhotoRole; slot: string | null; fileName: string; mime: string; sha256: string; kind: "PHOTO" | "VIDEO"; deviceId: string | null; mediaId?: string | null;
+}): Promise<{ id: string } | Problem> {
+  const today = { gte: sydneyMidnight() };
+  const { role, sha256 } = m;
+  const dev = m.deviceId;
   if (queueWaiting() > LIMITS.queueWaiting) return problem("Busy - try again.", 503);
   let id: string;
   try {
     id = await oneAtATime(() => prisma.$transaction(async (tx) => {
       // The write comes first: SQLite gives one transaction the write lock at a time, so the others wait here and then
       // count what the earlier ones added (a transaction that read first and wrote later could deadlock under a burst).
-      const m = await tx.assetFaultMedia.create({
+      const row = await tx.assetFaultMedia.create({
         data: {
-          resourceId: ctx.machine.id, ...bindOf(ctx), deviceId: dev, kind: "PHOTO", checkKind: ctx.kind, role, slot: role === "FAULT" ? null : (slot as string),
-          fileName: prepared.fileName, mime: prepared.mime, sha256,
+          resourceId: ctx.machine.id, ...bindOf(ctx), deviceId: dev, kind: m.kind, checkKind: ctx.kind, role, slot: m.slot,
+          fileName: m.fileName, mime: m.mime, sha256, mediaId: m.mediaId ?? null,
         },
       });
       if (await checkOf(tx, ctx)) throw new Refused(problem("That check is already in - thanks.", 409));
@@ -201,7 +241,7 @@ export async function linkPhoto(ctx: LinkCtx, dataUrl: unknown, deviceId: unknow
       ]);
       const refused = photoRefusal({ role, signIn, roleMachineDay, allDay, deviceDay, sameOnSignIn });
       if (refused) throw new Refused(refused);
-      return m.id;
+      return row.id;
     }, TX));
   } catch (e) {
     if (e instanceof Refused) return e.p; // PS-016: nothing more on a refusal
@@ -210,12 +250,6 @@ export async function linkPhoto(ctx: LinkCtx, dataUrl: unknown, deviceId: unknow
   // PS-012: this photo may have just filled an allowance - tell the Admins once (never fails the upload). Only here, on a
   // kept photo - the only way a cap fills (PS-016).
   await noticeFullCaps(ctx.machine).catch((e) => console.error("photo limit notice", e instanceof Error ? e.message : "failed"));
-  try {
-    await writePreparedPhoto(prepared);
-  } catch (e) {
-    await prisma.assetFaultMedia.delete({ where: { id } }).catch(() => {});
-    throw e;
-  }
   return { id };
 }
 
@@ -303,9 +337,11 @@ export async function submitCheck(ctx: LinkCtx, body: unknown) {
   // let through only when the WALK-AROUND allowance (or the ceiling) is full.
   const allDay = await prisma.assetFaultMedia.count({ where: { createdAt: today } });
   const roleDay = (role: PhotoRole) => prisma.assetFaultMedia.count({ where: { resourceId: ctx.machine.id, role, createdAt: today } });
-  const faultFull = photoCapFull("FAULT", { roleMachineDay: await roleDay("FAULT"), allDay });
-  const walkFull = photoCapFull("WALKAROUND", { roleMachineDay: await roleDay("WALKAROUND"), allDay });
-  const meterFull = isPlant(ctx) && photoCapFull("METER", { roleMachineDay: await roleDay("METER"), allDay });
+  // Large uploads (10 Nov 2026): with the bucket on, the company's day ceiling counts as the ceiling too (cap ALL).
+  const mediaFull = mediaOn() && (await mediaCeilingFull());
+  const faultFull = mediaFull || photoCapFull("FAULT", { roleMachineDay: await roleDay("FAULT"), allDay });
+  const walkFull = mediaFull || photoCapFull("WALKAROUND", { roleMachineDay: await roleDay("WALKAROUND"), allDay });
+  const meterFull = isPlant(ctx) && (mediaFull || photoCapFull("METER", { roleMachineDay: await roleDay("METER"), allDay }));
   const v = validateSubmission(ctx.list, body, open.map((f) => ({ id: f.id, itemKey: f.itemKey })), { capFull: faultFull });
   if (!v.ok) return problem(v.error);
   const slots = walkaroundSlotsFor(ctx.machine.type, ctx.kind);
@@ -435,6 +471,7 @@ export type FaultDTO = {
   reportedBy: string; reportedAt: string; lastSeenAt: string | null; lastSeenBy: string | null; seenCount: number;
   markedDown: boolean; fixedAt: string | null; fixedBy: string | null; fixNote: string | null;
   checkKind: string | null; mediaIds: string[]; canBackToAvailable: boolean; photoNote: string | null;
+  videoIds?: string[]; // large uploads (10 Nov 2026): which of mediaIds are videos - played on /faults with a Download link
   // PS-004 (9 Nov 2026): where the report came from, so the office can spot one that doesn't look right.
   source: { staff: boolean; company: string | null; method: string; point: string | null; runBy: string | null } | null;
   events: { at: string; by: string; action: string; from: string | null; to: string | null; note: string | null }[];
@@ -448,7 +485,7 @@ export async function listFaults(q: { status?: string | null; resourceId?: strin
   const statusWhere = q.status === "ALL" ? {} : q.status === "FIXED" ? { status: "FIXED" } : q.status === "OPEN" || q.status === "IN_HAND" ? { status: q.status } : { status: { in: OPEN_STATUSES } };
   const rows = await prisma.assetFault.findMany({
     where: { ...statusWhere, ...(q.resourceId ? { resourceId: q.resourceId } : {}) },
-    include: { media: { select: { id: true }, orderBy: { createdAt: "asc" } }, events: { orderBy: { at: "asc" } }, check: { select: { kind: true, attendanceId: true, sessionId: true } } },
+    include: { media: { select: { id: true, kind: true }, orderBy: { createdAt: "asc" } }, events: { orderBy: { at: "asc" } }, check: { select: { kind: true, attendanceId: true, sessionId: true } } },
     orderBy: { reportedAt: "desc" },
     take: 300,
   });
@@ -475,6 +512,7 @@ export async function listFaults(q: { status?: string | null; resourceId?: strin
       reportedBy: f.reportedBy, reportedAt: f.reportedAt.toISOString(), lastSeenAt: f.lastSeenAt?.toISOString() ?? null, lastSeenBy: f.lastSeenBy, seenCount: f.seenCount,
       markedDown: f.markedDown, fixedAt: f.fixedAt?.toISOString() ?? null, fixedBy: f.fixedBy, fixNote: f.fixNote, checkKind: f.check?.kind ?? null,
       mediaIds: f.media.map((m) => m.id), photoNote: f.photoNote,
+      ...(f.media.some((m) => m.kind === "VIDEO") ? { videoIds: f.media.filter((m) => m.kind === "VIDEO").map((m) => m.id) } : {}),
       // Offered while it's open (ticked when fixing) - the same rule decides again when it's applied.
       canBackToAvailable: isOpenStatus(f.status) && offerBackToAvailable(f, machineOf.get(f.resourceId) ?? null, siblings.filter((s) => s.resourceId === f.resourceId)),
       source: (() => {
@@ -547,7 +585,7 @@ export async function updateFault(id: string, body: Record<string, unknown>, by:
   }
 }
 
-export const faultMedia = (id: string) => prisma.assetFaultMedia.findUnique({ where: { id }, select: { fileName: true, mime: true, faultId: true, checkId: true } });
+export const faultMedia = (id: string) => prisma.assetFaultMedia.findUnique({ where: { id }, select: { fileName: true, mime: true, faultId: true, checkId: true, kind: true } });
 // The odometer photo of a truck sign-in, for the Checks tab - only a photo that belongs to an odometer reading (never a
 // tip docket or fuel receipt).
 export const odometerPhoto = (id: string) =>

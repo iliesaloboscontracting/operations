@@ -1,12 +1,15 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { Camera, ClipboardCheck, ImagePlus, Loader2, X } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Camera, ClipboardCheck, ImagePlus, Loader2, Video, X } from "lucide-react";
 import { serverErrorMessage } from "@/lib/apiFetch";
 import { resizePhoto } from "@/lib/imageResize";
 import { deviceId } from "@/lib/signinDevice";
 import { answerLabel, type Answer, type ChecklistItem } from "@/lib/prestart/checklists";
 import { LIMITS, PRIORITIES, PRIORITY_HINT, PRIORITY_LABEL, PRIORITY_TONE, type FaultPriority } from "@/lib/prestart/rules";
+import { FAULT_MEDIA, type PhoneMediaConfig } from "@/lib/media/rules";
+import { uploadMedia, UploadError, type MediaEndpoints } from "@/lib/media/client";
+import MediaUpload from "./MediaUpload";
 
 // The pre-start after signing in on a truck's QR, and the short post-check after signing out there (8 Nov 2026,
 // Ilies). One screen, every item OK / Fault / N/A (question items read No / Yes). A fault opens right there: what's
@@ -17,6 +20,10 @@ import { LIMITS, PRIORITIES, PRIORITY_HINT, PRIORITY_LABEL, PRIORITY_TONE, type 
 // pre-start of the day, with the odometer photo; optional after that ("This morning's photos were taken at ... by ...").
 // PS-010: when the day's photo limit is full, an Urgent / Do-not-use fault can go without a photo and the walk-around
 // is let through (the server checks the limit itself).
+// Large uploads (10 Nov 2026, Ilies): with the media bucket on (view.media), every photo goes at full quality straight to
+// the bucket, and a fault can also have VIDEOS (up to 2 minutes, 3 a check) - with a progress bar, Pause / Resume and
+// retry on a lost signal (./MediaUpload.tsx). The walk-around and hour meter stay photos, camera only. Every limit is
+// the server's, as before (a full allowance still says capFull).
 
 type KnownFault = { id: string; itemKey: string | null; itemLabel: string | null; description: string; priority: FaultPriority; priorityLabel: string; reportedOn: string; reportedBy: string };
 type Walk = { required: boolean; slots: { key: string; label: string }[]; earlier: { at: string | null; by: string; limit: boolean } | null };
@@ -25,8 +32,9 @@ type View = {
   walkaround: Walk | null; odometer: "SENT" | "MISSING" | null;
   // Stage 2 (plant QR stickers): "truck" or "machine", and every plant check's hour meter (photo + hours, last as a hint).
   noun?: "truck" | "machine"; hourMeter?: { required: boolean; last: number | null } | null;
+  media?: PhoneMediaConfig | null; // large uploads on (10 Nov 2026)
 };
-type Photo = { id: string; preview: string };
+type Photo = { id: string; preview: string | null; video?: boolean };
 type Draft = { description: string; priority: FaultPriority | null; photos: Photo[]; open: boolean };
 export type PrestartResult = { message: string; sent: { itemLabel: string; priority: string; markedDown: boolean }[] };
 
@@ -55,6 +63,17 @@ export default function PrestartCheck({ token, banner, odometerToken, onDone, on
   const [hours, setHours] = useState("");
   const [meterFull, setMeterFull] = useState(false);
   const [odo, setOdo] = useState<"SENT" | "MISSING" | null>(null);
+  // Large uploads: the bucket routes (the token in its header, never the address - PS-005) and the boxes still sending.
+  const mediaApi: MediaEndpoints = { start: "/api/site/in/prestart/media/start", parts: "/api/site/in/prestart/media/parts", complete: "/api/site/in/prestart/media/complete", headers: { "x-prestart-token": token } };
+  const [faultSending, setFaultSending] = useState<Record<string, boolean>>({});
+  const faultBusy = Object.values(faultSending).some(Boolean);
+  const busyFor = useCallback((k: string) => (b: boolean) => setFaultSending((s) => (s[k] === b ? s : { ...s, [k]: b })), []);
+  const capFrom = useCallback((j: Record<string, unknown>) => {
+    if (!j.capFull) return;
+    if (j.cap === "WALKAROUND" || j.cap === "ALL") setWalkFull(true);
+    if (j.cap === "FAULT" || j.cap === "ALL") setFaultFull(true);
+    if (j.cap === "METER" || j.cap === "ALL") setMeterFull(true);
+  }, []);
 
   useEffect(() => {
     // PS-005: the token goes in a header, never the address (the photo and the check send it in the body).
@@ -92,7 +111,7 @@ export default function PrestartCheck({ token, banner, odometerToken, onDone, on
   const meterMissing = !!hm?.required && (!hoursOk || (!meterPhoto && !meterFull));
   const lower = hm && hoursOk && hm.last != null && Number(hours) < hm.last;
   const noun = view.noun ?? "truck";
-  const canSend = unanswered === 0 && notReady.length === 0 && walkMissing.length === 0 && !odoMissing && !meterMissing && uploading === 0 && !busy;
+  const canSend = unanswered === 0 && notReady.length === 0 && walkMissing.length === 0 && !odoMissing && !meterMissing && uploading === 0 && !faultBusy && !busy;
 
   const setDraft = (key: string, patch: Partial<Draft>) => setDrafts((d) => ({ ...d, [key]: { ...(d[key] ?? emptyDraft()), ...patch } }));
   function answer(key: string, a: Answer) {
@@ -112,6 +131,18 @@ export default function PrestartCheck({ token, banner, odometerToken, onDone, on
   // One photo up: a fault's (no slot) or a walk-around slot's. A 429 with capFull = that day's allowance is full (cap:
   // WALKAROUND, FAULT, or ALL for both).
   async function upload(file: File, slot?: string): Promise<Photo> {
+    if (view?.media) {
+      // Full quality, straight to the bucket (a walk-around / hour-meter / fault photo) - the server checks it and makes
+      // the same AssetFaultMedia row the old route did, under the same caps.
+      const preview = await resizePhoto(file).catch(() => null);
+      try {
+        const r = await uploadMedia({ api: mediaApi, file, kind: "PHOTO", fields: { deviceId: deviceId(), ...(slot ? { slot } : {}) } });
+        return { id: String(r.body.id), preview };
+      } catch (e) {
+        if (e instanceof UploadError) capFrom(e.body);
+        throw new Error(e instanceof Error ? e.message : "The photo didn't send - try again.");
+      }
+    }
     const preview = await resizePhoto(file);
     const res = await fetch("/api/site/in/prestart/photo", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token, photo: preview, deviceId: deviceId(), ...(slot ? { slot } : {}) }) });
     const j = await res.json().catch(() => ({}));
@@ -280,7 +311,9 @@ export default function PrestartCheck({ token, banner, odometerToken, onDone, on
                 </div>
               )}
               {needsDraft(item.key) && (
-                <FaultForm draft={d} busy={uploading > 0} capFull={faultFull} onChange={(p) => setDraft(item.key, p)} onPhoto={(f) => addPhoto(item.key, f)} />
+                <FaultForm draft={d} busy={uploading > 0} capFull={faultFull} onChange={(p) => setDraft(item.key, p)} onPhoto={(f) => addPhoto(item.key, f)}
+                  media={view.media ? { api: mediaApi, deviceId: deviceId(), onBusy: busyFor(item.key), onCap: capFrom,
+                    onAdded: (p) => setDrafts((x) => { const cur = x[item.key] ?? emptyDraft(); return { ...x, [item.key]: { ...cur, photos: [...cur.photos, p] } }; }) } : null} />
               )}
             </div>
           );
@@ -293,7 +326,7 @@ export default function PrestartCheck({ token, banner, odometerToken, onDone, on
       </button>
       {!canSend && !busy && (
         <p className="text-center text-xs text-gray-500">
-          {uploading ? "Sending the photo..." : meterMissing ? "The hour meter is still to do - its photo and the hours." : walkMissing.length ? `Walk-around photos still to take: ${walkMissing.map((s) => s.label).join(", ")}.` : odoMissing ? "The odometer photo is still to take." : unanswered ? `${unanswered} item${unanswered > 1 ? "s" : ""} still to answer.` : notReady.length ? `Finish the fault on "${notReady[0].label}" - what's wrong, how bad, and a photo.` : ""}
+          {uploading || faultBusy ? "Sending..." : meterMissing ? "The hour meter is still to do - its photo and the hours." : walkMissing.length ? `Walk-around photos still to take: ${walkMissing.map((s) => s.label).join(", ")}.` : odoMissing ? "The odometer photo is still to take." : unanswered ? `${unanswered} item${unanswered > 1 ? "s" : ""} still to answer.` : notReady.length ? `Finish the fault on "${notReady[0].label}" - what's wrong, how bad, and a photo.` : ""}
         </p>
       )}
       <button className="w-full py-2 text-sm text-gray-400" disabled={busy} onClick={onSkip}>Do it later</button>
@@ -308,7 +341,7 @@ function SlotPhoto({ label, photo, busy, onPhoto }: { label: string; photo?: Pho
       <div className="text-sm text-gray-200">{label}</div>
       {photo && (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={photo.preview} alt={label} className="mt-1 h-20 w-full rounded-lg object-cover" />
+        photo.preview ? <img src={photo.preview} alt={label} className="mt-1 h-20 w-full rounded-lg object-cover" /> : <div className="mt-1 text-sm text-emerald-300">✓ Sent</div>
       )}
       <CameraButton busy={busy} label={photo ? "Retake" : "Take photo"} onPhoto={onPhoto} />
     </div>
@@ -326,7 +359,8 @@ function CameraButton({ busy, label, onPhoto }: { busy: boolean; label: string; 
   );
 }
 
-function FaultForm({ draft, busy, capFull, onChange, onPhoto }: { draft: Draft; busy: boolean; capFull: boolean; onChange: (p: Partial<Draft>) => void; onPhoto: (f: File | undefined) => void }) {
+type FaultMedia = { api: MediaEndpoints; deviceId: string; onBusy: (b: boolean) => void; onCap: (j: Record<string, unknown>) => void; onAdded: (p: Photo) => void };
+function FaultForm({ draft, busy, capFull, onChange, onPhoto, media }: { draft: Draft; busy: boolean; capFull: boolean; onChange: (p: Partial<Draft>) => void; onPhoto: (f: File | undefined) => void; media?: FaultMedia | null }) {
   const camera = useRef<HTMLInputElement>(null);
   const gallery = useRef<HTMLInputElement>(null);
   return (
@@ -346,20 +380,28 @@ function FaultForm({ draft, busy, capFull, onChange, onPhoto }: { draft: Draft; 
         </div>
       </div>
       <div>
-        <div className="mb-1 text-sm text-gray-400">Photo (at least one{capFull ? " - or none for Urgent / Do not use, the limit is reached" : ""})</div>
+        <div className="mb-1 text-sm text-gray-400">{media ? "Photo or video" : "Photo"} (at least one{capFull ? " - or none for Urgent / Do not use, the limit is reached" : ""})</div>
         {draft.photos.length > 0 && (
           <div className="mb-2 flex flex-wrap gap-2">
             {draft.photos.map((p) => (
               <div key={p.id} className="relative">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={p.preview} alt="Fault photo" className="h-20 w-20 rounded-lg border border-edge object-cover" />
+                {p.preview
+                  // eslint-disable-next-line @next/next/no-img-element
+                  ? <img src={p.preview} alt="Fault photo" className="h-20 w-20 rounded-lg border border-edge object-cover" />
+                  : <span className="flex h-20 w-20 flex-col items-center justify-center rounded-lg border border-edge bg-panel2 text-[11px] text-gray-300">{p.video ? <><Video size={20} /> Video</> : <><ImagePlus size={20} /> Photo</>}</span>}
                 <button aria-label="Remove photo" className="absolute -right-2 -top-2 rounded-full bg-gray-900 p-1 text-gray-200"
                   onClick={() => onChange({ photos: draft.photos.filter((x) => x.id !== p.id) })}><X size={14} /></button>
               </div>
             ))}
           </div>
         )}
-        {draft.photos.length < LIMITS.photosPerFault && (
+        {media && (
+          <MediaUpload compact api={media.api} fields={{ deviceId: media.deviceId }} kinds={["PHOTO", "VIDEO"]} busyChange={media.onBusy}
+            room={{ items: LIMITS.photosPerFault - draft.photos.length, videos: FAULT_MEDIA.videosPerSignIn - draft.photos.filter((p) => p.video).length }}
+            onError={(e) => media.onCap(e.body)}
+            onDone={(r) => media.onAdded({ id: String(r.body.id), preview: null, video: r.kind === "VIDEO" })} />
+        )}
+        {!media && draft.photos.length < LIMITS.photosPerFault && (
           <div className="grid grid-cols-2 gap-2">
             <button disabled={busy} onClick={() => camera.current?.click()} className="flex items-center justify-center gap-2 rounded-xl bg-brand-600 px-3 py-3 text-sm font-semibold text-white disabled:opacity-50">
               <Camera size={18} /> Take photo
