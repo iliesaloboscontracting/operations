@@ -4,7 +4,7 @@ import { guardInvoiceInbox } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { invoiceMimeOf, readInvoiceFile } from "@/lib/invoiceFiles";
 import { processInBackground } from "@/lib/invoiceInbox";
-import { hideTracked } from "@/lib/history/store";
+import { hideTracked, writeLock } from "@/lib/history/store";
 
 // GET /api/invoice-inbox/uploads/:id -> the uploaded file itself (to check
 // an invoice against what was read).
@@ -61,6 +61,7 @@ export const PATCH = withErrorHandling(async (req: NextRequest, { params: params
   // Keep forever (10 Nov 2026): the earlier partial results are hidden (kept, with who and why), never erased.
   const earlier = await prisma.invoiceDraft.findMany({ where: { uploadId: u.id, status: { not: "ADDED" }, removedAt: null }, select: { id: true } });
   await prisma.$transaction(async (tx) => {
+    await writeLock(tx); // PS-037: the write lock first, then the hides
     for (const d of earlier) await hideTracked("InvoiceDraft", d.id, { by: g.user, reason: "Upload read again after it failed", source: "Invoices inbox (Read again)" }, { tx });
   });
   await prisma.invoiceUpload.update({ where: { id: u.id }, data: { status: "READING", error: null, finishedAt: null } });

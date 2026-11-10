@@ -128,7 +128,6 @@ export const POST = withErrorHandling(async (req: NextRequest, { params: paramsP
         select: { placeLabel: true, job: { select: { title: true, shift: true, project: { select: { name: true } } } } },
       });
       if (elsewhere && !allocated) return bad(`${person.name} is signed in at ${elsewhere.job ? jobLabel(elsewhere.job) : elsewhere.placeLabel ?? "another place"}. They can scan your QR, or ask the office.`);
-      const ended = await endOpenElsewhere({ who: { resourceId: person.id, workerName: person.name, company: null }, at: now, here: { jobId: job.id }, label: jobLabel(job), by, siteToConfirm: true });
       const made = await createSignIn({
         jobId: job.id,
         date: job.date.toISOString().slice(0, 10),
@@ -141,6 +140,8 @@ export const POST = withErrorHandling(async (req: NextRequest, { params: paramsP
         runBy: link.person.name,
       });
       if (!made) return NextResponse.json({ error: JOB_CANCELLED_SIGN_IN }, { status: 409 }); // PS-031
+      // PS-035: only once this sign-in is saved.
+      const ended = await endOpenElsewhere({ who: { resourceId: person.id, workerName: person.name, company: null }, at: now, here: { jobId: job.id }, label: jobLabel(job), by, siteToConfirm: true });
       await syncSignInActualsQuietly([job.id, ...ended.map((e) => e.jobId)]);
       await syncPersonDayQuietly(person.id, job.date.toISOString().slice(0, 10));
       return NextResponse.json({ ok: true, ...(ended.length ? { message: `${person.name}'s other open sign-in was ended at ${sydneyTime(now)}.` } : {}) });

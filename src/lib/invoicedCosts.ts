@@ -6,7 +6,7 @@ import { prisma } from "./prisma";
 import { isISODate } from "./dateRules";
 import { docketNosOf, parseDocketNos } from "./receipts/tipCosts";
 import { syncTipMatchesSoon } from "./receipts/tipStore";
-import { hideTracked, writeChanges, type HistoryCtx } from "./history/store";
+import { hideTracked, writeChanges, type HistoryCtx, type Tx } from "./history/store";
 
 export const INVOICE_CATEGORIES = ["PLANT_HIRE", "LABOUR_HIRE", "TIP_FEES", "MATERIALS"] as const;
 
@@ -32,7 +32,8 @@ const round = (n: number) => Math.round(n * 100) / 100;
 
 // Checks and normalises a submitted invoice. `existingId` is the row being
 // corrected (left out of the duplicate check).
-export async function readInvoice(body: Record<string, unknown>, existingId?: string): Promise<{ error: string; removedMatch?: true } | { data: InvoiceInput; againOf?: string }> {
+export type RemovedInfo = { on: string; by: string | null; reason: string | null };
+export async function readInvoice(body: Record<string, unknown>, existingId?: string, actor: { role?: string | null } = {}): Promise<{ error: string; status?: number; removedMatch?: true; removed?: RemovedInfo } | { data: InvoiceInput; againOf?: string }> {
   const projectId = text(body.projectId, 40);
   if (!projectId || !(await prisma.project.findUnique({ where: { id: projectId }, select: { id: true } }))) return { error: "Pick the project." };
   const category = String(body.category ?? "");
@@ -84,9 +85,17 @@ export async function readInvoice(body: Record<string, unknown>, existingId?: st
       select: { id: true, removedAt: true, removedBy: true, removeReason: true }, orderBy: { removedAt: "desc" },
     });
     if (hidden) {
+      const on = hidden.removedAt!.toLocaleDateString("en-AU", { timeZone: "Australia/Sydney", day: "numeric", month: "short", year: "numeric" });
+      const removed = { on, by: hidden.removedBy, reason: hidden.removeReason };
+      // PS-036 (Ilies, 10 Nov 2026): only an Admin puts a removed invoice back.
+      if (body.addAgain === true && actor.role !== "ADMIN") return { error: "Only an Admin can put a removed invoice back.", status: 403, removedMatch: true, removed };
       if (body.addAgain !== true) {
-        const on = hidden.removedAt!.toLocaleDateString("en-AU", { timeZone: "Australia/Sydney", day: "numeric", month: "short", year: "numeric" });
-        return { error: `${vendor} invoice ${invoiceNo} was removed from this project on ${on} by ${hidden.removedBy ?? "someone"} (${hidden.removeReason ?? "no reason given"}). Tick "Add again - the removal was wrong" to put it back on.`, removedMatch: true };
+        return {
+          error: actor.role === "ADMIN"
+            ? `${vendor} invoice ${invoiceNo} was removed from this project on ${on} by ${hidden.removedBy ?? "someone"} (${hidden.removeReason ?? "no reason given"}). Tick "Add again - the removal was wrong" to put it back on.`
+            : `${vendor} invoice ${invoiceNo} was removed on ${on} by ${hidden.removedBy ?? "someone"} - ask an Admin to put it back.`,
+          removedMatch: true, removed,
+        };
       }
       againOf = hidden.id;
     }
@@ -117,8 +126,8 @@ export async function removeInvoicedCost(id: string, ctx: HistoryCtx = { by: nul
 }
 
 // PS-029: an invoice added again after it was removed - the new line's history says so (and why, when given).
-export async function recordAddedAgain(newId: string, againOf: string, by: { id?: string | null; name?: string | null } | null, reason: unknown, source: string) {
-  await writeChanges(prisma, "InvoicedCost", newId, [{ field: "addedAgainAfterRemoval", before: null, after: againOf }], {
+export async function recordAddedAgain(db: Tx, newId: string, againOf: string, by: { id?: string | null; name?: string | null } | null, reason: unknown, source: string) {
+  await writeChanges(db, "InvoicedCost", newId, [{ field: "addedAgainAfterRemoval", before: null, after: againOf }], {
     by, source, reason: typeof reason === "string" && reason.trim() ? reason.trim().slice(0, 500) : "The removal was wrong",
   });
 }

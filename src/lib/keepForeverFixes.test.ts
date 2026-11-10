@@ -32,7 +32,7 @@ test("PS-029: an upload line matching an invoice removed from Tracking waits for
 test("PS-029: the manual Add needs addAgain for a removed match, and records it", () => {
   const s = src("src/lib/invoicedCosts.ts");
   assert.match(s, /removedAt: \{ not: null \}/);
-  assert.match(s, /if \(body\.addAgain !== true\) \{[\s\S]*?removedMatch: true \};/);
+  assert.match(s, /if \(body\.addAgain !== true\) \{[\s\S]*?removedMatch: true, removed,/);
   assert.match(s, /field: "addedAgainAfterRemoval"/);
   assert.match(src("src/app/api/invoiced-costs/route.ts"), /if \(out\.againOf\) await recordAddedAgain\(/);
   assert.match(src("src/app/api/invoiced-costs/route.ts"), /guard\("MANAGER"\)/, "who can add is unchanged");
@@ -68,4 +68,39 @@ test("PS-031: a cancel recounts sign-ins and logs inside its transaction; every 
 
 test("PS-033: an ABN check's hidden inbox line is shown as removed", () => {
   assert.match(src("src/lib/abnInvoices/store.ts"), /\(removed from the inbox\)/);
+});
+
+test("PS-034: a sign-in waits its turn (TX) and falls back to the plain create when the database stays busy", async () => {
+  const s = src("src/lib/signInCreate.ts");
+  assert.match(s, /\}, TX\);/, "the transaction gets the 15 s waits");
+  assert.match(s, /if \(!isBusyError\(e\)\) throw e;[\s\S]*?return prisma\.siteAttendance\.create\(\{ data \}\);/, "busy -> plain create, so the sign-in always wins");
+  const { isBusyError } = await import("./signInCreate");
+  assert.ok(isBusyError(new Error("Transaction API error: Unable to start a transaction in the given time.")));
+  assert.ok(isBusyError(new Error("SQLITE_BUSY: database is locked")));
+  assert.ok(!isBusyError(new Error("Unique constraint failed on the fields")));
+});
+
+test("PS-035: the other open sign-in is ended only after this one is saved (all three paths)", () => {
+  for (const f of ["src/app/api/attendance/route.ts", "src/app/api/site/in/sign/route.ts", "src/app/api/site/[token]/signin/route.ts"]) {
+    const t = src(f);
+    const made = t.indexOf("createSignIn({"), ended = t.indexOf("endOpenElsewhere({");
+    assert.ok(made > 0 && ended > made, `${f}: endOpenElsewhere after createSignIn`);
+    assert.ok(t.indexOf(JOB_LINE, made) < ended, `${f}: after the cancelled-job refusal`);
+  }
+});
+const JOB_LINE = "JOB_CANCELLED_SIGN_IN";
+
+test("PS-036: 'Add again' is Admin only; the history row is written in the same transaction", () => {
+  const s = src("src/lib/invoicedCosts.ts");
+  assert.match(s, /if \(body\.addAgain === true && actor\.role !== "ADMIN"\) return \{ error: "Only an Admin can put a removed invoice back\.", status: 403/);
+  for (const f of ["src/app/api/invoiced-costs/route.ts", "src/app/api/invoiced-costs/[id]/route.ts"]) {
+    const t = src(f);
+    assert.match(t, /readInvoice\([^)]*\{ role: user\?\.role \?\? null \}\)/, f);
+    assert.match(t, /prisma\.\$transaction\(async \(tx\) => \{[\s\S]*?recordAddedAgain\(tx,/, f);
+  }
+  assert.match(src("src/components/InvoiceModal.tsx"), /removedMatch && !isAdmin/);
+});
+
+test("PS-037: the inbox's Read again takes the write lock first", () => {
+  assert.match(src("src/app/api/invoice-inbox/uploads/[id]/route.ts"), /prisma\.\$transaction\(async \(tx\) => \{\s*await writeLock\(tx\);/);
 });

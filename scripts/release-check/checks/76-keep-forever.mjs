@@ -16,7 +16,8 @@
 // with the copy's own jobs that day) and two months ahead, allocations, invoices, an upload + drafts, a service record, a contact, a wording,
 // a bug report, a tool. Prints no figure from the copy's own data - only this check's own test amounts.
 import { readFileSync, readdirSync, writeFileSync, existsSync } from "node:fs";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import { randomBytes } from "node:crypto";
 
@@ -110,8 +111,8 @@ export default {
     t.ok(near(projOf(after)?.invoicedTotal - projOf(after2)?.invoicedTotal, 700), "Tracking: invoiced drops by exactly B (its hire days go back to the estimate)");
     t.ok(sameOthers(after, after2), "Tracking: every other project still unchanged");
     // A hidden line isn't a live duplicate, but it never goes straight back on (PS-029): only with "Add again".
-    const again = await addInv({ category: "MATERIALS", vendor: `RC KF supplier ${tag}`, invoiceNo: `RC-A-${tag}`, weekEnding: c.today, amountExGst: 1, addAgain: true });
-    t.status(again.status, 201, "a hidden line isn't a duplicate - with 'Add again' the same invoice number goes back on");
+    const again = await c.post("/api/invoiced-costs", "ADMIN", { projectId: pid, category: "MATERIALS", vendor: `RC KF supplier ${tag}`, invoiceNo: `RC-A-${tag}`, weekEnding: c.today, amountExGst: 1, addAgain: true });
+    t.status(again.status, 201, "a hidden line isn't a duplicate - an Admin's 'Add again' puts the same invoice number back on");
 
     // The invoices inbox: "Take off the job" (UNDO) hides the Tracking line; "Read again" hides the failed read's lines.
     const up = await db.invoiceUpload.create({ data: { fileName: `rc-kf-${tag}.pdf`, originalName: `rc-kf-${tag}.pdf`, kind: "PDF", status: "DONE", uploadedBy: "RC" } });
@@ -262,10 +263,16 @@ export default {
     const cBody = { projectId: pid, category: "MATERIALS", vendor: `RC KF supplier ${tag}`, invoiceNo: `RC-C-${tag}`, weekEnding: c.today, amountExGst: 99 };
     const noAgain = await c.post("/api/invoiced-costs", "MANAGER", cBody);
     const nb = await body(noAgain);
-    t.ok(noAgain.status === 400 && nb?.removedMatch === true && /removed from this project/.test(nb?.error ?? ""), "PS-029: re-adding a removed invoice without 'Add again' -> 400, says who / when / why", noAgain.status);
-    const yes = await c.post("/api/invoiced-costs", "MANAGER", { ...cBody, addAgain: true, addAgainReason: note });
+    t.ok(noAgain.status === 400 && nb?.removedMatch === true && /was removed/.test(nb?.error ?? ""), "PS-029: re-adding a removed invoice without 'Add again' -> 400, says who / when / why", noAgain.status);
+    // PS-036 (Ilies: Admin only): a Manager's "Add again" is refused with a plain message; an Admin's goes through.
+    const mgr = await c.post("/api/invoiced-costs", "MANAGER", { ...cBody, addAgain: true, addAgainReason: note });
+    const mb = await body(mgr);
+    t.ok(mgr.status === 403 && mb?.error === "Only an Admin can put a removed invoice back.", "PS-036: a Manager's 'Add again' -> 403 'Only an Admin can put a removed invoice back.'", mgr.status);
+    t.ok(!(await db.invoicedCost.count({ where: { projectId: pid, invoiceNo: `RC-C-${tag}`, removedAt: null } })), "PS-036: ...nothing added");
+    t.ok(/ask an Admin to put it back/.test(nb?.error ?? "") && nb?.removed?.on && nb?.removed?.by, "PS-036: a Manager is told who removed it, when, and to ask an Admin");
+    const yes = await c.post("/api/invoiced-costs", "ADMIN", { ...cBody, addAgain: true, addAgainReason: note });
     const yb = await body(yes);
-    t.status(yes.status, 201, "PS-029: with 'Add again - the removal was wrong' it goes back on");
+    t.status(yes.status, 201, "PS-029 / PS-036: an Admin's 'Add again - the removal was wrong' puts it back on");
     const hr = await db.recordChange.findFirst({ where: { model: "InvoicedCost", recordId: yb?.id ?? "-", field: "addedAgainAfterRemoval" } });
     t.ok(hr && hr.after === C.body?.id && hr.reason === note && hr.changedBy, "PS-029: ...recorded in its history (which removed line, why, who)");
     t.status(await c.post("/api/invoiced-costs", "VIEWER", { ...cBody, addAgain: true }), 403, "PS-029: who can add is unchanged (Viewer 403)");
@@ -328,6 +335,68 @@ export default {
     t.status(await c.del(`/api/jobs/${j4.body?.id}`, "MANAGER", { reason: note }), 200, "a job cancelled");
     const late = await c.post("/api/attendance", "MANAGER", { jobId: j4.body?.id, resourceId: signer.id, signInAt: `${addDays(c.today, 64)}T07:00:00+11:00`, signOutAt: `${addDays(c.today, 64)}T15:00:00+11:00`, reason: note });
     t.ok([400, 409].includes(late.status) && !(await db.siteAttendance.count({ where: { jobId: j4.body?.id ?? "-" } })), "PS-031: ...a sign-in on it is refused, nothing saved", late.status);
+
+    // ---------- (7d2) PS-034: a site sign-in while another write holds the database for ~6 s -> 200, saved ----------
+    // A poster on this check's own project with a job today; a tsx-free Node child holds SQLite's write lock (an UPDATE
+    // touching no row, inside a transaction) for 6 s; the sign-in is sent once the child says it holds the lock.
+    const kfToday = await db.job.create({ data: { projectId: pid, title: project.name, date: new Date(`${c.today}T00:00:00.000Z`), shift: "DAY", status: "ACTIVE" } });
+    const posterSecret = randomBytes(24).toString("base64url");
+    const poster = await db.siteLink.create({ data: { kind: "POSTER", projectId: pid, tokenHash: createHash("sha256").update(posterSecret).digest("hex"), createdBy: "release-check" } });
+    const crew = await db.resource.create({ data: { name: `RC KF crew ${tag}`, type: "PERSONNEL", role: "Labourer" } });
+    const signPoster = async (who) => {
+      const scan = await c.json(`/api/site/in/${encodeURIComponent(posterSecret)}`, null);
+      return c.post("/api/site/in/sign", null, { ticket: scan.body?.ticket, jobId: kfToday.id, action: "IN", resourceId: who.id, deviceId: `rc76-${who.id}`, gps: { status: "DENIED" } });
+    };
+    const holder = path.join(c.p.files, `rc76-lock-${tag}.mjs`);
+    writeFileSync(holder, [
+      `import { createRequire } from "node:module";`,
+      `const require = createRequire(${JSON.stringify(path.join(c.p.appDir, "package.json"))});`,
+      `const { PrismaClient } = require("@prisma/client");`,
+      `const db = new PrismaClient({ datasources: { db: { url: ${JSON.stringify(c.p.dbUrl)} } } });`,
+      `await db.$transaction(async (tx) => {`,
+      `  await tx.$executeRawUnsafe('UPDATE "RecordChange" SET "id" = "id" WHERE 0');`,
+      `  console.log("LOCKED");`,
+      `  await new Promise((r) => setTimeout(r, 6000));`,
+      `}, { timeout: 30000, maxWait: 30000 });`,
+      `console.log("RELEASED");`,
+      `await db.$disconnect();`,
+    ].join("\n"));
+    if (!c.p.dbUrl) t.note("PS-034 not run: no test database url");
+    else {
+      const child = spawn(process.execPath, [holder], { cwd: c.p.appDir, env: { ...process.env, ...env }, stdio: ["ignore", "pipe", "pipe"] });
+      let childOut = "";
+      const locked = new Promise((resolve) => {
+        child.stdout.on("data", (d) => { childOut += d; if (childOut.includes("LOCKED")) resolve(true); });
+        child.on("exit", () => resolve(false));
+        setTimeout(() => resolve(false), 30_000);
+      });
+      const done = new Promise((resolve) => child.on("exit", resolve));
+      if (!(await locked)) t.ok(false, "PS-034: the lock-holding child started", childOut.slice(0, 200));
+      else {
+        const t0 = Date.now();
+        const r = await signPoster(crew);
+        const took = Date.now() - t0;
+        await done;
+        const saved = await db.siteAttendance.count({ where: { jobId: kfToday.id, resourceId: crew.id } });
+        t.ok(r.status === 200 && saved === 1, "PS-034: a site sign-in while another write holds the database ~6 s -> 200 and saved (never blocked)", `${r.status} after ${took} ms, ${saved} saved`);
+        t.note(`PS-034: the sign-in waited ${took} ms behind the held lock; child: ${childOut.includes("RELEASED") ? "released" : "?"}`);
+      }
+    }
+
+    // ---------- (7d3) PS-035: a refused (cancelled-job) sign-in leaves the person's other open sign-in as it was ----------
+    const mover = await db.resource.create({ data: { name: `RC KF mover ${tag}`, type: "PERSONNEL", role: "Labourer" } });
+    const openRow = await db.siteAttendance.create({ data: { place: "YARD", placeLabel: "Yard", date: c.today, resourceId: mover.id, workerName: mover.name, signInAt: new Date(Date.now() - 3_600_000), signInMethod: "OFFICE", status: "CONFIRMED" } });
+    const scanFirst = await c.json(`/api/site/in/${encodeURIComponent(posterSecret)}`, null); // scanned while the job is live
+    const kfCancelTarget = await db.job.update({ where: { id: kfToday.id }, data: { status: "CANCELLED", cancelledAt: new Date(), cancelledBy: "RC", cancelReason: note } });
+    const refused = await c.post("/api/site/in/sign", null, { ticket: scanFirst.body?.ticket, jobId: kfCancelTarget.id, action: "IN", resourceId: mover.id, deviceId: `rc76-${mover.id}`, gps: { status: "DENIED" } });
+    const still = await db.siteAttendance.findUnique({ where: { id: openRow.id } });
+    t.ok(refused.status >= 400 && still && !still.signOutAt && still.status === "CONFIRMED" && !(await db.siteAttendance.count({ where: { jobId: kfToday.id, resourceId: mover.id } })),
+      "PS-035: a sign-in refused on a cancelled job leaves the person's other open sign-in open and unchanged, nothing new saved", refused.status);
+    const offRefused = await c.post("/api/attendance", "MANAGER", { jobId: kfToday.id, resourceId: mover.id, signInAt: new Date().toISOString(), reason: note });
+    const still2 = await db.siteAttendance.findUnique({ where: { id: openRow.id } });
+    t.ok(offRefused.status >= 400 && still2 && !still2.signOutAt, "PS-035: ...the office path too", offRefused.status);
+    await db.siteAttendance.update({ where: { id: openRow.id }, data: { signOutAt: new Date(), signOutMethod: "OFFICE" } }); // tidy (test copy)
+    await db.siteLink.update({ where: { id: poster.id }, data: { revokedAt: new Date() } });
 
     // ---------- (7e) PS-033: an ABN check whose inbox line was hidden says so ----------
     const abnUp = await db.invoiceUpload.create({ data: { fileName: `rc-kf-abn-${tag}.pdf`, originalName: `rc-kf-abn-${tag}.pdf`, kind: "PDF", status: "DONE", uploadedBy: "RC" } });

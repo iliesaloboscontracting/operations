@@ -16,11 +16,14 @@ export const PATCH = withErrorHandling(async (req: NextRequest, { params: params
   const existing = await prisma.invoicedCost.findUnique({ where: { id: params.id } });
   if (!existing || existing.removedAt) return NextResponse.json({ error: "not found" }, { status: 404 });
   const body = await req.json().catch(() => ({}));
-  const out = await readInvoice({ ...existing, ...body }, existing.id);
-  if ("error" in out) return NextResponse.json({ error: out.error, ...(out.removedMatch ? { removedMatch: true } : {}) }, { status: 400 });
-  if (out.againOf) await recordAddedAgain(existing.id, out.againOf, user, body.addAgainReason, "Invoice correction (Tracking) - added again");
-  // Every field that changed is kept in the invoice line's history (keep forever, 10 Nov 2026).
-  const row = await updateTracked("InvoicedCost", existing.id, { ...out.data, enteredBy: user?.name ?? null }, { by: user, source: "Invoice correction (Tracking)" }) as { category: string };
+  const out = await readInvoice({ ...existing, ...body }, existing.id, { role: user?.role ?? null });
+  if ("error" in out) return NextResponse.json({ error: out.error, ...(out.removedMatch ? { removedMatch: true, removed: out.removed } : {}) }, { status: out.status ?? 400 });
+  // Every field that changed is kept in the invoice line's history (keep forever, 10 Nov 2026); an Admin's "Add again"
+  // (PS-029 / PS-036) in the same transaction.
+  const row = await prisma.$transaction(async (tx) => {
+    if (out.againOf) await recordAddedAgain(tx, existing.id, out.againOf, user, body.addAgainReason, "Invoice correction (Tracking) - added again");
+    return updateTracked("InvoicedCost", existing.id, { ...out.data, enteredBy: user?.name ?? null }, { by: user, source: "Invoice correction (Tracking)" }, { tx }) as Promise<{ category: string }>;
+  });
   if (row.category === "TIP_FEES" || existing.category === "TIP_FEES") syncTipMatchesSoon(); // re-match its dockets (Receipts R3)
   return NextResponse.json(row);
 });

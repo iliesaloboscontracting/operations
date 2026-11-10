@@ -88,7 +88,6 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   // Fix 1: they can't be signed in twice - any other sign-in still open from before this one ends at its start. TF-006:
   // a line added WITH its sign-out (filling in the past) only does that when the office ticks "end their other open
   // sign-in" (endOpen: true); an open line (still on site today) always does.
-  const ended = signOutAt && body.endOpen !== true ? [] : await endOpenElsewhere({ who, at: signInAt, here: job ? { jobId: job.id } : { jobId: null, place: point!.place, vehicleId: point!.vehicleId }, label: job ? "another job (added by the office)" : point!.placeLabel, by });
   const created = await createSignIn({
       jobId: job?.id ?? null,
       ...(point ?? {}),
@@ -106,6 +105,8 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
       edits: { create: { field: "added", before: null, after: `${signInAt.toISOString()} - ${signOutAt?.toISOString() ?? "open"}`, reason, editedBy: by } },
   });
   if (!created) return NextResponse.json({ error: JOB_CANCELLED_SIGN_IN }, { status: 409 }); // PS-031
+  // PS-035: only once this sign-in is saved.
+  const ended = signOutAt && body.endOpen !== true ? [] : await endOpenElsewhere({ who, at: signInAt, here: job ? { jobId: job.id } : { jobId: null, place: point!.place, vehicleId: point!.vehicleId }, label: job ? "another job (added by the office)" : point!.placeLabel, by });
   await syncSignInActualsQuietly([created.jobId, ...ended.map((e) => e.jobId)]);
   await syncPersonDayQuietly(who.resourceId, date);
   return NextResponse.json({ id: created.id, ...(ended.length ? { ended: ended.length } : {}) }, { status: 201 });

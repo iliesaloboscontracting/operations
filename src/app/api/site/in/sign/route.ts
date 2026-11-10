@@ -108,7 +108,6 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
     // Signed in somewhere else (another site, another truck) and moved here:
     // that one ends now. A site one goes to its supervisor to confirm.
     // (Fix 1, 2 Nov 2026: the same helper every sign-in path uses, with a note kept on the ended line.)
-    const elsewhere = await endOpenElsewhere({ who, at: now, here: { jobId: where.jobId, place: where.place, vehicleId: where.vehicleId }, label: where.label, by: runBy ?? "Sign-in", siteToConfirm: true });
     const signedIn = await createSignIn({
         jobId: where.jobId,
         place: where.place,
@@ -127,6 +126,8 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
         ...parseGps(body.gps),
     });
     if (!signedIn) return bad(JOB_CANCELLED_SIGN_IN, 409); // PS-031: the job was cancelled a moment ago
+    // PS-035: only once this sign-in is saved (a refused one leaves the other open sign-in as it was).
+    const elsewhere = await endOpenElsewhere({ who, at: now, here: { jobId: where.jobId, place: where.place, vehicleId: where.vehicleId }, label: where.label, by: runBy ?? "Sign-in", siteToConfirm: true });
     // Anywhere they were just moved off now has their hours.
     await syncSignInActualsQuietly([...elsewhere.map((e) => e.jobId), where.jobId]);
     await syncPersonDayQuietly(who.resourceId, where.date);

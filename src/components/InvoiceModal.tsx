@@ -10,6 +10,7 @@ import FormModal, { type FieldDef } from "./FormModal";
 import { apiFetch, serverErrorMessage } from "@/lib/apiFetch";
 import type { HireItemCostDTO, InvoicedCostDTO } from "@/lib/types";
 import HistoryButton from "./HistoryButton";
+import { useAuth } from "./AuthProvider";
 
 // Keep forever (10 Nov 2026): "Remove" hides the line from every total - it's kept, with who and why.
 const REMOVE_REASONS = ["Entered by mistake", "Duplicate of another invoice", "Wrong job", "Credited by the supplier"] as const;
@@ -68,7 +69,9 @@ export default function InvoiceModal({
     : { category: "PLANT_HIRE", vendor: "", invoiceNo: "", weekEnding: "", amountExGst: "", gst: "", hireResourceId: "", periodFrom: "", periodTo: "", notes: "", docketNos: "" };
 
   // PS-029: the same invoice was removed from this job on purpose - it goes back on only with this ticked.
-  const [removedMatch, setRemovedMatch] = useState(false);
+  // PS-036 (Ilies, 10 Nov 2026): only an Admin sees the tick box; a Manager is told who removed it and to ask an Admin.
+  const { isAdmin } = useAuth();
+  const [removedMatch, setRemovedMatch] = useState<null | { on?: string; by?: string | null }>(null);
   const [addAgain, setAddAgain] = useState(false);
   const [againWhy, setAgainWhy] = useState("");
 
@@ -80,12 +83,16 @@ export default function InvoiceModal({
     });
     if (!res.ok) {
       const j = await res.clone().json().catch(() => null);
-      if (j?.removedMatch) setRemovedMatch(true);
+      if (j?.removedMatch) setRemovedMatch(j.removed ?? {});
       throw new Error(await serverErrorMessage(res, "Couldn't save the invoice"));
     }
     onSaved();
   }
-  const againBox = removedMatch ? (
+  const againBox = removedMatch && !isAdmin ? (
+    <p className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-gray-300">
+      Removed on {removedMatch.on ?? "an earlier date"} by {removedMatch.by ?? "someone"} – ask an Admin to put it back.
+    </p>
+  ) : removedMatch ? (
     <div className="mt-3 space-y-2 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-gray-300">
       <label className="flex items-center gap-2">
         <input type="checkbox" checked={addAgain} onChange={(e) => setAddAgain(e.target.checked)} /> Add again – the removal was wrong

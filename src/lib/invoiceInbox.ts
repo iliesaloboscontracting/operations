@@ -260,7 +260,7 @@ async function addToTracking(
     docketNos: d.docketNos ?? [],
   });
   // PS-029: removed from Tracking on purpose - only a Manager / Admin puts it back, on Tracking ("Add again").
-  if ("error" in out && out.removedMatch) return { error: out.error.replace(/ Tick .*$/, " A Manager or Admin can put it back from the job's Tracking page (Add invoice - \"Add again\").") };
+  if ("error" in out && out.removedMatch) return { error: `Removed from Tracking on ${out.removed?.on ?? "an earlier date"} by ${out.removed?.by ?? "someone"} - an Admin can put it back from the job's Tracking page (Add invoice - "Add again").` };
   if ("error" in out) return out;
   const row = await prisma.invoicedCost.create({ data: { ...out.data, enteredBy } });
   if (row.category === "TIP_FEES") syncTipMatchesSoon(); // it replaces the dockets it bills (Receipts R3)
