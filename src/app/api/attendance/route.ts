@@ -37,7 +37,7 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
   const gaps = date === todaySydney()
     ? { noSignOutYesterday: await openFromYesterday(date), notSignedIn: (await notSignedInToday()).map((j) => ({ jobId: j.jobId, site: j.site, names: j.missing.map((m) => m.name) })) }
     : null;
-  return viewJson({ date, today: todaySydney(), jobs: view.jobs, points: view.points, posters, handovers, travel, gaps });
+  return viewJson({ date, today: todaySydney(), jobs: view.jobs, points: view.points, summary: view.summary, posters, handovers, travel, gaps });
 });
 
 // POST /api/attendance - the office adds a sign-in that was missed.
