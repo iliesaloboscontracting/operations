@@ -271,6 +271,8 @@ function ChecksTab() {
 // machine checked that day - who did each check, the walk-around and hour-meter photos, the hours (flagged when lower
 // than before) and the answers. Click a photo for the full size (behind the same login as the rest of this page).
 function PlantSection({ plant, tone, reload }: { plant: Checks["plant"]; tone: (s: string) => string; reload: () => Promise<void> }) {
+  // "Reading wrong" is Managers and Admins only (Ilies, 10 Nov 2026) - the coordinator and the yard see the tab without it.
+  const { canEdit: canMarkWrong } = useAuth();
   const [open, setOpen] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   // PS-019: "Reading wrong" - kept, struck through with the reason, left out of "the last reading".
@@ -311,7 +313,7 @@ function PlantSection({ plant, tone, reload }: { plant: Checks["plant"]; tone: (
                         {c.hourMeterFlag === "LOWER" && <span className="ml-1 font-semibold text-amber-300">lower than the last reading ({c.hourMeterPrev?.toLocaleString("en-AU")})</span>}
                         {c.hourMeterFlag === "HIGHER" && <span className="ml-1 font-semibold text-amber-300">a lot higher than the last reading ({c.hourMeterPrev?.toLocaleString("en-AU")})</span>}
                         {c.hourMeterWrong ? <span className="ml-1 text-gray-500">- marked wrong by {c.hourMeterWrong.by}: {c.hourMeterWrong.note}</span>
-                          : c.hourMeter != null && <button className="ml-2 text-brand-300 hover:underline" onClick={() => markWrong(c.id)}>Reading wrong</button>}
+                          : c.hourMeter != null && canMarkWrong && <button className="ml-2 text-brand-300 hover:underline" onClick={() => markWrong(c.id)}>Reading wrong</button>}
                         {c.kind === "PRE" && <> · Walk-around: {c.walkaround === "DONE" ? "taken" : c.walkaround === "LIMIT" ? "photos couldn't be added (the day's photo limit)" : c.walkaround === "OPTIONAL" ? "optional (not the day's first)" : "-"}</>}
                       </div>
                       <div className="mb-2 flex flex-wrap gap-2">
