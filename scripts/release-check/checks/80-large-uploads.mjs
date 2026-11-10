@@ -274,7 +274,7 @@ export default {
       writeFileSync(script, [
         `import { startUpload, abortStaleMultipart } from ${JSON.stringify(proto)};`,
         `import { mediaStatus } from ${JSON.stringify(proto.replace("protocol.ts", "store.ts"))};`,
-        `const party = { source: { siteLinkId: "x", takenBy: "x" }, owns: () => false, prepare: async () => { throw new Error("must not be reached"); }, attach: async () => ({ reply: {} }), replyFor: async () => ({}) };`,
+        `const party = { source: { siteLinkId: "x", takenBy: "x" }, owns: () => false, prepare: async () => ({ error: "reached the area checks", status: 418 }), attach: async () => ({ reply: {} }), replyFor: async () => ({}) };`,
         `const r = await startUpload(party, { kind: "PHOTO", mime: "image/jpeg", size: 10 });`,
         `const aborted = await abortStaleMultipart(new Date(), { force: true });`,
         `console.log("RESULT " + JSON.stringify({ status: r.status, on: mediaStatus().on, aborted }));`,
@@ -282,7 +282,8 @@ export default {
       ].join("\n"));
       const run = (extraEnv) => {
         const e = { ...process.env, ...env, ...extraEnv };
-        for (const k of Object.keys(e)) if (extraEnv[k] === undefined && k in extraEnv) delete e[k];
+        // Blank, not removed: Prisma reads the test .env into any variable that isn't set at all.
+        for (const k of Object.keys(extraEnv)) if (extraEnv[k] === undefined) e[k] = "";
         let out = "";
         try { out = execFileSync(process.execPath, [tsxCli, script], { cwd: c.p.appDir, env: e, encoding: "utf8", timeout: 120_000 }); } catch (x) { out = String(x?.stdout ?? ""); }
         try { return JSON.parse(out.match(/RESULT (.*)/)?.[1] ?? "{}"); } catch { return {}; }
@@ -291,7 +292,8 @@ export default {
       t.ok(off.status === 404 && off.on === false && off.aborted === 0, "no MEDIA_* settings: OFF - the protocol refuses (404), nothing aborted", JSON.stringify(off));
       const kill = run({ MEDIA_UPLOADS: "off" });
       t.ok(kill.status === 404 && kill.on === false, "MEDIA_UPLOADS=off: the kill switch refuses new uploads", JSON.stringify(kill));
-      const notOn = run({});
+      t.ok(run({}).status === 418, "...and with it on, the same call gets as far as the area's own checks (the test is real)");
+      const notOn = run({ MEDIA_ABORT_STALE: undefined });
       t.ok(notOn.aborted === 0 && !(await db.mediaObject.findUnique({ where: { id: stale.mediaId } }))?.abortedAt, "the 24 h abort is OFF by default - a 25 h old unfinished upload is left alone", JSON.stringify(notOn));
       const on = run({ MEDIA_ABORT_STALE: "on" });
       const sRow = await db.mediaObject.findUnique({ where: { id: stale.mediaId } });
