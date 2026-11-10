@@ -15,8 +15,9 @@ import { hashSecret, newLinkSecret, siteUrl } from "../siteLinks";
 import { linkLabel, nameWithoutAmounts } from "../dailyLog/money";
 import { looksLikeLobos } from "../staffMatch";
 import { todaySydney } from "../today";
-import { PRIORITY_LABEL, STATUS_LABEL, plantQrAllowed, sessionRefusal, type FaultPriority, type FaultStatus } from "./rules";
+import { LIMITS, PRIORITY_LABEL, STATUS_LABEL, cleanText, plantQrAllowed, sessionRefusal, type FaultPriority, type FaultStatus } from "./rules";
 import { slotLabel } from "./checklists";
+import { oneAtATime, TX } from "./queue";
 
 type Problem = { error: string; status: number };
 const problem = (error: string, status = 400): Problem => ({ error, status });
@@ -34,10 +35,14 @@ export async function plantQrs() {
 // A new QR switches the old one off at once (a reprint); { off } just switches it off. Owned plant only.
 export async function makePlantQr(resourceId: unknown, off: boolean, by: string | null, origin: string) {
   if (typeof resourceId !== "string") return problem("Pick a machine.");
+  // PS-021 (10 Nov 2026): switching off works for any machine with a QR on - sold, archived or now hired too.
+  if (off) {
+    await prisma.siteLink.updateMany({ where: { kind: "PLANT", resourceId, revokedAt: null }, data: { revokedAt: new Date() } });
+    return { ok: true as const };
+  }
   const m = await prisma.resource.findUnique({ where: { id: resourceId }, select: { id: true, name: true, type: true, ownership: true, active: true, identifier: true } });
   if (!m || !plantQrAllowed(m)) return problem("Pre-start QRs are for Lobos-owned plant only - not attachments or hired plant.");
   const revokeOld = prisma.siteLink.updateMany({ where: { kind: "PLANT", resourceId: m.id, revokedAt: null }, data: { revokedAt: new Date() } });
-  if (off) { await revokeOld; return { ok: true as const }; }
   const secret = newLinkSecret();
   await prisma.$transaction([
     revokeOld,
@@ -102,14 +107,26 @@ export async function startPlantCheck(body: Record<string, unknown>) {
   }
   const deviceId = typeof body.deviceId === "string" && body.deviceId ? body.deviceId.slice(0, 64) : null;
   const day = todaySydney();
-  const [qrToday, deviceToday] = await Promise.all([
-    prisma.plantCheckSession.count({ where: { linkId: t.linkId, day } }),
-    deviceId ? prisma.plantCheckSession.count({ where: { deviceId, day } }) : Promise.resolve(0),
-  ]);
-  const refused = sessionRefusal({ qrToday, deviceToday });
-  if (refused) return refused;
-  const s = await prisma.plantCheckSession.create({ data: { linkId: t.linkId, resourceId: m.id, kind, day, deviceId, ...who } });
-  return { token: makePlantCheckToken(s.id, kind), kind };
+  // PS-018 (10 Nov 2026): the session is written first, through the one-at-a-time queue, and then counted with it in the
+  // same transaction - so parallel starts can't all slip under the 40 a QR. Over it: undone, 429. (The 12 a phone is a
+  // hint - the phone names itself.)
+  class Over extends Error { constructor(public p: Problem) { super(p.error); } }
+  try {
+    const id = await oneAtATime(() => prisma.$transaction(async (tx) => {
+      const s = await tx.plantCheckSession.create({ data: { linkId: t.linkId, resourceId: m.id, kind, day, deviceId, ...who } });
+      const [qrToday, deviceToday] = await Promise.all([
+        tx.plantCheckSession.count({ where: { linkId: t.linkId, day } }),
+        deviceId ? tx.plantCheckSession.count({ where: { deviceId, day } }) : Promise.resolve(0),
+      ]);
+      const refused = sessionRefusal({ qrToday: qrToday - 1, deviceToday: deviceId ? deviceToday - 1 : 0 });
+      if (refused) throw new Over(refused);
+      return s.id;
+    }, TX));
+    return { token: makePlantCheckToken(id, kind), kind };
+  } catch (e) {
+    if (e instanceof Over) return e.p;
+    throw e;
+  }
 }
 
 // ---------- the office: the Checks tab's Plant section ----------
@@ -161,10 +178,33 @@ export async function plantChecksForDay(day: string) {
           walkaround: c.walkaround,
           walkaroundPhotos: media.filter((m) => m.checkId === c.id && m.role === "WALKAROUND").map((m) => ({ id: m.id, slot: m.slot, label: slotLabel(m.slot, "EQUIPMENT") })),
           hourMeter: c.hourMeter, hourMeterPrev: c.hourMeterPrev, hourMeterFlag: c.hourMeterFlag, meterPhotoId: meter?.id ?? null,
+          hourMeterWrong: c.hourMeterWrongAt ? { at: c.hourMeterWrongAt.toISOString(), by: c.hourMeterWrongBy, note: c.hourMeterWrongNote } : null,
           faultCount: c.faultCount, seenCount: c.seenCount,
           faults: c.faults.map((f) => ({ id: f.id, itemLabel: f.itemLabel, priority: PRIORITY_LABEL[f.priority as FaultPriority] ?? f.priority, status: STATUS_LABEL[f.status as FaultStatus] ?? f.status })),
         };
       }),
     };
   }).sort((a, b) => Number(b.booked) - Number(a.booked) || a.machine.localeCompare(b.machine));
+}
+
+// PS-019 (10 Nov 2026): the office marks a plant check's hour-meter reading wrong - who, when and why, in an event too.
+// Nothing is deleted: the reading stays (shown struck through with the note) and is left out of "the last reading".
+// Once only (conditional, so two people can't both do it).
+export async function markHourMeterWrong(checkId: string, noteRaw: unknown, by: string) {
+  const note = cleanText(noteRaw, LIMITS.note);
+  if (note.length < LIMITS.minFixNote) return problem("Say why the reading is wrong.");
+  const c = await prisma.prestartCheck.findUnique({ where: { id: checkId }, select: { id: true, sessionId: true, hourMeter: true } });
+  if (!c || !c.sessionId || c.hourMeter == null) return problem("That check has no hour-meter reading.", 404);
+  class Done extends Error { constructor(public p: Problem) { super(p.error); } }
+  try {
+    await oneAtATime(() => prisma.$transaction(async (tx) => {
+      const n = await tx.prestartCheck.updateMany({ where: { id: c.id, hourMeterWrongAt: null }, data: { hourMeterWrongAt: new Date(), hourMeterWrongBy: by, hourMeterWrongNote: note } });
+      if (n.count !== 1) throw new Done(problem("It's already marked wrong.", 409));
+      await tx.hourMeterEvent.create({ data: { checkId: c.id, action: "WRONG", by, note } });
+    }, TX));
+  } catch (e) {
+    if (e instanceof Done) return e.p;
+    throw e;
+  }
+  return { ok: true as const };
 }

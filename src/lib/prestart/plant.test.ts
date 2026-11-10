@@ -32,11 +32,17 @@ test("hour meter: a positive number, one decimal at most, under 200,000", () => 
   assert.equal(parseHourMeter("200000").ok, true);
 });
 
-test("hour meter: lower than the last reading is flagged, never refused", () => {
-  assert.equal(hourMeterFlag(1200, 1234.5), "LOWER");
-  assert.equal(hourMeterFlag(1234.5, 1234.5), null);
-  assert.equal(hourMeterFlag(1300, 1234.5), null);
-  assert.equal(hourMeterFlag(5, null), null);
+test("hour meter: lower than the last reading, or more hours than the machine could have run since, is flagged (never refused)", () => {
+  const now = new Date("2026-11-10T06:00:00Z");
+  const last = (value: number, hoursAgo: number) => ({ value, at: new Date(now.getTime() - hoursAgo * 3_600_000) });
+  assert.equal(hourMeterFlag(1200, last(1234.5, 2), now), "LOWER");
+  assert.equal(hourMeterFlag(1234.5, last(1234.5, 2), now), null);
+  assert.equal(hourMeterFlag(1258.5, last(1234.5, 2), now), null, "24 hours on the same day is the most - still fine");
+  assert.equal(hourMeterFlag(1258.6, last(1234.5, 2), now), "HIGHER", "more than a day's worth within a day");
+  assert.equal(hourMeterFlag(1234.5 + 24 * 3, last(1234.5, 72), now), null, "three days: up to 72 hours");
+  assert.equal(hourMeterFlag(1234.5 + 24 * 3 + 1, last(1234.5, 72), now), "HIGHER");
+  assert.equal(hourMeterFlag(99999, last(1000, 1), now), "HIGHER", "a junk reading");
+  assert.equal(hourMeterFlag(5, null, now), null);
 });
 
 test("plant: the checklist and walk-around by type; first of the day needs the walk-around", () => {

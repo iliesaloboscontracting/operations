@@ -2366,7 +2366,12 @@ model PrestartCheck {
   sessionId     String?
   hourMeter     Float?
   hourMeterPrev Float? // the last reading before it, as shown on the phone
-  hourMeterFlag String?
+  hourMeterFlag String? // LOWER | HIGHER (PS-019) - flagged, never refused
+  // PS-019 (10 Nov 2026): the office marked the reading wrong (who, when, why - also in HourMeterEvent). Nothing is
+  // deleted: it shows struck through and is left out of "the last reading".
+  hourMeterWrongAt   DateTime?
+  hourMeterWrongBy   String?
+  hourMeterWrongNote String?
   createdAt    DateTime     @default(now())
   faults       AssetFault[]
 
@@ -2510,4 +2515,17 @@ model PlantCheckSession {
   @@index([deviceId, day])
   @@index([resourceId, day])
   @@index([day])
+}
+
+// PS-019 (10 Nov 2026): what the office did to a plant check's hour-meter reading - WRONG (marked wrong, with why).
+// Append-only: nothing updates or deletes these.
+model HourMeterEvent {
+  id      String   @id @default(cuid())
+  checkId String // the PrestartCheck
+  action  String // WRONG
+  by      String
+  note    String
+  at      DateTime @default(now())
+
+  @@index([checkId, at])
 }

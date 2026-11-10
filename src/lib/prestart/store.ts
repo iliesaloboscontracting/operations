@@ -15,6 +15,7 @@ import { preparePhoto, removePhoto, writePreparedPhoto } from "../toolPhotos";
 import type { Prisma } from "@prisma/client";
 import { HOUR_METER_SLOT, checklistFor, slotLabel, walkaroundSlotsFor, type Checklist } from "./checklists";
 import { plantChecksForDay, plantSource } from "./plant";
+import { oneAtATime, queueWaiting, TX } from "./queue";
 import {
   LIMITS, OPEN_STATUSES, PHOTO_LIMIT_NOTE, PRIORITY_LABEL, STATUS_LABEL, alertDecision, alertFor, alertMessage, canMove, cleanText, firstName, isOpenStatus,
   isPriority, marksDown, offerBackToAvailable, photoCapFull, photoPrecheck, photoRefusal, sortFaults, validateSubmission, validateWalkaround, walkaroundCutoff,
@@ -77,11 +78,16 @@ async function plantContext(token: unknown): Promise<LinkCtx | Problem> {
     machine: { id: machine.id, name: machine.name, type: machine.type, status: machine.status }, list,
   };
 }
-// The last hour-meter reading on this machine (any plant check), for the hint and the lower-than-last flag.
-const lastHours = async (db: Prisma.TransactionClient | typeof prisma, resourceId: string, notId?: string) =>
-  (await db.prestartCheck.findFirst({
-    where: { resourceId, hourMeter: { not: null }, ...(notId ? { id: { not: notId } } : {}) }, orderBy: { createdAt: "desc" }, select: { hourMeter: true },
-  }))?.hourMeter ?? null;
+// The last hour-meter reading on this machine, for the hint and the flags. PS-019 (10 Nov 2026): only a reading that was
+// not flagged (LOWER / HIGHER) and not marked wrong by the office - so one junk reading can't skew every later one.
+const lastHoursAt = async (db: Prisma.TransactionClient | typeof prisma, resourceId: string, notId?: string) => {
+  const r = await db.prestartCheck.findFirst({
+    where: { resourceId, hourMeter: { not: null }, hourMeterFlag: null, hourMeterWrongAt: null, ...(notId ? { id: { not: notId } } : {}) },
+    orderBy: { createdAt: "desc" }, select: { hourMeter: true, createdAt: true },
+  });
+  return r?.hourMeter != null ? { value: r.hourMeter, at: r.createdAt } : null;
+};
+const lastHours = async (db: Prisma.TransactionClient | typeof prisma, resourceId: string) => (await lastHoursAt(db, resourceId))?.value ?? null;
 
 const openFaultsOf = (resourceId: string) =>
   prisma.assetFault.findMany({ where: { resourceId, status: { in: OPEN_STATUSES } }, orderBy: { reportedAt: "desc" }, take: 30 });
@@ -141,21 +147,8 @@ export async function linkView(ctx: LinkCtx) {
 }
 
 class Refused extends Error { constructor(public p: Problem) { super(p.error); } }
-// Interactive transactions wait their turn rather than failing under a burst.
-const TX = { maxWait: 15_000, timeout: 15_000 };
-// SQLite lets one writer in at a time, and two interactive transactions that overlap can time out on each other's
-// locks (seen with 30 photos at once). Production is one server process, so this module's writes go one after another
-// here - each still counts inside its own transaction, so the caps hold even if two ever did overlap.
-const queue = globalThis as unknown as { __prestartQueue?: Promise<unknown>; __prestartWaiting?: number };
-function oneAtATime<T>(fn: () => Promise<T>): Promise<T> {
-  queue.__prestartWaiting = (queue.__prestartWaiting ?? 0) + 1;
-  const done = () => { queue.__prestartWaiting = Math.max(0, (queue.__prestartWaiting ?? 1) - 1); };
-  const run = (queue.__prestartQueue ?? Promise.resolve()).then(fn, fn).finally(done);
-  queue.__prestartQueue = run.catch(() => undefined);
-  return run;
-}
-// PS-009: how many writes are waiting their turn - over LIMITS.queueWaiting a photo is turned away (503) at once.
-export const queueWaiting = () => queue.__prestartWaiting ?? 0;
+// The one-at-a-time queue and the transaction options are in queue.ts (shared with plant.ts, PS-018).
+export { queueWaiting };
 
 // POST photo: kept for this sign-in and check (PRE / POST), not yet on a fault; none once the check is in.
 // PS-001 (9 Nov 2026): the row is recorded first and then everything is counted in the same transaction - this
@@ -407,9 +400,9 @@ export async function submitCheck(ctx: LinkCtx, body: unknown) {
           });
           if (ok.count !== 1) throw new Refused(problem("The hour-meter photo didn't go through - take it again.", 400));
         }
-        const prev = await lastHours(tx, ctx.machine.id, check.id);
+        const prev = await lastHoursAt(tx, ctx.machine.id, check.id);
         flag = hourMeterFlag(hours.value, prev);
-        await tx.prestartCheck.update({ where: { id: check.id }, data: { hourMeter: hours.value, hourMeterPrev: prev, hourMeterFlag: flag } });
+        await tx.prestartCheck.update({ where: { id: check.id }, data: { hourMeter: hours.value, hourMeterPrev: prev?.value ?? null, hourMeterFlag: flag } });
       }
       return { checkId: check.id, walkaround, hourMeterFlag: flag, created };
     }, TX));
@@ -425,7 +418,8 @@ export async function submitCheck(ctx: LinkCtx, body: unknown) {
   const sent = result.created.map((f) => ({ itemLabel: f.itemLabel, priority: PRIORITY_LABEL[f.priority], markedDown: f.markedDown }));
   const what = ctx.kind === "PRE" ? "Pre-start" : "Post-check";
   const limitNote = (result.walkaround === "LIMIT" ? " Walk-around photos couldn't be added (the day's photo limit) - noted." : "")
-    + (result.hourMeterFlag === "LOWER" ? " The hours are lower than last time - the office will check." : "");
+    + (result.hourMeterFlag === "LOWER" ? " The hours are lower than last time - the office will check." : "")
+    + (result.hourMeterFlag === "HIGHER" ? " The hours are a lot higher than last time - the office will check." : "");
   return {
     ok: true as const, id: result.checkId, sent, seen: stillThere.length, walkaround: result.walkaround, hourMeterFlag: result.hourMeterFlag,
     message: (sent.length ? `${what} sent - ${sent.length} fault${sent.length > 1 ? "s" : ""} sent to the office.` : `${what} sent - thanks.`) + limitNote,

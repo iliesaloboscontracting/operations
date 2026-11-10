@@ -260,7 +260,9 @@ function ChecksTab() {
             ))}
           </ul>
         )}
-      {data && <PlantSection plant={data.plant} tone={tone} />}
+      {data && <PlantSection plant={data.plant} tone={tone} reload={async () => {
+        const r = await apiFetch(`/api/faults/checks?date=${day}`); if (r.ok) setData(await r.json());
+      }} />}
     </>
   );
 }
@@ -268,11 +270,22 @@ function ChecksTab() {
 // Stage 2 (plant QR stickers, 10 Nov 2026): owned plant booked on the board that day ("No pre-start" when none), and any
 // machine checked that day - who did each check, the walk-around and hour-meter photos, the hours (flagged when lower
 // than before) and the answers. Click a photo for the full size (behind the same login as the rest of this page).
-function PlantSection({ plant, tone }: { plant: Checks["plant"]; tone: (s: string) => string }) {
+function PlantSection({ plant, tone, reload }: { plant: Checks["plant"]; tone: (s: string) => string; reload: () => Promise<void> }) {
   const [open, setOpen] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  // PS-019: "Reading wrong" - kept, struck through with the reason, left out of "the last reading".
+  async function markWrong(checkId: string) {
+    const note = window.prompt("Why is this hour-meter reading wrong? (kept with the reading)");
+    if (!note) return;
+    setErr(null);
+    const res = await fetch(`/api/faults/checks/${checkId}/hour-meter`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ note }) });
+    if (!res.ok) return setErr(await serverErrorMessage(res, "Couldn't save that."));
+    await reload();
+  }
   return (
     <div className="mt-6">
       <h2 className="mb-2 text-sm font-semibold text-gray-200">Plant</h2>
+      {err && <div className="mb-2 rounded-md bg-red-900/30 px-3 py-2 text-xs text-red-300">{err}</div>}
       {plant.length === 0 ? <p className="rounded-lg border border-dashed border-edge py-6 text-center text-sm text-gray-500">No owned plant booked or checked that day.</p> : (
         <ul className="divide-y divide-edge/60 rounded-xl border border-edge bg-panel">
           {plant.map((m) => (
@@ -283,7 +296,7 @@ function PlantSection({ plant, tone }: { plant: Checks["plant"]; tone: (s: strin
                 <span className="text-xs text-gray-500">{m.booked ? `Booked: ${m.sites.join(", ")}` : "Not booked that day"}</span>
                 <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${tone(m.preStatus)}`}>Pre-start: {m.preStatus}</span>
                 <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${tone(m.postStatus)}`}>Post-check: {m.postStatus}</span>
-                {m.checks.some((c) => c.hourMeterFlag === "LOWER") && <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-semibold text-amber-300">Hours lower than before</span>}
+                {m.checks.some((c) => c.hourMeterFlag && !c.hourMeterWrong) && <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-semibold text-amber-300">Hours to check</span>}
               </button>
               {open === m.machineId && (
                 <div className="mt-2 space-y-3 pl-6">
@@ -294,8 +307,11 @@ function PlantSection({ plant, tone }: { plant: Checks["plant"]; tone: (s: strin
                         {c.kind === "PRE" ? "Pre-start" : "Post-check"} · {c.at} · {c.person}{c.staff ? "" : " (hire)"}
                       </div>
                       <div className="mb-2 text-gray-400">
-                        Hours: {c.hourMeter != null ? c.hourMeter.toLocaleString("en-AU") : "-"}
+                        Hours: <span className={c.hourMeterWrong ? "line-through" : ""}>{c.hourMeter != null ? c.hourMeter.toLocaleString("en-AU") : "-"}</span>
                         {c.hourMeterFlag === "LOWER" && <span className="ml-1 font-semibold text-amber-300">lower than the last reading ({c.hourMeterPrev?.toLocaleString("en-AU")})</span>}
+                        {c.hourMeterFlag === "HIGHER" && <span className="ml-1 font-semibold text-amber-300">a lot higher than the last reading ({c.hourMeterPrev?.toLocaleString("en-AU")})</span>}
+                        {c.hourMeterWrong ? <span className="ml-1 text-gray-500">- marked wrong by {c.hourMeterWrong.by}: {c.hourMeterWrong.note}</span>
+                          : c.hourMeter != null && <button className="ml-2 text-brand-300 hover:underline" onClick={() => markWrong(c.id)}>Reading wrong</button>}
                         {c.kind === "PRE" && <> · Walk-around: {c.walkaround === "DONE" ? "taken" : c.walkaround === "LIMIT" ? "photos couldn't be added (the day's photo limit)" : c.walkaround === "OPTIONAL" ? "optional (not the day's first)" : "-"}</>}
                       </div>
                       <div className="mb-2 flex flex-wrap gap-2">

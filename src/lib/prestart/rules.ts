@@ -296,7 +296,14 @@ export function parseHourMeter(v: unknown): { ok: true; value: number } | { ok: 
   return { ok: true, value: n };
 }
 // Lower than the last reading on this machine: kept and flagged for the office, never refused (a new meter, a typo).
-export const hourMeterFlag = (value: number, last: number | null) => (last != null && value < last ? "LOWER" : null);
+// PS-019 (10 Nov 2026): also HIGHER - more hours than the machine could have run since (24 a day, at least a day's worth).
+// `last` = the latest reading that wasn't flagged or marked wrong.
+export function hourMeterFlag(value: number, last: { value: number; at: Date } | null, now = new Date()): "LOWER" | "HIGHER" | null {
+  if (!last) return null;
+  if (value < last.value) return "LOWER";
+  const days = Math.max(1, (now.getTime() - last.at.getTime()) / 86_400_000);
+  return value - last.value > 24 * days ? "HIGHER" : null;
+}
 
 // A plant check session (the scan, the name, Start / End of shift): each QR and each phone may start only so many a
 // Sydney day. `c` = sessions already started today.

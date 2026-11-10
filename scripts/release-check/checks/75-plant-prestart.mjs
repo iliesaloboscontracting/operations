@@ -7,7 +7,8 @@
 // WRITES on the test copy: plant, people, a project + job with bookings, QRs, check sessions, checks, faults, photos.
 import { makeLink } from "../lib/setup.mjs";
 import { noMoney } from "../lib/context.mjs";
-import { randomBytes } from "node:crypto";
+import { createHmac, randomBytes } from "node:crypto";
+import { readFileSync } from "node:fs";
 
 const PNG_BYTES = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64");
 const uniqPng = () => `data:image/png;base64,${Buffer.concat([PNG_BYTES, randomBytes(16)]).toString("base64")}`;
@@ -203,6 +204,82 @@ export default {
     }
     t.status(await c.get(`/api/faults/media/${pre1?.meterPhotoId}`, "ADMIN"), 200, "an ADMIN opens the hour-meter photo");
     t.status(await c.get(`/api/faults/media/${pre1?.walkaroundPhotos?.[0]?.id}`, "YARD"), 200, "the yard opens a walk-around photo");
+
+    // (9b) PS-018: 60 starts at once on one QR - at most 40 sessions, the rest 429, nothing else.
+    {
+      const M5 = await mkPlant(5);
+      const s5 = secretOf((await printQr(M5.id)).body?.url);
+      const tk = (await scan(s5)).body?.ticket;
+      const burst = await Promise.all(Array.from({ length: 60 }, (_, i) => start(tk, "PRE", OP2, `rc75-burst-${tag}-${i}`)));
+      const ok = burst.filter((r) => r.status === 201).length;
+      const link5 = await db.siteLink.findFirst({ where: { kind: "PLANT", resourceId: M5.id, revokedAt: null } });
+      const rows = await db.plantCheckSession.count({ where: { linkId: link5?.id, day: c.today } });
+      t.ok(ok <= 40 && rows <= 40 && burst.every((r) => r.status === 201 || r.status === 429), "PS-018: 60 starts at once on one QR - at most 40 sessions, the rest 429", `${ok} started, ${rows} rows; ${burst.map((r) => r.status).join(",")}`);
+      t.ok(ok === rows, "and exactly the started ones are recorded", `${ok} / ${rows}`);
+    }
+
+    // (9c) PS-019: a junk reading is flagged HIGHER and never becomes "the last"; "Reading wrong" is kept, left out of it.
+    {
+      const M6 = await mkPlant(6);
+      const s6 = secretOf((await printQr(M6.id)).body?.url);
+      const first = await session(s6, "PRE", OP1, `rc75-h1-${tag}`);
+      const w6 = await walkAll(first.token);
+      const m1 = (await photo(first.token, "HOUR_METER")).body?.id;
+      t.status(await submit(first.token, { answers: allOk(PRE), walkaround: w6, hourMeter: { value: "1000", mediaId: m1 } }), 201, "machine 6: first reading 1000");
+      const junk = await session(s6, "PRE", OP2, `rc75-h2-${tag}`);
+      const m2 = (await photo(junk.token, "HOUR_METER")).body?.id;
+      const j = await submit(junk.token, { answers: allOk(PRE), hourMeter: { value: "99999", mediaId: m2 } });
+      t.ok(j.status === 201 && j.body?.hourMeterFlag === "HIGHER", "PS-019: a reading far above the last (99999 after 1000) is accepted and flagged HIGHER", j.status);
+      const next = await session(s6, "PRE", OP3, `rc75-h3-${tag}`);
+      t.ok((await view(next.token)).body?.hourMeter?.last === 1000, "PS-019: the hint (the last reading) is still 1000 - the flagged one is left out");
+      const m3 = (await photo(next.token, "HOUR_METER")).body?.id;
+      const n = await submit(next.token, { answers: allOk(PRE), hourMeter: { value: "1002", mediaId: m3 } });
+      t.ok(n.status === 201 && n.body?.hourMeterFlag === null, "PS-019: the next true reading (1002) is NOT flagged LOWER against the junk one", JSON.stringify(n.body?.hourMeterFlag));
+      const c1002 = await db.prestartCheck.findFirst({ where: { resourceId: M6.id, hourMeter: 1002 } });
+      const wrongUrl = `/api/faults/checks/${c1002?.id}/hour-meter`;
+      for (const who of ["VIEWER", "ACCOUNTS"]) t.status(await c.post(wrongUrl, who, { note: "Typo" }), 403, `'Reading wrong': ${who} refused`);
+      t.status(await c.post(wrongUrl, null, { note: "Typo" }), 401, "'Reading wrong': no login refused");
+      t.status(await c.post(wrongUrl, "MANAGER", { note: "" }), 400, "'Reading wrong' needs a reason");
+      t.status(await c.post(wrongUrl, "MANAGER", { note: "Typo - meter shows 1020" }), 200, "a Manager marks the 1002 reading wrong");
+      t.status(await c.post(wrongUrl, "COORDINATOR", { note: "again" }), 409, "...once only (409 after)");
+      const marked = await db.prestartCheck.findUnique({ where: { id: c1002?.id } });
+      const ev = await db.hourMeterEvent.findMany({ where: { checkId: c1002?.id } });
+      t.ok(marked?.hourMeter === 1002 && !!marked.hourMeterWrongAt && !!marked.hourMeterWrongBy && /Typo/.test(marked.hourMeterWrongNote ?? "") && ev.length === 1 && ev[0].action === "WRONG",
+        "PS-019: recorded (who, when, why, an event) and the reading itself kept");
+      const after = await session(s6, "POST", OP3, `rc75-h4-${tag}`);
+      t.ok((await view(after.token)).body?.hourMeter?.last === 1000, "PS-019: the reading marked wrong is left out of 'the last reading' (back to 1000)");
+      const plant6 = ((await c.json(`/api/faults/checks?date=${c.today}`, "MANAGER")).body?.plant ?? []).find((m) => m.machineId === M6.id);
+      t.ok(plant6?.checks?.some((x) => x.hourMeter === 1002 && x.hourMeterWrong?.note) && plant6.checks.some((x) => x.hourMeterFlag === "HIGHER"), "Checks/Plant shows the HIGHER flag and the reading marked wrong, with its note");
+    }
+
+    // (9d) PS-021: the office can switch off the QR of a machine sold / archived or now hired; printing still needs owned plant.
+    {
+      const M7 = await mkPlant(7), M8 = await mkPlant(8);
+      await printQr(M7.id); await printQr(M8.id);
+      await db.resource.update({ where: { id: M7.id }, data: { active: false } });
+      await db.resource.update({ where: { id: M8.id }, data: { ownership: "HIRED" } });
+      for (const [what, m] of [["archived", M7], ["now hired", M8]]) {
+        t.status(await c.post("/api/plant/qr", "MANAGER", { resourceId: m.id, off: true }), 200, `PS-021: switching off the QR of a machine ${what} -> 200`);
+        t.ok((await db.siteLink.count({ where: { kind: "PLANT", resourceId: m.id, revokedAt: null } })) === 0, `...and its QR is switched off (${what})`);
+        t.status(await printQr(m.id), 400, `PS-021: printing a new QR for a machine ${what} is still refused`);
+      }
+      t.status(await c.post("/api/plant/qr", "VIEWER", { resourceId: M7.id, off: true }), 403, "switching off: a Viewer refused");
+    }
+
+    // (9e) A check token from an earlier day is refused (the session's Sydney day must be today).
+    {
+      const env = (() => { try { return Object.fromEntries(readFileSync(c.p.envFile, "utf8").split(/\r?\n/).filter((l) => /^[A-Z_]+=/.test(l)).map((l) => { const i = l.indexOf("="); return [l.slice(0, i), l.slice(i + 1).replace(/^"|"$/g, "").trim()]; })); } catch { return {}; } })();
+      if (!env.AUTH_SECRET) t.note("test AUTH_SECRET not readable - old-day token case not checked");
+      else {
+        const link1 = await db.siteLink.findFirst({ where: { kind: "PLANT", resourceId: M1.id, revokedAt: null } });
+        const y = new Date(`${c.today}T00:00:00Z`); y.setUTCDate(y.getUTCDate() - 1);
+        const old = await db.plantCheckSession.create({ data: { linkId: link1.id, resourceId: M1.id, kind: "PRE", day: y.toISOString().slice(0, 10), personName: "RC old day", personId: OP1.id } });
+        const payload = `PC|${old.id}|PRE|${Date.now() + 60 * 60_000}`;
+        const tok = `${Buffer.from(payload).toString("base64url")}.${createHmac("sha256", `${env.AUTH_SECRET}:site-signin`).update(payload).digest("base64url").slice(0, 22)}`;
+        t.status(await view(tok), 401, "a check token for yesterday's session is refused (still within its 2 hours)");
+        t.status(await photo(tok), 401, "...for a photo too");
+      }
+    }
 
     // (10) Nothing with a dollar figure on the link; no sign-ins were made by any of it.
     const leaked = linkBodies.filter((x) => !noMoney(x));
