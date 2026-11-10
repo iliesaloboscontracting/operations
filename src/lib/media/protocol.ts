@@ -59,18 +59,20 @@ function serial<T>(f: () => Promise<T>): Promise<T> {
 // One complete per upload at a time (a phone retrying while the first is still being checked).
 const completing = new Set<string>();
 
+// Bytes are added up here, not with Prisma's _sum: a day's total passes 2 GB, beyond a 32-bit Int's range.
+const sumBytes = (rows: { bytes: number }[]) => rows.reduce((a, r) => a + r.bytes, 0);
 async function dayCounts(s: Source) {
   const since = { gte: sydneyMidnight() };
   const [items, videos, bytes, company] = await Promise.all([
     prisma.mediaObject.count({ where: { ...sourceWhere(s), createdAt: since } }),
     prisma.mediaObject.count({ where: { ...sourceWhere(s), kind: "VIDEO", createdAt: since } }),
-    prisma.mediaObject.aggregate({ where: { ...sourceWhere(s), createdAt: since }, _sum: { bytes: true } }),
-    prisma.mediaObject.aggregate({ where: { createdAt: since }, _sum: { bytes: true } }),
+    prisma.mediaObject.findMany({ where: { ...sourceWhere(s), createdAt: since }, select: { bytes: true } }),
+    companyBytesToday(),
   ]);
-  return { source: { items, videos, bytes: bytes._sum.bytes ?? 0 }, company: company._sum.bytes ?? 0 };
+  return { source: { items, videos, bytes: sumBytes(bytes) }, company };
 }
 export async function companyBytesToday(): Promise<number> {
-  return (await prisma.mediaObject.aggregate({ where: { createdAt: { gte: sydneyMidnight() } }, _sum: { bytes: true } }))._sum.bytes ?? 0;
+  return sumBytes(await prisma.mediaObject.findMany({ where: { createdAt: { gte: sydneyMidnight() } }, select: { bytes: true } }));
 }
 // Is today's company-wide ceiling reached? (The pre-start lets an Urgent fault through without a photo then - PS-010.)
 export async function mediaCeilingFull(): Promise<boolean> {
