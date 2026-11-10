@@ -6,6 +6,7 @@ import { assertNoMoney } from "../moneyGuard";
 import { mediaTypeOf, readPhoto } from "../toolPhotos";
 import { logPhotoFile, siteReport, siteReportDays } from "./store";
 import { beforeAfterFile } from "./beforeAfterStore";
+import { isMediaName, mediaResponse } from "../media/serve";
 
 // opts.removed: only the office's route (Manager+) asks for removed before / after photos (SEC-BA-004).
 export async function reportResponse(jobId: string, opts: { removed?: boolean } = {}) {
@@ -20,18 +21,22 @@ export async function daysResponse(projectId: string | null) {
   return NextResponse.json({ days: await siteReportDays(projectId) });
 }
 
-export async function photoResponse(log: string | null, file: string | null) {
+// A bucket upload (large uploads, 10 Nov 2026): a redirect to a 5-minute signed read (?download=1 to save it) - after the
+// same checks. req: for ?download=1.
+export async function photoResponse(log: string | null, file: string | null, req?: { nextUrl: URL }) {
   const name = await logPhotoFile(log ?? "", file ?? "");
   if (!name) return NextResponse.json({ error: "not found" }, { status: 404 });
+  if (isMediaName(name)) return mediaResponse(name, req);
   const bytes = await readPhoto(name).catch(() => null);
   if (!bytes) return NextResponse.json({ error: "The photo file is missing." }, { status: 404 });
   return new NextResponse(new Uint8Array(bytes), { headers: { "Content-Type": mediaTypeOf(name), "Cache-Control": "private, max-age=86400" } });
 }
 
 // A before / after photo (30 Oct 2026): served only when it is a shown photo of that job.
-export async function beforeAfterPhotoResponse(jobId: string | null, id: string | null, opts: { allowRemoved?: boolean } = {}) {
+export async function beforeAfterPhotoResponse(jobId: string | null, id: string | null, opts: { allowRemoved?: boolean } = {}, req?: { nextUrl: URL }) {
   const name = await beforeAfterFile(jobId ?? "", id ?? "", opts);
   if (!name) return NextResponse.json({ error: "not found" }, { status: 404 });
+  if (isMediaName(name)) return mediaResponse(name, req);
   const bytes = await readPhoto(name).catch(() => null);
   if (!bytes) return NextResponse.json({ error: "The photo file is missing." }, { status: 404 });
   return new NextResponse(new Uint8Array(bytes), { headers: { "Content-Type": mediaTypeOf(name), "Cache-Control": "private, max-age=86400" } });

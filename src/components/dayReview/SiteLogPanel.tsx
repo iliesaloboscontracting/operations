@@ -7,6 +7,7 @@ import { useAuth } from "@/components/AuthProvider";
 import HoursVsBudget from "@/components/tracking/HoursVsBudget";
 import SiteReport from "@/components/dailyReport/SiteReport";
 import BeforeAfterView from "@/components/dailyReport/BeforeAfterView";
+import MediaTile from "@/components/media/MediaTile";
 import { UNIT_LABEL, ACM } from "@/lib/dailyLog/rules";
 import type { DayReviewSiteLogDTO, HoursVsBudgetDTO } from "@/lib/dailyLog/types";
 
@@ -31,6 +32,7 @@ export default function SiteLogPanel({ log, budget }: { log: DayReviewSiteLogDTO
   const { canEdit } = useAuth(); // the written report is Manager+
   const l = log.latest;
   const photo = (file: string) => `/api/day-review/site-logs/photo?log=${l?.logId}&file=${encodeURIComponent(file)}`;
+  const isVideo = (file: string) => !!l?.videos?.includes(file); // large uploads (10 Nov 2026): plays with a Download link
   const labour = l ? l.hours.filter((x) => x.kind === "LABOUR") : [];
   const plant = l ? l.hours.filter((x) => x.kind !== "LABOUR") : [];
   const max = Math.max(1, ...labour.map((x) => x.hours));
@@ -76,7 +78,7 @@ export default function SiteLogPanel({ log, budget }: { log: DayReviewSiteLogDTO
           <div className="text-gray-400">
             {l.delays.length ? l.delays.map((d, i) => (
               <div key={i}>Delay: <b className="text-gray-300">{d.label}</b>{d.hoursLost != null ? ` · ~${hrs(d.hoursLost)} lost` : ""} · {d.affects.toLowerCase()}{d.note ? ` · ${d.note}` : ""}
-                {d.photos.map((p) => <a key={p} href={photo(p)} target="_blank" rel="noreferrer" className="ml-1 text-brand-400 underline">photo</a>)}</div>
+                {d.photos.map((p) => <a key={p} href={photo(p)} target="_blank" rel="noreferrer" className="ml-1 text-brand-400 underline">{isVideo(p) ? "video" : "photo"}</a>)}</div>
             )) : <div>No delays</div>}
           </div>
           <div className="text-gray-400">
@@ -89,7 +91,7 @@ export default function SiteLogPanel({ log, budget }: { log: DayReviewSiteLogDTO
           </div>
           {l.note && <p className="text-gray-300">&ldquo;{l.note}&rdquo;</p>}
           {l.photos.length > 0 && (
-            <div className="flex flex-wrap gap-1.5">{l.photos.map((p) => <a key={p} href={photo(p)} target="_blank" rel="noreferrer"><img src={photo(p)} alt="" className="h-14 w-14 rounded object-cover" /></a>)}</div>
+            <div className="flex flex-wrap items-start gap-1.5">{l.photos.map((p) => <MediaTile key={p} src={photo(p)} video={isVideo(p)} alt={isVideo(p) ? "Site video" : ""} imgClassName={isVideo(p) ? "h-28 w-44 rounded object-cover" : "h-14 w-14 rounded object-cover"} />)}</div>
           )}
         </div>
       )}

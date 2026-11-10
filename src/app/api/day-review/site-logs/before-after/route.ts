@@ -11,5 +11,5 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
   const denied = await guardOrCoordinator("MANAGER");
   if (denied) return denied;
   const office = (await getCurrentUser())?.role !== "COORDINATOR";
-  return beforeAfterPhotoResponse(req.nextUrl.searchParams.get("job"), req.nextUrl.searchParams.get("id"), { allowRemoved: office });
+  return beforeAfterPhotoResponse(req.nextUrl.searchParams.get("job"), req.nextUrl.searchParams.get("id"), { allowRemoved: office }, req);
 });

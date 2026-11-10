@@ -8,6 +8,7 @@
 import { BY_CODE, CODES, WASTE_CLASSES, isCode } from "../activityCodes";
 import { assertNoMoney } from "../moneyGuard";
 import { stripMoney } from "./money";
+import { LOG_MEDIA, mediaIdOf } from "../media/rules";
 
 // Money guard for everything the link sends back: no dollar figure anywhere in it.
 export const linkSafe = (x: unknown) => assertNoMoney(JSON.stringify(x));
@@ -27,6 +28,14 @@ export const UNIT_LABEL: Record<string, string> = { t: "t", m3: "m³", loads: "l
 export const DOCKET_CODES = CODES.filter((c) => c.wasteClasses).map((c) => c.code);
 export const ACM = "Asbestos (ACM)";
 export const LIMITS = { codes: 15, plant: 20, delays: 6, dockets: 20, logPhotos: 4, delayPhotos: 4, logsPerLinkPerDay: 20 };
+// Large uploads (10 Nov 2026): logPhotos / delayPhotos above still limit the photos sent the old way (inside the log,
+// shrunk) - and kept old ones. Bucket uploads ("media:<id>") go on top, up to LOG_MEDIA's 12 photos + 3 videos a log and
+// 6 + 2 a delay in all (the kinds are counted on the server once each upload is looked up - store.ts submitLog).
+const photoLimit = (photos: string[], legacy: number, photosMax: number, videosMax: number, what: string): string | null => {
+  if (photos.filter((p) => !mediaIdOf(p)).length > legacy) return `At most ${legacy} photos ${what}.`;
+  if (photos.length > photosMax + videosMax) return `At most ${photosMax} photos and ${videosMax} videos ${what}.`;
+  return null;
+};
 // The log's note (typed, or the supervisor's voice cleaned up - several recordings add up). 12000 since 29 Oct 2026
 // (Ilies: "the guys will have a lot to say so ensure we have capacity for it"). A cleaned recording is kept within it
 // (voiceRules.validateCleaned), and the screen won't add past it - nothing is cut off quietly.
@@ -154,7 +163,8 @@ export function parseLog(b: Record<string, unknown>, ctx: LogContext): ParsedLog
     if (lost != null && (!Number.isFinite(lost) || lost < 0 || lost > 24)) return { error: "Hours lost must be between 0 and 24." };
     const affects = (AFFECTS as readonly string[]).includes(String(r.affects)) ? String(r.affects) : "CREW";
     const photos = photoList(r.photos);
-    if (photos.length > LIMITS.delayPhotos) return { error: `At most ${LIMITS.delayPhotos} photos for a delay.` };
+    const tooMany = photoLimit(photos, LIMITS.delayPhotos, LOG_MEDIA.delayPhotos, LOG_MEDIA.delayVideos, "for a delay");
+    if (tooMany) return { error: tooMany };
     const note = free(r.note, 500) || null;
     if (delayCode === "OTHER" && !note) return { error: "Say what held you up." };
     delays.push({ delayCode, hoursLost: lost == null ? null : quarter(lost), affects, note, photos });
@@ -172,7 +182,8 @@ export function parseLog(b: Record<string, unknown>, ctx: LogContext): ParsedLog
   }
 
   const photos = photoList(b.photos);
-  if (photos.length > LIMITS.logPhotos) return { error: `At most ${LIMITS.logPhotos} photos of the day.` };
+  const tooMany = photoLimit(photos, LIMITS.logPhotos, LOG_MEDIA.logPhotos, LOG_MEDIA.logVideos, "of the day");
+  if (tooMany) return { error: tooMany };
   const dur = num(b.durationSec);
   return {
     crewOk, crewNote, crewCount, labourHours, splitHours, hours, delays, dockets,

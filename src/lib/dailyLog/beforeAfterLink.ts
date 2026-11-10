@@ -64,9 +64,11 @@ export async function hideLinkPhoto(link: ResolvedLink, id: unknown, now: Date):
   return { photos: await setsFor(row.jobId) };
 }
 
-// A shown photo for the link's own screen - only on a job it can log today.
+// A shown photo for the link's own screen - only on a job it can log today. A bucket upload (photo or video, 10 Nov
+// 2026) only when this link sent it - a link only ever reads its own uploads.
 export async function linkPhotoFile(link: ResolvedLink, id: string | null, now: Date): Promise<string | null> {
-  const row = id ? await prisma.siteLogPhoto.findUnique({ where: { id }, select: { jobId: true, fileName: true, hiddenAt: true } }) : null;
+  const row = id ? await prisma.siteLogPhoto.findUnique({ where: { id }, select: { jobId: true, fileName: true, hiddenAt: true, mediaId: true, siteLinkId: true } }) : null;
   if (!row || row.hiddenAt || !(await loggableJob(link, row.jobId, now))) return null;
+  if (row.mediaId && row.siteLinkId !== link.id) return null;
   return row.fileName;
 }

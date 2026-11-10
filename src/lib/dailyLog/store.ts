@@ -23,6 +23,11 @@ import { voiceAvailable } from "./voiceRules";
 import { nameWithoutAmounts, stripMoney } from "./money";
 import { summaryState, supervisorsFor, voiceTranscript } from "./dayReview";
 import { beforeAfterDTO, beforeAfterFor } from "./beforeAfterStore";
+import { videoNames } from "../media/serve";
+import { mediaOn } from "../media/store";
+import { phoneConfig } from "../media/protocol";
+import { LOG_MEDIA, mediaIdOf } from "../media/rules";
+import { usableLogMedia } from "./media";
 import type { DayReviewLogSummaryDTO, DayReviewSiteLogDTO, DayReviewSiteLogsDTO, HoursVsBudgetDTO, LinkLogDTO, LogCardDTO, LogDetailDTO, LogJobDTO, ProgressFormDTO, SiteReportDayDTO, SiteReportDTO } from "./types";
 
 const dateOnly = (day: string) => new Date(`${day}T00:00:00.000Z`);
@@ -160,7 +165,10 @@ const nm = (s: string | null) => (s == null ? s : stripMoney(s).text);
 async function toDetail(l: LogRow): Promise<LogDetailDTO> {
   const resIds = l.hours.map((h) => h.resourceId).filter((x): x is string => !!x);
   const names = new Map((resIds.length ? await prisma.resource.findMany({ where: { id: { in: resIds } }, select: { id: true, name: true } }) : []).map((r) => [r.id, r.name]));
+  // Large uploads (10 Nov 2026): which cited "media:<id>" names are videos - the pages play those with a Download link.
+  const videos = await videoNames([...parseIds(l.photoIds), ...l.delays.flatMap((d) => parseIds(d.photoIds))]);
   return {
+    ...(videos.size ? { videos: [...videos] } : {}),
     id: l.id, revision: l.revision, submittedBy: l.submittedBy, at: l.createdAt.toISOString(), atLabel: sydneyTime(l.createdAt) ?? "",
     codesVersion: l.codesVersion, crewCount: l.crewCount, labourHours: l.labourHours, splitHours: l.splitHours, crewOk: l.crewOk, crewNote: nm(l.crewNote),
     note: nm(l.note), photos: parseIds(l.photoIds), noDelays: l.noDelays, noDockets: l.noDockets, durationSec: l.durationSec,
@@ -252,7 +260,7 @@ export async function linkLogView(link: ResolvedLink, now: Date): Promise<LinkLo
   const out: LogJobDTO[] = [];
   // Tip dockets now come in as receipts from whoever has them (Receipts R1) - the log just counts them.
   const dockets = await docketsSentFor(jobs.map((j) => j.id));
-  const photos = await beforeAfterFor(jobs.map((j) => j.id));
+  const photos = await beforeAfterFor(jobs.map((j) => j.id), { linkId: link.id });
   for (const j of jobs) {
     const [crew, plant, latest] = await Promise.all([crewFor(j.id, now), plantFor(j), latestLogRow(j.id)]);
     out.push({
@@ -264,7 +272,8 @@ export async function linkLogView(link: ResolvedLink, now: Date): Promise<LinkLo
   }
   const progress = await progressForms(link, now, budgets);
   // voice: the mic shows only when it's on and both keys are set (DAILY_LOG_VOICE, OPENAI_API_KEY, ANTHROPIC_API_KEY).
-  return { jobs: out, progress, voice: voiceAvailable() };
+  // media: large uploads (10 Nov 2026) - on when the bucket is set up and MEDIA_UPLOADS isn't off; otherwise the old way.
+  return { jobs: out, progress, voice: voiceAvailable(), media: mediaOn() ? phoneConfig(["PHOTO", "VIDEO"]) : null };
 }
 
 // Weekly % forms for the projects the person worked on this week.
@@ -349,7 +358,18 @@ export async function submitLog(link: ResolvedLink, body: Record<string, unknown
 
   // Photos: new ones (data URLs) are saved; one kept from an earlier version must really be that job's.
   const earlier = new Set(prior.flatMap((l) => [...parseIds(l.photoIds), ...l.delays.flatMap((d) => parseIds(d.photoIds)), ...l.dockets.map((d) => d.photoId ?? "")]).filter(Boolean));
+  // Large uploads (10 Nov 2026): a new "media:<id>" must be this link's READY upload for this job, sent for that part
+  // (the day's photos or a delay); then the kinds are counted - 12 photos + 3 videos a log, 6 + 2 a delay.
+  const fresh = (ps: string[], area: "DAILY_LOG" | "DELAY") => ps.filter((p) => mediaIdOf(p) && !earlier.has(p)).map((p) => ({ area, id: mediaIdOf(p)! }));
+  const usable = await usableLogMedia(link.id, job.id, [...fresh(parsed.photos, "DAILY_LOG"), ...parsed.delays.flatMap((d) => fresh(d.photos, "DELAY"))]);
+  if ("error" in usable) return { error: usable.error, status: 400 };
+  const vids = await videoNames([...parsed.photos, ...parsed.delays.flatMap((d) => d.photos)]);
+  const kindsOver = (ps: string[], photosMax: number, videosMax: number) => { const v = ps.filter((p) => vids.has(p)).length; return v > videosMax || ps.length - v > photosMax; };
+  if (kindsOver(parsed.photos, LOG_MEDIA.logPhotos, LOG_MEDIA.logVideos)) return { error: `At most ${LOG_MEDIA.logPhotos} photos and ${LOG_MEDIA.logVideos} videos of the day.`, status: 400 };
+  if (parsed.delays.some((d) => kindsOver(d.photos, LOG_MEDIA.delayPhotos, LOG_MEDIA.delayVideos))) return { error: `At most ${LOG_MEDIA.delayPhotos} photos and ${LOG_MEDIA.delayVideos} videos for a delay.`, status: 400 };
   const store = async (p: string): Promise<string | { error: string }> => {
+    const mid = mediaIdOf(p);
+    if (mid) return earlier.has(p) || usable.has(mid) ? p : { error: "A photo or video in the log couldn't be found - add it again." };
     if (!p.startsWith("data:")) return earlier.has(p) ? p : { error: "A photo in the log couldn't be found - add it again." };
     const s = await savePhoto(p);
     return "error" in s ? s : s.fileName;
@@ -375,6 +395,8 @@ export async function submitLog(link: ResolvedLink, body: Record<string, unknown
     revision = nextRevision((await prisma.dailyLog.findMany({ where: { jobId: job.id }, select: { revision: true } })).map((l) => l.revision));
     return prisma.dailyLog.create({ data: data(revision), include: logInclude });
   });
+  // The uploads this revision used for the first time remember it (owner reference only - the log's JSON is the record).
+  if (usable.size) await prisma.mediaObject.updateMany({ where: { id: { in: [...usable.keys()] }, logId: null }, data: { logId: saved.id } });
   return { log: await toDetail(saved), amountsRemoved: parsed.amountsRemoved };
 }
 
@@ -520,6 +542,10 @@ export async function siteReportDays(projectId: string, limit = 60): Promise<Sit
     select: { jobId: true, date: true, revision: true, submittedBy: true, job: { select: { shift: true } } },
   });
   const seen = new Set<string>();
-  return logs.filter((l) => !seen.has(l.jobId) && seen.add(l.jobId)).slice(0, limit)
-    .map((l) => ({ jobId: l.jobId, date: l.date, shift: l.job.shift, revision: l.revision, submittedBy: l.submittedBy }));
+  const days = logs.filter((l) => !seen.has(l.jobId) && seen.add(l.jobId)).slice(0, limit);
+  // Large uploads (10 Nov 2026): how many videos each day has (the log's, its delays' and before / after) - the job page
+  // says "2 videos" next to the report.
+  const vids = days.length ? await prisma.mediaObject.groupBy({ by: ["jobId"], where: { jobId: { in: days.map((d) => d.jobId) }, kind: "VIDEO", state: "READY", OR: [{ logId: { not: null } }, { linkedId: { not: null } }] }, _count: { _all: true } }) : [];
+  const byJob = new Map(vids.map((v) => [v.jobId, v._count._all]));
+  return days.map((l) => ({ jobId: l.jobId, date: l.date, shift: l.job.shift, revision: l.revision, submittedBy: l.submittedBy, ...(byJob.get(l.jobId) ? { videos: byJob.get(l.jobId) } : {}) }));
 }

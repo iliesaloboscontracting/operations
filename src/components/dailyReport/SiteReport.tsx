@@ -8,6 +8,7 @@ import { fmtDay } from "@/lib/dates";
 import { ACM, UNIT_LABEL } from "@/lib/dailyLog/rules";
 import type { SiteReportDTO } from "@/lib/dailyLog/types";
 import BeforeAfterView from "./BeforeAfterView";
+import MediaTile from "@/components/media/MediaTile";
 import { useAuth } from "@/components/AuthProvider";
 
 // The written "Daily site report" (29 Oct 2026, Ilies "go"): one job on one day, laid out for the office to read or
@@ -30,6 +31,8 @@ const PRINT = `
   #site-report .sr-muted { color: #555 !important; }
   #site-report .sr-noprint { display: none !important; }
   #site-report img { max-height: 70mm; }
+  #site-report .media-video { display: none !important; }
+  #site-report .media-print-note { display: flex !important; }
 }`;
 
 export default function SiteReport({ jobId, mode, inline = false }: { jobId: string; mode: "ops" | "director"; inline?: boolean }) {
@@ -116,7 +119,7 @@ export default function SiteReport({ jobId, mode, inline = false }: { jobId: str
             {l.delays.length === 0 ? <p className="sr-muted text-sm text-gray-500">No hold-ups reported.</p> : l.delays.map((d, i) => (
               <div key={i} className="border-t border-edge/50 py-1.5 text-sm first:border-0">
                 <p><span className="font-semibold">{d.label}</span>{d.hoursLost != null ? ` · ${hrs(d.hoursLost)} lost` : ""} · {d.affects === "BOTH" ? "crew and plant" : d.affects.toLowerCase()}{d.note ? ` - ${d.note}` : ""}</p>
-                {d.photos.length > 0 && <div className="mt-1 flex flex-wrap gap-2">{d.photos.map((f) => <img key={f} src={photo(l.logId, f)} alt="Delay photo" className="h-32 rounded border border-edge object-cover" />)}</div>}
+                {d.photos.length > 0 && <div className="mt-1 flex flex-wrap items-start gap-2">{d.photos.map((f) => <MediaTile key={f} src={photo(l.logId, f)} video={l.videos?.includes(f)} alt={l.videos?.includes(f) ? "Delay video" : "Delay photo"} imgClassName={l.videos?.includes(f) ? "h-40 max-w-full rounded border border-edge" : "h-32 rounded border border-edge object-cover"} />)}</div>}
               </div>
             ))}
           </section>
@@ -135,7 +138,7 @@ export default function SiteReport({ jobId, mode, inline = false }: { jobId: str
           {l.photos.length > 0 && (
             <section className={card}>
               <h3 className={h3}>Photos</h3>
-              <div className="grid grid-cols-2 gap-2">{l.photos.map((f) => <img key={f} src={photo(l.logId, f)} alt="Site photo" className="w-full rounded border border-edge object-cover" />)}</div>
+              <div className="grid grid-cols-2 gap-2">{l.photos.map((f) => <MediaTile key={f} src={photo(l.logId, f)} video={l.videos?.includes(f)} alt={l.videos?.includes(f) ? "Site video" : "Site photo"} imgClassName="w-full rounded border border-edge object-cover" />)}</div>
             </section>
           )}
         </>

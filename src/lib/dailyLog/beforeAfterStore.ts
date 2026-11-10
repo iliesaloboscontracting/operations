@@ -13,16 +13,21 @@ const EMPTY: BeforeAfterSets = { before: [], after: [] };
 
 // The shown photos of each job, oldest first, by phase. withRemoved (Managers and up only - SEC-BA-004): the removed
 // ones too, apart, with who removed them and when.
-export async function beforeAfterFor(jobIds: string[], opts: { withRemoved?: boolean } = {}): Promise<Map<string, BeforeAfterSets>> {
+// opts.linkId (a link's own screen, 10 Nov 2026): a bucket upload sent by another link is marked mine: false - the phone
+// shows a plain tile for it (a link only ever reads its own uploads).
+export async function beforeAfterFor(jobIds: string[], opts: { withRemoved?: boolean; linkId?: string } = {}): Promise<Map<string, BeforeAfterSets>> {
   const out = new Map<string, BeforeAfterSets>();
   if (!jobIds.length) return out;
   const rows = await prisma.siteLogPhoto.findMany({
     where: { jobId: { in: jobIds }, ...(opts.withRemoved ? {} : { hiddenAt: null }) }, orderBy: { createdAt: "asc" },
-    select: { id: true, jobId: true, phase: true, takenBy: true, createdAt: true, hiddenAt: true, hiddenBy: true },
+    select: { id: true, jobId: true, phase: true, takenBy: true, createdAt: true, hiddenAt: true, hiddenBy: true, kind: true, mediaId: true, siteLinkId: true },
   });
   for (const r of rows) {
     const sets = out.get(r.jobId) ?? (opts.withRemoved ? { before: [], after: [], removed: [] } : { before: [], after: [] });
-    const p: BeforeAfterPhotoDTO = { id: r.id, at: r.createdAt.toISOString(), atLabel: sydneyTime(r.createdAt) ?? "", takenBy: nameWithoutAmounts(r.takenBy) };
+    const p: BeforeAfterPhotoDTO = {
+      id: r.id, at: r.createdAt.toISOString(), atLabel: sydneyTime(r.createdAt) ?? "", takenBy: nameWithoutAmounts(r.takenBy),
+      ...(r.kind === "VIDEO" ? { video: true as const } : {}), ...(opts.linkId && r.mediaId && r.siteLinkId !== opts.linkId ? { mine: false as const } : {}),
+    };
     if (r.hiddenAt) sets.removed!.push({ ...p, phase: r.phase === "BEFORE" ? "BEFORE" : "AFTER", removedBy: nameWithoutAmounts(r.hiddenBy ?? ""), removedAtLabel: sydneyTime(r.hiddenAt) ?? "" });
     else (r.phase === "BEFORE" ? sets.before : sets.after).push(p);
     out.set(r.jobId, sets);

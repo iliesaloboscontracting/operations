@@ -7,6 +7,7 @@ import { addLinkPhoto, hideLinkPhoto, linkPhotoFile } from "@/lib/dailyLog/befor
 import { BEFORE_AFTER_LIMITS, PHOTO_TOO_BIG, parsePhase } from "@/lib/dailyLog/beforeAfter";
 import { readCapped } from "@/lib/dailyLog/voiceBody";
 import { mediaTypeOf, readPhoto } from "@/lib/toolPhotos";
+import { isMediaName, mediaResponse } from "@/lib/media/serve";
 
 // Before and after site photos from a supervisor's (or hand-over) link (30 Oct 2026). Rides the photos tunnel's
 // api/site/.* route. Not on the daily log -> 404, as the log itself.
@@ -47,6 +48,8 @@ export const GET = withErrorHandling(async (req: NextRequest, { params: paramsP 
   if (!link) return res;
   const file = await linkPhotoFile(link, req.nextUrl.searchParams.get("id"), new Date());
   if (!file) return NextResponse.json({ error: "not found" }, { status: 404 });
+  // A bucket upload (10 Nov 2026): only this link's own (linkPhotoFile checked) - a 5-minute signed read.
+  if (isMediaName(file)) return mediaResponse(file, req);
   const bytes = await readPhoto(file).catch(() => null);
   if (!bytes) return NextResponse.json({ error: "The photo file is missing." }, { status: 404 });
   return new NextResponse(new Uint8Array(bytes), { headers: { "Content-Type": mediaTypeOf(file), "Cache-Control": "private, max-age=3600" } });

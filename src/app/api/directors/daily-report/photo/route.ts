@@ -8,5 +8,5 @@ import { photoResponse } from "@/lib/dailyLog/reportResponses";
 export const GET = withErrorHandling(async (req: NextRequest) => {
   const denied = await guardDirector();
   if (denied) return denied;
-  return photoResponse(req.nextUrl.searchParams.get("log"), req.nextUrl.searchParams.get("file"));
+  return photoResponse(req.nextUrl.searchParams.get("log"), req.nextUrl.searchParams.get("file"), req);
 });

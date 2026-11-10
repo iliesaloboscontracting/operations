@@ -3,6 +3,7 @@
 // and the office's hours-vs-budget table (HoursVsBudgetDTO) is hours, never
 // dollars. Responses to the link also pass assertNoMoney (lib/moneyGuard).
 import type { HoursVsBudgetRow } from "./checks";
+import type { PhoneMediaConfig } from "../media/rules";
 
 // ---------- the supervisor's link ----------
 
@@ -17,10 +18,14 @@ export type LogDetailDTO = {
   hours: { code: string; label: string; kind: string; resourceId: string | null; resourceName: string | null; hours: number }[];
   delays: { delayCode: string; label: string; hoursLost: number | null; affects: string; note: string | null; photos: string[] }[];
   dockets: { code: string; wasteClass: string; quantity: number; unit: string; docketNo: string | null; facility: string | null; photo: string | null }[];
+  // Large uploads (10 Nov 2026): which of the photos above (the day's and the delays') are videos - "media:<id>" names.
+  videos?: string[];
 };
 
 // Before and after site photos (30 Oct 2026): names and times only - the image comes from a photo route by id.
-export type BeforeAfterPhotoDTO = { id: string; at: string; atLabel: string; takenBy: string };
+// video: a video (large uploads, 10 Nov 2026 - played with a Download link); mine: false = another link's bucket upload,
+// on a link's own screen only (it can't be opened there).
+export type BeforeAfterPhotoDTO = { id: string; at: string; atLabel: string; takenBy: string; video?: true; mine?: false };
 // A removed (hidden) photo, for Managers and up only (SEC-BA-004): shown greyed out with who removed it and when.
 export type RemovedPhotoDTO = BeforeAfterPhotoDTO & { phase: "BEFORE" | "AFTER"; removedBy: string; removedAtLabel: string };
 export type BeforeAfterDTO = {
@@ -44,7 +49,9 @@ export type ProgressFormDTO = {
   lines: { packageId: string | null; code: string; label: string; last: number | null; thisWeek: number | null }[];
 };
 
-export type LinkLogDTO = { jobs: LogJobDTO[]; progress: ProgressFormDTO[]; voice?: boolean }; // voice: the mic is available (29 Oct 2026)
+// media (10 Nov 2026): large uploads are on - full-quality photos and videos go straight to the bucket (null / absent =
+// the old way: shrunk photos inside the log, 4 a log and 4 a delay).
+export type LinkLogDTO = { jobs: LogJobDTO[]; progress: ProgressFormDTO[]; voice?: boolean; media?: PhoneMediaConfig | null }; // voice: the mic is available (29 Oct 2026)
 
 // The home card on the link ("Daily log - not done today" / "Logged 4:52pm").
 export type LogCardDTO = { jobs: number; logged: number; lastAt: string | null; progressDue: boolean };
@@ -79,7 +86,7 @@ export type SiteReportDTO = {
   docketsSent: number;
   beforeAfter: BeforeAfterDTO;
 };
-export type SiteReportDayDTO = { jobId: string; date: string; shift: string; revision: number; submittedBy: string };
+export type SiteReportDayDTO = { jobId: string; date: string; shift: string; revision: number; submittedBy: string; videos?: number }; // videos: on that day's log (10 Nov 2026)
 
 // The all-logs summary at the top of Day Review (30 Oct 2026): every job that day - who's on it, whether and when
 // it was logged (the latest version), by voice or typed. NO_SUPERVISOR: no supervisor with the log is on the job.

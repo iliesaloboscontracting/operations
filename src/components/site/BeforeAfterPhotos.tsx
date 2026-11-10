@@ -1,16 +1,20 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Camera, ImagePlus, Loader2, RotateCw, X } from "lucide-react";
+import { Camera, ImagePlus, Loader2, RotateCw, Video, X } from "lucide-react";
 import { resizePhoto } from "@/lib/imageResize";
 import { BEFORE_AFTER_LIMITS, PHASE_LABEL, type Phase } from "@/lib/dailyLog/beforeAfter";
 import type { BeforeAfterPhotoDTO } from "@/lib/dailyLog/types";
+import { LOG_MEDIA, type PhoneMediaConfig } from "@/lib/media/rules";
+import MediaUpload from "./MediaUpload";
 
 // Before / after site photos on the daily log (30 Oct 2026, Ilies). Each photo is sent the moment it's taken - not
 // held for the log - so a Before photo is safe even if the log is never sent. Big buttons for the camera or the
 // gallery (iPhone Safari and Android Chrome), a progress bar while it sends, and a photo that didn't get through on
 // bad signal waits with Retry (and goes again by itself when the phone is back online). Up to 6 a set; remove hides
 // one (the office keeps who and when). Never blocks the log.
+// Large uploads (10 Nov 2026, media on): full-quality photos and videos (up to 2 minutes) straight to the bucket through
+// MediaUpload - up to 10 a set with at most 3 videos; a video plays here (this link's own only).
 
 type Sets = { before: BeforeAfterPhotoDTO[]; after: BeforeAfterPhotoDTO[] };
 type Waiting = { key: number; dataUrl: string; state: "waiting" | "sending" | "failed"; progress: number; error: string | null };
@@ -29,8 +33,8 @@ function send(url: string, body: unknown, onProgress: (p: number) => void): Prom
   });
 }
 
-export default function BeforeAfterPhotos({ api, jobId, phase, initial, onChange, hint }: {
-  api: string; jobId: string; phase: Phase; initial: BeforeAfterPhotoDTO[]; onChange?: (sets: Sets) => void; hint?: string;
+export default function BeforeAfterPhotos({ api, jobId, phase, initial, onChange, hint, media }: {
+  api: string; jobId: string; phase: Phase; initial: BeforeAfterPhotoDTO[]; onChange?: (sets: Sets) => void; hint?: string; media?: PhoneMediaConfig | null;
 }) {
   const [shown, setShown] = useState<BeforeAfterPhotoDTO[]>(initial);
   const [queue, setQueueState] = useState<Waiting[]>([]);
@@ -44,7 +48,8 @@ export default function BeforeAfterPhotos({ api, jobId, phase, initial, onChange
   const pumping = useRef(false);
   const url = `${api}/log/photos`;
   const label = PHASE_LABEL[phase];
-  const room = BEFORE_AFTER_LIMITS.perPhase - shown.length - queue.length;
+  const perSet = media ? LOG_MEDIA.setItems : BEFORE_AFTER_LIMITS.perPhase;
+  const room = perSet - shown.length - queue.length;
 
   const apply = useCallback((sets: Sets | undefined) => {
     if (!sets) return;
@@ -110,14 +115,18 @@ export default function BeforeAfterPhotos({ api, jobId, phase, initial, onChange
     <div className="rounded-xl border border-edge bg-panel p-3">
       <div className="mb-2 flex items-baseline justify-between">
         <span className="text-base font-semibold text-gray-100">{label} photos</span>
-        <span className="text-sm text-gray-500">{shown.length} of {BEFORE_AFTER_LIMITS.perPhase}</span>
+        <span className="text-sm text-gray-500">{shown.length} of {perSet}</span>
       </div>
       {hint && shown.length === 0 && queue.length === 0 && <p className="mb-2 text-sm text-amber-300">{hint}</p>}
       {(shown.length > 0 || queue.length > 0) && (
         <div className="mb-3 grid grid-cols-3 gap-2">
           {shown.map((p) => (
             <span key={p.id} className="relative">
-              <img src={`${url}?id=${encodeURIComponent(p.id)}`} alt={`${label} photo ${p.atLabel}`} className="aspect-square w-full rounded-lg object-cover" />
+              {p.mine === false
+                ? <span className="flex aspect-square w-full items-center justify-center rounded-lg bg-panel2 text-center text-[11px] text-gray-400">{p.video ? <Video size={18} /> : <ImagePlus size={18} />}</span>
+                : p.video
+                  ? <video src={`${url}?id=${encodeURIComponent(p.id)}`} preload="metadata" controls playsInline className="aspect-square w-full rounded-lg bg-black object-cover" aria-label={`${label} video ${p.atLabel}`} />
+                  : <img src={`${url}?id=${encodeURIComponent(p.id)}`} alt={`${label} photo ${p.atLabel}`} className="aspect-square w-full rounded-lg object-cover" />}
               <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1 text-[11px] text-white">{p.atLabel}</span>
               <button className="absolute -right-1 -top-1 rounded-full bg-black/75 p-1 text-white" aria-label="Remove photo" onClick={() => remove(p.id)}><X size={14} /></button>
             </span>
@@ -138,14 +147,20 @@ export default function BeforeAfterPhotos({ api, jobId, phase, initial, onChange
       {queue.some((w) => w.state === "failed") && (
         <button className="mb-2 flex w-full items-center justify-center gap-2 rounded-xl bg-amber-500 px-3 py-3 text-base font-semibold text-black" onClick={retry}><RotateCw size={18} /> Retry</button>
       )}
+      {media ? (
+        <MediaUpload api={{ start: `${api}/media/start`, parts: `${api}/media/parts`, complete: `${api}/media/complete` }} fields={{ area: "BEFORE_AFTER", jobId, phase }}
+          kinds={media.kinds} room={{ items: perSet - shown.length, videos: LOG_MEDIA.setVideos - shown.filter((p) => p.video).length }}
+          tag={`${api}|${jobId}|BEFORE_AFTER|${phase}`} onDone={(r) => apply(r.body.photos as Sets | undefined)} />
+      ) : (<>
       <div className="flex gap-2">
         <button className={`${big} bg-brand-600 text-white`} disabled={room <= 0} onClick={() => camera.current?.click()}><Camera size={20} /> Take photo</button>
         <button className={`${big} border border-edge bg-panel2 text-gray-200`} disabled={room <= 0} onClick={() => gallery.current?.click()}><ImagePlus size={20} /> Gallery</button>
       </div>
       <input ref={camera} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => { pick(e.target.files); e.target.value = ""; }} />
       <input ref={gallery} type="file" accept="image/*" multiple className="hidden" onChange={(e) => { pick(e.target.files); e.target.value = ""; }} />
+      </>)}
       {error && <p className="mt-2 text-sm text-red-300">{error}</p>}
-      <p className="mt-2 text-xs text-gray-500">Each photo saves as soon as it&apos;s sent.</p>
+      <p className="mt-2 text-xs text-gray-500">Each {media ? "photo or video" : "photo"} saves as soon as it&apos;s sent.</p>
     </div>
   );
 }

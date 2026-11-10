@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Camera, Check, ImagePlus, Loader2, Minus, Plus, Search, X } from "lucide-react";
+import { Camera, Check, ImagePlus, Loader2, Minus, Plus, Search, Video, X } from "lucide-react";
 import { resizePhoto } from "@/lib/imageResize";
 import { serverErrorMessage } from "@/lib/apiFetch";
 import { fmtDay } from "@/lib/dates";
@@ -14,6 +14,8 @@ import { GuideLink } from "./LogGuide";
 import type { Phase } from "@/lib/dailyLog/beforeAfter";
 import { addToNote } from "@/lib/dailyLog/voiceRules";
 import { mergeDelays, mergeFill } from "@/lib/dailyLog/fill";
+import { LOG_MEDIA, mediaIdOf, type PhoneMediaConfig } from "@/lib/media/rules";
+import MediaUpload from "./MediaUpload";
 
 // The daily site log on a pilot supervisor's link (Task K, 25 Oct 2026):
 // about 60 seconds at the end of the day. 1) the crew and signed hours (from
@@ -27,6 +29,9 @@ import { mergeDelays, mergeFill } from "@/lib/dailyLog/fill";
 // any hold-ups it heard are suggestions the supervisor taps to use; Send is unchanged.
 // Before / after photos (30 Oct 2026, Ilies): "Before photos" first thing and "After photos" when the job's done or
 // with the log - each photo saved the moment it's sent (./BeforeAfterPhotos.tsx). Expected, never needed to send.
+// Large uploads (10 Nov 2026, Ilies): with the media bucket on (data.media), photos go at full quality and videos (up to
+// 2 minutes) can be added - the day's 12 photos + 3 videos, 6 + 2 a delay, 10 a before / after set with 3 videos - each
+// sent straight to the bucket the moment it's picked (./MediaUpload.tsx); Submit waits for them to finish.
 
 const input = "w-full rounded-lg border border-edge bg-panel2 px-3 py-2.5 text-base text-gray-200 placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500";
 const primary = "flex w-full items-center justify-center gap-2 rounded-xl bg-brand-600 px-4 py-3 text-base font-semibold text-white disabled:opacity-50";
@@ -60,12 +65,12 @@ export default function DailyLog({ api, onDone }: { api: string; onDone: (messag
     <div className="space-y-3">
       <h2 className="text-lg font-semibold text-gray-100">{photoJob.label}</h2>
       <p className="text-sm text-gray-500">{photoFor.phase === "BEFORE" ? "Photos of the site before you start." : "Photos of the site when the job's done."}</p>
-      <BeforeAfterPhotos api={api} jobId={photoJob.jobId} phase={photoFor.phase} initial={photoFor.phase === "BEFORE" ? photoJob.beforeAfter.before : photoJob.beforeAfter.after} />
+      <BeforeAfterPhotos api={api} jobId={photoJob.jobId} phase={photoFor.phase} initial={photoFor.phase === "BEFORE" ? photoJob.beforeAfter.before : photoJob.beforeAfter.after} media={data.media} />
       <button className={primary} onClick={() => { setPhotoFor(null); load(); }}>Done</button>
     </div>
   );
   const job = data.jobs.find((j) => j.jobId === picked);
-  if (job) return <LogSteps api={api} job={job} voice={!!data.voice} onBack={() => setPicked(null)} onSaved={(m) => onDone(m)} />;
+  if (job) return <LogSteps api={api} job={job} voice={!!data.voice} media={data.media ?? null} onBack={() => setPicked(null)} onSaved={(m) => onDone(m)} />;
   const form = data.progress.find((p) => p.projectId === progressFor);
   if (form) return <ProgressStep api={api} form={form} onBack={() => setProgressFor(null)} onSaved={(m) => onDone(m)} />;
 
@@ -134,7 +139,7 @@ type PlantRow = { resourceId: string; code: string; hours: number };
 type Delay = { delayCode: DelayCode; hoursLost: string; affects: string; note: string; photos: string[] };
 type Docket = { code: string; wasteClass: string; quantity: string; unit: string; docketNo: string; photo: string | null };
 
-function LogSteps({ api, job, voice, onBack, onSaved }: { api: string; job: LogJobDTO; voice: boolean; onBack: () => void; onSaved: (m: string) => void }) {
+function LogSteps({ api, job, voice, media, onBack, onSaved }: { api: string; job: LogJobDTO; voice: boolean; media: PhoneMediaConfig | null; onBack: () => void; onSaved: (m: string) => void }) {
   const started = useRef(Date.now());
   const prev = job.latest;
   const [step, setStep] = useState(0);
@@ -158,6 +163,12 @@ function LogSteps({ api, job, voice, onBack, onSaved }: { api: string; job: LogJ
   const [note, setNote] = useState(prev?.note ?? "");
   const [photos, setPhotos] = useState<string[]>(prev?.photos ?? []);
   const [voiceIds, setVoiceIds] = useState<string[]>([]); // the recordings whose text was used (the server keeps the transcripts)
+  // Large uploads: which "media:<id>" entries are videos, and which upload boxes are still sending (Submit waits).
+  const [videoRefs, setVideoRefs] = useState<Set<string>>(() => new Set(prev?.videos ?? []));
+  const [sending, setSending] = useState<Record<string, boolean>>({});
+  const uploadsBusy = Object.values(sending).some(Boolean);
+  const busyFor = useCallback((k: string) => (b: boolean) => setSending((s) => (s[k] === b ? s : { ...s, [k]: b })), []);
+  const addVideo = (ref: string, video: boolean) => { if (video) setVideoRefs((s) => new Set(s).add(ref)); };
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -231,7 +242,7 @@ function LogSteps({ api, job, voice, onBack, onSaved }: { api: string; job: LogJ
 
       {step === 0 && (
         <div className="space-y-3">
-          {!job.closed && <BeforeAfterPhotos api={api} jobId={job.jobId} phase="BEFORE" initial={job.beforeAfter.before} hint={job.beforeAfter.noBefore ? "No before photos yet." : undefined} />}
+          {!job.closed && <BeforeAfterPhotos api={api} jobId={job.jobId} phase="BEFORE" initial={job.beforeAfter.before} media={media} hint={job.beforeAfter.noBefore ? "No before photos yet." : undefined} />}
           <div className="rounded-xl border border-edge bg-panel p-4">
             <div className="flex items-baseline justify-between"><span className="text-sm text-gray-400">Crew today (signed in)</span><span className="text-lg font-semibold text-gray-100">{job.crew.count} · {h(signed)}</span></div>
             <div className="mt-1 text-sm text-gray-500">Staff {job.crew.staff} ({h(job.crew.staffHours)}), labour hire {job.crew.hire} ({h(job.crew.hireHours)})</div>
@@ -337,7 +348,11 @@ function LogSteps({ api, job, voice, onBack, onSaved }: { api: string; job: LogJ
                 </select>
               </div>
               <input className={input} placeholder={d.delayCode === "OTHER" ? "What held you up? (needed)" : "Note (optional)"} value={d.note} onChange={(e) => setDelays(delays.map((x, k) => (k === i ? { ...x, note: e.target.value } : x)))} />
-              <Photos photos={d.photos} max={4} onChange={(ps) => setDelays(delays.map((x, k) => (k === i ? { ...x, photos: ps } : x)))} />
+              {media
+                ? <MediaPhotos api={api} jobId={job.jobId} area="DELAY" media={media} photos={d.photos} videos={videoRefs} photoMax={LOG_MEDIA.delayPhotos} videoMax={LOG_MEDIA.delayVideos} onBusy={busyFor(`delay-${i}`)}
+                    onAdd={(ref, video) => { addVideo(ref, video); setDelays((ds) => ds.map((x, k) => (k === i ? { ...x, photos: [...x.photos, ref] } : x))); }}
+                    onRemove={(ref) => setDelays((ds) => ds.map((x, k) => (k === i ? { ...x, photos: x.photos.filter((p) => p !== ref) } : x)))} />
+                : <Photos photos={d.photos} max={4} onChange={(ps) => setDelays(delays.map((x, k) => (k === i ? { ...x, photos: ps } : x)))} />}
             </div>
           ))}
           {delays.length > 0 && <button className={primary} onClick={() => { setNoDelays(false); setStep(4); }}>Next →</button>}
@@ -354,10 +369,14 @@ function LogSteps({ api, job, voice, onBack, onSaved }: { api: string; job: LogJ
           </div>
           <label className="block"><span className="mb-1 block text-sm text-gray-300">Note for the office (optional)</span>
             <textarea className={input} rows={3} maxLength={NOTE_MAX} value={note} onChange={(e) => setNote(e.target.value)} /></label>
-          <Photos photos={photos} max={4} label="Add photos of the day" onChange={setPhotos} />
-          {!job.closed && <BeforeAfterPhotos api={api} jobId={job.jobId} phase="AFTER" initial={job.beforeAfter.after} hint="No after photos yet - add them when the job's done (you can still send without them)." />}
+          {media
+            ? <div><span className="mb-1 block text-sm text-gray-300">Photos and videos of the day (optional)</span>
+                <MediaPhotos api={api} jobId={job.jobId} area="DAILY_LOG" media={media} photos={photos} videos={videoRefs} photoMax={LOG_MEDIA.logPhotos} videoMax={LOG_MEDIA.logVideos} remember onBusy={busyFor("day")}
+                  onAdd={(ref, video) => { addVideo(ref, video); setPhotos((ps) => [...ps, ref]); }} onRemove={(ref) => setPhotos((ps) => ps.filter((p) => p !== ref))} /></div>
+            : <Photos photos={photos} max={4} label="Add photos of the day" onChange={setPhotos} />}
+          {!job.closed && <BeforeAfterPhotos api={api} jobId={job.jobId} phase="AFTER" initial={job.beforeAfter.after} media={media} hint="No after photos yet - add them when the job's done (you can still send without them)." />}
           {error && <p className="rounded-lg bg-red-500/15 px-3 py-2 text-sm text-red-300">{error}</p>}
-          <button className={primary} disabled={busy} onClick={submit}>{busy ? <Loader2 size={18} className="animate-spin" /> : <Check size={18} />} Submit</button>
+          <button className={primary} disabled={busy || uploadsBusy} onClick={submit}>{busy || uploadsBusy ? <Loader2 size={18} className="animate-spin" /> : <Check size={18} />} {uploadsBusy ? "Waiting for uploads..." : "Submit"}</button>
           <button className="w-full text-sm text-gray-400" onClick={() => setStep(2)}>← Back</button>
         </div>
       )}
@@ -431,6 +450,38 @@ function Photos({ photos, max, label = "Add a photo (optional)", onChange }: { p
       <input ref={camera} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => { pick(e.target.files); e.target.value = ""; }} />
       <input ref={gallery} type="file" accept="image/*" multiple className="hidden" onChange={(e) => { pick(e.target.files); e.target.value = ""; }} />
       {error && <p className="mt-1 text-xs text-red-300">{error}</p>}
+    </div>
+  );
+}
+
+// Large uploads (10 Nov 2026): the day's / a delay's photos and videos, each sent to the bucket as it's picked. A photo
+// sent this way shows from this link's own read route; a video is a tile (it plays on the office's pages).
+function MediaPhotos({ api, jobId, area, media, photos, videos, photoMax, videoMax, remember = false, onAdd, onRemove, onBusy }: {
+  api: string; jobId: string; area: "DAILY_LOG" | "DELAY"; media: PhoneMediaConfig; photos: string[]; videos: Set<string>; photoMax: number; videoMax: number;
+  remember?: boolean; onAdd: (ref: string, video: boolean) => void; onRemove: (ref: string) => void; onBusy: (b: boolean) => void;
+}) {
+  const nVideos = photos.filter((p) => videos.has(p)).length;
+  return (
+    <div>
+      {photos.length > 0 && (
+        <div className="mb-2 flex flex-wrap gap-2">
+          {photos.map((p) => {
+            const id = mediaIdOf(p);
+            return (
+              <span key={p} className="relative">
+                {videos.has(p) ? <span className="flex h-16 w-16 flex-col items-center justify-center rounded-lg bg-panel2 text-[11px] text-gray-300"><Video size={18} /> Video</span>
+                  : id ? <img src={`${api}/media/${id}`} alt="" className="h-16 w-16 rounded-lg object-cover" />
+                  : p.startsWith("data:") ? <img src={p} alt="" className="h-16 w-16 rounded-lg object-cover" />
+                  : <span className="flex h-16 w-16 items-center justify-center rounded-lg bg-panel2 text-xs text-gray-400">kept</span>}
+                <button className="absolute -right-1 -top-1 rounded-full bg-black/70 p-0.5 text-white" aria-label="Remove" onClick={() => onRemove(p)}><X size={12} /></button>
+              </span>
+            );
+          })}
+        </div>
+      )}
+      <MediaUpload compact api={{ start: `${api}/media/start`, parts: `${api}/media/parts`, complete: `${api}/media/complete` }} fields={{ area, jobId }} kinds={media.kinds}
+        room={{ items: photoMax + videoMax - photos.length, videos: videoMax - nVideos }} tag={remember ? `${api}|${jobId}|DAILY_LOG` : undefined} busyChange={onBusy}
+        onDone={(r) => { const ref = typeof r.body.ref === "string" ? r.body.ref : null; if (ref) onAdd(ref, r.kind === "VIDEO"); }} />
     </div>
   );
 }

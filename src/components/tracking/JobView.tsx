@@ -196,12 +196,12 @@ export default function JobView({ id, mode }: { id: string; mode: "ops" | "direc
       {reports.length > 0 && (
         <Card className="mb-4">
           <div className="mb-1 text-sm font-semibold text-gray-100">Daily site reports</div>
-          <div className="mb-2 text-[11px] text-gray-500">The supervisor&apos;s day written up - crew, hours, plant, delays, notes and photos · print or save as PDF</div>
+          <div className="mb-2 text-[11px] text-gray-500">The supervisor&apos;s day written up - crew, hours, plant, delays, notes, photos and videos · print or save as PDF</div>
           <div className="flex flex-wrap gap-2">
             {reports.slice(0, 30).map((r) => (
               <Link key={r.jobId} href={director ? `/directors/daily-report/${r.jobId}` : `/daily-report/${r.jobId}`}
                 className="rounded-lg border border-edge bg-panel2 px-2.5 py-1 text-xs text-gray-200 hover:border-brand-500/60">
-                {fmtDay(r.date, { weekday: "short", day: "numeric", month: "short" })}{r.shift === "NIGHT" ? " (night)" : ""}{r.revision > 1 ? ` · v${r.revision}` : ""}
+                {fmtDay(r.date, { weekday: "short", day: "numeric", month: "short" })}{r.shift === "NIGHT" ? " (night)" : ""}{r.revision > 1 ? ` · v${r.revision}` : ""}{r.videos ? ` · ${r.videos} video${r.videos > 1 ? "s" : ""}` : ""}
               </Link>
             ))}
           </div>

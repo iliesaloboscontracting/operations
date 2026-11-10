@@ -44,7 +44,9 @@ test("SEC-BA-004: removed photos only on Manager+ responses - Day Review (office
   const store = read("./store.ts");
   assert.match(store, /const photos = office \? await beforeAfterFor\(ids, \{ withRemoved: true \}\) : new Map\(\);/, "Day Review: only for the office");
   const linkView = store.slice(store.indexOf("export async function linkLogView"), store.indexOf("// Weekly % forms"));
-  assert.match(linkView, /beforeAfterFor\(jobs\.map\(\(j\) => j\.id\)\)/, "the link's log: shown photos only");
+  // Large uploads (10 Nov 2026): the link's own id goes along (another link's bucket upload is marked, never opened).
+  assert.match(linkView, /beforeAfterFor\(jobs\.map\(\(j\) => j\.id\), \{ linkId: link\.id \}\)/, "the link's log: shown photos only");
+  assert.doesNotMatch(read("./media.ts"), /withRemoved|allowRemoved/, "the link's large-upload replies: shown photos only");
   assert.match(read("./beforeAfterLink.ts"), /beforeAfterFor\(\[jobId\]\)\)/, "the link's add / remove replies: shown photos only");
   // The coordinator (2 Nov 2026) reads the office's report and photo route too, but like the directors' copy gets
   // shown photos only - `office` is false for him.

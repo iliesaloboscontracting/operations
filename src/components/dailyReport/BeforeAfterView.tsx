@@ -1,9 +1,11 @@
 import type { BeforeAfterDTO } from "@/lib/dailyLog/types";
+import MediaTile from "@/components/media/MediaTile";
 
 // Before and after site photos side by side, each with the time it was sent and who sent it (30 Oct 2026). Shared by
 // Day Review's site-log panel and the daily site report (the office's and the directors' copies - each passes its
 // own photo route). A missing set says so ("No before photos") - information only. Removed photos (Managers+ only,
-// the server sends them only then - SEC-BA-004) follow greyed out: "Removed by <name> at <time>".
+// the server sends them only then - SEC-BA-004) follow greyed out: "Removed by <name> at <time>". A video (large uploads,
+// 10 Nov 2026) plays in place with a Download link (MediaTile).
 export default function BeforeAfterView({ data, photoUrl, size = "sm" }: { data: BeforeAfterDTO; photoUrl: (id: string) => string; size?: "sm" | "lg" }) {
   const cols: { key: "before" | "after"; phase: "BEFORE" | "AFTER"; title: string; missing: boolean }[] = [
     { key: "before", phase: "BEFORE", title: "Before", missing: data.noBefore },
@@ -23,20 +25,20 @@ export default function BeforeAfterView({ data, photoUrl, size = "sm" }: { data:
             ) : (
               <div className={size === "lg" ? "space-y-2" : "grid grid-cols-3 gap-1.5 sm:grid-cols-4 lg:grid-cols-6"}>
                 {photos.map((p) => (
-                  <a key={p.id} href={photoUrl(p.id)} target="_blank" rel="noreferrer" className="block">
-                    <img src={photoUrl(p.id)} alt={`${c.title} photo ${p.atLabel}`} className={img} />
+                  <div key={p.id} className="block min-w-0">
+                    <MediaTile src={photoUrl(p.id)} video={p.video} alt={`${c.title} ${p.video ? "video" : "photo"} ${p.atLabel}`} imgClassName={img} />
                     <span className="sr-muted block truncate text-[10px] text-gray-500">{p.atLabel}{p.takenBy ? ` · ${p.takenBy}` : ""}</span>
-                  </a>
+                  </div>
                 ))}
               </div>
             )}
             {removed.length > 0 && (
               <div className={size === "lg" ? "mt-2 space-y-2" : "mt-1.5 grid grid-cols-3 gap-1.5 sm:grid-cols-4 lg:grid-cols-6"}>
                 {removed.map((p) => (
-                  <a key={p.id} href={photoUrl(p.id)} target="_blank" rel="noreferrer" className="block" title={`Sent ${p.atLabel} by ${p.takenBy}`}>
-                    <img src={photoUrl(p.id)} alt={`Removed ${c.title.toLowerCase()} photo`} className={`${img} opacity-40 grayscale`} />
+                  <div key={p.id} className="block min-w-0">
+                    <MediaTile src={photoUrl(p.id)} video={p.video} title={`Sent ${p.atLabel} by ${p.takenBy}`} alt={`Removed ${c.title.toLowerCase()} ${p.video ? "video" : "photo"}`} imgClassName={`${img} opacity-40 grayscale`} />
                     <span className="sr-muted block text-[10px] text-gray-500">Removed by {p.removedBy || "?"} at {p.removedAtLabel}</span>
-                  </a>
+                  </div>
                 ))}
               </div>
             )}

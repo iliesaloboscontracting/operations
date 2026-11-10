@@ -9,5 +9,5 @@ import { beforeAfterPhotoResponse } from "@/lib/dailyLog/reportResponses";
 export const GET = withErrorHandling(async (req: NextRequest) => {
   const denied = await guardDirector();
   if (denied) return denied;
-  return beforeAfterPhotoResponse(req.nextUrl.searchParams.get("job"), req.nextUrl.searchParams.get("id"));
+  return beforeAfterPhotoResponse(req.nextUrl.searchParams.get("job"), req.nextUrl.searchParams.get("id"), {}, req);
 });
