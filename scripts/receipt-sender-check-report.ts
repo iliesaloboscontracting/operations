@@ -15,10 +15,13 @@ import { hasClockTime } from "../src/lib/receipts/checks";
 import { logOf } from "../src/lib/receipts/runner";
 import { senderCheck } from "../src/lib/receipts/senderStore";
 import { truckRegos, vehicleForRego } from "../src/lib/receipts/tipStore";
+import { csvCell } from "../src/lib/payroll/rules";
 
 const arg = (name: string) => { const i = process.argv.indexOf(name); return i > 0 ? process.argv[i + 1] : undefined; };
 const when = (d: Date) => d.toLocaleString("en-AU", { timeZone: "Australia/Sydney", day: "2-digit", month: "2-digit", year: "numeric", hour: "numeric", minute: "2-digit" });
-const cell = (s: string) => (/[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s);
+// CSV cells go through the app's one formula-safe rule (SEC-012, PS-026): a typed name starting with = + - @ (or a
+// tab / CR) is quoted and prefixed with ' so a spreadsheet never runs it as a formula.
+const cell = csvCell;
 
 async function main() {
   const since = arg("--since");
@@ -49,7 +52,7 @@ async function main() {
   }
   const head = ["Sent", "Kind", "Rego", "Docket no", "Link owner", "On the truck", "Checked at", "Status", "Receipt id"];
   if (csv) {
-    console.log(head.join(","));
+    console.log(head.map(cell).join(","));
     for (const h of hits) console.log(h.map(cell).join(","));
     return;
   }
