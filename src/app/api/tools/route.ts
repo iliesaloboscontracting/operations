@@ -9,6 +9,7 @@ export const GET = withErrorHandling(async () => {
   const denied = await guardTools("VIEWER");
   if (denied) return denied;
   const tools = await prisma.tool.findMany({
+    where: { retiredAt: null }, // a retired tool is kept, never listed (10 Nov 2026)
     orderBy: { tag: "asc" },
     include: {
       toolbox: { select: { id: true, name: true } },

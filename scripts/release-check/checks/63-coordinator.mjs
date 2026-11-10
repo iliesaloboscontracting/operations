@@ -101,7 +101,7 @@ export default {
       t.status(issue, 201, "faults: report one");
       const issueId = issue.body?.id ?? (await c.db.toolIssue.findFirst({ where: { toolId }, select: { id: true } }))?.id;
       if (issueId) t.status(await send("PATCH", `/api/tool-issues/${issueId}`, { status: "CLOSED", resolution: "rc closed" }), 200, "faults: close it");
-      t.status(await send("DELETE", `/api/tools/${toolId}`), 200, "tools: delete a tool (Ilies: allowed)");
+      t.status(await send("DELETE", `/api/tools/${toolId}`), 200, "tools: delete (= retire, keep forever) a tool (Ilies: allowed)");
       t.ok(!(await c.db.tool.findUnique({ where: { id: toolId } })), "the tool is gone");
     }
     t.status(await send("POST", "/api/toolboxes", { name: "RC coordinator box" }), 403, "toolboxes: create refused");

@@ -102,6 +102,7 @@ export default function LabourPage() {
         addLabel: "Add worker",
         itemNoun: "worker",
         api: "/api/resources",
+        historyModel: "Resource", // every change kept, who and when (10 Nov 2026) - pay fields Admin only
         query: "type=PERSONNEL",
         sectionOf: (r) => SECTION_TITLES[r.category ?? ""] ?? r.category ?? "Other",
         sectionOrder: Object.values(SECTION_TITLES),

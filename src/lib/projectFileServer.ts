@@ -52,6 +52,7 @@ export async function currentSupervisor(projectId: string) {
     where: {
       projectId,
       notRunning: false,
+      cancelledAt: null,
       date: { lt: tomorrow },
       assignments: { some: { role: { in: ["Supervisor", "Lead"] } } },
     },

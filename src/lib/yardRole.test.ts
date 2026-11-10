@@ -139,17 +139,19 @@ test("a tool form saved by the coordinator / yard: untouched fields dropped, the
 test("the Tools write routes apply the rule for the stripped logins, before anything is changed", () => {
   // Since Yard Stage B (4 Nov 2026) the tool PATCH's rules live in lib/toolUpdate.ts updateTool (shared with the stock
   // take's finish); the route hands it the caller's role.
-  assert.match(handler(src("../app/api/tools/[id]/route.ts"), "PATCH"), /await updateTool\(params\.id, [^\n]+\{ role: user\?\.role \?\? null, name: user\?\.name \?\? null \}\)/);
+  // (Keep forever, 10 Nov 2026: the caller's id goes along too, for the tool's change history.)
+  assert.match(handler(src("../app/api/tools/[id]/route.ts"), "PATCH"), /await updateTool\(params\.id, [^\n]+\{ role: user\?\.role \?\? null, name: user\?\.name \?\? null(, id: user\?\.id \?\? null)? \}\)/);
   const upd = src("./toolUpdate.ts");
   const patch = upd.slice(upd.indexOf("export async function updateTool"));
   const check = patch.indexOf("seesAmountsStripped(actor.role)");
   assert.ok(check > 0, "updateTool checks the login");
   assert.match(patch, /keepHiddenAmounts\(data, existing[^)]*\)[\s\S]*if \(hidden\) return hidden;/);
-  assert.ok(check < patch.indexOf("moveTool(") && check < patch.indexOf("prisma.tool.update("), "the check comes before the move and the update");
+  // The update goes through the change history since 10 Nov 2026 (updateTracked, same transaction).
+  assert.ok(check < patch.indexOf("moveTool(") && check < patch.indexOf('updateTracked<Tool>("Tool"'), "the check comes before the move and the update");
   const fault = handler(src("../app/api/tool-issues/[id]/route.ts"), "PATCH");
   const fcheck = fault.indexOf("keepHiddenAmounts(data, issue");
   assert.ok(fcheck > 0 && /ISSUE_TEXT_FIELDS/.test(fault), "fault PATCH checks swapRef / resolution");
-  assert.ok(fcheck < fault.indexOf("moveTool(") && fcheck < fault.indexOf("prisma.toolIssue.update("), "before any move or update");
+  assert.ok(fcheck < fault.indexOf("moveTool(") && fcheck < fault.indexOf('updateTracked("ToolIssue"'), "before any move or update");
   // Hire uses the same helper (one rule, not two).
   assert.match(src("./coordinatorHire.ts"), /const w = strippedTextWrite\(f, v, existing \? \{ stored: existing\[f\] \} : null\);/);
 });

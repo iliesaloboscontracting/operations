@@ -23,14 +23,14 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
   // a Viewer or the coordinator (view only, 2 Nov 2026) opening the page never writes anything).
   const viewer = await getCurrentUser();
   if (viewer && (viewer.role === "MANAGER" || viewer.role === "ADMIN")) {
-    const ids = await prisma.job.findMany({ where: { date: new Date(date + "T00:00:00.000Z") }, select: { id: true } });
+    const ids = await prisma.job.findMany({ where: { date: new Date(date + "T00:00:00.000Z"), cancelledAt: null }, select: { id: true } });
     await syncSignInActuals(ids.map((j) => j.id));
   }
 
   const [close, jobs] = await Promise.all([
     prisma.dayClose.findUnique({ where: { date } }),
     prisma.job.findMany({
-      where: { date: new Date(date + "T00:00:00.000Z"), status: { not: "COMPLETED" } },
+      where: { date: new Date(date + "T00:00:00.000Z"), status: { not: "COMPLETED" }, cancelledAt: null },
       orderBy: [{ notRunning: "asc" }, { sortOrder: "asc" }, { createdAt: "asc" }],
       include: {
         project: {
@@ -50,7 +50,7 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
             },
           },
         },
-        jobActuals: { include: { resource: { select: { id: true, name: true, role: true, type: true } } } },
+        jobActuals: { where: { removedAt: null }, include: { resource: { select: { id: true, name: true, role: true, type: true } } } },
       },
     }),
   ]);

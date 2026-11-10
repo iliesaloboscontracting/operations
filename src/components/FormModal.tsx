@@ -31,6 +31,7 @@ export interface FieldDef {
 const COLS_CLASS: Record<number, string> = { 2: "grid-cols-2", 3: "grid-cols-3", 4: "grid-cols-4" };
 const SPAN_CLASS: Record<number, string> = { 2: "col-span-2", 3: "col-span-3" };
 
+const OTHER = "OTHER";
 const input =
   "w-full rounded-lg border border-edge bg-panel2 px-3 py-2 text-sm text-gray-200 placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500";
 
@@ -42,6 +43,8 @@ export default function FormModal({
   onClose,
   onDelete,
   deleteLabel = "Delete",
+  deleteReasons,
+  deleteNote,
   extra,
   wide,
   cols = 2,
@@ -53,8 +56,12 @@ export default function FormModal({
   initial: Record<string, any>;
   onSave: (values: Record<string, any>) => Promise<void>;
   onClose: () => void;
-  onDelete?: () => Promise<void>;
+  onDelete?: (reason?: string) => Promise<void>;
   deleteLabel?: string;
+  // Keep forever (10 Nov 2026): when set, the delete button (Cancel / Retire / Remove) asks why first - a pick-list plus
+  // "Other" (the house style) - and hands the reason to onDelete. Nothing is erased; the reason is kept with the record.
+  deleteReasons?: readonly string[];
+  deleteNote?: string; // a line under the reason picker, e.g. "The job is kept - it just leaves the board."
   extra?: React.ReactNode; // extra content below the fields (e.g. a related-records panel)
   wide?: boolean; // use a wider modal, for when `extra` needs the room, or a wider field grid
   cols?: 2 | 3 | 4; // grid columns for the fields - more columns fits a wider modal without every field going full-width
@@ -64,6 +71,10 @@ export default function FormModal({
   const [values, setValues] = useState<Record<string, any>>(initial);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [asking, setAsking] = useState(false);
+  const [pick, setPick] = useState("");
+  const [other, setOther] = useState("");
+  const reason = pick === OTHER ? other.trim() : pick;
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -93,10 +104,14 @@ export default function FormModal({
 
   async function remove() {
     if (!onDelete) return;
-    if (!confirm(`${deleteLabel} this item?`)) return;
+    if (deleteReasons) {
+      if (!asking) return setAsking(true);
+      if (reason.length < 3) return setError("Pick why, or type it.");
+    } else if (!confirm(`${deleteLabel} this item?`)) return;
     setSaving(true);
+    setError(null);
     try {
-      await onDelete();
+      await onDelete(deleteReasons ? reason : undefined);
       onClose();
     } catch (err) {
       setError((err as Error).message || "Couldn't delete");
@@ -218,8 +233,39 @@ export default function FormModal({
           </div>
         )}
 
+        {asking && deleteReasons && (
+          <div className="mt-3 flex flex-wrap items-end gap-2 rounded-lg border border-red-500/20 bg-red-500/5 p-3 text-xs">
+            <label className="flex flex-col gap-0.5 text-gray-400">
+              Why? (kept with the record)
+              <select className={input} value={pick} onChange={(e) => setPick(e.target.value)} autoFocus>
+                <option value="">Pick…</option>
+                {deleteReasons.map((r) => <option key={r} value={r}>{r}</option>)}
+                <option value={OTHER}>Other – type it…</option>
+              </select>
+            </label>
+            {pick === OTHER && (
+              <label className="flex min-w-[12rem] flex-1 flex-col gap-0.5 text-gray-400">
+                Other reason
+                <input className={input} value={other} onChange={(e) => setOther(e.target.value)} autoFocus />
+              </label>
+            )}
+            <button
+              type="button"
+              disabled={saving || reason.length < 3}
+              onClick={remove}
+              className="rounded-lg bg-red-600 px-3 py-2 text-sm font-medium text-white hover:bg-red-500 disabled:opacity-40"
+            >
+              {deleteLabel}
+            </button>
+            <button type="button" onClick={() => setAsking(false)} className="rounded-lg px-2.5 py-2 text-sm text-gray-400 hover:bg-panel2">
+              Keep it
+            </button>
+            {deleteNote && <p className="w-full text-gray-500">{deleteNote}</p>}
+          </div>
+        )}
+
         <div className="mt-5 flex items-center justify-between border-t border-edge pt-4">
-          {onDelete ? (
+          {onDelete && !asking ? (
             <button
               type="button"
               onClick={remove}

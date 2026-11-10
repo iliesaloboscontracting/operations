@@ -15,7 +15,7 @@ export const GET = withErrorHandling(async () => {
   const user = await getCurrentUser();
 
   const jobs = await prisma.job.findMany({
-    where: { status: "COMPLETED" },
+    where: { status: "COMPLETED", cancelledAt: null },
     orderBy: { date: "desc" },
     include: {
       project: { select: { name: true, client: true, jobNo: true, address: true } },

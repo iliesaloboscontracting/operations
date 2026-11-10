@@ -21,11 +21,7 @@ export async function register() {
     const { nightlyDocIndex } = await import("./lib/docsearch/service");
     const { eveningBoardCheck } = await import("./lib/boardGuard/store");
     const { signInAlertsTick } = await import("./lib/signinAlerts");
-    const { faultPhotoCleanupTick } = await import("./lib/prestart/store");
     setInterval(() => {
-      // Pre-start checks (PS-003, 9 Nov 2026): once a day from 3am, fault photos never sent with a check (over 24 h)
-      // are removed - only those files. FAULT_PHOTO_CLEANUP=off stops it.
-      faultPhotoCleanupTick().catch((e) => console.error("fault photo cleanup", e instanceof Error ? e.message : "failed"));
       // Xero (read-only, G3): once a day from 2am Sydney, after the backup. Does nothing until set up and connected.
       nightlyXeroSync().catch((e) => console.error("xero nightly", e instanceof Error ? e.message : "failed"));
       // Document search (LCI phase 6): once a day from 2:30am Sydney, after the backup and Xero. Does nothing until

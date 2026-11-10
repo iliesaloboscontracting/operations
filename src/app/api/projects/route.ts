@@ -41,10 +41,10 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
     orderBy: { name: "asc" },
     include: {
       jobs: {
-        where: { date: { gte: start, lt: end }, notRunning: false },
+        where: { date: { gte: start, lt: end }, notRunning: false, cancelledAt: null },
         include: { assignments: { include: { resource: { select: { type: true, category: true } } } } },
       },
-      _count: { select: { jobs: true, contacts: { where: { visibleTo: "CREW" } } } },
+      _count: { select: { jobs: { where: { cancelledAt: null } }, contacts: { where: { visibleTo: "CREW", removedAt: null } } } },
     },
   });
 
@@ -64,7 +64,7 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
       let costToDate: number | undefined;
       if (canSeeMoney && _count.jobs > 0) {
         const elapsed = await prisma.job.findMany({
-          where: { projectId: p.id, notRunning: false, date: { lt: todayEnd } },
+          where: { projectId: p.id, notRunning: false, date: { lt: todayEnd }, cancelledAt: null },
           include: { assignments: { include: { resource: { select: { dailyRateExGst: true } } } } },
         });
         const spend = elapsed.reduce(

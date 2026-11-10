@@ -209,5 +209,6 @@ test("finishing changes the register only through the ordinary tool update and m
   assert.match(store, /await deps\.read\(/, "the toolbox check's photo reading - no new connection");
   assert.match(store, /compareToolbox\(null, reading/);
   const upd = src("../toolUpdate.ts");
-  assert.match(upd, /pickTool\(body\)[\s\S]*toolFieldError\(data\)[\s\S]*moveTool\([\s\S]*prisma\.tool\.update/);
+  // (Keep forever, 10 Nov 2026: the update is recorded in the tool's change history - updateTracked, same transaction.)
+  assert.match(upd, /pickTool\(body\)[\s\S]*toolFieldError\(data\)[\s\S]*moveTool\([\s\S]*updateTracked<Tool>\("Tool"/);
 });

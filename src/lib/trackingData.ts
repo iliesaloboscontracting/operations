@@ -80,7 +80,7 @@ export async function loadTracking({ withPeople }: { withPeople: boolean }) {
   const closedDateRows = await prisma.dayClose.findMany({ where: { status: "CLOSED" }, select: { date: true } });
   const closedDates = new Set(closedDateRows.map((r) => r.date));
   const frozenRows = closedDates.size
-    ? await prisma.allocationCost.findMany({ where: { date: { in: [...closedDates] } } })
+    ? await prisma.allocationCost.findMany({ where: { date: { in: [...closedDates] }, supersededAt: null } }) // the current ledger only (keep forever, 10 Nov 2026)
     : [];
   const frozenByAssignment = new Map<string, (typeof frozenRows)[number]>();
   for (const r of frozenRows) frozenByAssignment.set(r.assignmentId, r);
@@ -90,7 +90,7 @@ export async function loadTracking({ withPeople }: { withPeople: boolean }) {
     orderBy: { name: "asc" },
     include: {
       jobs: {
-        where: { notRunning: false, date: { lt: todayEnd } },
+        where: { notRunning: false, date: { lt: todayEnd }, cancelledAt: null },
         orderBy: { date: "asc" },
         include: {
           assignments: {
@@ -106,7 +106,7 @@ export async function loadTracking({ withPeople }: { withPeople: boolean }) {
           },
         },
       },
-      invoicedCosts: { orderBy: { weekEnding: "asc" } },
+      invoicedCosts: { where: { removedAt: null }, orderBy: { weekEnding: "asc" } }, // a removed (hidden) invoice never counts
       labourCosts: { orderBy: { date: "asc" } },
     },
   });
@@ -144,7 +144,7 @@ export async function loadTracking({ withPeople }: { withPeople: boolean }) {
   // hire period instead.
   const bookedByProject = new Map<string, { cost: number; days: Set<string>; uncosted: number }>();
   const ahead = await prisma.job.findMany({
-    where: { notRunning: false, date: { gte: todayEnd } },
+    where: { notRunning: false, date: { gte: todayEnd }, cancelledAt: null },
     include: {
       project: { select: { unpaidBreakMinutes: true, dayStart: true, dayEnd: true, nightStart: true, nightEnd: true } },
       assignments: {

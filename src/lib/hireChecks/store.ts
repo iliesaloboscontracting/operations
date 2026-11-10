@@ -8,7 +8,7 @@ import { checkHireInvoices } from "./rules";
 export async function hireInvoiceChecks() {
   const today = todaySydney();
   const invoices = await prisma.invoicedCost.findMany({
-    where: { hireResourceId: { not: null } },
+    where: { removedAt: null, hireResourceId: { not: null } },
     select: { id: true, invoiceNo: true, vendor: true, periodFrom: true, periodTo: true, amountExGst: true, hireResourceId: true, projectId: true, project: { select: { name: true } } },
   });
   const items = await prisma.resource.findMany({

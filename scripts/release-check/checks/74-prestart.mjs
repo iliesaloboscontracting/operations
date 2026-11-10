@@ -6,9 +6,10 @@
 // second fault, sign-out hands over the post-check, forged / expired / non-truck tokens are refused, and the office side
 // (/api/faults*) is open to exactly ADMIN, MANAGER, COORDINATOR and YARD. Security fixes: photo caps per sign-in /
 // machine (rotated phone ids and parallel uploads can't get past them), one throttled alert per check, the PRE token
-// closed at sign-out, the token never read from the address, the stale-photo cleanup, the report's source on /faults,
+// closed at sign-out, the token never read from the address, the report's source on /faults,
 // back-to-Available refused after an unrelated change. Stage 1b: the day's first pre-start for a truck needs the five
-// walk-around photos and the odometer, later ones don't; the Checks tab shows them; 12-month retention; PS-009 (read-only
+// walk-around photos and the odometer, later ones don't; the Checks tab shows them; kept forever (10 Nov 2026 - no
+// automatic photo deletion: unsent and old photos stay, rows and files); PS-009 (read-only
 // pre-check), PS-010 (Urgent / Do not use and the walk-around get through when the day's limit is full), PS-011.
 // WRITES on the test copy: six trucks, drivers, a project with a job today, QR links, sign-ins, checks, faults, photos,
 // odometer readings (seeded cap rows removed again; trucks and drivers switched off and the links revoked at the end).
@@ -385,46 +386,30 @@ export default {
       t.note(`PS-009 burst: ${kept} kept, ${busy} turned away as busy`);
     }
 
-    // (16) PS-003 + stage 1b retention: run directly (the tick waits for 3am).
+    // (16) Keep forever (Ilies, 10 Nov 2026: "ALL information is kept forever"): PS-003's 24-hour removal of unsent photos
+    // and stage 1b's 12-month walk-around removal are gone. Old and unsent photos stay - rows and files - and the code
+    // has no automatic photo deletion left to run.
     const photoDir = env.TOOL_PHOTO_DIR;
     const tsxCli = path.join(c.p.appDir, "node_modules", "tsx", "dist", "cli.mjs");
-    if (!photoDir || !existsSync(tsxCli)) t.note("cleanup not run: no TOOL_PHOTO_DIR in the test env or no tsx");
-    else {
+    {
       const K = await mkPerson("k");
       const tokK = (await onTruck(t3, "IN", K)).body?.prestart;
-      const stale = await photo(tokK), fresh = await photo(tokK), staleWalk = await photo(tokK, uniqPng(), undefined, "FRONT");
+      const stale = await photo(tokK), staleWalk = await photo(tokK, uniqPng(), undefined, "FRONT");
       const ago = (h) => new Date(Date.now() - h * 3_600_000);
       const monthsAgo = (m) => { const d = new Date(); d.setUTCMonth(d.getUTCMonth() - m); return d; };
       const rowOf = (id) => db.assetFaultMedia.findUnique({ where: { id } });
-      const fileOf = async (id) => path.join(photoDir, (await rowOf(id))?.fileName ?? "x");
-      const oldWalk = walkA.FRONT, newWalk = walkA.BACK, sentWalk25h = walkA.DRIVER;
+      const oldWalk = walkA.FRONT;
       await db.assetFaultMedia.update({ where: { id: stale.body?.id }, data: { createdAt: ago(25) } });
-      await db.assetFaultMedia.update({ where: { id: staleWalk.body?.id }, data: { createdAt: ago(25) } }); // unsent walk-around
-      await db.assetFaultMedia.update({ where: { id: sentWalk25h }, data: { createdAt: ago(25) } }); // sent walk-around - stays
-      await db.assetFaultMedia.update({ where: { id: mediaId }, data: { createdAt: monthsAgo(13) } }); // a fault photo - never by age
-      await db.assetFaultMedia.update({ where: { id: oldWalk }, data: { createdAt: monthsAgo(13) } }); // sent walk-around, 13 months
-      const files = { stale: await fileOf(stale.body?.id), staleWalk: await fileOf(staleWalk.body?.id), oldWalk: await fileOf(oldWalk), fault: await fileOf(mediaId), newWalk: await fileOf(newWalk) };
-      const other = path.join(photoDir, `rc-keep-${tag}.txt`);
-      writeFileSync(other, "not a fault photo");
-      const script = path.join(c.p.files, `rc74-cleanup-${tag}.mts`);
-      const store = "file:///" + path.join(c.p.appDir, "src", "lib", "prestart", "store.ts").split(path.sep).join("/");
-      writeFileSync(script, `import { cleanupUnattachedMedia, cleanupOldWalkaround } from ${JSON.stringify(store)};\nconst a = await cleanupUnattachedMedia();\nconst b = await cleanupOldWalkaround();\nconsole.log("RESULT " + JSON.stringify({ a, b }));\nprocess.exit(0);\n`);
-      let out = "";
-      try {
-        const childEnv = { ...process.env, ...env };
-        delete childEnv.FAULT_PHOTO_CLEANUP; delete childEnv.WALKAROUND_RETENTION;
-        out = execFileSync(process.execPath, [tsxCli, script], { cwd: c.p.appDir, env: childEnv, encoding: "utf8", timeout: 120_000 });
-      } catch (e) { out = String(e?.stdout ?? ""); }
-      const res = JSON.parse(out.match(/RESULT (.*)/)?.[1] ?? "{}");
-      t.ok((res.a?.removed ?? 0) >= 2 && (res.b?.removed ?? 0) >= 1, "the cleanups ran", JSON.stringify(res));
-      t.ok(!(await rowOf(stale.body?.id)) && !existsSync(files.stale), "PS-003: a stale unattached fault photo - row and file gone");
-      t.ok(!(await rowOf(staleWalk.body?.id)) && !existsSync(files.staleWalk), "stage 1b: an unsent walk-around photo over 24 h - row and file gone");
-      t.ok(!!(await rowOf(sentWalk25h)), "PS-003 doesn't touch a walk-around photo sent with its check");
-      t.ok(!!(await rowOf(fresh.body?.id)), "a fresh unattached photo is kept (under 24 hours)");
-      t.ok(!(await rowOf(oldWalk)) && !existsSync(files.oldWalk), "stage 1b: a walk-around photo over 12 months old - row and file gone");
-      t.ok(!!(await rowOf(newWalk)) && existsSync(files.newWalk), "stage 1b: a newer walk-around photo is kept");
-      t.ok(!!(await rowOf(mediaId)) && existsSync(files.fault), "fault photos are never removed by age (13 months old, kept)");
-      t.ok(existsSync(other), "other files in the photo folder are never touched");
+      await db.assetFaultMedia.update({ where: { id: staleWalk.body?.id }, data: { createdAt: ago(25) } });
+      await db.assetFaultMedia.update({ where: { id: mediaId }, data: { createdAt: monthsAgo(13) } });
+      await db.assetFaultMedia.update({ where: { id: oldWalk }, data: { createdAt: monthsAgo(13) } });
+      const src = ["src/lib/prestart/store.ts", "src/instrumentation.ts"].map((f) => readFileSync(path.join(c.p.appDir, f), "utf8")).join("
+");
+      t.ok(!/cleanupUnattachedMedia|cleanupOldWalkaround|faultPhotoCleanupTick|FAULT_PHOTO_CLEANUP|WALKAROUND_RETENTION/.test(src), "keep forever: no automatic photo deletion is left in the pre-start store or the background tick");
+      const rows = await Promise.all([stale.body?.id, staleWalk.body?.id, oldWalk, mediaId].map(rowOf));
+      t.ok(rows.every(Boolean), "keep forever: an unsent photo over 24 h, an unsent walk-around, a 13-month-old walk-around and fault photo - all rows kept");
+      if (photoDir) t.ok(rows.every((r) => r && existsSync(path.join(photoDir, r.fileName))), "keep forever: ...and their files");
+      else t.note("photo files not looked at: no TOOL_PHOTO_DIR in the test env");
     }
 
     // (16b) PS-012: the all-day ceiling (400 across every machine) full -> LIMIT for both kinds, one notice for everyone.
@@ -489,11 +474,11 @@ export default {
       await db.assetFaultMedia.deleteMany({ where: { resourceId: spyId } });
     } else t.note("PS-016 spy not run: no TOOL_PHOTO_DIR in the test env or no tsx");
 
-    // (16c) PS-015: the crew are told the photos are kept 12 months and seen by the office.
+    // (16c) PS-015: the crew are told the photos are kept and seen by the office (kept forever since 10 Nov 2026).
     {
       let src = "";
       try { src = readFileSync(path.join(c.p.appDir, "src", "components", "site", "PrestartCheck.tsx"), "utf8"); } catch { /* missing */ }
-      t.ok(src.includes("These photos are kept for 12 months and seen by the office."), "PS-015: the walk-around step says the photos are kept 12 months and seen by the office");
+      t.ok(src.includes("These photos are kept and seen by the office.") && !src.includes("12 months"), "PS-015: the walk-around step says the photos are kept and seen by the office (no 12-month line)");
     }
 
     // (17) Nothing with a dollar figure ever went to a phone.

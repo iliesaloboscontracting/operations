@@ -5,6 +5,7 @@ import { viewJson } from "@/lib/coordinatorView"; // the coordinator gets no dol
 import { withErrorHandling } from "@/lib/apiHandler";
 import { isISODate } from "@/lib/dateRules";
 import { todaySydney } from "@/lib/today";
+import { updateTracked } from "@/lib/history/store";
 import {
   activeApproval, approvalBlockers, liveTravel, timesheetLines, timesheetWeek, weekHasEnded, weekStartOf,
   type TimesheetSnapshot,
@@ -63,10 +64,8 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
     const reason = typeof body.reason === "string" ? body.reason.trim().slice(0, 300) : "";
     if (reason.length < 3) return bad("Say why the week is being reopened.");
     if (!current) return bad("This week isn't approved.");
-    await prisma.timesheetWeek.update({
-      where: { id: current.id },
-      data: { reopenedBy: user.name, reopenedAt: new Date(), reopenReason: reason },
-    });
+    // Kept in the week's history too (keep forever, 10 Nov 2026) - each approval row is never overwritten again.
+    await updateTracked("TimesheetWeek", current.id, { reopenedBy: user.name, reopenedAt: new Date(), reopenReason: reason }, { by: user, source: "Reopen timesheet week", reason });
     return NextResponse.json({ ok: true });
   }
 

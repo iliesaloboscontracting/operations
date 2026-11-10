@@ -7,7 +7,7 @@ import { withErrorHandling } from "@/lib/apiHandler";
 export const GET = withErrorHandling(async () => {
   const denied = await guard("VIEWER");
   if (denied) return denied;
-  const bugs = await prisma.bugReport.findMany({ orderBy: { createdAt: "desc" } });
+  const bugs = await prisma.bugReport.findMany({ where: { removedAt: null }, orderBy: { createdAt: "desc" } });
   return NextResponse.json(bugs);
 });
 

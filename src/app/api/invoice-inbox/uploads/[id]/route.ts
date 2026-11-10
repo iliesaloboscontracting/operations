@@ -4,6 +4,7 @@ import { guardInvoiceInbox } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { invoiceMimeOf, readInvoiceFile } from "@/lib/invoiceFiles";
 import { processInBackground } from "@/lib/invoiceInbox";
+import { hideTracked } from "@/lib/history/store";
 
 // GET /api/invoice-inbox/uploads/:id -> the uploaded file itself (to check
 // an invoice against what was read).
@@ -41,7 +42,7 @@ export const PATCH = withErrorHandling(async (req: NextRequest, { params: params
   if (!u) return NextResponse.json({ error: "not found" }, { status: 404 });
   if (body.action === "CLEAR") {
     if (u.status === "READING") return NextResponse.json({ error: "It's still being read - wait for it to finish." }, { status: 400 });
-    const open = await prisma.invoiceDraft.findMany({ where: { uploadId: u.id, status: { in: ["NEEDS_REVIEW", "NO_JOB"] } }, select: { id: true, problem: true } });
+    const open = await prisma.invoiceDraft.findMany({ where: { uploadId: u.id, status: { in: ["NEEDS_REVIEW", "NO_JOB"] }, removedAt: null }, select: { id: true, problem: true } });
     await prisma.$transaction([
       ...open.map((d) => prisma.invoiceDraft.update({
         where: { id: d.id },
@@ -57,7 +58,11 @@ export const PATCH = withErrorHandling(async (req: NextRequest, { params: params
   }
   if (body.action !== "RETRY") return NextResponse.json({ error: "Unknown action" }, { status: 400 });
   if (u.status !== "FAILED") return NextResponse.json({ error: "Only a failed upload can be read again." }, { status: 400 });
-  await prisma.invoiceDraft.deleteMany({ where: { uploadId: u.id, status: { not: "ADDED" } } });
+  // Keep forever (10 Nov 2026): the earlier partial results are hidden (kept, with who and why), never erased.
+  const earlier = await prisma.invoiceDraft.findMany({ where: { uploadId: u.id, status: { not: "ADDED" }, removedAt: null }, select: { id: true } });
+  await prisma.$transaction(async (tx) => {
+    for (const d of earlier) await hideTracked("InvoiceDraft", d.id, { by: g.user, reason: "Upload read again after it failed", source: "Invoices inbox (Read again)" }, { tx });
+  });
   await prisma.invoiceUpload.update({ where: { id: u.id }, data: { status: "READING", error: null, finishedAt: null } });
   processInBackground(u.id);
   return NextResponse.json({ ok: true });

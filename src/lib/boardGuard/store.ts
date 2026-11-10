@@ -4,12 +4,15 @@
 import { prisma } from "../prisma";
 import { pushToUsers } from "../push";
 import { isISODate } from "../dateRules";
+import type { Prisma } from "@prisma/client";
+import { snapshotText, type BoardRemovalSnapshot } from "./snapshot";
+import { LIVE_JOB } from "../jobs";
 import {
   LEARN, SEND_LIMITS, addDaysIso, changesSince, daysBetween, dayLabel, editPrompt, hideMoneyLines, sendDateProblem, sendPrompt, sydney, timeLabel,
   type BoardSnapshot, type EditStat, type LaterSend, type Prompt,
 } from "./rules";
 
-const ACTIONS = ["ASSIGN", "MOVE", "ROLE", "REMOVE", "JOB_ADD", "JOB_EDIT", "JOB_DELETE", "COPY", "CLEAR"] as const;
+const ACTIONS = ["ASSIGN", "MOVE", "ROLE", "REMOVE", "JOB_ADD", "JOB_EDIT", "JOB_DELETE", "JOB_CANCEL", "COPY", "CLEAR"] as const;
 export type BoardAction = (typeof ACTIONS)[number];
 type Who = { id: string; name: string } | null | undefined;
 
@@ -30,10 +33,16 @@ export async function logBoardEdit(who: Who, date: string, action: BoardAction, 
   }
 }
 
-// What the board holds for a day: every job (running or stood down), its times and who's on it.
+// Keep forever (Ilies, 10 Nov 2026): a change that takes something off the board is recorded WITH a full snapshot of
+// what it removed, in the caller's transaction - unlike logBoardEdit this throws, so nothing is removed unrecorded.
+export async function logBoardRemoval(tx: Prisma.TransactionClient, who: { id: string; name: string }, date: string, action: BoardAction, detail: string, snapshot: BoardRemovalSnapshot) {
+  await tx.boardEdit.create({ data: { date, action, detail: detail.slice(0, 200), snapshot: snapshotText(snapshot), userId: who.id, by: who.name } });
+}
+
+// What the board holds for a day: every job (running or stood down), its times and who's on it. Never a cancelled job.
 export async function snapshotFor(date: string): Promise<BoardSnapshot> {
   const jobs = await prisma.job.findMany({
-    where: { date: dayRange(date) },
+    where: { date: dayRange(date), ...LIVE_JOB },
     select: { id: true, projectId: true, title: true, shift: true, startTime: true, endTime: true, notRunning: true, status: true,
       assignments: { select: { resourceId: true, role: true, resource: { select: { name: true } } } } },
   });

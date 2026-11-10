@@ -33,7 +33,7 @@ export interface ProjectBoardDates {
 export async function boardDatesByProject(today: string, projectId?: string): Promise<Map<string, ProjectBoardDates>> {
   const todayDate = new Date(today + "T00:00:00.000Z");
   const horizon = new Date(addDays(today, 14) + "T00:00:00.000Z");
-  const running = { notRunning: false, projectId: projectId ?? { not: null } };
+  const running = { notRunning: false, cancelledAt: null, projectId: projectId ?? { not: null } };
   // Our own crew on the job: staff, or labour hire working for us.
   const crewed = {
     assignments: {
@@ -44,8 +44,8 @@ export async function boardDatesByProject(today: string, projectId?: string): Pr
     // The board's very first day, and each project's first booking of any
     // kind - a project booked on day one was already running before the
     // board existed (crew names weren't recorded on the earliest days).
-    prisma.job.aggregate({ _min: { date: true } }),
-    prisma.job.groupBy({ by: ["projectId"], where: { projectId: projectId ?? { not: null } }, _min: { date: true } }),
+    prisma.job.aggregate({ where: { cancelledAt: null }, _min: { date: true } }),
+    prisma.job.groupBy({ by: ["projectId"], where: { projectId: projectId ?? { not: null }, cancelledAt: null }, _min: { date: true } }),
     prisma.job.groupBy({ by: ["projectId"], where: { ...running, ...crewed }, _min: { date: true }, _max: { date: true } }),
     prisma.job.groupBy({ by: ["projectId"], where: { ...running, date: { gte: todayDate } }, _min: { date: true } }),
     prisma.job.groupBy({

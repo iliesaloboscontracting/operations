@@ -3,20 +3,22 @@ import { prisma } from "@/lib/prisma";
 import { guard, getCurrentUser } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { normSite } from "@/lib/invoiceInbox";
+import { removeSiteAlias, saveSiteAlias } from "@/lib/siteAliases";
 
 // "Also called on invoices" (26 Oct 2026, Ilies): the other ways suppliers and
 // accounts write this job's site ("Newcastle", "BARPA job"...). The invoices
 // inbox uses them to match spreadsheet rows to the job (SiteAlias). Manager+.
 // GET                -> { aliases: [{ text, createdBy, createdAt }] }
 // POST { text }      -> add one; refused if that wording already means another job
-// DELETE ?text=...   -> remove one (a matching hint only - no invoice or cost changes)
+// DELETE ?text=...   -> remove one (a matching hint only - no invoice or cost changes). Keep forever (10 Nov 2026):
+//                       hidden, never erased; adding the same wording again brings it back.
 type Ctx = { params: Promise<{ id: string }> };
 
 export const GET = withErrorHandling(async (_req: NextRequest, { params }: Ctx) => {
   const denied = await guard("MANAGER");
   if (denied) return denied;
   const { id } = await params;
-  const aliases = await prisma.siteAlias.findMany({ where: { projectId: id }, orderBy: { text: "asc" }, select: { text: true, createdBy: true, createdAt: true } });
+  const aliases = await prisma.siteAlias.findMany({ where: { projectId: id, removedAt: null }, orderBy: { text: "asc" }, select: { text: true, createdBy: true, createdAt: true } });
   return NextResponse.json({ aliases });
 });
 
@@ -30,11 +32,11 @@ export const POST = withErrorHandling(async (req: NextRequest, { params }: Ctx) 
   const project = await prisma.project.findUnique({ where: { id }, select: { id: true } });
   if (!project) return NextResponse.json({ error: "That project doesn't exist anymore." }, { status: 404 });
   const existing = await prisma.siteAlias.findUnique({ where: { text } });
-  if (existing && existing.projectId !== id) {
+  if (existing && !existing.removedAt && existing.projectId !== id) {
     const other = await prisma.project.findUnique({ where: { id: existing.projectId }, select: { name: true } });
     return NextResponse.json({ error: `"${text}" already means ${other?.name ?? "another job"} - remove it there first.` }, { status: 409 });
   }
-  if (!existing) await prisma.siteAlias.create({ data: { text, projectId: id, createdBy: (await getCurrentUser())?.name ?? null } });
+  await saveSiteAlias(text, id, await getCurrentUser(), "Project page (also called on invoices)");
   return NextResponse.json({ text }, { status: 201 });
 });
 
@@ -43,7 +45,7 @@ export const DELETE = withErrorHandling(async (req: NextRequest, { params }: Ctx
   if (denied) return denied;
   const { id } = await params;
   const text = normSite(req.nextUrl.searchParams.get("text") ?? "");
-  const out = await prisma.siteAlias.deleteMany({ where: { projectId: id, text } });
-  if (!out.count) return NextResponse.json({ error: "That wording isn't on this job." }, { status: 404 });
+  const out = await removeSiteAlias(id, text, await getCurrentUser(), req.nextUrl.searchParams.get("reason"));
+  if (!out) return NextResponse.json({ error: "That wording isn't on this job." }, { status: 404 });
   return NextResponse.json({ removed: text });
 });

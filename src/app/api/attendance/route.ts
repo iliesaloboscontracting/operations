@@ -52,7 +52,7 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   if (reason.length < 3) return bad("Say why it's being added.");
   const signInAt = parseTime(body.signInAt);
   const job = typeof body.jobId === "string"
-    ? await prisma.job.findUnique({ where: { id: body.jobId }, select: { id: true, date: true, assignments: { select: { resourceId: true } } } })
+    ? await prisma.job.findFirst({ where: { id: body.jobId, cancelledAt: null }, select: { id: true, date: true, assignments: { select: { resourceId: true } } } })
     : null;
   // Or an office / yard / truck sign-in.
   let point: { place: string; vehicleId: string | null; placeLabel: string } | null = null;

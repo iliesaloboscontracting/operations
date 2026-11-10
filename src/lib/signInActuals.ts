@@ -7,10 +7,14 @@
 // corrections. Closed days are left alone.
 import { prisma } from "./prisma";
 import { signInHoursForJobs } from "./attendanceView";
+import { updateTracked } from "./history/store";
+
+// Keep forever (10 Nov 2026): these automatic changes are kept in each row's history too, as the system's.
+const AUTO = { by: { name: "Sign-ins (automatic)" }, source: "Day Review hours from sign-ins" };
 
 export async function syncSignInActuals(jobIds: string[]) {
   if (jobIds.length === 0) return;
-  const jobs = await prisma.job.findMany({ where: { id: { in: jobIds } }, select: { id: true, date: true } });
+  const jobs = await prisma.job.findMany({ where: { id: { in: jobIds }, cancelledAt: null }, select: { id: true, date: true } });
   const closed = new Set(
     (await prisma.dayClose.findMany({
       where: { date: { in: [...new Set(jobs.map((j) => j.date.toISOString().slice(0, 10)))] }, status: "CLOSED" },
@@ -42,15 +46,19 @@ export async function syncSignInActuals(jobIds: string[]) {
     const rounded = Math.round(hours * 4) / 4;
     if (!a) {
       await prisma.jobActual.create({ data: { jobId, resourceId, attended: true, actualHours: rounded, hoursSource: "SIGN_IN" } });
+    } else if (a.removedAt) {
+      // Removed from Day Review but signed in and out there: it comes back with the signed hours (as a removed row
+      // used to be made again), the earlier removal kept in its history.
+      await updateTracked("JobActual", a.id, { removedAt: null, removedBy: null, removeReason: null, attended: true, actualHours: rounded, hoursSource: "SIGN_IN" }, AUTO);
     } else if (a.hoursSource === "SIGN_IN" ? a.actualHours !== rounded : a.actualHours == null) {
-      await prisma.jobActual.update({ where: { id: a.id }, data: { attended: true, actualHours: rounded, hoursSource: "SIGN_IN" } });
+      await updateTracked("JobActual", a.id, { attended: true, actualHours: rounded, hoursSource: "SIGN_IN" }, AUTO);
     }
   }
   // Filled from sign-ins, but those sign-ins no longer count (rejected,
   // reopened or moved): clear the hours rather than leave a stale figure.
   for (const a of existing) {
-    if (a.hoursSource === "SIGN_IN" && totals.get(`${a.jobId}|${a.resourceId}`) == null) {
-      await prisma.jobActual.update({ where: { id: a.id }, data: { actualHours: null, hoursSource: null } });
+    if (!a.removedAt && a.hoursSource === "SIGN_IN" && totals.get(`${a.jobId}|${a.resourceId}`) == null) {
+      await updateTracked("JobActual", a.id, { actualHours: null, hoursSource: null }, AUTO);
     }
   }
 }

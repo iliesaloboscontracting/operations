@@ -26,7 +26,7 @@ export const GET = withErrorHandling(async (
   const project = await prisma.project.findUnique({
     where: { id: params.id },
     include: {
-      contacts: { orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }] },
+      contacts: { where: { removedAt: null }, orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }] },
       officeContact: { select: { id: true, name: true, phone: true, email: true } },
     },
   });
@@ -63,20 +63,18 @@ export const PATCH = withErrorHandling(async (
   const denied = await guard("MANAGER");
   if (denied) return denied;
   const body = await req.json();
-  // The checks and the update live in lib/recordPatch.ts (shared with approved changes, LCI phase 4).
-  const out = await applyProjectPatch(params.id, body);
+  const user = await getCurrentUser();
+  // The checks and the update live in lib/recordPatch.ts (shared with approved changes, LCI phase 4); every field that
+  // changed is kept in the project's history (keep forever, 10 Nov 2026).
+  const out = await applyProjectPatch(params.id, body, { by: user, source: "Project edit" });
   if ("error" in out) return NextResponse.json({ error: out.error }, { status: out.status });
   return NextResponse.json(out.project);
 });
 
-// Deleting a project keeps its past jobs (projectId set null); prefer archiving.
-export const DELETE = withErrorHandling(async (
-  _req: NextRequest,
-  { params: paramsP }: { params: Promise<{ id: string }> }
-) => {
-  const params = await paramsP;
+// DELETE /api/projects/:id -> refused (keep forever, Ilies 10 Nov 2026): projects are archived, never deleted. No
+// screen called it; archiving (PATCH { archived: true }) is the way a project leaves the lists.
+export const DELETE = withErrorHandling(async () => {
   const denied = await guard("MANAGER");
   if (denied) return denied;
-  await prisma.project.delete({ where: { id: params.id } });
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ error: "Projects are archived, never deleted." }, { status: 405, headers: { Allow: "GET, PATCH" } });
 });

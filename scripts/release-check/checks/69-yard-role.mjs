@@ -105,7 +105,7 @@ export default {
         t.status(await send("PATCH", `/api/tool-issues/${mId}`, { resolution: "Sent to Hilti" }), 409, "YD-008: changing it -> 409");
         t.ok((await c.db.toolIssue.findUnique({ where: { id: mId }, select: { resolution: true } }))?.resolution === "Quote $200 from Hilti", "YD-008: ... still unchanged");
       }
-      t.status(await send("DELETE", `/api/tools/${toolId}`), 200, "tools: delete a tool (as the coordinator may)");
+      t.status(await send("DELETE", `/api/tools/${toolId}`), 200, "tools: delete (= retire, keep forever) a tool (as the coordinator may)");
       t.ok(!(await c.db.tool.findUnique({ where: { id: toolId } })), "the tool is gone");
     }
     t.status(await send("POST", "/api/toolboxes", { name: "RC yard box" }), 403, "toolboxes: create refused");

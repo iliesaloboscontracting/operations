@@ -24,6 +24,7 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
     where: {
       date: { gte: new Date(from!), lt: new Date(addDays(to!, 1)) },
       status: { not: "COMPLETED" },
+      cancelledAt: null, // a cancelled job is kept but never shown (keep forever, 10 Nov 2026)
     },
     orderBy: [{ date: "asc" }, { sortOrder: "asc" }],
     include: {

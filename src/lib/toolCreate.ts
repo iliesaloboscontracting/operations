@@ -22,10 +22,11 @@ export async function findDuplicate(serial: unknown, excludeId?: string): Promis
   await fillMissingSerialKeys();
   const t = await prisma.tool.findUnique({
     where: { serialKey: key },
-    select: { id: true, tag: true, name: true, toolbox: { select: { name: true } } },
+    select: { id: true, tag: true, name: true, retiredAt: true, toolbox: { select: { name: true } } },
   });
   if (!t || t.id === excludeId) return null;
-  return { id: t.id, tag: t.tag, name: t.name, toolbox: t.toolbox?.name ?? null };
+  // A retired tool keeps its serial (keep forever, 10 Nov 2026) - said so, so nobody hunts for it on the register.
+  return { id: t.id, tag: t.tag, name: t.retiredAt ? `${t.name} (retired)` : t.name, toolbox: t.toolbox?.name ?? null };
 }
 
 // Tools registered before serialKey existed (or edited outside these routes)

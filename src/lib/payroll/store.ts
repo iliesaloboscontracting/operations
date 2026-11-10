@@ -247,7 +247,7 @@ export type DayHoursDTO = { date: string; jobs: { jobId: string; label: string; 
 export async function dayHoursForLink(link: ResolvedLink, date: string): Promise<DayHoursDTO> {
   if (!link.person.id) return { date, jobs: [] };
   const jobs = await prisma.job.findMany({
-    where: { date: new Date(`${date}T00:00:00.000Z`), assignments: { some: { resourceId: link.person.id } } },
+    where: { date: new Date(`${date}T00:00:00.000Z`), cancelledAt: null, assignments: { some: { resourceId: link.person.id } } },
     select: { id: true, title: true, shift: true, project: { select: { name: true, unpaidBreakMinutes: true } } },
   });
   const atts = jobs.length ? await prisma.siteAttendance.findMany({

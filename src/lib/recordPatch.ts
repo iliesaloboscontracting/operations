@@ -13,13 +13,17 @@ import { closeOffHireRequests, recordOffHire } from "./offHire/store";
 import { todaySydney } from "./today";
 import { pickProject } from "./pickProject";
 import { projectFileError } from "./projectFileServer";
+import { recordChanges, updateTracked, type Who } from "./history/store";
 
 export type PatchProblem = { error: string; status: number };
 
 // The fields a body may change (pickResourceData), pay rates for an Admin
 // only, the hire dates and the hire register's own rules. A record that
 // doesn't exist throws from Prisma, as the route always has.
-export async function applyResourcePatch(id: string, body: Record<string, unknown>, actor: { role: string | null; name?: string | null }): Promise<{ resource: Resource } | PatchProblem> {
+// Keep forever (10 Nov 2026): every field that changed is written to the record's history (RecordChange) in the same
+// transaction as the update - pay fields too (the owner's data; only an Admin can read them back, lib/history/access).
+export async function applyResourcePatch(id: string, body: Record<string, unknown>, actor: { role: string | null; name?: string | null; id?: string | null; source?: string; reason?: string | null }): Promise<{ resource: Resource } | PatchProblem> {
+  const hist = { by: { id: actor.id ?? null, name: actor.name ?? null }, source: actor.source ?? "Resource edit", reason: actor.reason ?? null };
   if (PAY_RATE_FIELDS.some((f) => f in body)) {
     if (actor.role !== "ADMIN") {
       return { error: "Only an admin can change pay rate details", status: 403 };
@@ -56,9 +60,11 @@ export async function applyResourcePatch(id: string, body: Record<string, unknow
     const day = offHiredDay;
     const by = actor.name ?? "Operations";
     const resource = await prisma.$transaction(async (tx) => {
+      const before = await tx.resource.findUnique({ where: { id } });
       const n = await tx.resource.updateMany({ where: { id, offHiredOn: null }, data: data as any });
       if (!n.count) return null;
       const row = await tx.resource.findUniqueOrThrow({ where: { id } });
+      await recordChanges(tx, "Resource", id, before, row, hist, Object.keys(data));
       await recordOffHire(tx, id, { action: "OFF_HIRED", day, ref: row.offHireRef, via: "STATUS_BOX", by });
       return row;
     });
@@ -67,16 +73,13 @@ export async function applyResourcePatch(id: string, body: Record<string, unknow
     return { resource };
   }
 
-  const resource = await prisma.resource.update({
-    where: { id },
-    data: data as any,
-  });
+  const resource = await updateTracked<Resource>("Resource", id, data, hist);
   return { resource };
 }
 
 // The fields a body may change (pickProject) and the Project File rules
 // (dates, no dollar figures in crew-facing text, the office contact).
-export async function applyProjectPatch(id: string, body: Record<string, unknown>): Promise<{ project: Project } | PatchProblem> {
+export async function applyProjectPatch(id: string, body: Record<string, unknown>, ctx: { by?: Who; source?: string; reason?: string | null } = {}): Promise<{ project: Project } | PatchProblem> {
   const data = pickProject(body);
   const existing = await prisma.project.findUnique({
     where: { id },
@@ -85,9 +88,6 @@ export async function applyProjectPatch(id: string, body: Record<string, unknown
   if (!existing) return { error: "That project doesn't exist anymore.", status: 404 };
   const invalid = await projectFileError(data, existing);
   if (invalid) return invalid;
-  const project = await prisma.project.update({
-    where: { id },
-    data: data as any,
-  });
+  const project = await updateTracked<Project>("Project", id, data as Record<string, unknown>, { by: ctx.by, source: ctx.source ?? "Project edit", reason: ctx.reason ?? null });
   return { project };
 }

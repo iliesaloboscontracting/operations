@@ -24,7 +24,7 @@ const nextDay = (day: string) => new Date(new Date(`${day}T00:00:00Z`).getTime()
 function todaysJobs() {
   const { today, yesterday } = signinDates();
   return prisma.job.findMany({
-    where: { status: "ACTIVE", OR: [{ date: new Date(today + "T00:00:00.000Z") }, { date: new Date(yesterday + "T00:00:00.000Z"), shift: "NIGHT" }] },
+    where: { status: "ACTIVE", cancelledAt: null, OR: [{ date: new Date(today + "T00:00:00.000Z") }, { date: new Date(yesterday + "T00:00:00.000Z"), shift: "NIGHT" }] },
     select: { id: true, title: true, shift: true, projectId: true, project: { select: { name: true } }, assignments: { select: { resourceId: true, resource: { select: { type: true, ownership: true, category: true } } } } },
     orderBy: [{ date: "desc" }, { title: "asc" }],
   });
@@ -39,7 +39,7 @@ async function otherSites(excludeProjectIds: Set<string | null>) {
   // Projects running today are left out in the query itself (SEC-007), so the 200 are all sites that can be picked.
   const exclude = [...excludeProjectIds].filter((x): x is string => !!x);
   return prisma.project.findMany({
-    where: { archived: false, id: { notIn: exclude }, jobs: { some: { date: { gte: day(-120), lte: day(30) } } } },
+    where: { archived: false, id: { notIn: exclude }, jobs: { some: { date: { gte: day(-120), lte: day(30) }, cancelledAt: null } } },
     select: { id: true, name: true }, // the name only - nothing else reaches the link (SEC-003)
     orderBy: { name: "asc" },
     take: 200,

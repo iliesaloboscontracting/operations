@@ -24,7 +24,7 @@ export async function inventorySites(role: string): Promise<{ id: string; name: 
   const today = new Date(todaySydney() + "T00:00:00.000Z");
   const from = new Date(today.getTime() - YARD_SITE_WINDOW_DAYS * 86_400_000);
   const to = new Date(today.getTime() + (YARD_SITE_WINDOW_DAYS + 1) * 86_400_000);
-  return prisma.project.findMany({ where: { jobs: { some: { date: { gte: from, lt: to } } } }, select: { id: true, name: true }, orderBy: { name: "asc" } });
+  return prisma.project.findMany({ where: { jobs: { some: { date: { gte: from, lt: to }, cancelledAt: null } } }, select: { id: true, name: true }, orderBy: { name: "asc" } });
 }
 export type Fail = { error: string; status: number };
 export const CHANGED: Fail = { error: "It changed - reload the list.", status: 409 };

@@ -8,7 +8,7 @@ import { compareToolbox, type CheckResult } from "./toolboxCheck";
 export async function runToolboxCheck(toolboxId: string, photos: { id: string; fileName: string }[], checkedBy: string | null) {
   const reading = await readToolboxPhotos(photos.map((p) => p.fileName));
   const tools = await prisma.tool.findMany({
-    where: { condition: { not: "Swapped out" } },
+    where: { condition: { not: "Swapped out" }, retiredAt: null },
     select: { id: true, tag: true, name: true, brand: true, model: true, serialNumber: true, toolboxId: true, toolbox: { select: { name: true } } },
   });
   const result: CheckResult = compareToolbox(

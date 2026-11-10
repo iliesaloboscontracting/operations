@@ -10,6 +10,7 @@ import { checkJobDate } from "@/lib/dateRulesServer";
 import { matchHireSignIns } from "@/lib/labourHireMatch";
 import { logBoardEdit, siteName } from "@/lib/boardGuard/store";
 import { jobsWithNoSignInWay } from "@/lib/signinAlerts";
+import { reviveJob } from "@/lib/jobCancel";
 
 // GET /api/jobs?date=YYYY-MM-DD  -> jobs for that date, with assignments+resource included
 export const GET = withErrorHandling(async (req: NextRequest) => {
@@ -26,7 +27,7 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
 
   const jobs = await prisma.job.findMany({
     // Completed jobs come off the board entirely - see /completed.
-    where: { date: { gte: date, lt: nextDay }, status: { not: "COMPLETED" } },
+    where: { date: { gte: date, lt: nextDay }, status: { not: "COMPLETED" }, cancelledAt: null }, // never a cancelled job (10 Nov 2026)
     orderBy: [{ notRunning: "asc" }, { sortOrder: "asc" }, { createdAt: "asc" }],
     include: {
       project: { select: { name: true, client: true, jobNo: true, address: true, regional: true } },
@@ -107,8 +108,17 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   if (body.projectId) {
     const existing = await prisma.job.findFirst({
       where: { projectId: body.projectId, date: new Date(body.date), shift: body.shift ?? "DAY" },
-      select: { id: true, status: true },
+      select: { id: true, status: true, cancelledAt: true },
     });
+    // Keep forever (10 Nov 2026): a cancelled job for the same project / day / shift is brought back with these
+    // fields (the change kept in its history) - the one-job-per-slot rule still holds.
+    if (existing?.cancelledAt) {
+      const job = await reviveJob(existing.id, jobData(body), user, "Job added again (board)");
+      const full = await prisma.job.findUniqueOrThrow({ where: { id: (job as { id: string }).id }, include: { assignments: { include: { resource: true } } } });
+      await logBoardEdit(user, body.date, "JOB_ADD", `${siteName(full)} (brought back - it had been cancelled)`);
+      sanitizeJobs([full], user?.role ?? null);
+      return NextResponse.json(full, { status: 201 });
+    }
     if (existing) {
       return NextResponse.json(
         {
@@ -123,23 +133,7 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   }
 
   const job = await prisma.job.create({
-    data: {
-      projectId: body.projectId ?? null,
-      title: body.title,
-      client: body.client ?? null,
-      siteCode: body.siteCode ?? null,
-      siteAddress: body.siteAddress ?? null,
-      date: new Date(body.date),
-      shift: body.shift ?? "DAY",
-      startTime: body.startTime ?? null,
-      endTime: body.endTime ?? null,
-      status: body.status ?? "ACTIVE",
-      dayBrief: body.dayBrief ?? null,
-      dateCheckNote: typeof body.dateCheckNote === "string" && body.dateCheckNote.trim() ? body.dateCheckNote.trim() : null,
-      colorTag: body.colorTag ?? (body.shift === "NIGHT" ? "purple" : "orange"),
-      notRunning: body.notRunning ?? false,
-      sortOrder: body.sortOrder ?? 50,
-    },
+    data: { projectId: body.projectId ?? null, ...jobData(body) },
     include: { assignments: { include: { resource: true } } },
   });
 
@@ -147,3 +141,23 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   sanitizeJobs([job], user?.role ?? null);
   return NextResponse.json(job, { status: 201 });
 });
+
+// The fields a new job is made with (and a cancelled one brought back with). CANCELLED is never a status to create with.
+function jobData(body: Record<string, any>) {
+  return {
+    title: body.title,
+    client: body.client ?? null,
+    siteCode: body.siteCode ?? null,
+    siteAddress: body.siteAddress ?? null,
+    date: new Date(body.date),
+    shift: body.shift ?? "DAY",
+    startTime: body.startTime ?? null,
+    endTime: body.endTime ?? null,
+    status: body.status && body.status !== "CANCELLED" ? body.status : "ACTIVE",
+    dayBrief: body.dayBrief ?? null,
+    dateCheckNote: typeof body.dateCheckNote === "string" && body.dateCheckNote.trim() ? body.dateCheckNote.trim() : null,
+    colorTag: body.colorTag ?? (body.shift === "NIGHT" ? "purple" : "orange"),
+    notRunning: body.notRunning ?? false,
+    sortOrder: body.sortOrder ?? 50,
+  };
+}

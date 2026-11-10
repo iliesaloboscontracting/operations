@@ -6,7 +6,7 @@ import RegisterPage, { StatusPill } from "@/components/RegisterPage";
 import ToolsTabs from "@/components/tools/ToolsTabs";
 import RegisterByPhoto from "@/components/tools/RegisterByPhoto";
 import ToolDetail from "@/components/tools/ToolDetail";
-import { OWNERSHIP_LABEL, TOOL_CONDITIONS, TOOL_OWNERSHIP } from "@/lib/pickTool";
+import { OWNERSHIP_LABEL, RETIRE_REASONS, TOOL_CONDITIONS, TOOL_OWNERSHIP } from "@/lib/pickTool";
 import { ToolDTO } from "@/lib/types";
 import { useAuth } from "@/components/AuthProvider";
 
@@ -41,6 +41,11 @@ export default function ToolsPage() {
           addLabel: "Add tool by hand",
           itemNoun: "tool",
           api: "/api/tools",
+          // Keep forever (10 Nov 2026): Delete became Retire - the tool is kept with its history, it just leaves the lists.
+          deleteLabel: "Retire",
+          deleteReasons: RETIRE_REASONS,
+          deleteNote: "The tool is kept with its moves, checks and faults - it leaves the register, its toolbox and stock takes.",
+          historyModel: canEdit ? "Tool" : undefined,
           tabs: <ToolsTabs />,
           extraActions: (reload) => (
             <button

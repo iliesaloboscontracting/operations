@@ -80,7 +80,7 @@ function rowOf(
 export async function attendanceForDate(date: string) {
   const today = todaySydney();
   const jobs = await prisma.job.findMany({
-    where: { date: new Date(date + "T00:00:00.000Z"), status: { not: "COMPLETED" } },
+    where: { date: new Date(date + "T00:00:00.000Z"), status: { not: "COMPLETED" }, cancelledAt: null },
     orderBy: [{ notRunning: "asc" }, { sortOrder: "asc" }, { createdAt: "asc" }],
     select: {
       id: true, title: true, shift: true, status: true, startTime: true, endTime: true,

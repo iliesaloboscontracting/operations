@@ -11,12 +11,12 @@ import { linkLabel } from "../dailyLog/money";
 import { fromSydneyLocal } from "../shiftTimes";
 import { todaySydney } from "../today";
 import { pushToAdmins } from "../push";
-import { preparePhoto, removePhoto, writePreparedPhoto } from "../toolPhotos";
+import { preparePhoto, writePreparedPhoto } from "../toolPhotos";
 import type { Prisma } from "@prisma/client";
 import { checklistFor, slotLabel, walkaroundSlotsFor, type Checklist } from "./checklists";
 import {
   LIMITS, OPEN_STATUSES, PHOTO_LIMIT_NOTE, PRIORITY_LABEL, STATUS_LABEL, alertDecision, alertFor, alertMessage, canMove, cleanText, firstName, isOpenStatus,
-  isPriority, marksDown, offerBackToAvailable, photoCapFull, photoPrecheck, photoRefusal, sortFaults, validateSubmission, validateWalkaround, walkaroundCutoff,
+  isPriority, marksDown, offerBackToAvailable, photoCapFull, photoPrecheck, photoRefusal, sortFaults, validateSubmission, validateWalkaround,
   capNotice, capsFull, type PhotoCap, type PhotoRole,
   walkaroundRequired, worstPriority, type FaultPriority, type FaultStatus,
 } from "./rules";
@@ -542,66 +542,7 @@ export async function checksForDay(day: string) {
   };
 }
 
-// ---------- PS-003 (9 Nov 2026, Ilies approved the deletion): photos never sent with a check ----------
-// A photo uploaded for a check that was never sent stays unattached. Once a day, those older than 24 hours go: the
-// file first (only the file that row names - TOOL_PHOTO_DIR is shared with the Tools register), then the row. The
-// token they came with lasted 2 hours, so nothing can attach them any more. FAULT_PHOTO_CLEANUP=off stops it.
-export const STALE_MEDIA_HOURS = 24;
-export async function cleanupUnattachedMedia(now = new Date()): Promise<{ removed: number } | { skipped: true }> {
-  if (process.env.FAULT_PHOTO_CLEANUP === "off") return { skipped: true };
-  const stale = await prisma.assetFaultMedia.findMany({
-    where: { faultId: null, checkId: null, createdAt: { lt: new Date(now.getTime() - STALE_MEDIA_HOURS * 3_600_000) } },
-    select: { id: true, fileName: true },
-    take: 1000,
-  });
-  let removed = 0;
-  for (const m of stale) {
-    try {
-      await removePhoto(m.fileName);
-    } catch (e) {
-      // Already gone is fine; a name removePhoto refuses (not one savePhoto made) or any other error keeps the row.
-      if ((e as { code?: string }).code !== "ENOENT") continue;
-    }
-    // Only if it is still unattached (it can't be, but the row is the record of the file).
-    removed += (await prisma.assetFaultMedia.deleteMany({ where: { id: m.id, faultId: null, checkId: null } })).count;
-  }
-  return { removed };
-}
-
-// Stage 1b (Ilies, 10 Nov 2026): walk-around photos are deleted 12 months after they were taken - sent or not; the
-// file first (only the file the row names, one savePhoto made), then the row. Fault photos are never removed by age.
-// WALKAROUND_RETENTION=off stops it.
-export async function cleanupOldWalkaround(now = new Date()): Promise<{ removed: number } | { skipped: true }> {
-  if (process.env.WALKAROUND_RETENTION === "off") return { skipped: true };
-  const old = await prisma.assetFaultMedia.findMany({
-    where: { role: "WALKAROUND", faultId: null, createdAt: { lt: walkaroundCutoff(now) } },
-    select: { id: true, fileName: true },
-    take: 1000,
-  });
-  let removed = 0;
-  for (const m of old) {
-    try {
-      await removePhoto(m.fileName);
-    } catch (e) {
-      if ((e as { code?: string }).code !== "ENOENT") continue;
-    }
-    removed += (await prisma.assetFaultMedia.deleteMany({ where: { id: m.id, role: "WALKAROUND", faultId: null } })).count;
-  }
-  return { removed };
-}
-
-// From the instrumentation tick: once a Sydney day, from 3am. In memory only - a restart may run it again, which is
-// harmless (it removes the same kind of rows, or nothing).
-const cleanupState = globalThis as unknown as { __faultPhotoCleanupDay?: string };
-export async function faultPhotoCleanupTick(now = new Date()) {
-  if (process.env.FAULT_PHOTO_CLEANUP === "off" && process.env.WALKAROUND_RETENTION === "off") return null;
-  const hour = Number(new Intl.DateTimeFormat("en-AU", { timeZone: "Australia/Sydney", hour: "numeric", hourCycle: "h23" }).format(now));
-  const today = todaySydney();
-  if (hour < 3 || cleanupState.__faultPhotoCleanupDay === today) return null;
-  cleanupState.__faultPhotoCleanupDay = today;
-  const r = await cleanupUnattachedMedia(now);
-  if ("removed" in r) console.log(`fault photo cleanup: ${r.removed} removed`);
-  const w = await cleanupOldWalkaround(now);
-  if ("removed" in w) console.log(`walk-around photos over 12 months: ${w.removed} removed`);
-  return { unsent: r, walkaround: w };
-}
+// ---------- Keep forever (Ilies, 10 Nov 2026: "ALL information is kept forever") ----------
+// PS-003's 24-hour removal of photos never sent with a check and stage 1b's 12-month walk-around removal are gone: an
+// unsent photo stays as an unattached AssetFaultMedia row with its file, and no photo is removed by age. The upload
+// caps (PS-001 / PS-012 / PS-016) limit what comes in - they are not deletions and are unchanged.

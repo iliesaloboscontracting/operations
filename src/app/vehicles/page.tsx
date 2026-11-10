@@ -27,6 +27,7 @@ export default function VehiclesPage() {
         // D4: rego / insurance / service dates, read only (accounts edit them on Accounts -> Assets).
         detail: (r) => <><AssetDatesPanel resourceId={r.id} /><ServiceHistory resourceId={r.id} />{r.ownership === "OWNED" && r.category !== "Other" && <TruckIndicatorsPanel vehicleId={r.id} />}</>,
         api: "/api/resources",
+        historyModel: "Resource", // every change kept, who and when (10 Nov 2026) - pay fields Admin only
         query: "type=VEHICLE",
         sectionOf: (r) => (r.category ?? "Other").toUpperCase(),
         sectionOrder: TYPES.map((t) => t.toUpperCase()),

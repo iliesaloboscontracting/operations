@@ -25,7 +25,7 @@ export async function remindBeforeFinish() {
   // Yesterday too: a night shift that started yesterday finishes this morning.
   const days = [dayBefore(today), today];
   const jobs = await prisma.job.findMany({
-    where: { date: { in: days.map((d) => new Date(`${d}T00:00:00.000Z`)) }, status: { notIn: ["COMPLETED", "INACTIVE", "STOOD_DOWN"] } },
+    where: { date: { in: days.map((d) => new Date(`${d}T00:00:00.000Z`)) }, status: { notIn: ["COMPLETED", "INACTIVE", "STOOD_DOWN", "CANCELLED"] }, cancelledAt: null },
     select: {
       id: true, date: true, shift: true, startTime: true, endTime: true,
       project: { select: { name: true, dayStart: true, dayEnd: true, nightStart: true, nightEnd: true } },

@@ -356,6 +356,7 @@ export default function HirePage() {
         addLabel: `Add ${t.noun} hire`,
         itemNoun: `${t.noun} hire`,
         api: "/api/resources",
+        historyModel: "Resource", // every change kept, who and when (10 Nov 2026) - pay fields Admin only
         query: `type=HIRE&category=${tab}`,
         canEdit: canWork,
         canDelete: canEdit,

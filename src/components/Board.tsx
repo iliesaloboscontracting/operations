@@ -461,9 +461,15 @@ export default function Board() {
     setDaySheet({ ...buildDaySheet(safeJobs, selectedDate), scopeJobs });
   }
 
-  async function deleteJob() {
-    const res = await fetch(`/api/jobs/${(editing as JobDTO).id}`, { method: "DELETE" });
-    if (!res.ok) throw new Error("Couldn't delete job");
+  // Keep forever (10 Nov 2026): Cancel, never delete - the job is kept with the reason; it just leaves the board.
+  async function cancelJob(reason?: string) {
+    const res = await fetch(`/api/jobs/${(editing as JobDTO).id}`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reason: reason ?? "" }),
+    });
+    if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? "Couldn't cancel the job");
+    setMessage({ text: "Job cancelled - it's kept, with the reason, and has left the board." });
     await refresh();
   }
 
@@ -637,7 +643,7 @@ export default function Board() {
             setNewJobPrefill(null);
             setFromInactiveProject(false);
           }}
-          onDelete={editing === "new" ? undefined : deleteJob}
+          onDelete={editing === "new" ? undefined : cancelJob}
           onProjectReactivated={() => { refresh(); }}
         />
       )}

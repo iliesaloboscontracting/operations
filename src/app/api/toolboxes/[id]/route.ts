@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser, guard } from "@/lib/auth";
+import { updateTracked } from "@/lib/history/store";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { checkSupervisor } from "@/lib/toolboxServer";
 
@@ -31,22 +32,23 @@ export const PATCH = withErrorHandling(async (req: NextRequest, { params: params
       const box = await prisma.toolbox.findUnique({ where: { id: params.id }, select: { name: true } });
       if (!box) return NextResponse.json({ error: "That toolbox isn't there any more." }, { status: 404 });
       const user = await getCurrentUser();
-      const inBox = await prisma.tool.findMany({ where: { toolboxId: params.id }, select: { id: true } });
+      const inBox = await prisma.tool.findMany({ where: { toolboxId: params.id, retiredAt: null }, select: { id: true } });
       await prisma.$transaction([
         ...inBox.map((t) => prisma.tool.update({ where: { id: t.id }, data: { toolboxId: null, heldBy: "Yard" } })),
         ...inBox.map((t) => prisma.toolMovement.create({ data: { toolId: t.id, fromToolboxId: params.id, toToolboxId: null, fromName: box.name, toName: "Yard", reason: "Toolbox removed", movedBy: user?.name ?? null } })),
       ]);
     }
-    if (body.active === false && (await prisma.tool.count({ where: { toolboxId: params.id } })) > 0) {
+    if (body.active === false && (await prisma.tool.count({ where: { toolboxId: params.id, retiredAt: null } })) > 0) {
       return NextResponse.json({ error: "Move the tools out of this toolbox before retiring it." }, { status: 409 });
     }
     data.active = !!body.active;
   }
-  const box = await prisma.toolbox.update({ where: { id: params.id }, data });
+  // Every field that changed is kept in the toolbox's history (keep forever, 10 Nov 2026).
+  const box = await updateTracked<{ id: string; name: string; supervisorId: string | null }>("Toolbox", params.id, data, { by: await getCurrentUser(), source: "Toolbox edit" });
   // Tools in it are "held by" the supervisor - keep that in step.
   if ("supervisorId" in body) {
     const sup = box.supervisorId ? await prisma.resource.findUnique({ where: { id: box.supervisorId }, select: { name: true } }) : null;
-    await prisma.tool.updateMany({ where: { toolboxId: box.id }, data: { heldBy: sup?.name ?? box.name } });
+    await prisma.tool.updateMany({ where: { toolboxId: box.id, retiredAt: null }, data: { heldBy: sup?.name ?? box.name } });
   }
   return NextResponse.json(box);
 });

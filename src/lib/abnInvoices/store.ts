@@ -86,7 +86,7 @@ export async function listAbnChecks() {
   // Inbox invoices that could be an ABN worker's (not on a job, not attached yet), and the people to attach to.
   const attached = new Set((await prisma.abnInvoice.findMany({ where: { status: { not: "DETACHED" } }, select: { draftId: true } })).map((x) => x.draftId));
   const candidates = await prisma.invoiceDraft.findMany({
-    where: { status: { in: ["NEEDS_REVIEW", "NO_JOB"] }, createdAt: { gte: new Date(Date.now() - 120 * 86_400_000) }, OR: [{ category: { in: ["LABOUR_HIRE", "OTHER"] } }, { category: null }, { workDays: { not: null } }, { hoursTotal: { not: null } }] },
+    where: { status: { in: ["NEEDS_REVIEW", "NO_JOB"] }, removedAt: null, createdAt: { gte: new Date(Date.now() - 120 * 86_400_000) }, OR: [{ category: { in: ["LABOUR_HIRE", "OTHER"] } }, { category: null }, { workDays: { not: null } }, { hoursTotal: { not: null } }] },
     select: { id: true, supplier: true, invoiceNo: true, invoiceDate: true, amountExGst: true, status: true, problem: true }, orderBy: { createdAt: "desc" }, take: 100,
   });
   const persons = await prisma.resource.findMany({ where: { type: "PERSONNEL", active: true }, select: { id: true, name: true, engagement: true, gstRegistered: true }, orderBy: { name: "asc" } });
@@ -97,7 +97,7 @@ export async function listAbnChecks() {
 export async function attachDraft(who: Who, b: Record<string, unknown>): Promise<{ id: string } | Problem> {
   const draftId = String(b.draftId ?? ""), resourceId = String(b.resourceId ?? "");
   const [d, p] = await Promise.all([prisma.invoiceDraft.findUnique({ where: { id: draftId } }), prisma.resource.findUnique({ where: { id: resourceId }, select: { type: true } })]);
-  if (!d) return { error: "That invoice isn't in the inbox.", status: 404 };
+  if (!d || d.removedAt) return { error: "That invoice isn't in the inbox.", status: 404 };
   if (!p || p.type !== "PERSONNEL") return { error: "Pick the person.", status: 400 };
   if (d.status === "ADDED") return { error: "It's on a job - take it off the job in the inbox first.", status: 409 };
   await prisma.invoiceDraft.update({ where: { id: draftId }, data: { status: "SKIPPED", problem: ABN_SKIP_REASON, decidedBy: who.name, decidedAt: new Date() } });

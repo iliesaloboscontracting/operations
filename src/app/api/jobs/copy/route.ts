@@ -8,6 +8,7 @@ import { logBoardEdit } from "@/lib/boardGuard/store";
 import { isISODate } from "@/lib/dateRules";
 import { QUICK_LABOUR_HIRE_NAME, nextQuickLabourHireNumber } from "@/lib/resource";
 import { offHiredBefore } from "@/lib/hireEstimate";
+import { cancelledJobAt, reviveJob } from "@/lib/jobCancel";
 
 // POST /api/jobs/copy { from: "YYYY-MM-DD", to: "YYYY-MM-DD" }
 // Copies every running job from one day to another so the target day ends up
@@ -54,6 +55,7 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
     where: {
       date: { gte: fromStart, lt: fromEnd },
       notRunning: false,
+      cancelledAt: null, // a cancelled job is never copied (keep forever, 10 Nov 2026)
       OR: [{ projectId: null }, { project: { status: "ACTIVE" } }],
     },
     include: {
@@ -72,7 +74,7 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
     });
   }
   const existing = await prisma.job.findMany({
-    where: { date: { gte: toStart, lt: toEnd } },
+    where: { date: { gte: toStart, lt: toEnd }, cancelledAt: null },
     include: { assignments: { include: { resource: { select: { name: true, type: true, category: true } } } }, project: { select: { name: true } } },
   });
   type Res = { name: string; type: string; category: string | null };
@@ -146,6 +148,18 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
       continue;
     }
     const keep = await renumber(free(j.assignments, j.shift, j.title));
+    // A cancelled job already holds this project / day / shift (keep forever): bring it back instead of a second row.
+    const cancelled = j.projectId ? await cancelledJobAt(j.projectId, toStart, j.shift) : null;
+    if (cancelled) {
+      await reviveJob(cancelled.id, {
+        title: j.title, client: j.client, siteCode: j.siteCode, siteAddress: j.siteAddress, status: "ACTIVE", notRunning: false,
+        startTime: effectiveTimes(j, j.project).start, endTime: effectiveTimes(j, j.project).end,
+        dayBrief: j.dayBrief, colorTag: j.colorTag, sortOrder: j.sortOrder,
+      }, user, `Copy day from ${from}`);
+      if (keep.length) await prisma.assignment.createMany({ data: keep.map((a) => ({ jobId: cancelled.id, resourceId: a.resourceId, role: a.role })) });
+      copied++;
+      continue;
+    }
     await prisma.job.create({
       data: {
         projectId: j.projectId,

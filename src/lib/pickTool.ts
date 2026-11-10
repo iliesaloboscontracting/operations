@@ -35,3 +35,6 @@ export function toolFieldError(data: Record<string, unknown>): string | null {
   if ("ownership" in data && !(TOOL_OWNERSHIP as readonly unknown[]).includes(data.ownership)) return "Ownership must be Lobos owned, Hilti fleet or Hired.";
   return null;
 }
+
+// Why a tool is retired (keep forever, 10 Nov 2026 - Delete became Retire): picked, not typed; "Other" still types one.
+export const RETIRE_REASONS = ["Broken beyond repair", "Lost / stolen", "Sold or given away", "Returned to Hilti / the supplier", "Added by mistake"] as const;

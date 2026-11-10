@@ -31,6 +31,7 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
     prisma.invoiceDraft.findMany({
       where: {
         OR: [{ status: { in: ["NEEDS_REVIEW", "NO_JOB"] } }, { updatedAt: { gt: new Date(Date.now() - 60 * 86_400_000) } }],
+        removedAt: null, // hidden lines (a failed read's earlier results) are kept, never shown (10 Nov 2026)
         ...(withCleared ? {} : { upload: { clearedAt: null } }),
       },
       orderBy: [{ invoiceDate: "desc" }, { createdAt: "desc" }],
@@ -46,13 +47,13 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
 
   // An invoice taken off a job in Tracking is no longer "added".
   const addedIds = drafts.filter((d) => d.status === "ADDED" && d.invoicedCostId).map((d) => d.invoicedCostId as string);
-  const live = new Set((await prisma.invoicedCost.findMany({ where: { id: { in: addedIds } }, select: { id: true } })).map((r) => r.id));
+  const live = new Set((await prisma.invoicedCost.findMany({ where: { id: { in: addedIds }, removedAt: null }, select: { id: true } })).map((r) => r.id));
   for (const d of drafts) if (d.status === "ADDED" && d.invoicedCostId && !live.has(d.invoicedCostId)) {
     d.status = "NEEDS_REVIEW"; d.problem = "Removed from the job in Tracking - decide again."; d.invoicedCostId = null;
   }
 
   const counts = new Map<string, Record<string, number>>();
-  for (const d of await prisma.invoiceDraft.groupBy({ by: ["uploadId", "status"], _count: true })) {
+  for (const d of await prisma.invoiceDraft.groupBy({ by: ["uploadId", "status"], where: { removedAt: null }, _count: true })) {
     const c = counts.get(d.uploadId) ?? {};
     c[d.status] = d._count;
     counts.set(d.uploadId, c);

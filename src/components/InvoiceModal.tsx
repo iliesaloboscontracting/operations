@@ -8,6 +8,10 @@
 import FormModal, { type FieldDef } from "./FormModal";
 import { apiFetch, serverErrorMessage } from "@/lib/apiFetch";
 import type { HireItemCostDTO, InvoicedCostDTO } from "@/lib/types";
+import HistoryButton from "./HistoryButton";
+
+// Keep forever (10 Nov 2026): "Remove" hides the line from every total - it's kept, with who and why.
+const REMOVE_REASONS = ["Entered by mistake", "Duplicate of another invoice", "Wrong job", "Credited by the supplier"] as const;
 
 const CATEGORY_OPTIONS = [
   { value: "PLANT_HIRE", label: "Plant hire" },
@@ -72,9 +76,13 @@ export default function InvoiceModal({
     onSaved();
   }
 
-  async function remove() {
-    const res = await apiFetch(`/api/invoiced-costs/${invoice!.id}`, { method: "DELETE" });
-    if (!res.ok) throw new Error(await serverErrorMessage(res, "Couldn't delete the invoice"));
+  async function remove(reason?: string) {
+    const res = await apiFetch(`/api/invoiced-costs/${invoice!.id}`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reason: reason ?? "" }),
+    });
+    if (!res.ok) throw new Error(await serverErrorMessage(res, "Couldn't remove the invoice"));
     onSaved();
   }
 
@@ -86,7 +94,10 @@ export default function InvoiceModal({
       onSave={save}
       onClose={onClose}
       onDelete={invoice && canDelete ? remove : undefined}
-      deleteLabel="Delete"
+      deleteLabel="Remove"
+      deleteReasons={REMOVE_REASONS}
+      deleteNote="The invoice is kept (with who and why) but no longer counts on Tracking, Directors or accounts' checks."
+      extra={invoice ? <div className="mt-3 flex justify-end"><HistoryButton model="InvoicedCost" id={invoice.id} /></div> : undefined}
       submitLabel={invoice ? "Save" : "Add invoice"}
     />
   );

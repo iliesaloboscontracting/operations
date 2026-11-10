@@ -15,6 +15,7 @@ export const GET = withErrorHandling(async () => {
     include: {
       supervisor: { select: { id: true, name: true, phone: true } },
       tools: {
+        where: { retiredAt: null },
         orderBy: { tag: "asc" },
         select: { id: true, tag: true, name: true, brand: true, model: true, serialNumber: true, condition: true, ownership: true },
       },

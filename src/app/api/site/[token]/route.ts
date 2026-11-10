@@ -29,7 +29,7 @@ export const GET = withErrorHandling(async (_req: NextRequest, { params: paramsP
       id: true,
       name: true,
       tools: {
-        where: { condition: { not: "Swapped out" } },
+        where: { condition: { not: "Swapped out" }, retiredAt: null },
         orderBy: { tag: "asc" },
         select: { id: true, tag: true, name: true, brand: true, model: true, serialNumber: true, condition: true },
       },

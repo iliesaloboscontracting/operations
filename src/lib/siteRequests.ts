@@ -35,10 +35,10 @@ export async function sitesFor(link: ResolvedLink, back = 0) {
   const from = new Date(today.getTime() - back * 86_400_000);
   const weekOut = new Date(today.getTime() + 8 * 86_400_000);
   const jobs = link.kind === "HANDOVER" && link.jobId
-    ? await prisma.job.findMany({ where: { id: link.jobId }, select: { project: { select: { id: true, name: true } } } })
+    ? await prisma.job.findMany({ where: { id: link.jobId, cancelledAt: null }, select: { project: { select: { id: true, name: true } } } })
     : link.person.id
       ? await prisma.job.findMany({
-          where: { date: { gte: from, lt: weekOut }, status: { not: "COMPLETED" }, assignments: { some: { resourceId: link.person.id } } },
+          where: { date: { gte: from, lt: weekOut }, status: { not: "COMPLETED" }, cancelledAt: null, assignments: { some: { resourceId: link.person.id } } },
           orderBy: { date: "asc" },
           select: { project: { select: { id: true, name: true } } },
         })

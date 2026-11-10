@@ -21,3 +21,17 @@ export function liveJobFields(job: {
       }
     : { title: job.title, client: job.client, siteCode: job.siteCode, siteAddress: job.siteAddress };
 }
+
+// Keep forever (Ilies, 10 Nov 2026): a job is never deleted - the board's Delete became Cancel (status CANCELLED,
+// cancelledAt / By / Reason). Every query that lists, counts or costs jobs adds LIVE_JOB, so a cancelled job is left
+// out wherever a deleted one used to be gone from.
+export const LIVE_JOB = { cancelledAt: null } as const;
+export const isCancelledJob = (j: { cancelledAt?: Date | string | null; status?: string | null }) => !!j.cancelledAt || j.status === "CANCELLED";
+// Why a job was cancelled - picked, not typed (house style); "Other" still types one.
+export const CANCEL_REASONS = [
+  "Added by mistake",
+  "Added on the wrong day",
+  "Client cancelled",
+  "Work not going ahead",
+  "Duplicate of another job",
+] as const;

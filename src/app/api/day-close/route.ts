@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { guard, getCurrentUser } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
-import { freezeDayCosts } from "@/lib/dayClose";
+import { freezeDayCosts, supersedeDayCosts } from "@/lib/dayClose";
+import { recordChanges } from "@/lib/history/store";
 
 // GET /api/day-close?date=YYYY-MM-DD -> that date's close status (OPEN if no row)
 export const GET = withErrorHandling(async (req: NextRequest) => {
@@ -36,22 +37,33 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
     const reason = typeof body.reason === "string" ? body.reason.trim() : "";
     if (!reason) return NextResponse.json({ error: "A reason is required to re-open a closed day" }, { status: 400 });
 
-    const close = await prisma.dayClose.upsert({
-      where: { date },
-      create: { date, status: "OPEN", reopenedBy: user.name, reopenedAt: new Date(), reopenReason: reason },
-      update: { status: "OPEN", reopenedBy: user.name, reopenedAt: new Date(), reopenReason: reason },
+    // Keep forever (10 Nov 2026): the close it replaces is kept in the day's history (RecordChange), and the frozen
+    // ledger is marked superseded (kept, never deleted) so the date goes back to live costing - one transaction.
+    const close = await prisma.$transaction(async (tx) => {
+      const before = await tx.dayClose.findUnique({ where: { date } });
+      const row = await tx.dayClose.upsert({
+        where: { date },
+        create: { date, status: "OPEN", reopenedBy: user.name, reopenedAt: new Date(), reopenReason: reason },
+        update: { status: "OPEN", reopenedBy: user.name, reopenedAt: new Date(), reopenReason: reason },
+      });
+      await recordChanges(tx, "DayClose", row.id, before, row, { by: user, source: "Re-open day", reason }, ["status", "reopenedBy", "reopenedAt", "reopenReason"]);
+      await supersedeDayCosts(tx, date, `Re-opened by ${user.name}`);
+      return row;
     });
-    // The frozen ledger no longer reflects a locked date - drop it so the
-    // date goes back to live costing until it's closed again.
-    await prisma.allocationCost.deleteMany({ where: { date } });
     return NextResponse.json(close);
   }
 
-  const close = await prisma.dayClose.upsert({
-    where: { date },
-    create: { date, status: "CLOSED", closedBy: user!.name, closedAt: new Date() },
-    update: { status: "CLOSED", closedBy: user!.name, closedAt: new Date() },
-  });
-  await freezeDayCosts(date);
+  // The close, its history and the fresh ledger (earlier rows superseded, kept) in one transaction.
+  const close = await prisma.$transaction(async (tx) => {
+    const before = await tx.dayClose.findUnique({ where: { date } });
+    const row = await tx.dayClose.upsert({
+      where: { date },
+      create: { date, status: "CLOSED", closedBy: user!.name, closedAt: new Date() },
+      update: { status: "CLOSED", closedBy: user!.name, closedAt: new Date() },
+    });
+    await recordChanges(tx, "DayClose", row.id, before, row, { by: user, source: "Close day" }, ["status", "closedBy", "closedAt"]);
+    await freezeDayCosts(date, `Closed again by ${user!.name}`, tx);
+    return row;
+  }, { timeout: 30_000 });
   return NextResponse.json(close);
 });

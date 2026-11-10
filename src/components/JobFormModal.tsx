@@ -4,6 +4,8 @@ import { JobDTO, ProjectDTO } from "@/lib/types";
 import { serverErrorMessage } from "@/lib/apiFetch";
 import { saveWithDateCheck } from "@/lib/dateCheckPrompt";
 import FormModal, { FieldDef } from "./FormModal";
+import { CANCEL_REASONS } from "@/lib/jobs";
+import HistoryButton from "./HistoryButton";
 
 export interface SavedJobInfo {
   isNew: boolean;
@@ -40,7 +42,7 @@ export default function JobFormModal({
   fromInactiveProject?: boolean;
   onSaved: (job: JobDTO | null, info: SavedJobInfo) => void | Promise<void>;
   onClose: () => void;
-  onDelete?: () => Promise<void>;
+  onDelete?: (reason?: string) => Promise<void>;
   // A Completed project picked and set back to Active from the question - the page reloads its project list.
   onProjectReactivated?: (projectId: string) => void;
 }) {
@@ -208,7 +210,10 @@ export default function JobFormModal({
       onSave={handleSave}
       onClose={onClose}
       onDelete={onDelete}
-      deleteLabel="Delete Job"
+      deleteLabel="Cancel job"
+      deleteReasons={CANCEL_REASONS}
+      deleteNote="The job is kept (with who and why) - it leaves the board, the calendar and Tracking. Its allocations come off and are kept in the board's history."
+      extra={!isNew && onDelete ? <div className="mt-3 flex justify-end"><HistoryButton model="Job" id={(editing as JobDTO).id} /></div> : undefined}
       submitLabel="Save Job"
     />
   );

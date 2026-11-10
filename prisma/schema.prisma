@@ -115,6 +115,11 @@ model ProjectContact {
   sortOrder Int      @default(0)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  // Keep forever (Ilies, 10 Nov 2026): "removing" a contact hides it - never erased. Hidden rows are left out of every
+  // list and total; who / when / why stay here.
+  removedAt    DateTime?
+  removedBy    String?
+  removeReason String?
 
   @@index([projectId])
 }
@@ -150,10 +155,16 @@ model InvoicedCost {
   // Tip invoices (Receipts R3, 26 Oct 2026): the docket numbers printed on it (JSON array), so it can
   // be matched to the tip dockets it bills. Null for everything else.
   docketNos      String?
+  // Keep forever (Ilies, 10 Nov 2026): "removing" an invoice line (Admin remove, an approved INVOICED_COST_REMOVE, the inbox Take off) hides it - never erased. Hidden rows are left out of every
+  // list and total; who / when / why stay here.
+  removedAt    DateTime?
+  removedBy    String?
+  removeReason String?
 
   @@index([projectId])
   @@index([hireResourceId])
   @@index([invoiceNo])
+  @@index([removedAt])
 }
 
 // Invoices inbox (24 Oct 2026): accounts upload supplier invoices (PDF or
@@ -250,6 +261,11 @@ model InvoiceDraft {
   decidedAt      DateTime?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
+  // Keep forever (Ilies, 10 Nov 2026): "removing" a line (the partial results of a failed read, when it is read again) hides it - never erased. Hidden rows are left out of every
+  // list and total; who / when / why stay here.
+  removedAt    DateTime?
+  removedBy    String?
+  removeReason String?
 
   @@index([uploadId])
   @@index([status])
@@ -263,6 +279,11 @@ model SiteAlias {
   projectId String
   createdBy String?
   createdAt DateTime @default(now())
+  // Keep forever (Ilies, 10 Nov 2026): "removing" a wording (saving the same wording again brings this row back) hides it - never erased. Hidden rows are left out of every
+  // list and total; who / when / why stay here.
+  removedAt    DateTime?
+  removedBy    String?
+  removeReason String?
 }
 
 // Own-crew labour cost, backfilled from the daily allocation sheets (issued
@@ -305,7 +326,7 @@ model Job {
   shift       String       @default("DAY") // DAY | NIGHT
   startTime   String? // free text e.g. "8:30am"
   endTime     String? // free text e.g. "3pm"
-  status      String       @default("ACTIVE") // INACTIVE | ACTIVE | STOOD_DOWN | COMPLETED
+  status      String       @default("ACTIVE") // INACTIVE | ACTIVE | STOOD_DOWN | COMPLETED | CANCELLED
   dayBrief    String? // instructions text for the day / scope of works
   // Why this job was saved despite a date warning (before the project start,
   // after planned completion, on an inactive project, weekend) - brief 12.
@@ -313,6 +334,13 @@ model Job {
   dateCheckNote String?
   colorTag    String       @default("blue") // left border color on the board
   notRunning  Boolean      @default(false) // derived from status = INACTIVE/STOOD_DOWN; drives the "not active" grouping. COMPLETED jobs are excluded from the board entirely (see /completed).
+  // Keep forever (Ilies, 10 Nov 2026): the board's Delete became Cancel - status CANCELLED and these set. A cancelled
+  // job is kept but left out of the board, the calendar, Tracking and every list and total, as a deleted one was. Its
+  // allocations are removed with a full snapshot in BoardEdit. Adding the same project / day / shift again brings it back.
+  cancelledAt   DateTime?
+  cancelledBy   String?
+  cancelledById String?
+  cancelReason  String?
   sortOrder   Int          @default(0)
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
@@ -449,6 +477,11 @@ model ServiceRecord {
   createdBy   String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  // Keep forever (Ilies, 10 Nov 2026): "removing" a service record hides it - never erased. Hidden rows are left out of every
+  // list and total; who / when / why stay here.
+  removedAt    DateTime?
+  removedBy    String?
+  removeReason String?
 
   @@index([resourceId])
   @@index([date])
@@ -522,13 +555,18 @@ model BugReport {
   notes       String? // resolution notes
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  // Keep forever (Ilies, 10 Nov 2026): "removing" a report hides it - never erased. Hidden rows are left out of every
+  // list and total; who / when / why stay here.
+  removedAt    DateTime?
+  removedBy    String?
+  removeReason String?
 }
 
 // One row per costed allocation on a given date - the permanent, frozen
 // record a day-close (Phase 3/D2) leaves behind, so a closed date's cost
-// stops moving even as pay rates or hire rates change later. Wholesale
-// replaced (delete + recreate for the date) each time that date is closed,
-// so closing again after a correction never leaves stale rows behind. Not
+// stops moving even as pay rates or hire rates change later. Each close
+// writes a fresh set for the date and marks the earlier set superseded (kept
+// forever since 10 Nov 2026 - never deleted), so only current rows count. Not
 // written for open dates - those still cost live, the same way Tracking
 // always has. assignmentId is a plain snapshot (no FK): the Assignment row
 // itself can later be deleted (e.g. after a re-open) without touching this
@@ -547,9 +585,14 @@ model AllocationCost {
   amount       Float?
   status       String? // CostStatus at freeze time - never silently $0
   createdAt    DateTime  @default(now())
+  // Keep forever (Ilies, 10 Nov 2026): a re-open or a second close no longer deletes a date's rows - they are marked
+  // superseded (when, by whom) and kept. Only rows with supersededAt null are the frozen ledger.
+  supersededAt DateTime?
+  supersededBy String?
 
   @@index([projectId])
   @@index([date])
+  @@index([date, supersededAt])
 }
 
 // Whether a calendar date's allocations are locked against further edits
@@ -588,6 +631,11 @@ model JobActual {
   notes       String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  // Keep forever (Ilies, 10 Nov 2026): "removing" an unplanned addition on Day Review (saving the same person on the job again brings this row back) hides it - never erased. Hidden rows are left out of every
+  // list and total; who / when / why stay here.
+  removedAt    DateTime?
+  removedBy    String?
+  removeReason String?
 
   @@unique([jobId, resourceId])
   @@index([jobId])
@@ -627,6 +675,11 @@ model Tool {
   // The toolbox this tool should live in. Null = in the yard / unassigned.
   toolboxId String?
   toolbox   Toolbox? @relation(fields: [toolboxId], references: [id], onDelete: SetNull)
+  // Keep forever (Ilies, 10 Nov 2026): Delete became Retire. A retired tool leaves every list, toolbox and stock take
+  // but stays on file with its moves, checks and faults. Its tag and serial stay taken.
+  retiredAt    DateTime?
+  retiredBy    String?
+  retireReason String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   photos    ToolPhoto[]
@@ -876,8 +929,12 @@ model DaySheetSend {
 model BoardEdit {
   id     String   @id @default(cuid())
   date   String // the board day changed, YYYY-MM-DD
-  action String // ASSIGN | MOVE | ROLE | REMOVE | JOB_ADD | JOB_EDIT | JOB_DELETE | COPY | CLEAR
+  action String // ASSIGN | MOVE | ROLE | REMOVE | JOB_ADD | JOB_EDIT | JOB_DELETE | JOB_CANCEL | COPY | CLEAR
   detail String? // a few words - "Joe Bloggs -> Myers (night)" - names only, never money
+  // Keep forever (Ilies, 10 Nov 2026): JSON of exactly what a REMOVE / MOVE / CLEAR / JOB_CANCEL took off the board -
+  // every allocation row (resource id + name, job id / title / date / shift / times, role) and, for a clear, the day
+  // briefs it emptied (lib/boardGuard/snapshot.ts). Names and roles only, never money.
+  snapshot String?
   userId String
   by     String
   at     DateTime @default(now())
@@ -2478,4 +2535,26 @@ model PhotoCapNotice {
   at         DateTime @default(now())
 
   @@unique([resourceId, cap, day])
+}
+
+// One append-only change history for edits to business records (keep forever, Ilies 10 Nov 2026 - lib/history/).
+// One row per field that actually changed, written in the same transaction as the edit: the model and record, before
+// and after (as text), who, when, which screen or route, and why when one was given. Never User / password / session /
+// token / secret fields, and never a TFN or bank detail. Read through /api/history with the same role and money guards
+// as the record itself (pay fields Admin only, day / hire rates Manager+). Never changed or deleted.
+model RecordChange {
+  id          String   @id @default(cuid())
+  model       String // Resource | Project | Job | Tool | Toolbox | ToolIssue | InvoicedCost | ServiceRecord | ...
+  recordId    String
+  field       String
+  before      String?
+  after       String?
+  changedBy   String // name
+  changedById String? // the login's id, when a person did it
+  changedAt   DateTime @default(now())
+  source      String? // e.g. "PATCH /api/resources/:id", "Approved change P-0123"
+  reason      String?
+
+  @@index([model, recordId, changedAt])
+  @@index([changedAt])
 }

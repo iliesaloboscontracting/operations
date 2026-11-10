@@ -17,6 +17,7 @@ export default function PlantPage() {
         // D4: insurance / service / inspection dates, read only (accounts edit them on Accounts -> Assets).
         detail: (r) => <AssetDatesPanel resourceId={r.id} />,
         api: "/api/resources",
+        historyModel: "Resource", // every change kept, who and when (10 Nov 2026) - pay fields Admin only
         query: "type=EQUIPMENT,ATTACHMENT",
         sectionOf: (r) => (r.type === "ATTACHMENT" ? "Attachments" : "Plant"),
         sectionOrder: ["Plant", "Attachments"],

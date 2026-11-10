@@ -4,7 +4,8 @@ import { guard, getCurrentUser } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { sanitizeAssignment } from "@/lib/serializeResource";
 import { assertDateOpen } from "@/lib/dayLock";
-import { isoDay, logBoardEdit, siteName } from "@/lib/boardGuard/store";
+import { isoDay, logBoardEdit, logBoardRemoval, siteName } from "@/lib/boardGuard/store";
+import { ASSIGNMENT_FOR_SNAPSHOT, allocationSnapshot } from "@/lib/boardGuard/snapshot";
 import { offHiredBefore, offHireStop } from "@/lib/hireEstimate";
 import { fmtDay } from "@/lib/dates";
 
@@ -33,7 +34,7 @@ export const PATCH = withErrorHandling(async (
 
     const sourceLocked = await assertDateOpen(current.job.date.toISOString().slice(0, 10));
     if (sourceLocked) return sourceLocked;
-    const targetJob = await prisma.job.findUnique({ where: { id: body.jobId }, ...JOB });
+    const targetJob = await prisma.job.findFirst({ where: { id: body.jobId, cancelledAt: null }, ...JOB });
     if (!targetJob) return NextResponse.json({ error: "not found" }, { status: 404 });
     const targetLocked = await assertDateOpen(targetJob.date.toISOString().slice(0, 10));
     if (targetLocked) return targetLocked;
@@ -57,8 +58,16 @@ export const PATCH = withErrorHandling(async (
       where: { jobId_resourceId: { jobId: body.jobId, resourceId: current.resourceId } },
     });
     if (existing) {
-      await prisma.assignment.delete({ where: { id: params.id } });
-      await logMove();
+      // Keep forever (10 Nov 2026): the source row goes only with a full snapshot of it, in the same transaction.
+      if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+      await prisma.$transaction(async (tx) => {
+        const row = await tx.assignment.findUniqueOrThrow({ where: { id: params.id }, include: ASSIGNMENT_FOR_SNAPSHOT });
+        await tx.assignment.delete({ where: { id: params.id } });
+        await logBoardRemoval(tx, user, isoDay(current.job.date), "MOVE",
+          `${current.resource.name}: ${siteName(current.job)} -> ${siteName(targetJob)} (already there - this tile removed)`,
+          { v: 1, kind: "MOVE_DUPLICATE", allocations: [allocationSnapshot(row)] });
+      });
+      if (isoDay(current.job.date) !== isoDay(targetJob.date)) await logBoardEdit(user, isoDay(targetJob.date), "MOVE", `${current.resource.name}: ${siteName(current.job)} -> ${siteName(targetJob)}`);
       return NextResponse.json(existing);
     }
     const moved = await prisma.assignment.update({
@@ -99,7 +108,14 @@ export const DELETE = withErrorHandling(async (
   if (!current) return NextResponse.json({ error: "not found" }, { status: 404 });
   const locked = await assertDateOpen(current.job.date.toISOString().slice(0, 10));
   if (locked) return locked;
-  await prisma.assignment.delete({ where: { id: params.id } });
-  await logBoardEdit(user, isoDay(current.job.date), "REMOVE", `${current.resource.name} off ${siteName(current.job)}`);
+  if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+  // Keep forever (Ilies, 10 Nov 2026): the allocation row is deleted (costing reads the live rows) but never without a
+  // full snapshot of it in BoardEdit, in the same transaction.
+  await prisma.$transaction(async (tx) => {
+    const row = await tx.assignment.findUniqueOrThrow({ where: { id: params.id }, include: ASSIGNMENT_FOR_SNAPSHOT });
+    await tx.assignment.delete({ where: { id: params.id } });
+    await logBoardRemoval(tx, user, isoDay(current.job.date), "REMOVE", `${current.resource.name} off ${siteName(current.job)}`,
+      { v: 1, kind: "REMOVE", allocations: [allocationSnapshot(row)] });
+  });
   return NextResponse.json({ ok: true });
 });

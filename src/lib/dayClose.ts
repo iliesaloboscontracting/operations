@@ -1,12 +1,21 @@
 // Writes the frozen AllocationCost ledger for one date (Phase 3). Called
-// when a day is closed. Wholesale replaces any existing rows for that date,
-// so closing again after a correction never leaves stale rows behind.
+// when a day is closed. Keep forever (Ilies, 10 Nov 2026): the date's earlier
+// rows are marked superseded (supersededAt / By) and kept - never deleted - and
+// a fresh set is written in the same transaction, so only current rows count
+// (Tracking reads supersededAt null).
 import { prisma } from "./prisma";
+import type { Prisma } from "@prisma/client";
+
+// Marks a date's current ledger rows superseded (a re-open, or the start of a fresh close). Returns how many.
+export async function supersedeDayCosts(tx: Prisma.TransactionClient, date: string, by: string) {
+  const n = await tx.allocationCost.updateMany({ where: { date, supersededAt: null }, data: { supersededAt: new Date(), supersededBy: by.slice(0, 120) } });
+  return n.count;
+}
 import { costAllocation } from "./costAllocation";
 
-export async function freezeDayCosts(date: string) {
-  const jobs = await prisma.job.findMany({
-    where: { date: new Date(date + "T00:00:00.000Z"), projectId: { not: null } },
+export async function freezeDayCosts(date: string, by = "Day close", tx?: Prisma.TransactionClient) {
+  const jobs = await (tx ?? prisma).job.findMany({
+    where: { date: new Date(date + "T00:00:00.000Z"), projectId: { not: null }, cancelledAt: null },
     include: {
       project: { select: { id: true, unpaidBreakMinutes: true, dayStart: true, dayEnd: true, nightStart: true, nightEnd: true } },
       assignments: {
@@ -47,10 +56,12 @@ export async function freezeDayCosts(date: string) {
     }
   }
 
-  await prisma.$transaction([
-    prisma.allocationCost.deleteMany({ where: { date } }),
-    ...(rows.length ? [prisma.allocationCost.createMany({ data: rows })] : []),
-  ]);
+  const write = async (t: Prisma.TransactionClient) => {
+    await supersedeDayCosts(t, date, by);
+    if (rows.length) await t.allocationCost.createMany({ data: rows });
+  };
+  if (tx) await write(tx);
+  else await prisma.$transaction(write);
 
   return rows.length;
 }

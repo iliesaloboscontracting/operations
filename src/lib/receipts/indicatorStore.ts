@@ -49,7 +49,7 @@ export async function truckIndicatorList(vehicleId?: string, now = new Date()): 
 // far, asbestos loads. Never a price.
 export type DayDocketsDTO = { jobs: { jobId: string; dockets: number; tonnes: number; asbestos: number; toCheck: number }[] };
 export async function docketsForDay(date: string): Promise<DayDocketsDTO> {
-  const jobs = await prisma.job.findMany({ where: { date: new Date(`${date}T00:00:00.000Z`) }, select: { id: true } });
+  const jobs = await prisma.job.findMany({ where: { date: new Date(`${date}T00:00:00.000Z`), cancelledAt: null }, select: { id: true } });
   const rows = jobs.length
     ? await prisma.receipt.findMany({ where: { kind: "TIP", jobId: { in: jobs.map((j) => j.id) }, status: { not: "REJECTED" } }, select: { jobId: true, tonnes: true, asbestos: true, status: true } })
     : [];

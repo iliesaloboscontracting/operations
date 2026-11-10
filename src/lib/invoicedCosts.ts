@@ -6,6 +6,7 @@ import { prisma } from "./prisma";
 import { isISODate } from "./dateRules";
 import { docketNosOf, parseDocketNos } from "./receipts/tipCosts";
 import { syncTipMatchesSoon } from "./receipts/tipStore";
+import { hideTracked, type HistoryCtx } from "./history/store";
 
 export const INVOICE_CATEGORIES = ["PLANT_HIRE", "LABOUR_HIRE", "TIP_FEES", "MATERIALS"] as const;
 
@@ -71,7 +72,7 @@ export async function readInvoice(body: Record<string, unknown>, existingId?: st
 
   if (invoiceNo) {
     const dup = await prisma.invoicedCost.findFirst({
-      where: { projectId, invoiceNo, vendor, ...(existingId ? { id: { not: existingId } } : {}) },
+      where: { projectId, invoiceNo, vendor, removedAt: null, ...(existingId ? { id: { not: existingId } } : {}) },
       select: { id: true },
     });
     if (dup) return { error: `${vendor} invoice ${invoiceNo} is already entered on this project.` };
@@ -87,13 +88,15 @@ export async function readInvoice(body: Record<string, unknown>, existingId?: st
 }
 
 // Remove an invoice entered by mistake (Admin only - it takes real cost off a project): DELETE
-// /api/invoiced-costs/:id and an approved "Remove supplier invoice" change (lib/changes) both come here.
-// A hire invoice's days go back to the hire estimate by themselves (hireEstimate reads the invoices that
-// are there); a tip invoice's dockets are re-matched, so they count as estimates again.
-export async function removeInvoicedCost(id: string): Promise<{ ok: true } | { error: string; status: number }> {
-  const existing = await prisma.invoicedCost.findUnique({ where: { id }, select: { id: true, category: true } });
-  if (!existing) return { error: "not found", status: 404 };
-  await prisma.invoicedCost.delete({ where: { id: existing.id } });
+// /api/invoiced-costs/:id, an approved "Remove supplier invoice" change (lib/changes) and the invoices inbox's
+// "Take off the job" all come here. Keep forever (Ilies, 10 Nov 2026): the row is HIDDEN (removedAt / By / Reason), never
+// erased - and every reader of InvoicedCost leaves hidden rows out, so it drops out of Tracking, Directors, accounts'
+// checks and every money sum exactly as a deleted one did. A hire invoice's days go back to the hire estimate by
+// themselves (hireEstimate reads the invoices that count); a tip invoice's dockets are re-matched.
+export async function removeInvoicedCost(id: string, ctx: HistoryCtx = { by: null, source: "Remove invoice" }): Promise<{ ok: true } | { error: string; status: number }> {
+  const existing = await prisma.invoicedCost.findUnique({ where: { id }, select: { id: true, category: true, removedAt: true } });
+  if (!existing || existing.removedAt) return { error: "not found", status: 404 };
+  await hideTracked("InvoicedCost", existing.id, ctx);
   if (existing.category === "TIP_FEES") syncTipMatchesSoon();
   return { ok: true };
 }

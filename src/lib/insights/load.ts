@@ -55,12 +55,12 @@ export async function gatherDirectorInputs() {
       select: {
         id: true, name: true, status: true, archived: true, startDate: true, startDateConfidence: true,
         expectedCompletion: true, completionConfidence: true, completionReviewBy: true,
-        jobs: { where: { notRunning: false, date: { gte: dayStart(addDays(today, -14)) } }, select: { id: true }, take: 1 },
+        jobs: { where: { notRunning: false, cancelledAt: null, date: { gte: dayStart(addDays(today, -14)) } }, select: { id: true }, take: 1 },
       },
     }),
     upcomingStarts(today, 7),
     prisma.job.findMany({
-      where: { notRunning: false, date: { gte: dayStart(today), lt: dayStart(addDays(today, THRESHOLDS.lookaheadDays)) } },
+      where: { notRunning: false, cancelledAt: null, date: { gte: dayStart(today), lt: dayStart(addDays(today, THRESHOLDS.lookaheadDays)) } },
       select: {
         id: true, projectId: true, title: true, date: true, project: { select: { name: true } },
         assignments: { select: { role: true, resourceId: true, resource: { select: { type: true, category: true } } } },
@@ -79,7 +79,7 @@ export async function gatherDirectorInputs() {
     }),
     // Past running jobs with allocations: plant use window and days not closed.
     prisma.job.findMany({
-      where: { notRunning: false, date: { lt: dayStart(today), gte: dayStart(pastFrom) }, assignments: { some: {} } },
+      where: { notRunning: false, cancelledAt: null, date: { lt: dayStart(today), gte: dayStart(pastFrom) }, assignments: { some: {} } },
       select: { date: true, assignments: { select: { resourceId: true } } },
     }),
     prisma.dayClose.findMany({ where: { status: "CLOSED" }, select: { date: true } }),
@@ -87,7 +87,7 @@ export async function gatherDirectorInputs() {
       where: { date: { gte: addDays(startOfWeek(today), -7 * 7) }, status: { not: "REJECTED" } },
       select: { id: true, date: true, jobId: true, resourceId: true, workerName: true, company: true, deviceId: true, signInAt: true, signOutAt: true, resource: { select: { type: true } }, job: { select: { project: { select: { unpaidBreakMinutes: true } } } } },
     }),
-    prisma.invoiceDraft.count({ where: { status: { in: ["NEEDS_REVIEW", "NO_JOB"] } } }),
+    prisma.invoiceDraft.count({ where: { status: { in: ["NEEDS_REVIEW", "NO_JOB"] }, removedAt: null } }),
     prisma.resource.findMany({
       where: { type: "HIRE", active: true, NOT: { category: "LABOUR" }, OR: [{ hireStatus: null }, { hireStatus: { not: "RETURNED" } }] },
       select: { offHireDate: true, hireEnd: true, hireRate: true, dailyRateExGst: true },

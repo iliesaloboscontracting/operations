@@ -130,6 +130,7 @@ export const jobDateWhere = () => {
   const { today, yesterday } = signinDates();
   return {
     status: "ACTIVE",
+    cancelledAt: null,
     OR: [{ date: new Date(today + "T00:00:00.000Z") }, { date: new Date(yesterday + "T00:00:00.000Z"), shift: "NIGHT" }],
   };
 };
@@ -139,7 +140,7 @@ const stillOnWhere = () => ({
     some: { signOutAt: null, status: { not: "REJECTED" }, signInAt: { gte: new Date(Date.now() - STILL_ON_HOURS * 3_600_000) } },
   },
 });
-const openWhere = () => ({ OR: [jobDateWhere(), stillOnWhere()] });
+const openWhere = () => ({ cancelledAt: null, OR: [jobDateWhere(), stillOnWhere()] });
 
 // True for today's jobs (and last night's night shift) - the only ones new
 // sign-ins go to. False for an earlier job kept open just for signing out.
@@ -240,7 +241,7 @@ export const sydneyTime = (d: Date | null) =>
 // job switches the previous one off.
 export async function createHandover(jobId: string, resourceId: string, createdBy: string | null) {
   const [job, person] = await Promise.all([
-    prisma.job.findUnique({ where: { id: jobId }, select: { id: true, date: true, shift: true } }),
+    prisma.job.findFirst({ where: { id: jobId, cancelledAt: null }, select: { id: true, date: true, shift: true } }),
     prisma.resource.findUnique({ where: { id: resourceId }, select: { id: true, type: true, name: true } }),
   ]);
   if (!job) return { ok: false, error: "That job isn't on the board." } as const;

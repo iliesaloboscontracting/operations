@@ -43,7 +43,7 @@ export async function receiptAction(who: Who, id: string, body: Record<string, u
     for (const [field, raw] of Object.entries(input)) {
       if (field === "jobId" && !isOdo && (row as { kind: string }).kind === "TIP") {
         if (raw === (row as { jobId: string | null }).jobId) continue;
-        const job = typeof raw === "string" ? await prisma.job.findUnique({ where: { id: raw }, select: { id: true, projectId: true } }) : null;
+        const job = typeof raw === "string" ? await prisma.job.findFirst({ where: { id: raw, cancelledAt: null }, select: { id: true, projectId: true } }) : null;
         if (!job) return { error: "Pick a job.", status: 400 };
         corrections.push({ at: now.toISOString(), by: who.name, field: "jobId", before: (row as { jobId: string | null }).jobId, after: job.id });
         Object.assign(data, { jobId: job.id, projectId: job.projectId });
@@ -110,7 +110,7 @@ export async function jobsForCorrection(currentJobId: string | null) {
   const { today, yesterday } = signinDates();
   const from = new Date(new Date(`${yesterday}T00:00:00Z`).getTime() - 12 * 86_400_000);
   const jobs = await prisma.job.findMany({
-    where: { OR: [{ date: { gte: from, lte: new Date(`${today}T00:00:00Z`) }, status: { not: "INACTIVE" } }, ...(currentJobId ? [{ id: currentJobId }] : [])] },
+    where: { cancelledAt: null, OR: [{ date: { gte: from, lte: new Date(`${today}T00:00:00Z`) }, status: { not: "INACTIVE" } }, ...(currentJobId ? [{ id: currentJobId }] : [])] },
     select: { id: true, title: true, shift: true, date: true, project: { select: { name: true } } },
     orderBy: [{ date: "desc" }, { title: "asc" }], take: 300,
   });
@@ -136,7 +136,7 @@ async function addDocketFromPhoto(
   const missing = [!fields.tipSite && "tip site", !fields.docketNo && "docket number", !fields.docketAt && "date and time", !(fields.tonnes != null && fields.tonnes > 0) && "tonnes"].filter(Boolean);
   if (fields.docketAt === undefined || fields.tonnes === undefined) return { error: "Check the date and the tonnes - they don't look right.", status: 400 };
   if (missing.length) return { error: `Fill in the ${missing.join(", ")}.`, status: 400 };
-  const job = typeof f.jobId === "string" && f.jobId ? await prisma.job.findUnique({ where: { id: f.jobId }, select: { id: true, projectId: true } }) : null;
+  const job = typeof f.jobId === "string" && f.jobId ? await prisma.job.findFirst({ where: { id: f.jobId, cancelledAt: null }, select: { id: true, projectId: true } }) : null;
   // No job picked, from a docket for a site not running that day (project, no job): the new one goes on that same
   // project with no job (SEC-001). Otherwise a job is needed.
   const projectOnly = !job && !f.jobId && src.kind === "TIP" && !src.jobId && !!src.projectId;

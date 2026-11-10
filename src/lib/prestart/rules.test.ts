@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { CHECKLISTS, PLANT_PRE, TRUCK_POST, TRUCK_PRE, TRUCK_WALKAROUND, answerLabel, checklistFor, walkaroundSlotsFor } from "./checklists";
 import {
   LIMITS, alertDecision, alertFor, alertMessage, canMove, capNotice, capsFull, cleanText, firstName, marksDown, offerBackToAvailable, photoCapFull, photoPrecheck, photoRefusal, photoWaived,
-  sortFaults, validateSubmission, validateWalkaround, walkaroundCutoff, walkaroundExpired, walkaroundRequired, worstPriority,
+  sortFaults, validateSubmission, validateWalkaround, walkaroundRequired, worstPriority,
 } from "./rules";
 import { assertNoMoney } from "../moneyGuard";
 import { faultsWorker, isCoordinatorPage, isYardPage } from "../roles";
@@ -216,12 +216,8 @@ test("walk-around: all five needed when required; LIMIT when the day's photo lim
   assert.ok(!validateWalkaround({ FRONT: "m1" }, [], { required: false, capFull: false }).ok, "no slots on a post-check");
 });
 
-test("retention: walk-around photos over 12 months go; newer ones and fault photos stay", () => {
-  const now = new Date("2026-11-10T00:00:00Z");
-  assert.equal(walkaroundCutoff(now).toISOString(), "2025-11-10T00:00:00.000Z");
-  assert.equal(walkaroundExpired({ role: "WALKAROUND", createdAt: new Date("2025-11-09T23:59:59Z") }, now), true);
-  assert.equal(walkaroundExpired({ role: "WALKAROUND", createdAt: new Date("2025-11-10T00:00:01Z") }, now), false);
-  assert.equal(walkaroundExpired({ role: "FAULT", createdAt: new Date("2020-01-01T00:00:00Z") }, now), false);
+test("keep forever: no age limit is left on photos (Ilies, 10 Nov 2026)", () => {
+  assert.equal("walkaroundMonths" in LIMITS, false, "no walk-around retention limit");
 });
 
 test("PS-009: the read-only pre-check refuses once a cap is already reached", () => {

@@ -22,7 +22,7 @@ export const KIND_LABEL: Record<XeroKind, string> = { INVOICES: "Sales invoices"
 async function matchContext(): Promise<MatchContext> {
   const [projects, aliases, person] = await Promise.all([
     prisma.project.findMany({ select: { id: true, name: true, jobNo: true, quoteNo: true, address: true } }),
-    prisma.siteAlias.findMany({ select: { text: true, projectId: true } }),
+    prisma.siteAlias.findMany({ where: { removedAt: null }, select: { text: true, projectId: true } }),
     prisma.xeroJobMatch.findMany({ select: { key: true, projectId: true } }),
   ]);
   return { projects, aliases, person: new Map(person.map((p) => [p.key, p.projectId])) };

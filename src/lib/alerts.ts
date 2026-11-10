@@ -19,6 +19,7 @@ export async function upcomingStarts(
     where: { archived: false, status: "ACTIVE" },
     include: {
       jobs: {
+        where: { cancelledAt: null },
         select: {
           date: true,
           shift: true,

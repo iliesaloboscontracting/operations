@@ -46,7 +46,7 @@ const rateLabel = (r: SheetRate) => `${r.supplier} - ${r.item} (${r.unit})`;
 export async function overRateView() {
   const sheet = await readRateSheet();
   const drafts = await prisma.invoiceDraft.findMany({
-    where: { lines: { not: null }, createdAt: { gte: new Date(Date.now() - 120 * 86_400_000) }, status: { notIn: ["DUPLICATE"] } },
+    where: { lines: { not: null }, removedAt: null, createdAt: { gte: new Date(Date.now() - 120 * 86_400_000) }, status: { notIn: ["DUPLICATE"] } },
     select: { id: true, supplier: true, invoiceNo: true, invoiceDate: true, category: true, status: true, lines: true, upload: { select: { originalName: true } } },
     orderBy: { createdAt: "desc" }, take: 300,
   });

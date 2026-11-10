@@ -28,7 +28,8 @@ export async function remindDailyLogs(now = new Date()): Promise<{ sent: string[
   const jobs = await prisma.job.findMany({
     where: {
       date: { in: [dayBefore(today), today].map((d) => new Date(`${d}T00:00:00.000Z`)) },
-      status: { notIn: ["INACTIVE", "STOOD_DOWN"] },
+      status: { notIn: ["INACTIVE", "STOOD_DOWN", "CANCELLED"] },
+      cancelledAt: null,
       assignments: { some: { resourceId: { in: [...people.keys()] } } },
     },
     select: {

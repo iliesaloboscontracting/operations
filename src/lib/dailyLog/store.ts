@@ -28,7 +28,7 @@ const dateOnly = (day: string) => new Date(`${day}T00:00:00.000Z`);
 const isoDay = (d: Date) => d.toISOString().slice(0, 10);
 const addDays = (day: string, n: number) => { const d = dateOnly(day); d.setUTCDate(d.getUTCDate() + n); return isoDay(d); };
 const sydneyHour = (at: Date) => +new Intl.DateTimeFormat("en-AU", { timeZone: "Australia/Sydney", hour: "2-digit", hourCycle: "h23" }).format(at);
-const NOT_RUN = ["INACTIVE", "STOOD_DOWN"];
+const NOT_RUN = ["INACTIVE", "STOOD_DOWN", "CANCELLED"]; // CANCELLED: kept forever, never on a log (10 Nov 2026)
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
 // ---------- the pilot ----------
@@ -75,7 +75,7 @@ export async function loggableJobs(link: ResolvedLink, now: Date) {
   const days = sydneyHour(now) < 12 ? [addDays(today, -1), today] : [today];
   const who = link.kind === "HANDOVER" ? { id: link.jobId ?? "-" } : { assignments: { some: { resourceId: link.person.id ?? "-" } } };
   return prisma.job.findMany({
-    where: { ...who, date: { in: days.map(dateOnly) }, status: { notIn: NOT_RUN } },
+    where: { ...who, date: { in: days.map(dateOnly) }, status: { notIn: NOT_RUN }, cancelledAt: null },
     select: logJobSelect,
     orderBy: [{ date: "desc" }, { shift: "asc" }],
   });
@@ -270,7 +270,7 @@ async function progressProjects(link: ResolvedLink, now: Date) {
   const today = sydneyDay(now), monday = weekStartOf(today);
   const who = link.kind === "HANDOVER" ? { id: link.jobId ?? "-" } : { assignments: { some: { resourceId: link.person.id ?? "-" } } };
   const jobs = await prisma.job.findMany({
-    where: { ...who, projectId: { not: null }, status: { notIn: NOT_RUN }, date: { gte: dateOnly(addDays(monday, -7)), lte: dateOnly(today) } },
+    where: { ...who, projectId: { not: null }, status: { notIn: NOT_RUN }, cancelledAt: null, date: { gte: dateOnly(addDays(monday, -7)), lte: dateOnly(today) } },
     select: { date: true, project: { select: { id: true, name: true, jobNo: true, quoteNo: true } } },
   });
   const m = new Map<string, { id: string; name: string; jobNo: string | null; quoteNo: string | null; thisWeek: boolean; lastWeek: boolean }>();
@@ -415,7 +415,7 @@ export async function submitProgress(link: ResolvedLink, body: Record<string, un
 export async function siteLogsForDate(date: string, now: Date, office: boolean): Promise<DayReviewSiteLogsDTO> {
   const people = await pilotPeople();
   const jobs = await prisma.job.findMany({
-    where: { date: dateOnly(date) },
+    where: { date: dateOnly(date), cancelledAt: null },
     select: {
       ...logJobSelect, status: true,
       assignments: { select: { resourceId: true, resource: { select: { type: true, name: true } } } },

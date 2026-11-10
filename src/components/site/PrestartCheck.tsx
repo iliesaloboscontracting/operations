@@ -209,8 +209,8 @@ export default function PrestartCheck({ token, banner, odometerToken, onDone, on
                 ? (w.earlier.limit ? `Today's photos couldn't be added (the day's photo limit) - ${w.earlier.by}, ${w.earlier.at}. Add them if you can.` : `Today's photos were taken at ${w.earlier.at} by ${w.earlier.by}. Add more if something's changed.`)
                 : "Optional."}
           </p>
-          {/* PS-015 (Ilies, 10 Nov 2026): say plainly who sees them and for how long. */}
-          <p className="text-xs text-gray-500">These photos are kept for 12 months and seen by the office.</p>
+          {/* PS-015 (Ilies, 10 Nov 2026): say plainly who sees them and for how long - kept forever since 10 Nov 2026. */}
+          <p className="text-xs text-gray-500">These photos are kept and seen by the office.</p>
           <div className="grid grid-cols-2 gap-2">
             {w.slots.map((s) => <SlotPhoto key={s.key} label={s.label} photo={walk[s.key]} busy={uploading > 0} onPhoto={(f) => addWalk(s.key, f)} />)}
             {w.required && (

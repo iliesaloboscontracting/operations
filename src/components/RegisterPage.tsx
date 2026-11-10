@@ -6,6 +6,8 @@ import PageShell from "./PageShell";
 import FormModal, { FieldDef } from "./FormModal";
 import { useAuth } from "./AuthProvider";
 import { apiFetch } from "@/lib/apiFetch";
+import HistoryButton from "./HistoryButton";
+import type { HistoryModel } from "@/lib/history/diff";
 
 export interface RegColumn<T> {
   label: string;
@@ -37,6 +39,12 @@ export interface RegisterConfig<T> {
   // Tools, 2 Nov 2026); canDelete false hides Delete in the edit form (the server refuses it anyway).
   canEdit?: boolean;
   canDelete?: boolean;
+  // Keep forever (10 Nov 2026): what the delete button says and why it's asked (e.g. tools: "Retire", with reasons) -
+  // the record is kept either way. historyModel adds a "History" link to the edit form (Managers and Admins).
+  deleteLabel?: string;
+  deleteReasons?: readonly string[];
+  deleteNote?: string;
+  historyModel?: HistoryModel;
 }
 
 const PILL: Record<string, string> = {
@@ -130,13 +138,15 @@ export default function RegisterPage<T extends { id: string }>({
     await load();
   }
 
-  async function remove() {
+  async function remove(reason?: string) {
     const res = await fetch(`${config.api}/${(editing as T).id}`, {
       method: "DELETE",
+      ...(reason ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reason }) } : {}),
     });
-    if (!res.ok) throw new Error("Delete failed");
+    if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? `${config.deleteLabel ?? "Delete"} failed`);
     await load();
   }
+  const showHistory = !!config.historyModel && auth.canEdit; // Managers and Admins
 
   const gridStyle = {
     gridTemplateColumns: `repeat(${config.columns.length}, minmax(0, 1fr))`,
@@ -250,7 +260,21 @@ export default function RegisterPage<T extends { id: string }>({
           onSave={save}
           onClose={() => setEditing(null)}
           onDelete={editing === "new" || config.canDelete === false ? undefined : remove}
-          extra={editing !== "new" && config.detail ? config.detail(editing as T, load) : undefined}
+          deleteLabel={config.deleteLabel}
+          deleteReasons={config.deleteReasons}
+          deleteNote={config.deleteNote}
+          extra={
+            editing !== "new" && (config.detail || showHistory) ? (
+              <>
+                {showHistory && (
+                  <div className="mt-3 flex justify-end">
+                    <HistoryButton model={config.historyModel!} id={(editing as T).id} />
+                  </div>
+                )}
+                {config.detail ? config.detail(editing as T, load) : null}
+              </>
+            ) : undefined
+          }
           wide={editing !== "new" && !!config.detail}
         />
       )}

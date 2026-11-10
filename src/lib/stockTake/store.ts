@@ -113,7 +113,7 @@ export async function startStockTake(location: string, note: unknown, actor: Act
   if (location !== "YARD") return fail("Only the yard can be counted for now.", 400);
   const n = cleanNote(note, actor);
   if ("error" in n) return n;
-  const tools = expectedFor(location, await deps.db.tool.findMany({ where: { toolboxId: null }, select: TOOL_PICK }));
+  const tools = expectedFor(location, await deps.db.tool.findMany({ where: { toolboxId: null, retiredAt: null }, select: TOOL_PICK }));
   try {
     const s = await deps.db.stockTake.create({
       data: {
@@ -284,7 +284,7 @@ export async function scanShelf(id: string, photoIds: unknown, actor: Actor, dep
   if (isFail(reserved)) return reserved;
   const reading = await deps.read(ordered.map((p) => p.fileName)); // throws VisionNotConfigured -> 503 in the route
   const tools = await db.tool.findMany({
-    where: { condition: { not: "Swapped out" } },
+    where: { condition: { not: "Swapped out" }, retiredAt: null },
     select: { id: true, tag: true, name: true, brand: true, model: true, serialNumber: true, condition: true, toolboxId: true, toolbox: { select: { name: true } } },
   });
   const result = compareToolbox(null, reading, tools.map(({ toolbox, condition: _c, ...t }) => ({ ...t, toolboxName: toolbox?.name ?? null })));

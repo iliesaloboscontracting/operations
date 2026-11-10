@@ -26,7 +26,7 @@ const gpsOf = (prefix: "start" | "end", v: unknown) => {
 // Today's regional jobs this person is allocated to (and last night's night shift) - the same days sign-in uses.
 async function regionalJobsFor(resourceId: string) {
   return prisma.job.findMany({
-    where: { AND: [jobDateWhere(), { assignments: { some: { resourceId } } }, { project: { regional: true } }] },
+    where: { AND: [jobDateWhere(), { cancelledAt: null }, { assignments: { some: { resourceId } } }, { project: { regional: true } }] },
     select: { id: true, date: true, title: true, shift: true, project: { select: { id: true, name: true, regional: true } } },
     orderBy: [{ date: "desc" }, { shift: "asc" }],
   });

@@ -20,7 +20,8 @@ export const MAY_ANSWER = {
   // /api/timesheets routes are deliberately NOT on this list: the matrix proves they still refuse ACCOUNTS.
   ACCOUNTS: [/^\/api\/auth\//, /^\/api\/accounts(\/|$)/, /^\/api\/invoice-inbox(\/|$)/, /^\/api\/compliance\/(workers|documents)(\/|$)/,
     /^\/api\/xero(\/|$)/, /^\/api\/queries$/, /^\/api\/purchases$/, /^\/api\/info-requests(\/|$)/, /^\/api\/push$/,
-    /^\/api\/messages(\/|$)/],
+    /^\/api\/messages(\/|$)/,
+    /^\/api\/history$/], // change history (keep forever, 10 Nov 2026): accounts read their calendar's / inbox's only - 76-keep-forever
   // COORDINATOR (Alex, 2 Nov 2026, Ilies "approve phase 1"): his own screen - timesheets (not the export), sign-ins,
   // Day Review with its site logs / dockets / photos, the calendar (+ the project list it reads), the Hire register
   // (type=HIRE only, money-free) with its alerts and site checks, tools / toolboxes / faults, his own purchase

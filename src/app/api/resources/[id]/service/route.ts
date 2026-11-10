@@ -13,7 +13,7 @@ export const GET = withErrorHandling(async (
   const denied = await guard("VIEWER");
   if (denied) return denied;
   const records = await prisma.serviceRecord.findMany({
-    where: { resourceId: params.id },
+    where: { resourceId: params.id, removedAt: null }, // a removed record is kept, never shown (10 Nov 2026)
     orderBy: { date: "desc" },
   });
   return NextResponse.json(records);

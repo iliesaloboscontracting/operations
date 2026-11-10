@@ -5,6 +5,7 @@ import { withErrorHandling } from "@/lib/apiHandler";
 import { viewJson } from "@/lib/coordinatorView"; // no amount reaches the coordinator / yard computer
 import { moveTool } from "@/lib/toolMoves";
 import { ISSUE_TEXT_FIELDS, keepHiddenAmounts, seesAmountsStripped } from "@/lib/toolTextWrite";
+import { updateTracked } from "@/lib/history/store";
 
 // Where a fault can go next. SWAPPED / FIXED / CLOSED are final.
 const NEXT: Record<string, string[]> = {
@@ -49,7 +50,7 @@ export const PATCH = withErrorHandling(async (req: NextRequest, { params: params
     if (status === "SWAPPED") {
       const replacementId = typeof body.replacementToolId === "string" ? body.replacementToolId : "";
       const replacement = replacementId
-        ? await prisma.tool.findUnique({ where: { id: replacementId }, select: { id: true, tag: true } })
+        ? await prisma.tool.findFirst({ where: { id: replacementId, retiredAt: null }, select: { id: true, tag: true } })
         : null;
       if (!replacement || replacement.id === issue.tool.id) {
         return NextResponse.json({ error: "Pick the replacement tool Hilti sent (register it first if it's new)." }, { status: 400 });
@@ -58,13 +59,14 @@ export const PATCH = withErrorHandling(async (req: NextRequest, { params: params
       const by = user?.name ?? null;
       await moveTool(replacement.id, issue.tool.toolboxId, `Hilti swap - replaces ${issue.tool.tag}`, by);
       await moveTool(issue.tool.id, null, `Swapped out with Hilti for ${replacement.tag}`, by);
-      await prisma.tool.update({ where: { id: issue.tool.id }, data: { condition: "Swapped out", heldBy: "Hilti" } });
+      await updateTracked("Tool", issue.tool.id, { condition: "Swapped out", heldBy: "Hilti" }, { by: user, source: `Fault swapped with Hilti (${replacement.tag})` });
     }
     if (status === "FIXED") {
-      await prisma.tool.update({ where: { id: issue.tool.id }, data: { condition: "Good" } });
+      await updateTracked("Tool", issue.tool.id, { condition: "Good" }, { by: user, source: "Fault fixed" });
     }
   }
 
-  const updated = await prisma.toolIssue.update({ where: { id: issue.id }, data });
+  // Every field that changed is kept in the fault's history (keep forever, 10 Nov 2026).
+  const updated = await updateTracked("ToolIssue", issue.id, data, { by: user, source: "Tool fault" });
   return viewJson(updated);
 });

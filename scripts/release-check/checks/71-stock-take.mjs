@@ -220,11 +220,14 @@ export default {
       if (st3.body?.id) t.status(await act(st3.body.id, "YARD", { action: "CANCEL" }), 200, "(and cancels - clean-up)");
     }
 
-    // (11) Tools deleted later: the history still reads (tag and name kept on the line).
-    for (const x of [A, B, C, D, E, F].filter(Boolean)) await send("DELETE", `/api/tools/${x}`, "MANAGER");
+    // (11) Tools taken off later: the history still reads (tag and name kept on the line). Keep forever (Ilies, 10 Nov
+    // 2026): the Delete route RETIRES a tool - it's kept (retiredAt), so the line keeps its tool too.
+    const testTools = [A, B, C, D, E, F].filter(Boolean);
+    for (const x of testTools) await send("DELETE", `/api/tools/${x}`, "MANAGER");
     const after = (await get(`/api/stock-takes/${id}`, "YARD")).body;
-    const gone = after?.lines?.filter((l) => l.tag && l.toolId === null) ?? [];
-    t.ok(gone.length >= 4 && gone.every((l) => l.name), "deleted tools still show by tag and name in the history");
+    const kept = after?.lines?.filter((l) => l.tag && testTools.includes(l.toolId)) ?? [];
+    const retired = await c.db.tool.count({ where: { id: { in: testTools }, retiredAt: { not: null } } });
+    t.ok(kept.length >= 4 && kept.every((l) => l.name) && retired === testTools.length, "retired tools still show by tag and name in the history - and are kept, retired", `${kept.length} lines, ${retired} retired`);
 
     // (12) No dollar figure in anything the yard or the coordinator received.
     const leaks = seen.filter(([, text]) => !noMoney(text)).map(([p]) => p);

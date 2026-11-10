@@ -25,7 +25,7 @@ export async function syncTipMatches(): Promise<{ linked: number; cleared: numbe
   try {
     const since = new Date(Date.now() - 400 * 86_400_000);
     const [invoices, dockets, linkedElsewhere] = await Promise.all([
-      prisma.invoicedCost.findMany({ where: { category: "TIP_FEES" }, select: { id: true, projectId: true, vendor: true, weekEnding: true, periodFrom: true, periodTo: true, docketNos: true } }),
+      prisma.invoicedCost.findMany({ where: { category: "TIP_FEES", removedAt: null }, select: { id: true, projectId: true, vendor: true, weekEnding: true, periodFrom: true, periodTo: true, docketNos: true } }),
       prisma.receipt.findMany({ where: { kind: "TIP", status: { in: COUNTED }, projectId: { not: null }, sentAt: { gte: since } }, select: { id: true, projectId: true, docketNo: true, tipSite: true, docketAt: true, sentAt: true, invoicedCostId: true } }),
       prisma.receipt.findMany({ where: { invoicedCostId: { not: null }, OR: [{ kind: { not: "TIP" } }, { status: { notIn: COUNTED } }] }, select: { id: true } }),
     ]);
@@ -121,7 +121,7 @@ export async function tipMismatches(today = sydneyDay(new Date())): Promise<TipM
   const since = new Date(Date.now() - 400 * 86_400_000);
   const [dockets, invoices, linked] = await Promise.all([
     prisma.receipt.findMany({ where: { kind: "TIP", status: { in: COUNTED }, projectId: { not: null }, invoicedCostId: null, sentAt: { gte: since } }, select: { id: true, projectId: true, docketNo: true, docketAt: true, sentAt: true, tipSite: true, tonnes: true } }),
-    prisma.invoicedCost.findMany({ where: { category: "TIP_FEES", weekEnding: { gte: since.toISOString().slice(0, 10) } }, select: { id: true, projectId: true, vendor: true, invoiceNo: true, weekEnding: true, periodFrom: true, amountExGst: true } }),
+    prisma.invoicedCost.findMany({ where: { category: "TIP_FEES", removedAt: null, weekEnding: { gte: since.toISOString().slice(0, 10) } }, select: { id: true, projectId: true, vendor: true, invoiceNo: true, weekEnding: true, periodFrom: true, amountExGst: true } }),
     prisma.receipt.findMany({ where: { invoicedCostId: { not: null } }, select: { invoicedCostId: true }, distinct: ["invoicedCostId"] }),
   ]);
   const projects = new Map((await prisma.project.findMany({ where: { id: { in: [...new Set([...dockets.map((d) => d.projectId!), ...invoices.map((i) => i.projectId)])] } }, select: { id: true, name: true } })).map((p) => [p.id, p.name]));

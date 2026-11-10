@@ -57,7 +57,6 @@ export const LIMITS = {
   alertGapMinutes: 15, // at most one phone alert per machine in this long (PS-002)
   alertsPerMachineDay: 6, // and at most this many a Sydney day (Do not use ignores it - PS-011)
   queueWaiting: 50, // PS-009: more photo / check writes than this waiting -> 503 "Busy - try again"
-  walkaroundMonths: 12, // walk-around photos are deleted this long after they were taken (Ilies, 10 Nov 2026)
 } as const;
 
 // PS-001 (9 Nov 2026): a photo is kept only under every cap. `counts` include the photo being added (it's recorded
@@ -148,13 +147,7 @@ export function validateWalkaround(raw: unknown, slots: readonly { key: string; 
   if (o.capFull) return { ok: true, photos, status: "LIMIT" };
   return { ok: false, error: `Take the walk-around photos first: ${missing.map((s) => s.label).join(", ")}.` };
 }
-// Walk-around photos are kept 12 months from when they were taken; fault photos are never removed by age.
-export function walkaroundCutoff(now: Date): Date {
-  const d = new Date(now.getTime());
-  d.setUTCMonth(d.getUTCMonth() - LIMITS.walkaroundMonths);
-  return d;
-}
-export const walkaroundExpired = (m: { role: string; createdAt: Date }, now: Date) => m.role === "WALKAROUND" && m.createdAt < walkaroundCutoff(now);
+// Walk-around and fault photos are kept forever (Ilies, 10 Nov 2026) - nothing is removed by age.
 // The one alert for a check: Do not use if any fault is, else Urgent; each fault on a line. Null = nothing to alert.
 export function alertMessage(machine: string, by: string, faults: { itemLabel: string; priority: string; description: string; markedDown: boolean }[]) {
   const loud = faults.filter((f) => alertFor(f.priority));

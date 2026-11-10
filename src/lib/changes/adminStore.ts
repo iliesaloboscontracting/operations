@@ -40,8 +40,10 @@ export async function readAdminRecord(kind: ChangeKind, recordId: string, after:
     }
     case "INVOICED_COST_REMOVE": {
       const c = await prisma.invoicedCost.findUnique({ where: { id: recordId }, include: { project: { select: { name: true, jobNo: true } } } });
-      if (!c) return { error: "That invoice isn't on Tracking any more." };
-      const { project, ...row } = c;
+      if (!c || c.removedAt) return { error: "That invoice isn't on Tracking any more." };
+      // The keep-forever columns (10 Nov 2026) are left out, so a proposal made before them still matches.
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { project, removedAt, removedBy, removeReason, ...row } = c;
       return {
         name: `${c.vendor} ${c.invoiceNo ?? "(no number)"}`,
         value: { ...invoiceSnapshot(row), job: [project.jobNo, project.name].filter(Boolean).join(" "), removed: false },
@@ -121,13 +123,16 @@ export async function applyAdmin(kind: ChangeKind, recordId: string, after: Admi
     }
     case "INVOICED_COST_REMOVE": {
       const row = await prisma.invoicedCost.findUnique({ where: { id: recordId } });
-      const out = await removeInvoicedCost(recordId);
-      return "error" in out ? fail(out) : { value: { ...(row ? invoiceSnapshot(row) : {}), removed: true } };
+      // Keep forever (10 Nov 2026): "removed" = hidden from every total, kept with who and why.
+      const out = await removeInvoicedCost(recordId, { by: { name: ctx.by }, reason: ctx.reason, source: "Approved change (Remove supplier invoice)" });
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { removedAt, removedBy, removeReason, ...kept } = row ?? ({} as Record<string, unknown>);
+      return "error" in out ? fail(out) : { value: { ...(row ? invoiceSnapshot(kept) : {}), removed: true } };
     }
     case "RESOURCE_RATE":
     case "RESOURCE_ENGAGEMENT": {
       // Approved by an Admin (cannotApprove checked it) - the PATCH's own Admin-only pay-field rule passes.
-      const out = await applyResourcePatch(recordId, after, { role: "ADMIN", name: ctx.by });
+      const out = await applyResourcePatch(recordId, after, { role: "ADMIN", name: ctx.by, source: "Approved change (Admin kind)", reason: ctx.reason });
       return "error" in out ? fail(out) : { value: pick(out.resource as unknown as Record<string, unknown>, Object.keys(after)) };
     }
     case "WORKER_TICKET": {

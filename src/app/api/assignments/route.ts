@@ -23,7 +23,7 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
     );
   }
 
-  const job = await prisma.job.findUnique({ where: { id: body.jobId }, select: { date: true, title: true, shift: true } });
+  const job = await prisma.job.findFirst({ where: { id: body.jobId, cancelledAt: null }, select: { date: true, title: true, shift: true } });
   if (!job) return NextResponse.json({ error: "not found" }, { status: 404 });
   const locked = await assertDateOpen(job.date.toISOString().slice(0, 10));
   if (locked) return locked;

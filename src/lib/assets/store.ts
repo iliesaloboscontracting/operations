@@ -30,6 +30,7 @@ export async function listAssets(group: AssetGroup) {
   const today = todaySydney();
   if (group === "TOOLS") {
     const tools = await prisma.tool.findMany({
+      where: { retiredAt: null },
       select: { id: true, tag: true, name: true, brand: true, condition: true, ownership: true, assetDocuments: { select: { kind: true, status: true, expiryDate: true } }, issues: { where: { status: { in: OPEN_TOOL_ISSUES } }, select: { id: true } } },
       orderBy: { tag: "asc" },
       take: 2000,
@@ -78,7 +79,7 @@ export async function resourceAsset(id: string) {
   const r = await prisma.resource.findUnique({
     where: { id },
     select: { id: true, name: true, type: true, ownership: true, identifier: true, detail: true, status: true, serviceDue: true, notes: true, active: true,
-      serviceRecords: { orderBy: { date: "desc" }, take: 200 } },
+      serviceRecords: { where: { removedAt: null }, orderBy: { date: "desc" }, take: 200 } },
   });
   if (!r || !isAssetResource(r)) return null;
   const [documents, breakdowns] = await Promise.all([listDocuments({ all: true, resourceId: id }), breakdownsFor(id)]);
@@ -112,7 +113,7 @@ export async function linkableInvoices(q: string) {
   const linked = new Set((await prisma.serviceRecord.findMany({ where: { invoiceDraftId: { not: null } }, select: { invoiceDraftId: true } })).map((s) => s.invoiceDraftId!));
   const term = q.trim().slice(0, 60);
   const drafts = await prisma.invoiceDraft.findMany({
-    where: term ? { OR: [{ supplier: { contains: term } }, { description: { contains: term } }, { invoiceNo: { contains: term } }] } : {},
+    where: { removedAt: null, ...(term ? { OR: [{ supplier: { contains: term } }, { description: { contains: term } }, { invoiceNo: { contains: term } }] } : {}) },
     select: { id: true, supplier: true, invoiceNo: true, invoiceDate: true, description: true, amountExGst: true, gst: true, totalIncGst: true, status: true, createdAt: true, uploadId: true, upload: { select: { originalName: true } } },
     orderBy: { createdAt: "desc" },
     take: 400,

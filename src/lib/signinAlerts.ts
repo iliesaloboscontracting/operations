@@ -9,7 +9,7 @@ import { pushToAdmins, pushToSiteLinks } from "./push";
 import { effectiveTimes, fromSydneyLocal, parseClock } from "./shiftTimes";
 import { todaySydney } from "./today";
 
-const RUNNING = { notIn: ["COMPLETED", "INACTIVE", "STOOD_DOWN"] };
+const RUNNING = { notIn: ["COMPLETED", "INACTIVE", "STOOD_DOWN", "CANCELLED"] };
 const addDays = (day: string, n: number) => { const d = new Date(`${day}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
 const at = (day: string) => new Date(`${day}T00:00:00.000Z`);
 export const sydneyMinutes = (d = new Date()) => {
@@ -44,7 +44,7 @@ export function notSignedInWindow(start: Date | null, now = new Date()) {
 // Fix 3 for one date: the running jobs with crew and no way to sign in (also the board's warning).
 export async function jobsWithNoSignInWay(date: string) {
   const jobs = await prisma.job.findMany({
-    where: { date: at(date), status: RUNNING, notRunning: false },
+    where: { date: at(date), status: RUNNING, notRunning: false, cancelledAt: null },
     select: { id: true, title: true, projectId: true, project: { select: { name: true } }, assignments: { where: { resource: { type: "PERSONNEL" } }, select: { resourceId: true } } },
   });
   if (!jobs.length) return [];
@@ -79,7 +79,7 @@ export async function openFromYesterday(today = todaySydney()) {
 export async function notSignedInToday(now = new Date()) {
   const today = todaySydney();
   const jobs = await prisma.job.findMany({
-    where: { date: { in: [at(addDays(today, -1)), at(today)] }, status: RUNNING, notRunning: false },
+    where: { date: { in: [at(addDays(today, -1)), at(today)] }, status: RUNNING, notRunning: false, cancelledAt: null },
     select: {
       id: true, date: true, title: true, shift: true, startTime: true, endTime: true,
       project: { select: { name: true, dayStart: true, dayEnd: true, nightStart: true, nightEnd: true } },

@@ -9,6 +9,7 @@ import { todaySydney } from "../today";
 import { pushToUsers } from "../push";
 import { OPEN_STATUSES } from "../requestTypes";
 import { addDays, alertDue, categoryLabel, isCategory, isIsoDate, isRepeat, nextDate, whenOf } from "./calendar";
+import { updateTracked } from "../history/store";
 
 type Problem = { error: string; status: number };
 const text = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice(0, max) : "");
@@ -68,35 +69,34 @@ export async function createItem(by: string, body: Record<string, unknown>): Pro
   return { id: row.id };
 }
 
-// EDIT fields / DONE (a repeating item moves to its next date) / CANCEL / REOPEN.
+// EDIT fields / DONE (a repeating item moves to its next date) / CANCEL / REOPEN. Keep forever (10 Nov 2026): every
+// field each one changes is kept in the item's history (RecordChange), in the same transaction.
 export async function actOnItem(by: string, id: string, body: Record<string, unknown>): Promise<{ ok: true; nextDueDate?: string | null } | Problem> {
   const item = await prisma.accountsItem.findUnique({ where: { id } });
   if (!item) return { error: "That item isn't there any more.", status: 404 };
   const action = String(body.action ?? "EDIT").toUpperCase();
+  const tracked = (data: Record<string, unknown>) => updateTracked("AccountsItem", id, data, { by: { name: by }, source: `Accounts calendar (${action.toLowerCase()})` });
   if (action === "DONE") {
     if (item.status !== "OPEN") return { error: "It's already closed.", status: 409 };
     const next = nextDate(item.dueDate, item.repeat, item.anchorDay ?? Number(item.dueDate.slice(8, 10)));
-    await prisma.accountsItem.update({
-      where: { id },
-      data: next
-        ? { dueDate: next, alertedFor: null, lastDoneAt: new Date(), lastDoneBy: by }
-        : { status: "DONE", lastDoneAt: new Date(), lastDoneBy: by },
-    });
+    await tracked(next
+      ? { dueDate: next, alertedFor: null, lastDoneAt: new Date(), lastDoneBy: by }
+      : { status: "DONE", lastDoneAt: new Date(), lastDoneBy: by });
     return { ok: true, nextDueDate: next };
   }
   if (action === "CANCEL") {
-    await prisma.accountsItem.update({ where: { id }, data: { status: "CANCELLED", lastDoneBy: by, lastDoneAt: new Date() } });
+    await tracked({ status: "CANCELLED", lastDoneBy: by, lastDoneAt: new Date() });
     return { ok: true };
   }
   if (action === "REOPEN") {
-    await prisma.accountsItem.update({ where: { id }, data: { status: "OPEN" } });
+    await tracked({ status: "OPEN" });
     return { ok: true };
   }
   const p = parseItem(body, true);
   if ("error" in p) return { error: p.error!, status: 400 };
   const data = p.data as Record<string, unknown>;
   if (data.dueDate && data.dueDate !== item.dueDate) data.alertedFor = null;
-  await prisma.accountsItem.update({ where: { id }, data });
+  await tracked(data);
   return { ok: true };
 }
 
@@ -125,7 +125,7 @@ export async function pendingForAccounts() {
   const today = todaySydney();
   const weekAgo = addDays(today, -14);
   const [inbox, queries, noSignOut, items, reimbursements, abnToCheck, purchasesToCheck, purchasesToOrder, salesReview] = await Promise.all([
-    prisma.invoiceDraft.count({ where: { status: { in: ["NEEDS_REVIEW", "NO_JOB"] }, upload: { clearedAt: null } } }),
+    prisma.invoiceDraft.count({ where: { status: { in: ["NEEDS_REVIEW", "NO_JOB"] }, removedAt: null, upload: { clearedAt: null } } }),
     prisma.siteRequest.findMany({
       where: { kind: "QUERY", assigneeName: "Accounts", answer: null, status: { in: OPEN_STATUSES } },
       select: { id: true, number: true, summary: true, neededBy: true }, orderBy: { createdAt: "asc" }, take: 50,

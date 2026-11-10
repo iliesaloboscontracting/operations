@@ -6,6 +6,7 @@ import { ArrowLeft, ClipboardList, FileText, Pencil, Plus, Trash2, UserRound } f
 import PageShell from "@/components/PageShell";
 import FormModal from "@/components/FormModal";
 import RegionalToggle from "@/components/RegionalToggle";
+import HistoryButton from "@/components/HistoryButton";
 import { useAuth } from "@/components/AuthProvider";
 import { apiFetch, serverErrorMessage } from "@/lib/apiFetch";
 import { PROJECT_FORM_FIELDS } from "@/lib/projectFormFields";
@@ -565,6 +566,8 @@ export default function ProjectFilePage({ params: paramsP }: { params: Promise<{
           >
             <FileText size={13} /> Scope PDF
           </a>
+          {/* Keep forever (10 Nov 2026): every change to the project, who and when. Managers and Admins. */}
+          {canEdit && <HistoryButton model="Project" id={project.id} className={btnQuiet} />}
         </div>
       }
     >

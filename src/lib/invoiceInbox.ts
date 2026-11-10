@@ -16,7 +16,8 @@ import { prisma } from "./prisma";
 import { invoiceMimeOf, readInvoiceFile } from "./invoiceFiles";
 import { readInvoiceSheet } from "./invoiceSheet";
 import { mapSheetColumns, matchInvoiceRows, readInvoiceDocument, ReadingNotConfigured, type JobForMatching, type ReadInvoice } from "./invoiceReading";
-import { readInvoice } from "./invoicedCosts";
+import { readInvoice, removeInvoicedCost } from "./invoicedCosts";
+import { saveSiteAlias } from "./siteAliases";
 import { syncTipMatchesSoon } from "./receipts/tipStore";
 import { todaySydney } from "./today";
 
@@ -146,12 +147,12 @@ const isCivil = (r: { entityBilled: string | null }) => /civil/i.test(r.entityBi
 const dupKey = (supplier: string | null, invoiceNo: string | null) => `${vendorKey(supplier)}|${invoiceKey(invoiceNo)}`;
 
 async function existingInvoiceKeys() {
-  const rows = await prisma.invoicedCost.findMany({ select: { vendor: true, invoiceNo: true } });
+  const rows = await prisma.invoicedCost.findMany({ where: { removedAt: null }, select: { vendor: true, invoiceNo: true } });
   return new Set(rows.filter((r) => invoiceKey(r.invoiceNo)).map((r) => dupKey(r.vendor, r.invoiceNo)));
 }
 
 async function aliasMap() {
-  return new Map((await prisma.siteAlias.findMany()).map((a) => [a.text, a.projectId]));
+  return new Map((await prisma.siteAlias.findMany({ where: { removedAt: null } })).map((a) => [a.text, a.projectId]));
 }
 
 type Verdict = { status: DraftStatus; problem: string | null; hireResourceId?: string | null; abnResourceId?: string | null };
@@ -320,11 +321,15 @@ const FIELD_KEYS = ["projectId", "category", "supplier", "invoiceNo", "invoiceDa
 
 export async function decideDraft(draftId: string, act: DraftAction, by: string): Promise<{ error: string } | { ok: true }> {
   const d = await prisma.invoiceDraft.findUnique({ where: { id: draftId }, include: { upload: { select: { originalName: true } } } });
-  if (!d) return { error: "That invoice isn't in the inbox any more." };
+  if (!d || d.removedAt) return { error: "That invoice isn't in the inbox any more." };
 
   if (act.action === "UNDO") {
     if (d.status !== "ADDED") return { error: "It isn't on a job." };
-    if (d.invoicedCostId) await prisma.invoicedCost.deleteMany({ where: { id: d.invoicedCostId } });
+    // Keep forever (10 Nov 2026): the Tracking line is hidden (who / why kept), never erased.
+    if (d.invoicedCostId) {
+      const out = await removeInvoicedCost(d.invoicedCostId, { by: { name: by }, reason: "Taken off the job in the invoices inbox", source: "Invoices inbox (Take off)" });
+      if ("error" in out && out.status !== 404) return { error: out.error };
+    }
     await prisma.invoiceDraft.update({
       where: { id: d.id },
       data: { status: "NEEDS_REVIEW", invoicedCostId: null, problem: `Taken off the job by ${by} - decide again.`, decidedBy: by, decidedAt: new Date() },
@@ -367,7 +372,7 @@ export async function decideDraft(draftId: string, act: DraftAction, by: string)
   // Remember how accounts write this site, so the next upload matches it.
   if (d.siteText && merged.projectId) {
     const text = normSite(d.siteText);
-    await prisma.siteAlias.upsert({ where: { text }, update: { projectId: merged.projectId as string, createdBy: by }, create: { text, projectId: merged.projectId as string, createdBy: by } });
+    await saveSiteAlias(text, merged.projectId as string, { name: by }, "Invoices inbox (matched by a person)");
   }
   return { ok: true };
 }
