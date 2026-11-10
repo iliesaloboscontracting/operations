@@ -44,6 +44,8 @@ function healthOf(status: string, contractValue: number | null, forecast: number
   if (used >= WATCH_AT) return { level: "WATCH", reason: `Forecast is ${pct}` };
   return { level: "ON_TRACK", reason: `Forecast is ${pct}` };
 }
+// "No contract value on file" exactly as healthOf says it (Directors -> Waiting on you, 10 Nov 2026).
+export const lacksContractValue = (p: { status: string; contractValue: number | null; name: string }) => healthOf(p.status, p.contractValue, 0, p.name).level === "CANT_ASSESS";
 
 // The historical labour-cost backfill (from the daily allocation PDFs) covers
 // every real work-date up to and including this one. Jobs on or before this

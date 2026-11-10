@@ -12,7 +12,8 @@ export const MAY_ANSWER = {
   // DIRECTOR logins: the Directors screen, plus what it reads (findings, own queries, Xero mirror, info requests,
   // controlled changes to approve, lessons). Everything in Operations refuses them.
   DIRECTOR: [/^\/api\/auth\//, /^\/api\/directors(\/|$)/, /^\/api\/findings(\/|$)/, /^\/api\/queries$/, /^\/api\/xero(\/|$)/,
-    /^\/api\/info-requests(\/|$)/, /^\/api\/changes(\/|$)/, /^\/api\/lessons(\/|$)/, /^\/api\/messages(\/|$)/], // + office chat (27 Oct)
+    /^\/api\/info-requests(\/|$)/, /^\/api\/changes(\/|$)/, /^\/api\/lessons(\/|$)/, /^\/api\/messages(\/|$)/, // + office chat (27 Oct)
+    /^\/api\/push$/], // its own phone alerts for the Monday "waiting on you" (10 Nov 2026, checks/79-directors-waiting.mjs)
   // ACCOUNTS (Victoria): the Accounts screen and the invoices inbox; compliance records; the Xero mirror; own queries;
   // purchases; her own phone alerts (/api/push, since 26 Oct); office chat (/api/messages, 27 Oct).
   // Timesheets, view + export (2 Nov 2026): the new GET routes are /api/accounts/timesheets and

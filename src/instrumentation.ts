@@ -22,6 +22,7 @@ export async function register() {
     const { eveningBoardCheck } = await import("./lib/boardGuard/store");
     const { signInAlertsTick } = await import("./lib/signinAlerts");
     const { remindUnconfirmedPosters } = await import("./lib/confirmReminders");
+    const { mondayWaitingTick } = await import("./lib/directorsWaiting/store");
     setInterval(() => {
       // Xero (read-only, G3): once a day from 2am Sydney, after the backup. Does nothing until set up and connected.
       nightlyXeroSync().catch((e) => console.error("xero nightly", e instanceof Error ? e.message : "failed"));
@@ -56,6 +57,9 @@ export async function register() {
       // Poster sign-ins still to confirm (10 Nov 2026): 3:30pm (a night shift: 30 min after its finish), once per job,
       // to the job's supervisor link. CONFIRM_REMINDER=off stops it.
       remindUnconfirmedPosters().catch((e) => console.error("confirm reminder", e instanceof Error ? e.message : "failed"));
+      // Directors (10 Nov 2026): Monday 8am-noon Sydney, one phone alert per director with something waiting on them
+      // ("N things waiting on you"), once a week. DIRECTOR_WAITING_REMINDER=off stops it.
+      mondayWaitingTick().catch((e) => console.error("directors waiting reminder", e instanceof Error ? e.message : "failed"));
     }, 60_000);
   }
 }
