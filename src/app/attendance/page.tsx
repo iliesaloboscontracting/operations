@@ -7,7 +7,8 @@ import { useAuth } from "@/components/AuthProvider";
 import AttendanceJobCard from "@/components/attendance/AttendanceJobCard";
 import PosterPanel from "@/components/attendance/PosterPanel";
 import TravelLegs from "@/components/attendance/TravelLegs";
-import type { AttendanceData } from "@/components/attendance/types";
+import type { AttendanceData, AttendanceJob } from "@/components/attendance/types";
+import { flagSummary, type SigninFlagSummary } from "@/lib/signinFlags";
 import { apiFetch } from "@/lib/apiFetch";
 import { localISODate } from "@/lib/resource";
 import type { ResourceDTO } from "@/lib/types";
@@ -25,6 +26,15 @@ function Tile({ label, value, tone = "" }: { label: string; value: number; tone?
     </div>
   );
 }
+
+type FilterKey = keyof SigninFlagSummary;
+const ROW_FILTER: Record<Exclude<FilterKey, "noSignIn">, string[]> = { toConfirm: ["TO_CONFIRM"], late: ["LATE_IN"], longDay: ["LONG_SHIFT", "LONG_DAY"] };
+const STRIP: { key: FilterKey; label: string; showing: string }[] = [
+  { key: "toConfirm", label: "to confirm", showing: "poster sign-ins waiting for the supervisor" },
+  { key: "late", label: "late", showing: "signed in over an hour after the start" },
+  { key: "longDay", label: "long day", showing: "signed out over 2h after the finish, or over 12h" },
+  { key: "noSignIn", label: "no sign-in", showing: "on the board with no sign-in anywhere that day" },
+];
 
 const shiftDate = (iso: string, days: number) => {
   const d = new Date(iso + "T00:00:00");
@@ -68,6 +78,17 @@ export default function AttendancePage() {
   const groups = data ? [...data.points, ...data.jobs] : [];
   const rows = groups.flatMap((j) => j.rows);
   const has = (f: string) => rows.filter((r) => r.flags.includes(f)).length;
+  // The summary strip (10 Nov 2026): tap one to see only those; tap again (or "Show all") for everything.
+  const [filter, setFilter] = useState<FilterKey | null>(null);
+  useEffect(() => setFilter(null), [date]);
+  const summary = data ? data.summary ?? flagSummary(groups) : null;
+  const shown = (g: AttendanceJob): AttendanceJob =>
+    !filter ? g
+    : filter === "noSignIn" ? { ...g, rows: [], noShows: g.noShows.filter((n) => n.nowhere) }
+    : { ...g, rows: g.rows.filter((r) => ROW_FILTER[filter].some((f) => r.flags.includes(f))), noShows: [] };
+  const keep = (g: AttendanceJob) => !filter || g.rows.length > 0 || g.noShows.length > 0;
+  const pointsShown = data ? data.points.map(shown).filter(keep) : [];
+  const jobsShown = data ? data.jobs.map(shown).filter(keep) : [];
 
   return (
     <PageShell title="Sign-ins" subtitle="Who signed in and out - at the office, the yard, in the trucks and on each site - and the hours it works out to.">
@@ -84,6 +105,27 @@ export default function AttendancePage() {
         !error && <div className="py-10 text-center text-sm text-gray-500">Loading...</div>
       ) : (
         <>
+          {/* What needs sorting for this day (10 Nov 2026) - information only, never blocks anything. */}
+          {summary && (
+            <div className="mb-3 flex flex-wrap items-center gap-2 text-sm">
+              {STRIP.map((s) => (
+                <button
+                  key={s.key}
+                  onClick={() => setFilter(filter === s.key ? null : s.key)}
+                  aria-pressed={filter === s.key}
+                  className={`rounded-full border px-3 py-1 ${filter === s.key ? "border-brand-500 bg-brand-600/20 text-brand-200" : summary[s.key] ? "border-amber-500/50 bg-amber-500/10 text-amber-200 hover:bg-amber-500/20" : "border-edge text-gray-400 hover:bg-panel2"}`}
+                >
+                  <b>{summary[s.key]}</b> {s.label}
+                </button>
+              ))}
+              {filter && (
+                <span className="text-xs text-gray-400">
+                  Showing only {STRIP.find((s) => s.key === filter)?.showing}.{" "}
+                  <button className="text-brand-300 underline" onClick={() => setFilter(null)}>Show all</button>
+                </span>
+              )}
+            </div>
+          )}
           <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-5">
             <Tile label={date === data.today ? "On site now" : "Didn't sign out"} value={has(date === data.today ? "STILL_ON" : "NO_SIGN_OUT")} tone={date === data.today ? "text-emerald-400" : "text-amber-500"} />
             <Tile label="Signed in" value={rows.filter((r) => r.status !== "REJECTED").length} />
@@ -105,13 +147,14 @@ export default function AttendancePage() {
           )}
           <div className="grid gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
             <div className="min-w-0 space-y-3">
-              <h2 className="text-sm font-semibold text-gray-200">Office, yard &amp; trucks</h2>
-              {data.points.map((j) => (
-                <AttendanceJobCard key={j.id} job={j} date={date} canEdit={canEdit} canRemove={isAdmin} people={people} handover={null} onChanged={load} />
+              {filter && pointsShown.length === 0 && jobsShown.length === 0 && <p className="text-sm text-gray-500">Nothing to show for this day.</p>}
+              {pointsShown.length > 0 && <h2 className="text-sm font-semibold text-gray-200">Office, yard &amp; trucks</h2>}
+              {pointsShown.map((j) => (
+                <AttendanceJobCard key={j.id} job={j} date={date} filtered={!!filter} canEdit={canEdit} canRemove={isAdmin} people={people} handover={null} onChanged={load} />
               ))}
-              <h2 className="pt-3 text-sm font-semibold text-gray-200">Sites</h2>
-              {data.jobs.length === 0 && <p className="text-sm text-gray-500">No jobs on the board for this day.</p>}
-              {data.jobs.map((j) => {
+              {(!filter || jobsShown.length > 0) && <h2 className="pt-3 text-sm font-semibold text-gray-200">Sites</h2>}
+              {!filter && data.jobs.length === 0 && <p className="text-sm text-gray-500">No jobs on the board for this day.</p>}
+              {jobsShown.map((j) => {
                 const h = data.handovers.find((x) => x.jobId === j.id);
                 return (
                   <div key={j.id}>
@@ -119,6 +162,7 @@ export default function AttendancePage() {
                     key={j.id}
                     job={j}
                     date={date}
+                    filtered={!!filter}
                     canEdit={canEdit}
                     canRemove={isAdmin}
                     people={people}
@@ -126,12 +170,12 @@ export default function AttendancePage() {
                     onChanged={load}
                   />
                   {/* Regional travel legs for this job (2 Nov 2026) */}
-                  <TravelLegs legs={(data.travel ?? []).filter((t) => t.jobId === j.id)} canEdit={canEdit} onChanged={load} />
+                  {!filter && <TravelLegs legs={(data.travel ?? []).filter((t) => t.jobId === j.id)} canEdit={canEdit} onChanged={load} />}
                   </div>
                 );
               })}
               {/* Travel for a job not listed here (e.g. since completed) */}
-              <TravelLegs legs={(data.travel ?? []).filter((t) => !data.jobs.some((j) => j.id === t.jobId))} canEdit={canEdit} onChanged={load} />
+              {!filter && <TravelLegs legs={(data.travel ?? []).filter((t) => !data.jobs.some((j) => j.id === t.jobId))} canEdit={canEdit} onChanged={load} />}
             </div>
             <PosterPanel projects={projects} vehicles={vehicles} posters={data.posters} canEdit={canEdit} onChanged={load} />
           </div>

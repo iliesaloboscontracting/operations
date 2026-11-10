@@ -22,6 +22,7 @@ export async function register() {
     const { eveningBoardCheck } = await import("./lib/boardGuard/store");
     const { signInAlertsTick } = await import("./lib/signinAlerts");
     const { faultPhotoCleanupTick } = await import("./lib/prestart/store");
+    const { remindUnconfirmedPosters } = await import("./lib/confirmReminders");
     setInterval(() => {
       // Pre-start checks (PS-003, 9 Nov 2026): once a day from 3am, fault photos never sent with a check (over 24 h)
       // are removed - only those files. FAULT_PHOTO_CLEANUP=off stops it.
@@ -56,6 +57,9 @@ export async function register() {
       // Sign-in gaps (2 Nov 2026, fixes 2c / 3 / 5a): yesterday's open sign-ins at 7am, no way to sign in tomorrow at
       // 3pm, crew not signed in an hour after the start. Once each; kill switches in lib/signinAlerts.ts.
       signInAlertsTick().catch((e) => console.error("sign-in alerts", e instanceof Error ? e.message : "failed"));
+      // Poster sign-ins still to confirm (10 Nov 2026): 3:30pm (a night shift: 30 min after its finish), once per job,
+      // to the job's supervisor link. CONFIRM_REMINDER=off stops it.
+      remindUnconfirmedPosters().catch((e) => console.error("confirm reminder", e instanceof Error ? e.message : "failed"));
     }, 60_000);
   }
 }
