@@ -403,8 +403,7 @@ export default {
       await db.assetFaultMedia.update({ where: { id: staleWalk.body?.id }, data: { createdAt: ago(25) } });
       await db.assetFaultMedia.update({ where: { id: mediaId }, data: { createdAt: monthsAgo(13) } });
       await db.assetFaultMedia.update({ where: { id: oldWalk }, data: { createdAt: monthsAgo(13) } });
-      const src = ["src/lib/prestart/store.ts", "src/instrumentation.ts"].map((f) => readFileSync(path.join(c.p.appDir, f), "utf8")).join("
-");
+      const src = ["src/lib/prestart/store.ts", "src/instrumentation.ts"].map((f) => readFileSync(path.join(c.p.appDir, f), "utf8")).join("\n");
       t.ok(!/cleanupUnattachedMedia|cleanupOldWalkaround|faultPhotoCleanupTick|FAULT_PHOTO_CLEANUP|WALKAROUND_RETENTION/.test(src), "keep forever: no automatic photo deletion is left in the pre-start store or the background tick");
       const rows = await Promise.all([stale.body?.id, staleWalk.body?.id, oldWalk, mediaId].map(rowOf));
       t.ok(rows.every(Boolean), "keep forever: an unsent photo over 24 h, an unsent walk-around, a 13-month-old walk-around and fault photo - all rows kept");

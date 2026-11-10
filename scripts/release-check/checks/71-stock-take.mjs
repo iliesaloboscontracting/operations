@@ -89,7 +89,7 @@ export default {
 
     const detail = async (who = "YARD") => (await get(`/api/stock-takes/${id}`, who)).body;
     let d = await detail();
-    const expectedCount = await c.db.tool.count({ where: { toolboxId: null, condition: { not: "Swapped out" } } });
+    const expectedCount = await c.db.tool.count({ where: { toolboxId: null, condition: { not: "Swapped out" }, retiredAt: null } }); // retired tools are never counted (keep forever)
     t.ok(d && d.lines.filter((l) => l.expected).length === expectedCount, "one line per yard tool on the register (Missing ones included, swapped-out ones not)", `${d?.lines?.length} vs ${expectedCount}`);
     const L = (toolId) => d.lines.find((l) => l.toolId === toolId);
     t.ok(L(A) && L(B) && L(C) && L(E) && (!D || !L(D)), "the test tools are on it; the toolbox ones aren't");

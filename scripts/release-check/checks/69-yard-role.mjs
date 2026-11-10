@@ -106,7 +106,7 @@ export default {
         t.ok((await c.db.toolIssue.findUnique({ where: { id: mId }, select: { resolution: true } }))?.resolution === "Quote $200 from Hilti", "YD-008: ... still unchanged");
       }
       t.status(await send("DELETE", `/api/tools/${toolId}`), 200, "tools: delete (= retire, keep forever) a tool (as the coordinator may)");
-      t.ok(!(await c.db.tool.findUnique({ where: { id: toolId } })), "the tool is gone");
+      t.ok(!!(await c.db.tool.findUnique({ where: { id: toolId } }))?.retiredAt, "the tool is retired - kept, off the register (keep forever, 10 Nov 2026)");
     }
     t.status(await send("POST", "/api/toolboxes", { name: "RC yard box" }), 403, "toolboxes: create refused");
     if (box) {
