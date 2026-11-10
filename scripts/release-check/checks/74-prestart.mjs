@@ -493,7 +493,7 @@ export default {
     {
       let src = "";
       try { src = readFileSync(path.join(c.p.appDir, "src", "components", "site", "PrestartCheck.tsx"), "utf8"); } catch { /* missing */ }
-      t.ok(src.includes("These photos are kept for 12 months and seen by the office."), "PS-015: the walk-around step says the photos are kept 12 months and seen by the office");
+      t.ok(src.includes("These photos are kept on record and seen by the office."), "PS-015: the walk-around step says the photos are kept on record and seen by the office");
     }
 
     // (17) Nothing with a dollar figure ever went to a phone.

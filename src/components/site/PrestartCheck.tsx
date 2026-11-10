@@ -224,7 +224,7 @@ export default function PrestartCheck({ token, banner, odometerToken, onDone, on
                 : "Optional."}
           </p>
           {/* PS-015 (Ilies, 10 Nov 2026): say plainly who sees them and for how long. */}
-          <p className="text-xs text-gray-500">These photos are kept for 12 months and seen by the office.</p>
+          <p className="text-xs text-gray-500">These photos are kept on record and seen by the office.</p>
           <div className="grid grid-cols-2 gap-2">
             {w.slots.map((s) => <SlotPhoto key={s.key} label={s.label} photo={walk[s.key]} busy={uploading > 0} onPhoto={(f) => addWalk(s.key, f)} />)}
             {w.required && view.odometer !== null && (
