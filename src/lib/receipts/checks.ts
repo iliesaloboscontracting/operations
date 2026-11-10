@@ -127,3 +127,53 @@ export function fuelFields(x: FuelReading) {
   const ppl = num(x.pricePerLitre) ?? (litres && total ? Math.round((total / litres) * 1000) / 1000 : null);
   return { litres, pricePerLitre: ppl, fuelTotal: total, station: x.station.trim() || null, docketAt: docketDate(x.dateTime), rego: normRego(x.rego) || null };
 }
+
+// ---------- who was on the truck (Ilies, 10 Nov 2026) ----------
+// A docket or fuel receipt that names one of our trucks is checked against the truck QR sign-ins: if people
+// were signed in on that truck at the time and the link's owner wasn't one of them, it's To check - someone
+// may be sending on another driver's link. Nobody signed in = no flag (drivers don't always scan the truck QR);
+// the owner on the truck (alone or with others) = no flag. Plain code, no AI; the note is office-side only.
+
+export type TruckSignIn = { resourceId: string | null; workerName: string; signInAt: Date; signOutAt: Date | null };
+// A sign-in with no sign-out only counts for this long (a forgotten sign-out doesn't put someone on the truck
+// for days). Long enough for a night shift.
+export const ON_TRUCK_MAX_HOURS = 16;
+
+// Signed in at or before `at`, not more than 16 hours before it, and not signed out before it.
+export function onTruckAt(s: TruckSignIn, at: Date): boolean {
+  const t = at.getTime(), inAt = s.signInAt.getTime();
+  return inAt <= t && t - inAt <= ON_TRUCK_MAX_HOURS * 3_600_000 && (!s.signOutAt || s.signOutAt.getTime() >= t);
+}
+
+const sydDay = (d: Date) => d.toLocaleDateString("en-CA", { timeZone: "Australia/Sydney" });
+
+// The moments to check: the docket's own time (when the load / fill happened) if it has one and it's the same
+// Sydney day as the sending, then when it was sent.
+export function senderMoments(sentAt: Date, docketAt: Date | null): { at: Date; what: "docket" | "sent" }[] {
+  const out: { at: Date; what: "docket" | "sent" }[] = [];
+  if (docketAt && !Number.isNaN(docketAt.getTime()) && sydDay(docketAt) === sydDay(sentAt)) out.push({ at: docketAt, what: "docket" });
+  out.push({ at: sentAt, what: "sent" });
+  return out;
+}
+
+export type SenderFinding = { reason: string; onTruck: string[]; at: Date; what: "docket" | "sent" };
+export function decideSender(f: {
+  ownerId: string | null; ownerName: string; truck: string; moments: { at: Date; what: "docket" | "sent" }[];
+  signIns: TruckSignIn[]; time: (d: Date) => string;
+}): SenderFinding | null {
+  if (!f.ownerId || !f.moments.length) return null; // a link with no owner - nothing to compare
+  const on = f.moments.map((m) => ({ ...m, people: f.signIns.filter((s) => onTruckAt(s, m.at)) }));
+  if (on.some((m) => m.people.some((p) => p.resourceId === f.ownerId))) return null; // the owner was on it
+  const hit = on.find((m) => m.people.length);
+  if (!hit) return null; // nobody signed in on the truck - a different problem
+  const names = [...new Set(hit.people.map((p) => p.workerName.trim() || "someone"))];
+  const list = names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}` : names[0];
+  const when = hit.what === "docket" ? "the docket's time" : "when it was sent";
+  return {
+    reason: `Sent on ${f.ownerName}'s link - ${list} ${names.length > 1 ? "were" : "was"} signed in on ${f.truck} at ${f.time(hit.at)} (${when})`,
+    onTruck: names, at: hit.at, what: hit.what,
+  };
+}
+
+// A reading's date "has a time" - a date alone is Sydney midday (docketDate), not a real time to check.
+export const hasClockTime = (s: string | null | undefined) => /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test((s ?? "").trim());
