@@ -10,6 +10,7 @@
 // Run once a minute from instrumentation.ts.
 import { prisma } from "../prisma";
 import { pushToSiteLinks } from "../push";
+import { liveLinks } from "../pushLinks";
 import { effectiveTimes, jobFinish } from "../shiftTimes";
 import { reminderEnabled } from "./rules";
 import { reminderDue, sydneyDay } from "./checks";
@@ -54,7 +55,8 @@ export async function remindDailyLogs(now = new Date()): Promise<{ sent: string[
     const claimed = await prisma.shiftReminder.create({ data: { jobId: j.id, kind: "DAILY_LOG", people: j._count.attendances } }).catch(() => null);
     if (!claimed) continue;
     const pilotLinks = j.assignments.flatMap((a) => people.get(a.resourceId) ?? []);
-    const handovers = await prisma.siteLink.findMany({ where: { kind: "HANDOVER", jobId: j.id, revokedAt: null, expiresAt: { gt: now } }, select: { id: true } });
+    // PS-023: live hand-over links only - not switched off, not run out, the stand-in still active (lib/pushLinks.ts).
+    const handovers = await prisma.siteLink.findMany({ where: liveLinks({ kind: "HANDOVER", jobId: j.id }, now), select: { id: true } });
     const linkIds = [...new Set([...pilotLinks, ...handovers.map((h) => h.id)])];
     sent.push(j.id);
     await pushToSiteLinks(

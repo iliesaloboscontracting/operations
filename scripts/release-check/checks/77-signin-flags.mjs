@@ -89,6 +89,12 @@ export default {
     const tsT = await c.json(`/api/timesheets?week=${D}`, "TIMESHEETS");
     t.ok(tsT.status === 200 && !("signInFlags" in (tsT.body ?? {})) && !/LATE_IN|LONG_SHIFT|BULK_OUT/.test(JSON.stringify(tsT.body ?? {})), "TIMESHEETS: the week as before, no flag counts", tsT.status);
     for (const who of ["VIEWER", "ACCOUNTS"]) t.status(await c.get(`/api/timesheets?week=${D}`, who), 403, `Operations timesheets still refused for ${who}`);
+    // PS-025: the counts are an allow-list (Managers, Admins, the coordinator - who all see the Sign-ins page).
+    const tsCo = await c.json(`/api/timesheets?week=${D}`, "COORDINATOR");
+    t.ok(tsCo.status === 200 && KEYS.every((k) => typeof tsCo.body?.signInFlags?.[k] === "number"), "PS-025: the coordinator (allowed) gets the week's counts", tsCo.status);
+    let route = "";
+    try { route = readFileSync(path.join(c.p.appDir, "src", "app", "api", "timesheets", "route.ts"), "utf8"); } catch { /* missing */ }
+    t.ok(/coordinatorOr\(user\.role, "MANAGER"\)/.test(route) && !/role !== "TIMESHEETS"/.test(route), "PS-025: the route names who gets them (allow-list), not who doesn't");
     const acc = await c.json(`/api/accounts/timesheets?week=${D}`, "ACCOUNTS");
     t.ok(acc.status === 200 && !("signInFlags" in (acc.body ?? {})) && !/LATE_IN|LONG_SHIFT|BULK_OUT/.test(JSON.stringify(acc.body ?? {})), "ACCOUNTS' timesheets: as before, no flags", acc.status);
     const co = await c.json(`/api/attendance?date=${D}`, "COORDINATOR");
@@ -131,5 +137,70 @@ export default {
     let src = "";
     try { src = readFileSync(path.join(c.p.appDir, "src", "components", "site", "SignInCrew.tsx"), "utf8"); } catch { /* missing */ }
     t.ok(/Confirm all/.test(src) && /action: "CONFIRM"/.test(src), "the link's sign-in screen has a one-tap 'Confirm all' that sends the ordinary CONFIRM");
+
+    // (6) PS-023 / PS-024: who gets the push - this reminder and the older ones (sign-out 20 min, "not signed in"),
+    // all through the one live-link rule (lib/pushLinks.ts). Three 7am-3:30pm jobs on Thu 26 Mar 2020, made-up people:
+    //   A: an archived Supervisor (link never switched off), a Supervisor whose link was switched off, a Lead (live),
+    //      a crew member with a supervisor link (the fallback), a hand-over to someone since archived;
+    //   B: an archived Supervisor + a crew member with a supervisor link (the fallback must step in) + a live hand-over;
+    //   C: only an archived Supervisor, a run-out hand-over; a supervisor on another job (D) must never be picked.
+    const E = "2020-03-26";
+    const call = (file, expr, extra = {}) => {
+      const mod = "file:///" + path.join(c.p.appDir, "src", "lib", file).split(path.sep).join("/");
+      const script = path.join(c.p.files, `rc77-call-${tag}-${Math.random().toString(36).slice(2, 8)}.mts`);
+      writeFileSync(script, `import * as m from ${JSON.stringify(mod)};\nconst r = await (${expr});\nconsole.log("RESULT " + JSON.stringify(r));\nprocess.exit(0);\n`);
+      const childEnv = { ...process.env, ...env, ...extra };
+      for (const k of ["CONFIRM_REMINDER", "NOT_SIGNED_IN_ALERT"]) if (!(k in extra)) delete childEnv[k];
+      let out = "";
+      try { out = execFileSync(process.execPath, [tsxCli, script], { cwd: c.p.appDir, env: childEnv, encoding: "utf8", timeout: 120_000 }); } catch (e) { out = String(e?.stdout ?? ""); }
+      try { return JSON.parse(out.match(/RESULT (.*)/)?.[1] ?? "null"); } catch { return null; }
+    };
+    const person = (n, active = true) => db.resource.create({ data: { type: "PERSONNEL", name: `RC push ${n} ${tag}`, active } });
+    const [leadArch, revSup, lead, fallA, archB, fallB, archC, otherSup, handArch, handB, handOld, crew2, crew3, crew4] = await Promise.all([
+      person("arch-lead", false), person("revoked-sup"), person("lead"), person("fallback-a"), person("arch-b", false), person("fallback-b"),
+      person("arch-c", false), person("other-job-sup"), person("hand-arch", false), person("hand-b"), person("hand-old"), person("crew2"), person("crew3"), person("crew4"),
+    ]);
+    // One project per job (a project has one day shift per date).
+    const mkJob = async (k) => {
+      const pj = await db.project.create({ data: { name: `RC Push ${k} ${tag}`, status: "ACTIVE", unpaidBreakMinutes: 30 } });
+      return db.job.create({ data: { projectId: pj.id, title: pj.name, date: new Date(`${E}T00:00:00.000Z`), shift: "DAY", status: "ACTIVE", startTime: "7am", endTime: "3:30pm" } });
+    };
+    const [A, B, C, Dj] = [await mkJob("A"), await mkJob("B"), await mkJob("C"), await mkJob("D")];
+    const put = (j, r, role = null) => db.assignment.create({ data: { jobId: j.id, resourceId: r.id, role } });
+    await put(A, leadArch, "Supervisor"); await put(A, revSup, "Supervisor"); await put(A, lead, "Lead"); await put(A, fallA); await put(A, crew2);
+    await put(B, archB, "Supervisor"); await put(B, fallB); await put(B, crew3);
+    await put(C, archC, "Supervisor"); await put(C, crew4); await put(Dj, otherSup, "Supervisor");
+    const L = {};
+    for (const [k, r] of Object.entries({ leadArch, revSup, lead, fallA, archB, fallB, archC, otherSup })) L[k] = (await makeLink(db, "SUPERVISOR", r.id)).id;
+    await db.siteLink.update({ where: { id: L.revSup }, data: { revokedAt: aedt(E, "06:00") } });
+    const dayEnd = aedt(E, "23:59");
+    L.handArch = (await makeLink(db, "HANDOVER", handArch.id, { jobId: A.id, expiresAt: dayEnd })).id;
+    L.handB = (await makeLink(db, "HANDOVER", handB.id, { jobId: B.id, expiresAt: dayEnd })).id;
+    L.handOld = (await makeLink(db, "HANDOVER", handOld.id, { jobId: C.id, expiresAt: aedt(E, "06:00") })).id;
+    // Someone still on site (TO_CONFIRM, from the poster) on each of A, B, C; everyone else allocated hasn't signed in.
+    for (const [j, r] of [[A, crew2], [B, crew3], [C, crew4]])
+      await db.siteAttendance.create({ data: { jobId: j.id, date: E, resourceId: r.id, workerName: r.name, allocated: true, status: "TO_CONFIRM", signInMethod: "POSTER", signInAt: aedt(E, "07:00") } });
+    const sameSet = (got, want) => JSON.stringify([...(got ?? ["(none)"])].sort()) === JSON.stringify([...want].sort());
+    const name = (ids) => (ids ?? []).map((id) => Object.entries(L).find(([, v]) => v === id)?.[0] ?? "?").join(",");
+
+    // The confirm reminder (3:31pm): the Lead over the fallback; archived, switched-off, run-out and other-job links never.
+    const conf = call("confirmReminders.ts", `m.remindUnconfirmedPosters(new Date(${JSON.stringify(aedt(E, "15:31").toISOString())}))`);
+    t.ok(sameSet(conf?.targets?.[A.id], [L.lead]), "confirm reminder, job A: only the live Lead - not the archived Supervisor (link still on), not the switched-off one, not the fallback, not a hand-over to someone archived", name(conf?.targets?.[A.id]));
+    t.ok(sameSet(conf?.targets?.[B.id], [L.fallB, L.handB]), "job B: the Supervisor is archived, so the crew member's supervisor link steps in, plus the live hand-over", name(conf?.targets?.[B.id]));
+    t.ok(sameSet(conf?.targets?.[C.id], []), "job C: only an archived Supervisor and a run-out hand-over - nobody (and never the supervisor on another job)", name(conf?.targets?.[C.id]));
+    // The older reminders, same people: "not signed in" an hour after the start, and the sign-out 20 min before the finish.
+    const nsi = call("signinAlerts.ts", `m.signInAlertsTick(new Date(${JSON.stringify(aedt(E, "08:01").toISOString())}))`, { SIGNOUT_MORNING_ALERT: "off", SIGNIN_WAY_CHECK: "off" });
+    const out20 = call("signOutReminders.ts", `m.remindBeforeFinish(new Date(${JSON.stringify(aedt(E, "15:15").toISOString())}))`);
+    for (const [what, r] of [["'not signed in' (8:01am)", nsi?.notSignedIn], ["sign-out reminder (3:15pm)", out20?.targets]]) {
+      t.ok(sameSet(r?.[A.id], [L.lead, L.fallA]), `${what}, job A: the live supervisor links on the job only - archived, switched-off and the archived stand-in's hand-over get nothing`, name(r?.[A.id]));
+      t.ok(sameSet(r?.[B.id], [L.fallB, L.handB]), `${what}, job B: archived Supervisor left out, the live hand-over in`, name(r?.[B.id]));
+      t.ok(sameSet(r?.[C.id], []), `${what}, job C: nobody - no archived, run-out or other-job link`, name(r?.[C.id]));
+    }
+    // And whatever list a caller passes, pushToSiteLinks itself only reaches phones on live links of active people.
+    const devIds = {};
+    // Made-up phone addresses on the test copy only (the copy is deleted at the end; the test server has no push keys).
+    for (const [k, id] of Object.entries(L)) devIds[k] = (await db.siteLinkPushDevice.create({ data: { siteLinkId: id, endpoint: `https://fcm.googleapis.com/fcm/send/rc77-${tag}-${k}`, p256dh: "x", auth: "y" } })).id;
+    const devs = call("push.ts", `m.siteLinkDevices(${JSON.stringify(Object.values(L))}, new Date(${JSON.stringify(aedt(E, "15:31").toISOString())})).then((d) => d.map((x) => x.siteLinkId))`);
+    t.ok(sameSet(devs, [L.lead, L.fallA, L.fallB, L.otherSup, L.handB]), "pushToSiteLinks' own device list: archived (link on), switched-off and run-out links have no phone reached", name(devs));
   },
 };

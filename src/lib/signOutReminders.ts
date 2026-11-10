@@ -6,9 +6,9 @@
 // gets no reminder - those are flagged to Ilies by the daily check instead.
 // Run once a minute from instrumentation.ts.
 import { prisma } from "./prisma";
-import { pushToSiteLinks } from "./push";
+import { jobSiteLinks, pushToSiteLinks } from "./push";
+import { sydneyDay } from "./signinFlags";
 import { effectiveTimes, jobFinish } from "./shiftTimes";
-import { todaySydney } from "./today";
 
 const BEFORE_MIN = 20;
 const LATE_LIMIT_MIN = 60; // server was down at the time? still send up to an hour after the finish
@@ -19,9 +19,13 @@ const dayBefore = (day: string) => {
   return d.toISOString().slice(0, 10);
 };
 
-export async function remindBeforeFinish() {
-  const now = Date.now();
-  const today = todaySydney();
+// at: the moment to check for (the release check passes a fake one). sent / targets: the jobs reminded and the links
+// each went to (PS-024).
+export async function remindBeforeFinish(at = new Date()): Promise<{ sent: string[]; targets: Record<string, string[]> }> {
+  const sent: string[] = [];
+  const targets: Record<string, string[]> = {};
+  const now = at.getTime();
+  const today = sydneyDay(at);
   // Yesterday too: a night shift that started yesterday finishes this morning.
   const days = [dayBefore(today), today];
   const jobs = await prisma.job.findMany({
@@ -48,16 +52,10 @@ export async function remindBeforeFinish() {
     const claimed = await prisma.shiftReminder.create({ data: { jobId: j.id, kind: "SIGNOUT_20", people: still.length } }).catch(() => null);
     if (!claimed || !still.length) continue;
 
-    const links = await prisma.siteLink.findMany({
-      where: {
-        revokedAt: null,
-        OR: [
-          { kind: "SUPERVISOR", resourceId: { in: j.assignments.map((a) => a.resourceId) } },
-          { kind: "HANDOVER", jobId: j.id, expiresAt: { gt: new Date() } },
-        ],
-      },
-      select: { id: true },
-    });
+    // PS-023: live links only - not switched off, not run out, the person still active (lib/pushLinks.ts).
+    const links = await jobSiteLinks(j.id, j.assignments.map((a) => a.resourceId), at);
+    sent.push(j.id);
+    targets[j.id] = links.map((l) => l.id);
     const names = still.map((a) => a.resource?.name ?? a.workerName);
     const shown = names.slice(0, 5).join(", ") + (names.length > 5 ? ` +${names.length - 5} more` : "");
     await pushToSiteLinks(
@@ -71,4 +69,5 @@ export async function remindBeforeFinish() {
       "high",
     ).catch((e) => console.error("sign-out reminder", e));
   }
+  return { sent, targets };
 }

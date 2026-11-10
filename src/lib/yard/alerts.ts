@@ -6,6 +6,7 @@
 import type { SiteRequest } from "@prisma/client";
 import { prisma } from "../prisma";
 import { pushToSiteLinks, pushToUsers } from "../push";
+import { liveLinks } from "../pushLinks";
 import { assertNoMoney } from "../moneyGuard";
 import { PRIORITY_DOT, requestNo, whenText, type Priority } from "../requestTypes";
 
@@ -14,7 +15,7 @@ const safe = (t: string) => (assertNoMoney(t) ? t : "Details are on the yard lis
 async function yardTargets() {
   const [links, users] = await Promise.all([
     // The yard's shared phone link(s): an OFFICE link with no person (lib/yard/rules.ts isYardLink).
-    prisma.siteLink.findMany({ where: { kind: "OFFICE", resourceId: null, revokedAt: null }, select: { id: true } }),
+    prisma.siteLink.findMany({ where: liveLinks({ kind: "OFFICE", resourceId: null }), select: { id: true } }), // PS-023
     // The YARD login(s) - the role is added by the yard-role branch; none exist before then.
     prisma.user.findMany({ where: { role: "YARD", active: true }, select: { id: true } }),
   ]);

@@ -6,6 +6,7 @@
 import webpush from "web-push";
 import { prisma } from "./prisma";
 import { isPushHost } from "./pushHost";
+import { liveLinks, liveLinkWhere } from "./pushLinks";
 
 export type PushMessage = {
   title: string;
@@ -74,11 +75,28 @@ export async function pushToUsers(userIds: string[], msg: PushMessage, urgency: 
   });
 }
 
-// Supervisors' phones, through their site link (24 Oct 2026). Switched-off
-// links get nothing.
+// The phones a push to these site links may reach (PS-023, 10 Nov 2026): only links that aren't switched off or run
+// out and whose person is still active (lib/pushLinks.ts - the one rule). Exported so the release check can see it.
+export function siteLinkDevices(linkIds: string[], now = new Date()) {
+  if (!linkIds.length) return Promise.resolve([]);
+  return prisma.siteLinkPushDevice.findMany({ where: { siteLinkId: { in: linkIds }, siteLink: liveLinkWhere(now) } });
+}
+
+// The links a job's reminders go to: SUPERVISOR links of people on the job, and the job's hand-over links - only
+// live ones (PS-023: not switched off, not run out, person still active). Shared by the sign-out, "not signed in"
+// and confirm reminders.
+export function jobSiteLinks(jobId: string, crewIds: string[], now = new Date()) {
+  return prisma.siteLink.findMany({
+    where: liveLinks({ OR: [{ kind: "SUPERVISOR", resourceId: { in: crewIds } }, { kind: "HANDOVER", jobId }] }, now),
+    select: { id: true, kind: true, resourceId: true },
+  });
+}
+
+// Supervisors' phones, through their site link (24 Oct 2026). Switched-off or run-out links, and links of a person
+// who has been archived, get nothing - whoever asked for the push.
 export async function pushToSiteLinks(linkIds: string[], msg: PushMessage, urgency: "high" | "normal" | "low" = "normal") {
   if (!linkIds.length) return 0;
-  const devices = await prisma.siteLinkPushDevice.findMany({ where: { siteLinkId: { in: linkIds }, siteLink: { revokedAt: null } } });
+  const devices = await siteLinkDevices(linkIds);
   return sendToDevices(devices, msg, urgency, {
     sent: (id) => prisma.siteLinkPushDevice.update({ where: { id }, data: { lastSentAt: new Date(), failures: 0 } }),
     gone: (id) => prisma.siteLinkPushDevice.delete({ where: { id } }),
