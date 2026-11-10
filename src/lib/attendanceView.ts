@@ -10,6 +10,7 @@ import { matchHireSignIns } from "./labourHireMatch";
 import type { LineHours } from "./dayHours";
 import { dayHoursFor } from "./dayHoursStore";
 import { staffSuggestions, type StaffMatch } from "./staffMatch";
+import { flagsForJobRows, flagSummary, signedInEarlierIds, type SigninFlagSummary } from "./signinFlags";
 
 export type AttendanceFlag =
   | "NO_SIGN_IN" // allocated, never signed in
@@ -24,7 +25,11 @@ export type AttendanceFlag =
   | "ODD_HOURS" // office / yard / truck: signed in before 4am or after 9pm
   | "LONG_DAY" // office / yard / truck: more than 14 hours signed in
   | "OVERLAP" // overlapped another of their sign-ins that day - the shared time counted once (2 Nov 2026)
-  | "LOOKS_LIKE_STAFF"; // a hire sign-in that looks like Lobos staff (company Lobos, or a staff member's name) - fix 4
+  | "LOOKS_LIKE_STAFF" // a hire sign-in that looks like Lobos staff (company Lobos, or a staff member's name) - fix 4
+  // 10 Nov 2026 (Ilies: "do A and B") - information only (lib/signinFlags.ts); the words are in the row's notes.
+  | "LATE_IN" // signed in more than 60 min after the job's start (and not signed in anywhere earlier that day)
+  | "LONG_SHIFT" // signed out more than 2 h after the job's finish, or over 12 h on the line
+  | "BULK_OUT"; // ...and signed out with 2+ others in the same minute by the supervisor / office
 
 type AttendanceWithEdits = Prisma.SiteAttendanceGetPayload<{ include: { edits: true } }>;
 
@@ -73,6 +78,7 @@ function rowOf(
     breakTaken: opts.day.get(a.id)?.breakMinutes ?? 0,
     staffLike, // fix 4: the staff it may be ("Move to <person>" on the Sign-ins page)
     flags,
+    notes: {} as Record<string, string>, // the words for a flag (10 Nov 2026), e.g. LATE_IN: "Signed in 3:05pm – job starts 7am"
     edits: a.edits.map((e) => ({ field: e.field, before: e.before, after: e.after, reason: e.reason, editedBy: e.editedBy, editedAt: e.editedAt.toISOString() })),
   };
 }
@@ -115,6 +121,15 @@ export async function attendanceForDate(date: string) {
     devices.set(a.deviceId, (devices.get(a.deviceId) ?? new Set()).add(who));
   }
 
+  // 10 Nov 2026: who was already signed in somewhere earlier that day (coming on late there isn't missing hours), and
+  // the staff with any sign-in at all that day - site, office, yard or truck, any job (completed ones too).
+  const dayRows = [...jobs.flatMap((j) => j.attendances), ...pointRows];
+  const earlier = signedInEarlierIds(dayRows.map((a) => ({ id: a.id, key: a.resourceId ?? `${a.workerName}|${a.company ?? ""}`, signInAt: a.signInAt, status: a.status })));
+  const signedAnywhere = new Set(
+    (await prisma.siteAttendance.findMany({ where: { date, removedAt: null, status: { not: "REJECTED" }, resourceId: { not: null } }, select: { resourceId: true } }))
+      .map((a) => a.resourceId!),
+  );
+
   const jobGroups = jobs
     .filter((j) => j.status === "ACTIVE" || j.attendances.length > 0)
     .map((j) => {
@@ -123,13 +138,27 @@ export async function attendanceForDate(date: string) {
       const tiles = j.assignments.filter((x) => x.resource.type === "HIRE").map((x) => ({ id: x.resource.id, name: x.resource.name }));
       // Labour hire sign-ins paired with this job's labour hire tiles.
       const slots = matchHireSignIns(tiles, j.attendances.filter((a) => !a.resourceId));
-      const rows = j.attendances.map((a) =>
-        rowOf(a, { date, today, breakMin, devices, point: false, slot: a.resourceId ? undefined : slots.get(a.id)?.name ?? null, day: dayMap, staff: staffAll })
+      const times = effectiveTimes(j, j.project);
+      // Late sign-in / long day / signed out together (10 Nov 2026) - information only, hours unchanged.
+      const extra = flagsForJobRows(
+        j.attendances.map((a) => ({ id: a.id, signInAt: a.signInAt, signOutAt: a.signOutAt, signOutMethod: a.signOutMethod, status: a.status, signedInEarlier: earlier.has(a.id) })),
+        { date, shift: j.shift, start: times.start, end: times.end },
       );
+      const rows = j.attendances.map((a) => {
+        const r = rowOf(a, { date, today, breakMin, devices, point: false, slot: a.resourceId ? undefined : slots.get(a.id)?.name ?? null, day: dayMap, staff: staffAll });
+        const x = extra.get(a.id);
+        if (x) { r.flags.push(...x.flags); Object.assign(r.notes, x.notes); }
+        return r;
+      });
       const signedIn = new Set(j.attendances.filter((a) => a.status !== "REJECTED").map((a) => a.resourceId));
       const filled = new Set([...slots.values()].map((t) => t.id));
-      const noShows = j.status === "ACTIVE" && date <= today
-        ? [...staff.filter((p) => !signedIn.has(p.id)), ...tiles.filter((t) => !filled.has(t.id))]
+      // staff: a Lobos (Personnel) no-show - nowhere: no sign-in anywhere that day (10 Nov 2026, "On the board, no
+      // sign-in"); a labour hire tile is neither.
+      const noShows: { id: string; name: string; staff?: boolean; nowhere?: boolean }[] = j.status === "ACTIVE" && date <= today
+        ? [
+            ...staff.filter((p) => !signedIn.has(p.id)).map((p) => ({ ...p, staff: true, nowhere: !signedAnywhere.has(p.id) })),
+            ...tiles.filter((t) => !filled.has(t.id)),
+          ]
         : [];
       return {
         id: j.id,
@@ -192,7 +221,19 @@ export async function attendanceForDate(date: string) {
     pointGroup("YARD", null, "Yard"),
     ...[...trucks].sort((a, b) => a[1].localeCompare(b[1])).map(([id, name]) => pointGroup("VEHICLE", id, name)),
   ]);
-  return { jobs: jobGroups, points };
+  // The Sign-ins page's strip (10 Nov 2026): "N to confirm · N late · N long day · N no sign-in".
+  return { jobs: jobGroups, points, summary: flagSummary([...points, ...jobGroups]) };
+}
+
+// The Sign-ins page's strip added up over several days (10 Nov 2026 - the Timesheets page's "need sorting" banner).
+// The same days the Sign-ins page shows, so the counts always agree with it. Counts only.
+export async function flagSummaryForDays(dates: string[]): Promise<SigninFlagSummary> {
+  const total: SigninFlagSummary = { toConfirm: 0, late: 0, longDay: 0, noSignIn: 0 };
+  for (const d of dates) {
+    const s = (await attendanceForDate(d)).summary;
+    for (const k of Object.keys(total) as (keyof SigninFlagSummary)[]) total[k] += s[k];
+  }
+  return total;
 }
 
 // Signed-in hours per person on a job (confirmed or waiting; rejected left

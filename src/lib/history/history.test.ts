@@ -116,6 +116,7 @@ test("filters: every job list, count and cost leaves a cancelled job out", () =>
     "src/lib/projectFileServer.ts", "src/lib/receipts/indicatorStore.ts", "src/lib/receipts/office.ts", "src/lib/receipts/store.ts",
     "src/lib/signin.ts", "src/lib/signInActuals.ts", "src/lib/signinAlerts.ts", "src/lib/signOutReminders.ts", "src/lib/siteRequests.ts",
     "src/lib/trackingData.ts", "src/lib/travel/store.ts", "src/lib/alerts.ts", "src/lib/inventory/store.ts", "src/lib/boardGuard/store.ts",
+    "src/lib/confirmReminders.ts",
   ];
   for (const f of files) assert.match(src(f), /cancelledAt: null|LIVE_JOB/, f);
   assert.doesNotMatch(src("src/app/api/jobs/[id]/route.ts"), /prisma\.job\.delete\(/, "a job is cancelled, never deleted");

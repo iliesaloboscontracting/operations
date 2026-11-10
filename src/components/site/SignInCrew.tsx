@@ -60,6 +60,23 @@ export default function SignInCrew({ api }: { api: string }) {
     }
   }
 
+  // "Confirm all": the ordinary CONFIRM for each, one at a time; stops at the first one that's refused.
+  async function confirmAll(ids: string[]) {
+    setBusy("all");
+    setError(null);
+    try {
+      for (const id of ids) {
+        const res = await fetch(`${api}/signin`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "CONFIRM", attendanceId: id }) });
+        if (!res.ok) throw new Error(await serverErrorMessage(res, "Couldn't confirm them all - check the list and try again."));
+      }
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      await load();
+      setBusy(null);
+    }
+  }
+
   if (!data) return <div className="py-16 text-center text-gray-500">{error ?? <Loader2 className="mx-auto animate-spin" />}</div>;
   if (data.jobs.length === 0) {
     return (
@@ -84,6 +101,16 @@ export default function SignInCrew({ api }: { api: string }) {
         )}
       </div>
 
+      {/* The reminder's tap lands here - the ones to confirm are below the QR, so say so up top (10 Nov 2026). */}
+      {job.toConfirm.length > 0 && (
+        <button
+          className="w-full rounded-xl border border-amber-500/50 bg-amber-500/15 px-3 py-2.5 text-left text-sm font-semibold text-amber-300"
+          onClick={() => document.getElementById("to-confirm")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+        >
+          {job.toConfirm.length} sign-in{job.toConfirm.length === 1 ? "" : "s"} from the poster waiting for you to confirm ↓
+        </button>
+      )}
+
       <div className="flex flex-col items-center gap-2">
         <QrCode text={job.qrUrl} size={280} />
         <p className="text-center text-sm text-gray-400">Crew scan this with their phone camera to sign in or out. It changes every {data.rotateSeconds} seconds.</p>
@@ -92,8 +119,16 @@ export default function SignInCrew({ api }: { api: string }) {
       {error && <div className="rounded-lg bg-red-900/30 px-3 py-2 text-sm text-red-300">{error}</div>}
 
       {job.toConfirm.length > 0 && (
-        <section className="rounded-2xl border border-amber-500/40 bg-amber-500/10 p-3">
-          <h2 className="mb-2 text-sm font-semibold text-amber-400">Signed in from the poster - confirm ({job.toConfirm.length})</h2>
+        <section id="to-confirm" className="scroll-mt-4 rounded-2xl border border-amber-500/40 bg-amber-500/10 p-3">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold text-amber-400">Signed in from the poster - confirm ({job.toConfirm.length})</h2>
+            {/* One tap for all of them (10 Nov 2026) - each is the same Confirm as below, one after another. */}
+            {job.toConfirm.length > 1 && (
+              <button className={btn} disabled={!!busy} onClick={() => confirm(`Confirm all ${job.toConfirm.length} were on site?`) && confirmAll(job.toConfirm.map((a) => a.id))}>
+                {busy === "all" ? <Loader2 size={14} className="inline animate-spin" /> : `Confirm all (${job.toConfirm.length})`}
+              </button>
+            )}
+          </div>
           <div className="space-y-2">
             {job.toConfirm.map((a) => (
               <div key={a.id} className="rounded-xl bg-panel p-3">

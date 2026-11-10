@@ -6,7 +6,7 @@ import { ShiftBadge } from "@/components/ShiftBadge";
 import { apiFetch, serverErrorMessage } from "@/lib/apiFetch";
 import type { ResourceDTO } from "@/lib/types";
 import { FLAG_LABEL, METHOD_LABEL, type AttendanceJob, type AttendanceRow } from "./types";
-import { jobFinish } from "@/lib/shiftTimes";
+import { jobFinish, parseClock } from "@/lib/shiftTimes";
 
 const btn = "rounded-lg bg-brand-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-brand-500 disabled:opacity-50";
 const quiet = "rounded-lg border border-edge px-2.5 py-1 text-xs text-gray-300 hover:bg-panel2 disabled:opacity-50";
@@ -24,7 +24,11 @@ const fromLocal = (v: string) => (v ? new Date(v).toISOString() : null);
 const fmt = (iso: string | null) =>
   iso ? new Date(iso).toLocaleString("en-AU", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }) : "-";
 
-const flagTone = (f: string) => (f === "STILL_ON" ? "bg-emerald-500/15 text-emerald-400" : f === "REJECTED" ? "bg-gray-700 text-gray-300" : "bg-amber-500/15 text-amber-500");
+// The 10 Nov 2026 flags (late sign-in, long day, signed out together) stand out a little more - they're where hours
+// went missing that week. Information only.
+const HOURS_FLAGS = new Set(["LATE_IN", "LONG_SHIFT", "BULK_OUT"]);
+const flagTone = (f: string) =>
+  f === "STILL_ON" ? "bg-emerald-500/15 text-emerald-400" : f === "REJECTED" ? "bg-gray-700 text-gray-300" : HOURS_FLAGS.has(f) ? "bg-orange-500/20 text-orange-300" : "bg-amber-500/15 text-amber-500";
 
 export default function AttendanceJobCard({
   job,
@@ -34,9 +38,11 @@ export default function AttendanceJobCard({
   people,
   handover,
   onChanged,
+  filtered = false,
 }: {
   job: AttendanceJob;
   date: string;
+  filtered?: boolean; // the page's summary strip is filtering - only the matching lines are passed in
   canEdit: boolean;
   canRemove?: boolean; // Admins: remove a sign-in (e.g. signed in twice)
   people: ResourceDTO[];
@@ -48,6 +54,7 @@ export default function AttendanceJobCard({
   const [moving, setMoving] = useState<string | null>(null); // fix 4: the hire row being moved onto a staff member
   const [removing, setRemoving] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  const [addWho, setAddWho] = useState(""); // "Add missed sign-in" next to a no-show prefills who (10 Nov 2026)
   const [handing, setHanding] = useState(false);
   const [handTo, setHandTo] = useState("");
   const [handLink, setHandLink] = useState<string | null>(null);
@@ -102,8 +109,8 @@ export default function AttendanceJobCard({
           <div className="truncate text-sm font-medium text-gray-100">{job.label}</div>
           <div className="truncate text-[11px] text-gray-500">
             {point ? "" : `${job.times ?? "No times set"} · ${job.allocated.length} allocated · `}
-            {job.rows.filter((r) => r.status !== "REJECTED").length} signed in
-            {total > 0 && ` · ${total}h signed`}
+            {filtered ? `${job.rows.length} shown (filtered)` : `${job.rows.filter((r) => r.status !== "REJECTED").length} signed in`}
+            {!filtered && total > 0 && ` · ${total}h signed`}
             {job.breakMinutes ? ` (one ${job.breakMinutes} min break a day, over 5h)` : ""}
           </div>
           {job.note && <div className="text-[11px] text-gray-400">{job.note}</div>}
@@ -111,7 +118,7 @@ export default function AttendanceJobCard({
         </div>
         {canEdit && (
           <div className="flex gap-1.5">
-            <button className={quiet} onClick={() => setAdding((v) => !v)}><Plus size={12} className="inline" /> Missed sign-in</button>
+            <button className={quiet} onClick={() => { setAddWho(""); setAdding((v) => !v); }}><Plus size={12} className="inline" /> Missed sign-in</button>
             {!point && <button className={quiet} onClick={() => setHanding((v) => !v)}>Hand over</button>}
           </div>
         )}
@@ -192,11 +199,11 @@ export default function AttendanceJobCard({
         </div>
       )}
 
-      {adding && canEdit && <AddMissed job={job} date={date} people={people} onSave={(b) => send("/api/attendance", "POST", b).then((o) => { if (!o) return o; setAdding(false); setAddNote(o.ended ? null : "Added."); if (o.ended) setAddNote(`Added - and ended ${o.ended} other open sign-in${o.ended === 1 ? "" : "s"} of theirs at this sign-in time (kept with a note).`); return o; })} />}
+      {adding && canEdit && <AddMissed key={addWho} job={job} date={date} people={people} initialWho={addWho} onSave={(b) => send("/api/attendance", "POST", b).then((o) => { if (!o) return o; setAdding(false); setAddNote(o.ended ? null : "Added."); if (o.ended) setAddNote(`Added - and ended ${o.ended} other open sign-in${o.ended === 1 ? "" : "s"} of theirs at this sign-in time (kept with a note).`); return o; })} />}
       {addNote && <div className="border-b border-edge/70 px-3.5 py-1.5 text-xs text-gray-400">{addNote}</div>}
 
       {job.rows.length === 0 ? (
-        <div className="px-3.5 py-3 text-xs text-gray-600">Nobody has signed in.</div>
+        !filtered && <div className="px-3.5 py-3 text-xs text-gray-600">Nobody has signed in.</div>
       ) : (
         <div className="divide-y divide-edge/50">
           {job.rows.map((r) => (
@@ -227,7 +234,7 @@ export default function AttendanceJobCard({
                   {(r.flags.length > 0 || r.edits.length > 0) && (
                     <div className="mt-0.5 flex flex-wrap items-center gap-1">
                       {r.flags.map((f) => (
-                        <span key={f} className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${flagTone(f)}`}>{FLAG_LABEL[f] ?? f}</span>
+                        <span key={f} className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${flagTone(f)}`} title={r.notes?.[f] ? FLAG_LABEL[f] : undefined}>{r.notes?.[f] ?? FLAG_LABEL[f] ?? f}</span>
                       ))}
                       {r.edits.length > 0 && (
                         <button className="flex items-center text-[11px] text-gray-400" onClick={() => setHistory(history === r.id ? null : r.id)}>
@@ -272,11 +279,34 @@ export default function AttendanceJobCard({
         </div>
       )}
 
-      {job.noShows.length > 0 && (
+      {job.noShows.length > 0 && (point ? (
         <div className="border-t border-edge/70 px-3.5 py-2 text-xs text-amber-500">
-          {point ? "Not signed in" : "Allocated, not signed in"}: {job.noShows.map((p) => p.name).join(", ")}
+          Not signed in: {job.noShows.map((p) => p.name).join(", ")}
         </div>
-      )}
+      ) : (
+        // "On the board, no sign-in" (10 Nov 2026): who was allocated here and didn't sign in here; "No sign-in
+        // anywhere" when they have none that day at all (0 hours). One tap opens the missed sign-in form for them.
+        <div className="border-t border-amber-500/40 bg-amber-500/10 px-3.5 py-2 text-xs">
+          <div className="mb-1 font-semibold text-amber-300">Allocated, not signed in here ({job.noShows.length})</div>
+          <div className="flex flex-wrap gap-1.5">
+            {job.noShows.map((p) => (
+              <span key={p.id} className="flex items-center gap-1.5 rounded-lg border border-amber-500/40 bg-panel px-2 py-1 text-gray-200">
+                {p.name}
+                {p.nowhere && <span className="rounded-full bg-orange-500/20 px-1.5 py-0.5 text-[10px] font-semibold text-orange-300">No sign-in anywhere</span>}
+                {p.staff && !p.nowhere && <span className="text-[10px] text-gray-400">signed in elsewhere</span>}
+                {canEdit && p.staff && (
+                  <button
+                    className="rounded-md border border-edge px-1.5 py-0.5 text-[10px] text-brand-300 hover:bg-panel2"
+                    onClick={() => { setAddWho(p.id); setAdding(true); }}
+                  >
+                    Add missed sign-in
+                  </button>
+                )}
+              </span>
+            ))}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -417,8 +447,11 @@ const REMOVE_REASONS = [
 ];
 const OTHER_REASON = "OTHER";
 
-function AddMissed({ job, date, people, onSave }: { job: AttendanceJob; date: string; people: ResourceDTO[]; onSave: (body: Record<string, unknown>) => Promise<unknown> }) {
-  const [v, setV] = useState({ who: "", hireName: "", company: "", in: `${date}T07:00`, out: "", pick: "", reason: "", endOpen: false });
+function AddMissed({ job, date, people, initialWho = "", onSave }: { job: AttendanceJob; date: string; people: ResourceDTO[]; initialWho?: string; onSave: (body: Record<string, unknown>) => Promise<unknown> }) {
+  // "In" starts at the job's start on the board (7am when it has none) - the office checks it before adding.
+  const start = parseClock(job.startTime);
+  const startHHMM = start == null ? "07:00" : `${String(Math.floor(start / 60)).padStart(2, "0")}:${String(start % 60).padStart(2, "0")}`;
+  const [v, setV] = useState({ who: initialWho, hireName: "", company: "", in: `${date}T${startHHMM}`, out: "", pick: "", reason: "", endOpen: false });
   const hire = v.who === "HIRE";
   const reason = v.pick === OTHER_REASON ? v.reason.trim() : v.pick;
   const allocatedIds = new Set(job.allocated.map((p) => p.id));

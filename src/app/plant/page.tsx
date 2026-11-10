@@ -4,10 +4,16 @@ import RegisterPage, { StatusPill } from "@/components/RegisterPage";
 import { ResourceDTO } from "@/lib/types";
 import { effectiveStatus, STATUS_LABEL, whereToday, money } from "@/lib/resource";
 import { AssetDatesCell, AssetDatesPanel, AssetDatesProvider } from "@/components/assets/AssetDates";
+import { FaultFlagBadge, FaultFlagsProvider } from "@/components/faults/FaultFlags";
+import PlantQrPanel from "@/components/plant/PlantQrPanel";
+import { useAuth } from "@/components/AuthProvider";
 
 export default function PlantPage() {
+  const { canEdit } = useAuth();
   return (
     <AssetDatesProvider>
+    {/* Open faults from the pre-start checks (stage 2, 10 Nov 2026): an icon by the name, information only. */}
+    <FaultFlagsProvider enabled={canEdit}>
     <RegisterPage<ResourceDTO>
       config={{
         title: "Plant & Attachments",
@@ -15,7 +21,8 @@ export default function PlantPage() {
         addLabel: "Add plant",
         itemNoun: "plant item",
         // D4: insurance / service / inspection dates, read only (accounts edit them on Accounts -> Assets).
-        detail: (r) => <AssetDatesPanel resourceId={r.id} />,
+        // Stage 2 (10 Nov 2026): owned plant's pre-start QR sticker - print / reprint / off (Managers and Admins).
+        detail: (r) => <><AssetDatesPanel resourceId={r.id} /><PlantQrPanel machine={{ id: r.id, name: r.name, type: r.type, ownership: r.ownership ?? "OWNED" }} /></>,
         api: "/api/resources",
         historyModel: "Resource", // every change kept, who and when (10 Nov 2026) - pay fields Admin only
         query: "type=EQUIPMENT,ATTACHMENT",
@@ -30,7 +37,7 @@ export default function PlantPage() {
         ],
         newDefaults: { type: "EQUIPMENT", category: "Plant", role: "Plant", status: "AVAILABLE" },
         columns: [
-          { label: "Name", render: (r) => <span className="font-medium">{r.name}</span> },
+          { label: "Name", render: (r) => <span className="inline-flex items-center gap-1.5 font-medium">{r.name}<FaultFlagBadge resourceId={r.id} /></span> },
           { label: "Detail", render: (r) => r.detail },
           {
             label: "Daily rate",
@@ -67,6 +74,7 @@ export default function PlantPage() {
         ],
       }}
     />
+    </FaultFlagsProvider>
     </AssetDatesProvider>
   );
 }

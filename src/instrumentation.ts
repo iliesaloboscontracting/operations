@@ -21,6 +21,7 @@ export async function register() {
     const { nightlyDocIndex } = await import("./lib/docsearch/service");
     const { eveningBoardCheck } = await import("./lib/boardGuard/store");
     const { signInAlertsTick } = await import("./lib/signinAlerts");
+    const { remindUnconfirmedPosters } = await import("./lib/confirmReminders");
     setInterval(() => {
       // Xero (read-only, G3): once a day from 2am Sydney, after the backup. Does nothing until set up and connected.
       nightlyXeroSync().catch((e) => console.error("xero nightly", e instanceof Error ? e.message : "failed"));
@@ -52,6 +53,9 @@ export async function register() {
       // Sign-in gaps (2 Nov 2026, fixes 2c / 3 / 5a): yesterday's open sign-ins at 7am, no way to sign in tomorrow at
       // 3pm, crew not signed in an hour after the start. Once each; kill switches in lib/signinAlerts.ts.
       signInAlertsTick().catch((e) => console.error("sign-in alerts", e instanceof Error ? e.message : "failed"));
+      // Poster sign-ins still to confirm (10 Nov 2026): 3:30pm (a night shift: 30 min after its finish), once per job,
+      // to the job's supervisor link. CONFIRM_REMINDER=off stops it.
+      remindUnconfirmedPosters().catch((e) => console.error("confirm reminder", e instanceof Error ? e.message : "failed"));
     }, 60_000);
   }
 }

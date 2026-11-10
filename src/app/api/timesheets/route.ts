@@ -7,9 +7,10 @@ import { isISODate } from "@/lib/dateRules";
 import { todaySydney } from "@/lib/today";
 import { updateTracked } from "@/lib/history/store";
 import {
-  activeApproval, approvalBlockers, liveTravel, timesheetLines, timesheetWeek, weekHasEnded, weekStartOf,
+  activeApproval, approvalBlockers, liveTravel, timesheetLines, timesheetWeek, weekDates, weekHasEnded, weekStartOf,
   type TimesheetSnapshot,
 } from "@/lib/timesheets";
+import { flagSummaryForDays } from "@/lib/attendanceView";
 
 // GET /api/timesheets?week=YYYY-MM-DD (any date in the week) -> Lobos staff
 // hours for that Monday-Sunday week from site sign-ins, the week's approval
@@ -19,7 +20,13 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
   if (denied) return denied;
   const q = req.nextUrl.searchParams.get("week");
   const weekStart = weekStartOf(q && isISODate(q) ? q : todaySydney());
-  return viewJson(await timesheetWeek(weekStart));
+  // The Sign-ins page's flag counts for the week (10 Nov 2026) - for the office (Managers, Admins, the coordinator, who
+  // all see the Sign-ins page), not the review-only TIMESHEETS login, which sees exactly what it saw before.
+  // Information only: the approval rule is unchanged.
+  const user = await getCurrentUser();
+  const today = todaySydney();
+  const signInFlags = user && user.role !== "TIMESHEETS" ? await flagSummaryForDays(weekDates(weekStart).filter((d) => d <= today)) : undefined;
+  return viewJson({ ...(await timesheetWeek(weekStart)), ...(signInFlags ? { signInFlags } : {}) });
 });
 
 // POST /api/timesheets { week, action: "approve" | "reopen", reason? }

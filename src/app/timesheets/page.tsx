@@ -134,6 +134,15 @@ export default function TimesheetsPage() {
               ) : (
                 "Not approved yet. Check the hours, then approve the week to lock it before sending to accounts."
               )}
+              {/* The Sign-ins page's flags for the week so far (10 Nov 2026) - worth a look before approving; they don't
+                  stop the approval. */}
+              {data.signInFlags && Object.values(data.signInFlags).some((n) => n > 0) && (
+                <div className="mt-1.5 text-xs text-gray-300">
+                  Worth a look on the <a href="/attendance" className="text-brand-300 underline">Sign-ins page</a> this week:{" "}
+                  {data.signInFlags.toConfirm} to confirm · {data.signInFlags.late} late · {data.signInFlags.longDay} long day · {data.signInFlags.noSignIn} no sign-in
+                  <span className="text-gray-500"> (information only)</span>
+                </div>
+              )}
             </div>
           )}
 

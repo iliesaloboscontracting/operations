@@ -1,5 +1,6 @@
 // Shapes of /api/attendance (lib/attendanceView.ts) used by the Sign-ins page.
 import type { TravelLine } from "@/lib/travel/store";
+import type { SigninFlagSummary } from "@/lib/signinFlags";
 export type AttendanceEditRow = { field: string; before: string | null; after: string | null; reason: string; editedBy: string; editedAt: string };
 export type AttendanceRow = {
   id: string;
@@ -18,6 +19,7 @@ export type AttendanceRow = {
   runBy: string | null;
   hours: number | null;
   flags: string[];
+  notes?: Record<string, string>; // the words for a flag (10 Nov 2026), e.g. LATE_IN: "Signed in 3:05pm – job starts 7am"
   edits: AttendanceEditRow[];
   breakTaken?: number; // the day's one unpaid break, if it came off this line (2 Nov 2026)
   staffLike?: { id: string; name: string; exact: boolean }[] | null; // fix 4: a hire sign-in that looks like these staff
@@ -38,7 +40,8 @@ export type AttendanceJob = {
   breakMinutes: number | null;
   allocated: { id: string; name: string }[];
   rows: AttendanceRow[];
-  noShows: { id: string; name: string }[];
+  // staff: a Lobos (Personnel) no-show; nowhere: no sign-in anywhere that day (10 Nov 2026). Labour hire tiles: neither.
+  noShows: { id: string; name: string; staff?: boolean; nowhere?: boolean }[];
 };
 export type AttendanceData = {
   date: string;
@@ -48,6 +51,7 @@ export type AttendanceData = {
   posters: { id: string; projectId: string | null; place: string | null; resourceId: string | null; createdAt: string; createdBy: string | null }[];
   handovers: { id: string; jobId: string | null; expiresAt: string; createdBy: string | null; resource: { name: string } | null }[];
   travel?: TravelLine[]; // regional travel legs (2 Nov 2026)
+  summary?: SigninFlagSummary; // the strip at the top (10 Nov 2026)
   // Today's page only (fixes 2c / 5a): yesterday's open sign-ins, crew not signed in an hour after the start.
   gaps?: { noSignOutYesterday: { id: string; name: string; company: string | null; site: string }[]; notSignedIn: { jobId: string; site: string; names: string[] }[] } | null;
 };
@@ -65,6 +69,9 @@ export const FLAG_LABEL: Record<string, string> = {
   LONG_DAY: "Over 14h",
   OVERLAP: "Overlap - counted once",
   LOOKS_LIKE_STAFF: "Looks like Lobos staff",
+  LATE_IN: "Late sign-in",
+  LONG_SHIFT: "Long day",
+  BULK_OUT: "Signed out together",
 };
 export const METHOD_LABEL: Record<string, string> = {
   SUPERVISOR_QR: "Supervisor QR",

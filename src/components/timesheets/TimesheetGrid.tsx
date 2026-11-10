@@ -22,6 +22,8 @@ export type TimesheetData = {
   changedSinceApproval: number;
   history: { id: string; approvedBy: string; approvedAt: string; totalHours: number; people: number; reopenedBy: string | null; reopenedAt: string | null; reopenReason: string | null }[];
   accounts?: Record<string, { status: string; note: string | null; by: string }>; // Accounts stage 2: Victoria's decision per person
+  // The Sign-ins page's flag counts for the week so far (10 Nov 2026) - the office only, information only.
+  signInFlags?: { toConfirm: number; late: number; longDay: number; noSignIn: number };
 };
 
 export const dayHead = (iso: string) => new Date(iso + "T12:00:00").toLocaleDateString("en-AU", { weekday: "short", day: "numeric", month: "short" });

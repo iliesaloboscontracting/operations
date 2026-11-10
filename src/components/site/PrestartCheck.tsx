@@ -23,6 +23,8 @@ type Walk = { required: boolean; slots: { key: string; label: string }[]; earlie
 type View = {
   kind: "PRE" | "POST"; machine: string; title: string; checklist: { id: string; items: ChecklistItem[] }; done: boolean; openFaults: KnownFault[];
   walkaround: Walk | null; odometer: "SENT" | "MISSING" | null;
+  // Stage 2 (plant QR stickers): "truck" or "machine", and every plant check's hour meter (photo + hours, last as a hint).
+  noun?: "truck" | "machine"; hourMeter?: { required: boolean; last: number | null } | null;
 };
 type Photo = { id: string; preview: string };
 type Draft = { description: string; priority: FaultPriority | null; photos: Photo[]; open: boolean };
@@ -48,6 +50,10 @@ export default function PrestartCheck({ token, banner, odometerToken, onDone, on
   // photo; it checks again itself when the check is sent).
   const [walkFull, setWalkFull] = useState(false);
   const [faultFull, setFaultFull] = useState(false);
+  // Stage 2: the hour meter on a plant check - its photo (camera only) and the hours typed.
+  const [meterPhoto, setMeterPhoto] = useState<Photo | null>(null);
+  const [hours, setHours] = useState("");
+  const [meterFull, setMeterFull] = useState(false);
   const [odo, setOdo] = useState<"SENT" | "MISSING" | null>(null);
 
   useEffect(() => {
@@ -80,8 +86,13 @@ export default function PrestartCheck({ token, banner, odometerToken, onDone, on
   const notReady = view.checklist.items.filter((i) => needsDraft(i.key) && !draftReady(draftOf(i.key)));
   const w = view.walkaround;
   const walkMissing = w && w.required && !walkFull ? w.slots.filter((s) => !walk[s.key]) : [];
-  const odoMissing = !!w?.required && odo !== "SENT";
-  const canSend = unanswered === 0 && notReady.length === 0 && walkMissing.length === 0 && !odoMissing && uploading === 0 && !busy;
+  const odoMissing = !!w?.required && view.odometer !== null && odo !== "SENT"; // trucks only - plant has the hour meter
+  const hm = view.hourMeter;
+  const hoursOk = /^\d{1,6}(\.\d)?$/.test(hours.trim()) && Number(hours) > 0;
+  const meterMissing = !!hm?.required && (!hoursOk || (!meterPhoto && !meterFull));
+  const lower = hm && hoursOk && hm.last != null && Number(hours) < hm.last;
+  const noun = view.noun ?? "truck";
+  const canSend = unanswered === 0 && notReady.length === 0 && walkMissing.length === 0 && !odoMissing && !meterMissing && uploading === 0 && !busy;
 
   const setDraft = (key: string, patch: Partial<Draft>) => setDrafts((d) => ({ ...d, [key]: { ...(d[key] ?? emptyDraft()), ...patch } }));
   function answer(key: string, a: Answer) {
@@ -108,6 +119,7 @@ export default function PrestartCheck({ token, banner, odometerToken, onDone, on
       if (j.capFull) {
         if (j.cap === "WALKAROUND" || j.cap === "ALL") setWalkFull(true);
         if (j.cap === "FAULT" || j.cap === "ALL") setFaultFull(true);
+        if (j.cap === "METER" || j.cap === "ALL") setMeterFull(true);
       }
       throw new Error(typeof j.error === "string" ? j.error : "The photo didn't send - try again.");
     }
@@ -127,6 +139,7 @@ export default function PrestartCheck({ token, banner, odometerToken, onDone, on
     setWalk((x) => ({ ...x, [slot]: p }));
   });
   // The odometer photo, when it was skipped or failed before (the same route as the odometer step).
+  const addMeter = (file: File | undefined) => file && busyWith(async () => { setMeterPhoto(await upload(file, "HOUR_METER")); });
   const addOdometer = (file: File | undefined) => file && odometerToken && busyWith(async () => {
     const res = await fetch("/api/site/in/odometer", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: odometerToken, dataUrl: await resizePhoto(file) }) });
     if (!res.ok) throw new Error(await serverErrorMessage(res, "The odometer photo didn't send - try again."));
@@ -143,7 +156,8 @@ export default function PrestartCheck({ token, banner, odometerToken, onDone, on
       });
       const res = await fetch("/api/site/in/prestart", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token, answers, faults, stillThere: [...still], deviceId: deviceId(), walkaround: Object.fromEntries(Object.entries(walk).map(([k, p]) => [k, p.id])) }),
+        body: JSON.stringify({ token, answers, faults, stillThere: [...still], deviceId: deviceId(), walkaround: Object.fromEntries(Object.entries(walk).map(([k, p]) => [k, p.id])),
+          ...(hm ? { hourMeter: { value: hours.trim(), mediaId: meterPhoto?.id ?? null } } : {}) }),
       });
       if (!res.ok) throw new Error(await serverErrorMessage(res, "Couldn't send - check your signal and try again."));
       const r = await res.json();
@@ -159,12 +173,12 @@ export default function PrestartCheck({ token, banner, odometerToken, onDone, on
       {banner && <Banner text={banner} />}
       <div>
         <h1 className="flex items-center gap-2 text-xl font-semibold text-gray-100"><ClipboardCheck size={22} /> {view.title}</h1>
-        <p className="text-sm text-gray-400">{view.machine}{view.kind === "PRE" ? " - before you drive." : " - before you go."}</p>
+        <p className="text-sm text-gray-400">{view.machine}{view.kind === "PRE" ? (noun === "machine" ? " - before you start." : " - before you drive.") : " - before you go."}</p>
       </div>
 
       {view.openFaults.length > 0 && (
         <div className="space-y-2 rounded-2xl border border-amber-500/40 bg-amber-500/10 p-3">
-          <div className="text-sm font-semibold text-amber-200">Known faults on this truck</div>
+          <div className="text-sm font-semibold text-amber-200">Known faults on this {noun}</div>
           <p className="text-xs text-amber-200/80">Already reported. If it&apos;s still there, tap Still there - no need to report it again.</p>
           {view.openFaults.map((f) => (
             <div key={f.id} className="rounded-xl border border-edge bg-panel p-3">
@@ -204,7 +218,7 @@ export default function PrestartCheck({ token, banner, odometerToken, onDone, on
           </div>
           <p className="text-xs text-gray-400">
             {w.required
-              ? "First check of the day on this truck - a photo of each, with the camera."
+              ? `First check of the day on this ${noun} - a photo of each, with the camera.`
               : w.earlier
                 ? (w.earlier.limit ? `Today's photos couldn't be added (the day's photo limit) - ${w.earlier.by}, ${w.earlier.at}. Add them if you can.` : `Today's photos were taken at ${w.earlier.at} by ${w.earlier.by}. Add more if something's changed.`)
                 : "Optional."}
@@ -213,7 +227,7 @@ export default function PrestartCheck({ token, banner, odometerToken, onDone, on
           <p className="text-xs text-gray-500">These photos are kept and seen by the office.</p>
           <div className="grid grid-cols-2 gap-2">
             {w.slots.map((s) => <SlotPhoto key={s.key} label={s.label} photo={walk[s.key]} busy={uploading > 0} onPhoto={(f) => addWalk(s.key, f)} />)}
-            {w.required && (
+            {w.required && view.odometer !== null && (
               <div className={`rounded-xl border p-2 ${odo === "SENT" ? "border-emerald-500/50" : "border-edge"}`}>
                 <div className="text-sm text-gray-200">Odometer</div>
                 {odo === "SENT" ? <div className="mt-1 text-sm text-emerald-300">✓ Sent</div>
@@ -221,6 +235,25 @@ export default function PrestartCheck({ token, banner, odometerToken, onDone, on
                   : <div className="mt-1 text-xs text-gray-400">Sign in again to take it.</div>}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {hm && (
+        <div className="space-y-2 rounded-2xl border border-edge bg-panel p-3">
+          <div className="flex items-center justify-between gap-2">
+            <div className="text-base font-semibold text-gray-100">Hour meter</div>
+            <span className="rounded-full bg-red-500/15 px-2 py-0.5 text-[11px] font-semibold text-red-300">Needed</span>
+          </div>
+          <p className="text-xs text-gray-400">A photo of the hour meter, with the camera, and the hours it shows.{hm.last != null ? ` Last recorded: ${hm.last.toLocaleString("en-AU")}.` : ""}</p>
+          {meterFull && <p className="text-xs text-amber-200">The hour-meter photo limit for today is reached - type the hours and send; it&apos;s noted.</p>}
+          <div className="grid grid-cols-2 gap-2">
+            <SlotPhoto label="Hour meter" photo={meterPhoto ?? undefined} busy={uploading > 0} onPhoto={addMeter} />
+            <label className="rounded-xl border border-edge p-2 text-sm text-gray-200">
+              Hours
+              <input className={`${input} mt-1`} inputMode="decimal" placeholder="e.g. 1234.5" value={hours} onChange={(e) => setHours(e.target.value)} />
+              {lower && <span className="mt-1 block text-xs text-amber-200">Lower than last time - check it. It&apos;s sent as typed and flagged for the office.</span>}
+            </label>
           </div>
         </div>
       )}
@@ -260,7 +293,7 @@ export default function PrestartCheck({ token, banner, odometerToken, onDone, on
       </button>
       {!canSend && !busy && (
         <p className="text-center text-xs text-gray-500">
-          {uploading ? "Sending the photo..." : walkMissing.length ? `Walk-around photos still to take: ${walkMissing.map((s) => s.label).join(", ")}.` : odoMissing ? "The odometer photo is still to take." : unanswered ? `${unanswered} item${unanswered > 1 ? "s" : ""} still to answer.` : notReady.length ? `Finish the fault on "${notReady[0].label}" - what's wrong, how bad, and a photo.` : ""}
+          {uploading ? "Sending the photo..." : meterMissing ? "The hour meter is still to do - its photo and the hours." : walkMissing.length ? `Walk-around photos still to take: ${walkMissing.map((s) => s.label).join(", ")}.` : odoMissing ? "The odometer photo is still to take." : unanswered ? `${unanswered} item${unanswered > 1 ? "s" : ""} still to answer.` : notReady.length ? `Finish the fault on "${notReady[0].label}" - what's wrong, how bad, and a photo.` : ""}
         </p>
       )}
       <button className="w-full py-2 text-sm text-gray-400" disabled={busy} onClick={onSkip}>Do it later</button>

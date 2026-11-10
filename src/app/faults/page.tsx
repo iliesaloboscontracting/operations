@@ -191,6 +191,7 @@ function ChecksTab() {
         {data && <span className="text-xs text-gray-500">{data.signIns.length} truck sign-in{data.signIns.length === 1 ? "" : "s"} · {data.signIns.filter((s) => !s.pre).length} with no pre-start</span>}
       </div>
       {error && <p className="text-sm text-red-400">{error}</p>}
+      <h2 className="mb-2 text-sm font-semibold text-gray-200">Trucks</h2>
       {!data ? <p className="py-8 text-center text-sm text-gray-500">Loading...</p>
         : data.signIns.length === 0 ? <p className="rounded-lg border border-dashed border-edge py-8 text-center text-sm text-gray-500">No truck sign-ins that day.</p>
         : (
@@ -259,6 +260,89 @@ function ChecksTab() {
             ))}
           </ul>
         )}
+      {data && <PlantSection plant={data.plant} tone={tone} reload={async () => {
+        const r = await apiFetch(`/api/faults/checks?date=${day}`); if (r.ok) setData(await r.json());
+      }} />}
     </>
+  );
+}
+
+// Stage 2 (plant QR stickers, 10 Nov 2026): owned plant booked on the board that day ("No pre-start" when none), and any
+// machine checked that day - who did each check, the walk-around and hour-meter photos, the hours (flagged when lower
+// than before) and the answers. Click a photo for the full size (behind the same login as the rest of this page).
+function PlantSection({ plant, tone, reload }: { plant: Checks["plant"]; tone: (s: string) => string; reload: () => Promise<void> }) {
+  // "Reading wrong" is Managers and Admins only (Ilies, 10 Nov 2026) - the coordinator and the yard see the tab without it.
+  const { canEdit: canMarkWrong } = useAuth();
+  const [open, setOpen] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  // PS-019: "Reading wrong" - kept, struck through with the reason, left out of "the last reading".
+  async function markWrong(checkId: string) {
+    const note = window.prompt("Why is this hour-meter reading wrong? (kept with the reading)");
+    if (!note) return;
+    setErr(null);
+    const res = await fetch(`/api/faults/checks/${checkId}/hour-meter`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ note }) });
+    if (!res.ok) return setErr(await serverErrorMessage(res, "Couldn't save that."));
+    await reload();
+  }
+  return (
+    <div className="mt-6">
+      <h2 className="mb-2 text-sm font-semibold text-gray-200">Plant</h2>
+      {err && <div className="mb-2 rounded-md bg-red-900/30 px-3 py-2 text-xs text-red-300">{err}</div>}
+      {plant.length === 0 ? <p className="rounded-lg border border-dashed border-edge py-6 text-center text-sm text-gray-500">No owned plant booked or checked that day.</p> : (
+        <ul className="divide-y divide-edge/60 rounded-xl border border-edge bg-panel">
+          {plant.map((m) => (
+            <li key={m.machineId} className="px-4 py-3">
+              <button className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 text-left" onClick={() => setOpen(open === m.machineId ? null : m.machineId)}>
+                {open === m.machineId ? <ChevronDown size={14} className="text-gray-500" /> : <ChevronRight size={14} className="text-gray-500" />}
+                <span className="font-medium text-gray-100">{m.machine}</span>
+                <span className="text-xs text-gray-500">{m.booked ? `Booked: ${m.sites.join(", ")}` : "Not booked that day"}</span>
+                <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${tone(m.preStatus)}`}>Pre-start: {m.preStatus}</span>
+                <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${tone(m.postStatus)}`}>Post-check: {m.postStatus}</span>
+                {m.checks.some((c) => c.hourMeterFlag && !c.hourMeterWrong) && <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-semibold text-amber-300">Hours to check</span>}
+              </button>
+              {open === m.machineId && (
+                <div className="mt-2 space-y-3 pl-6">
+                  {m.checks.length === 0 && <p className="text-xs text-gray-500">No checks that day.</p>}
+                  {m.checks.map((c) => (
+                    <div key={c.id} className="rounded-lg border border-edge bg-panel2 p-3 text-xs">
+                      <div className="mb-1 font-semibold text-gray-200">
+                        {c.kind === "PRE" ? "Pre-start" : "Post-check"} · {c.at} · {c.person}{c.staff ? "" : " (hire)"}
+                      </div>
+                      <div className="mb-2 text-gray-400">
+                        Hours: <span className={c.hourMeterWrong ? "line-through" : ""}>{c.hourMeter != null ? c.hourMeter.toLocaleString("en-AU") : "-"}</span>
+                        {c.hourMeterFlag === "LOWER" && <span className="ml-1 font-semibold text-amber-300">lower than the last reading ({c.hourMeterPrev?.toLocaleString("en-AU")})</span>}
+                        {c.hourMeterFlag === "HIGHER" && <span className="ml-1 font-semibold text-amber-300">a lot higher than the last reading ({c.hourMeterPrev?.toLocaleString("en-AU")})</span>}
+                        {c.hourMeterWrong ? <span className="ml-1 text-gray-500">- marked wrong by {c.hourMeterWrong.by}: {c.hourMeterWrong.note}</span>
+                          : c.hourMeter != null && canMarkWrong && <button className="ml-2 text-brand-300 hover:underline" onClick={() => markWrong(c.id)}>Reading wrong</button>}
+                        {c.kind === "PRE" && <> · Walk-around: {c.walkaround === "DONE" ? "taken" : c.walkaround === "LIMIT" ? "photos couldn't be added (the day's photo limit)" : c.walkaround === "OPTIONAL" ? "optional (not the day's first)" : "-"}</>}
+                      </div>
+                      <div className="mb-2 flex flex-wrap gap-2">
+                        {[...c.walkaroundPhotos, ...(c.meterPhotoId ? [{ id: c.meterPhotoId, label: "Hour meter" }] : [])].map((p) => (
+                          <a key={p.id} href={`/api/faults/media/${p.id}`} target="_blank" rel="noreferrer" className="text-center text-[10px] text-gray-400">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={`/api/faults/media/${p.id}`} alt={p.label} className="h-20 w-20 rounded-md border border-edge object-cover" />
+                            {p.label}
+                          </a>
+                        ))}
+                      </div>
+                      <ul className="space-y-0.5">
+                        {c.answers.map((a) => (
+                          <li key={a.key} className="flex justify-between gap-2">
+                            <span className="text-gray-300">{a.label}</span>
+                            <span className={a.answer === "FAULT" ? "font-semibold text-red-300" : a.answer === "NA" ? "text-gray-500" : "text-emerald-300"}>{labelOf(c.checklist, a.key, a.answer)}</span>
+                          </li>
+                        ))}
+                      </ul>
+                      {c.seenCount > 0 && <p className="mt-1 text-gray-400">{c.seenCount} known fault{c.seenCount > 1 ? "s" : ""} confirmed still there.</p>}
+                      {c.faults.length > 0 && <p className="mt-1 text-amber-300">New: {c.faults.map((f) => `${f.itemLabel} (${f.priority}, ${f.status.toLowerCase()})`).join(", ")}</p>}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }

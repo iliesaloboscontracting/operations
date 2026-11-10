@@ -53,23 +53,30 @@ export const LIMITS = {
   // can never use up the walk-around's allowance (or the other way round). By resource, so stage 2's plant gets them too.
   walkaroundPerMachineDay: 15, // 5 walk-around photos + retakes + an optional second set
   faultPhotosPerMachineDay: 65,
+  meterPerMachineDay: 20, // stage 2: hour-meter photos (one a plant check, both ends of every shift, + retakes)
   photosAllDay: 400, // every machine, one Sydney day (PS-001)
   alertGapMinutes: 15, // at most one phone alert per machine in this long (PS-002)
   alertsPerMachineDay: 6, // and at most this many a Sydney day (Do not use ignores it - PS-011)
   queueWaiting: 50, // PS-009: more photo / check writes than this waiting -> 503 "Busy - try again"
+  // Stage 2 (plant QR stickers): check sessions one QR / one phone may start a Sydney day.
+  plantSessionsPerQrDay: 40,
+  plantSessionsPerDeviceDay: 12,
 } as const;
 
 // PS-001 (9 Nov 2026): a photo is kept only under every cap. `counts` include the photo being added (it's recorded
 // first, then counted, in one transaction - so parallel uploads can't all slip under). Plain words, 429.
 // PS-012 (10 Nov 2026): the machine's day is counted for the photo's own kind - walk-around or fault.
-export type PhotoRole = "FAULT" | "WALKAROUND";
-export type PhotoCap = "WALKAROUND" | "FAULT" | "ALL";
-export const machineCapFor = (role: PhotoRole) => (role === "WALKAROUND" ? LIMITS.walkaroundPerMachineDay : LIMITS.faultPhotosPerMachineDay);
+// Stage 2: METER = a plant check's hour-meter photo, with its own allowance.
+export type PhotoRole = "FAULT" | "WALKAROUND" | "METER";
+export type PhotoCap = "WALKAROUND" | "FAULT" | "METER" | "ALL";
+export const machineCapFor = (role: PhotoRole) =>
+  role === "WALKAROUND" ? LIMITS.walkaroundPerMachineDay : role === "METER" ? LIMITS.meterPerMachineDay : LIMITS.faultPhotosPerMachineDay;
 export type PhotoCounts = { role: PhotoRole; signIn: number; roleMachineDay: number; allDay: number; deviceDay: number; sameOnSignIn: number };
 export type PhotoRefusal = { error: string; status: number; capFull?: true; cap?: PhotoCap };
 export const CAP_MESSAGE: Record<PhotoCap, string> = {
-  WALKAROUND: "This truck's walk-around photos for today are used up - send the pre-start without them; it's noted for the office.",
-  FAULT: "This truck has had all the fault photos it can take today - call the office. You can still send an Urgent or Do-not-use fault without a photo.",
+  WALKAROUND: "This machine's walk-around photos for today are used up - send the pre-start without them; it's noted for the office.",
+  FAULT: "This machine has had all the fault photos it can take today - call the office. You can still send an Urgent or Do-not-use fault without a photo.",
+  METER: "This machine's hour-meter photos for today are used up - type the hours and send the check; it's noted for the office.",
   ALL: "Too many photos today - call the office. You can still send an Urgent or Do-not-use fault without a photo, and the pre-start without walk-around photos.",
 };
 export function photoRefusal(c: PhotoCounts): PhotoRefusal | null {
@@ -94,16 +101,18 @@ export const photoPrecheck = (c: PhotoCounts) =>
 export const photoCapFull = (role: PhotoRole, c: { roleMachineDay: number; allDay: number }) =>
   c.roleMachineDay >= machineCapFor(role) || c.allDay >= LIMITS.photosAllDay;
 // PS-012: the caps that are full now - each one tells the Admins once a Sydney day (per machine; ALL once for everyone).
-export function capsFull(c: { walkaroundMachineDay: number; faultMachineDay: number; allDay: number }): PhotoCap[] {
+export function capsFull(c: { walkaroundMachineDay: number; faultMachineDay: number; meterMachineDay?: number; allDay: number }): PhotoCap[] {
   const out: PhotoCap[] = [];
   if (c.walkaroundMachineDay >= LIMITS.walkaroundPerMachineDay) out.push("WALKAROUND");
   if (c.faultMachineDay >= LIMITS.faultPhotosPerMachineDay) out.push("FAULT");
+  if ((c.meterMachineDay ?? 0) >= LIMITS.meterPerMachineDay) out.push("METER");
   if (c.allDay >= LIMITS.photosAllDay) out.push("ALL");
   return out;
 }
 export function capNotice(cap: PhotoCap, machine: string): { title: string; body: string } {
   if (cap === "ALL") return { title: "Photo limit reached for all trucks today", body: "Pre-starts may go through without walk-around photos, and Urgent / Do-not-use faults without photos. Check Faults → Checks." };
   if (cap === "WALKAROUND") return { title: `Photo limit reached on ${machine} today`, body: "Its walk-around photos are used up - pre-starts may go through without photos. Check Faults → Checks." };
+  if (cap === "METER") return { title: `Photo limit reached on ${machine} today`, body: "Its hour-meter photos are used up - checks may go through with the hours typed but no photo. Check Faults → Checks." };
   return { title: `Photo limit reached on ${machine} today`, body: "Its fault photos are used up - Urgent / Do-not-use faults may go through without photos. Check Faults." };
 }
 // ...and then an Urgent or Do-not-use fault may go without a photo (Low / High still need one).
@@ -147,7 +156,7 @@ export function validateWalkaround(raw: unknown, slots: readonly { key: string; 
   if (o.capFull) return { ok: true, photos, status: "LIMIT" };
   return { ok: false, error: `Take the walk-around photos first: ${missing.map((s) => s.label).join(", ")}.` };
 }
-// Walk-around and fault photos are kept forever (Ilies, 10 Nov 2026) - nothing is removed by age.
+// Walk-around, fault and hour-meter photos - truck and plant - are kept forever (Ilies, 10 Nov 2026): nothing is removed by age.
 // The one alert for a check: Do not use if any fault is, else Urgent; each fault on a line. Null = nothing to alert.
 export function alertMessage(machine: string, by: string, faults: { itemLabel: string; priority: string; description: string; markedDown: boolean }[]) {
   const loud = faults.filter((f) => alertFor(f.priority));
@@ -264,3 +273,35 @@ export function sortFaults<T extends { status: string; priority: string; reporte
   return [...rows].sort((a, b) =>
     Number(isOpenStatus(b.status)) - Number(isOpenStatus(a.status)) || priorityRank(a.priority) - priorityRank(b.priority) || t(b.reportedAt) - t(a.reportedAt));
 }
+
+// ---------- stage 2: plant QR stickers (Ilies approved 10 Nov 2026) ----------
+
+// The hours typed on a plant check: a positive number, at most one decimal place, under 200,000 hours.
+export const HOUR_METER_MAX = 200_000;
+export function parseHourMeter(v: unknown): { ok: true; value: number } | { ok: false; error: string } {
+  const s = typeof v === "number" ? String(v) : typeof v === "string" ? v.trim().replace(/,/g, "") : "";
+  if (!/^\d{1,6}(\.\d)?$/.test(s)) return { ok: false, error: "Type the hours on the hour meter, e.g. 1234.5." };
+  const n = Number(s);
+  if (!(n > 0) || n > HOUR_METER_MAX) return { ok: false, error: "That hour-meter reading doesn't look right - check it." };
+  return { ok: true, value: n };
+}
+// Lower than the last reading on this machine: kept and flagged for the office, never refused (a new meter, a typo).
+// PS-019 (10 Nov 2026): also HIGHER - more hours than the machine could have run since (24 a day, at least a day's worth).
+// `last` = the latest reading that wasn't flagged or marked wrong.
+export function hourMeterFlag(value: number, last: { value: number; at: Date } | null, now = new Date()): "LOWER" | "HIGHER" | null {
+  if (!last) return null;
+  if (value < last.value) return "LOWER";
+  const days = Math.max(1, (now.getTime() - last.at.getTime()) / 86_400_000);
+  return value - last.value > 24 * days ? "HIGHER" : null;
+}
+
+// A plant check session (the scan, the name, Start / End of shift): each QR and each phone may start only so many a
+// Sydney day. `c` = sessions already started today.
+export function sessionRefusal(c: { qrToday: number; deviceToday: number }): { error: string; status: number } | null {
+  if (c.qrToday >= LIMITS.plantSessionsPerQrDay) return { error: "This QR has had all the checks it can take today - call the office.", status: 429 };
+  if (c.deviceToday >= LIMITS.plantSessionsPerDeviceDay) return { error: "Too many checks from this phone today - call the office.", status: 429 };
+  return null;
+}
+
+// The machines a plant QR may be printed for: Lobos-owned plant only - not attachments, not hired plant.
+export const plantQrAllowed = (r: { type: string; ownership: string | null; active: boolean }) => r.type === "EQUIPMENT" && r.ownership === "OWNED" && r.active;
