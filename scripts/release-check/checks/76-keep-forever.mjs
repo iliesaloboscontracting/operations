@@ -109,9 +109,9 @@ export default {
     const after2 = await tracking();
     t.ok(near(projOf(after)?.invoicedTotal - projOf(after2)?.invoicedTotal, 700), "Tracking: invoiced drops by exactly B (its hire days go back to the estimate)");
     t.ok(sameOthers(after, after2), "Tracking: every other project still unchanged");
-    // The same supplier + number can be entered again once the first is hidden (it no longer counts as a duplicate).
-    const again = await addInv({ category: "MATERIALS", vendor: `RC KF supplier ${tag}`, invoiceNo: `RC-A-${tag}`, weekEnding: c.today, amountExGst: 1 });
-    t.status(again.status, 201, "a hidden line isn't a duplicate - the same invoice number can be entered again");
+    // A hidden line isn't a live duplicate, but it never goes straight back on (PS-029): only with "Add again".
+    const again = await addInv({ category: "MATERIALS", vendor: `RC KF supplier ${tag}`, invoiceNo: `RC-A-${tag}`, weekEnding: c.today, amountExGst: 1, addAgain: true });
+    t.status(again.status, 201, "a hidden line isn't a duplicate - with 'Add again' the same invoice number goes back on");
 
     // The invoices inbox: "Take off the job" (UNDO) hides the Tracking line; "Read again" hides the failed read's lines.
     const up = await db.invoiceUpload.create({ data: { fileName: `rc-kf-${tag}.pdf`, originalName: `rc-kf-${tag}.pdf`, kind: "PDF", status: "DONE", uploadedBy: "RC" } });
@@ -258,7 +258,7 @@ export default {
 
     // ---------- (7c) PS-029: a removed invoice never comes back on by itself ----------
     // Manual Add: the same supplier + number as the hidden A -> 400 (removedMatch) unless "Add again"; then 201 + history.
-    // (A was entered again above with amount 1 as "again" - that row is live, so use C, removed by the inbox's Take off.)
+    // (A was entered again above with "Add again" - that row is live, so use C, removed by the inbox's Take off.)
     const cBody = { projectId: pid, category: "MATERIALS", vendor: `RC KF supplier ${tag}`, invoiceNo: `RC-C-${tag}`, weekEnding: c.today, amountExGst: 99 };
     const noAgain = await c.post("/api/invoiced-costs", "MANAGER", cBody);
     const nb = await body(noAgain);
