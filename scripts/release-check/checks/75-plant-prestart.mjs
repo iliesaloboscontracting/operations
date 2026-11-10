@@ -216,7 +216,7 @@ export default {
       const ok = burst.filter((r) => r.status === 201).length;
       const link5 = await db.siteLink.findFirst({ where: { kind: "PLANT", resourceId: M5.id, revokedAt: null } });
       const rows = await db.plantCheckSession.count({ where: { linkId: link5?.id, day: c.today } });
-      t.ok(ok <= 40 && rows <= 40 && burst.every((r) => r.status === 201 || r.status === 429), "PS-018: 60 starts at once on one QR - at most 40 sessions, the rest 429", `${ok} started, ${rows} rows; ${burst.map((r) => r.status).join(",")}`);
+      t.ok(ok <= 40 && rows <= 40 && burst.every((r) => [201, 429, 503].includes(r.status)), "PS-018: 60 starts at once on one QR - at most 40 sessions, the rest 429 (or 503 Busy while the queue is full - PS-022)", `${ok} started, ${rows} rows; ${burst.map((r) => r.status).join(",")}`);
       t.ok(ok === rows, "and exactly the started ones are recorded", `${ok} / ${rows}`);
     }
 
