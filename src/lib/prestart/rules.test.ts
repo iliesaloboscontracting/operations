@@ -195,7 +195,7 @@ test("walk-around: required on the first pre-start of the day, optional after a 
   assert.equal(walkaroundRequired([{ walkaround: "LIMIT" }]), false);
   assert.equal(walkaroundSlotsFor("VEHICLE", "PRE").length, 5);
   assert.equal(walkaroundSlotsFor("VEHICLE", "POST").length, 0);
-  assert.equal(walkaroundSlotsFor("EQUIPMENT", "PRE").length, 0);
+  assert.equal(walkaroundSlotsFor("EQUIPMENT", "PRE").length, 5); // stage 2 (10 Nov 2026): owned plant has its own walk-around
 });
 
 test("walk-around: all five needed when required; LIMIT when the day's photo limit is full; optional otherwise", () => {

@@ -99,6 +99,30 @@ export function readPrestartToken(token: unknown, now = Date.now()): { attendanc
   return k === "S" && attendanceId && (kind === "PRE" || kind === "POST") && Number(exp) >= now ? { attendanceId, kind } : null;
 }
 
+// --- plant QR stickers (stage 2, Ilies 10 Nov 2026) - never a sign-in ----------
+// Scanning a machine's PLANT QR gives the phone a 15-minute ticket tied to that QR (its link) and machine - only for
+// picking a name and starting a check, never for signing in (readTicket wants "T"). Starting a check makes a check
+// session (who, PRE / POST, the Sydney day) and a 2-hour check token tied to that session and kind.
+const PLANT_TICKET_MS = 15 * 60_000;
+export function makePlantTicket(linkId: string, resourceId: string, now = Date.now()) {
+  return sign(`PT|${linkId}|${resourceId}|${now + PLANT_TICKET_MS}`);
+}
+export function readPlantTicket(ticket: unknown, now = Date.now()): { linkId: string; resourceId: string } | null {
+  const p = unsign(ticket);
+  if (!p) return null;
+  const [k, linkId, resourceId, exp] = p.split("|");
+  return k === "PT" && linkId && resourceId && Number(exp) >= now ? { linkId, resourceId } : null;
+}
+export function makePlantCheckToken(sessionId: string, kind: PrestartKind, now = Date.now()) {
+  return sign(`PC|${sessionId}|${kind}|${now + PRESTART_MS}`);
+}
+export function readPlantCheckToken(token: unknown, now = Date.now()): { sessionId: string; kind: PrestartKind } | null {
+  const p = unsign(token);
+  if (!p) return null;
+  const [k, sessionId, kind, exp] = p.split("|");
+  return k === "PC" && sessionId && (kind === "PRE" || kind === "POST") && Number(exp) >= now ? { sessionId, kind } : null;
+}
+
 // --- the travel pass: this phone is this worker (regional travel, 2 Nov 2026) --
 // Travel starts before anyone is at a site QR, so the phone needs to say who it is without a scan. A real sign-in
 // or sign-out (a scan) gives a Labour-register person's phone this pass, tied to the person and the phone's device

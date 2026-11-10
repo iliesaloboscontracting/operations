@@ -141,6 +141,8 @@ async function main() {
     await checkDenied("GET /api/faults (Managers, Admins, coordinator, yard only)", "/api/faults");
     await checkDenied("GET /api/faults/flags (Managers, Admins, coordinator, yard only)", "/api/faults/flags");
     await checkDenied("GET /api/faults/checks (Managers, Admins, coordinator, yard only)", "/api/faults/checks");
+    // Plant pre-start QR stickers (stage 2, 10 Nov 2026): printing / listing them is Managers and Admins only.
+    await checkDenied("GET /api/plant/qr (Managers and Admins only)", "/api/plant/qr");
 
     // The Project File (brief 11): every project's page data, as a Viewer -
     // no money keys, no internal notes, and only crew-visible contacts.

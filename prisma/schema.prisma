@@ -2360,10 +2360,18 @@ model PrestartCheck {
   // asked - a post-check, or before stage 1b). The photos are AssetFaultMedia rows with role WALKAROUND and this checkId.
   walkaround   String?
   seenCount    Int          @default(0) // known faults confirmed "Still there" with it
+  // Stage 2 (plant QR stickers, Ilies 10 Nov 2026): a plant check belongs to a check session (PlantCheckSession) - the
+  // scan, the name and Start / End of shift - instead of a sign-in. The hour meter is typed on every plant check (with
+  // a photo, AssetFaultMedia role METER); hourMeterFlag LOWER = less than the last reading (flagged, never refused).
+  sessionId     String?
+  hourMeter     Float?
+  hourMeterPrev Float? // the last reading before it, as shown on the phone
+  hourMeterFlag String?
   createdAt    DateTime     @default(now())
   faults       AssetFault[]
 
   @@unique([attendanceId, kind]) // one PRE and one POST per sign-in
+  @@unique([sessionId, kind]) // one check per plant check session
   @@index([resourceId, createdAt])
 }
 
@@ -2413,6 +2421,7 @@ model AssetFaultMedia {
   fault        AssetFault? @relation(fields: [faultId], references: [id], onDelete: SetNull)
   resourceId   String
   attendanceId String? // the sign-in it was sent from (stage 2: null)
+  sessionId    String? // stage 2: the plant check session it was sent from (no sign-in)
   deviceId     String?
   kind         String      @default("PHOTO") // PHOTO | VIDEO (stage 3)
   checkKind    String? // PRE | POST - the check it was sent for; it can only go on that check's faults (PS-006)
@@ -2434,6 +2443,7 @@ model AssetFaultMedia {
   @@index([createdAt])
   @@index([checkId])
   @@index([role, createdAt])
+  @@index([sessionId])
 }
 
 // PS-002 (9 Nov 2026): every decision about a phone alert for a machine's Urgent / Do-not-use faults - SENT (one push
@@ -2478,4 +2488,26 @@ model PhotoCapNotice {
   at         DateTime @default(now())
 
   @@unique([resourceId, cap, day])
+}
+
+// Stage 2 (plant QR stickers, Ilies approved 10 Nov 2026): a scan of a Lobos-owned machine's pre-start QR (SiteLink kind
+// PLANT - never a sign-in), the name picked and Start of shift (PRE) / End of shift (POST). It stands in for the truck's
+// sign-in: the check token is tied to it, and its photos and its one check hang off it. Limited per QR and per phone a
+// Sydney day. Append-only.
+model PlantCheckSession {
+  id         String   @id @default(cuid())
+  linkId     String // the machine's PLANT SiteLink
+  resourceId String // the machine
+  kind       String // PRE | POST
+  day        String // YYYY-MM-DD, Sydney - the token only works that day
+  personId   String? // the Labour-register person; null for a hire worker
+  personName String
+  company    String? // hire worker's company
+  deviceId   String?
+  createdAt  DateTime @default(now())
+
+  @@index([linkId, day])
+  @@index([deviceId, day])
+  @@index([resourceId, day])
+  @@index([day])
 }

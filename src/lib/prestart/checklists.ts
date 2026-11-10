@@ -97,7 +97,18 @@ export const TRUCK_WALKAROUND = [
   { key: "PASSENGER", label: "Passenger's side" },
   { key: "CAB", label: "Inside the cab (wide shot)" },
 ] as const;
-export type WalkaroundSlot = (typeof TRUCK_WALKAROUND)[number]["key"];
+// Stage 2 (plant QR stickers, Ilies 10 Nov 2026): owned plant's walk-around - 4 sides and inside the cab.
+export const PLANT_WALKAROUND = [
+  { key: "FRONT", label: "Front" },
+  { key: "BACK", label: "Back" },
+  { key: "LEFT", label: "Left side" },
+  { key: "RIGHT", label: "Right side" },
+  { key: "CAB", label: "Inside the cab" },
+] as const;
+export type WalkaroundSlot = (typeof TRUCK_WALKAROUND)[number]["key"] | (typeof PLANT_WALKAROUND)[number]["key"];
 export const walkaroundSlotsFor = (resourceType: string, kind: CheckKind): readonly { key: string; label: string }[] =>
-  resourceType === "VEHICLE" && kind === "PRE" ? TRUCK_WALKAROUND : [];
-export const slotLabel = (key: string | null) => TRUCK_WALKAROUND.find((s) => s.key === key)?.label ?? key ?? "";
+  kind !== "PRE" ? [] : resourceType === "VEHICLE" ? TRUCK_WALKAROUND : resourceType === "EQUIPMENT" ? PLANT_WALKAROUND : [];
+// The hour-meter photo on every plant check (stage 2) - its own slot, kept as role METER.
+export const HOUR_METER_SLOT = "HOUR_METER";
+export const slotLabel = (key: string | null) =>
+  key === HOUR_METER_SLOT ? "Hour meter" : TRUCK_WALKAROUND.find((s) => s.key === key)?.label ?? PLANT_WALKAROUND.find((s) => s.key === key)?.label ?? key ?? "";
