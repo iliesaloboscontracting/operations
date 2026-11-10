@@ -272,9 +272,11 @@ export default {
     {
       const t7 = await mkTruck();
       const R = await mkPerson("r");
-      await seedMedia(t7.id, "WALKAROUND", 15);
+      // 14 seeded + one kept photo fills it (PS-016: a cap fills, and is told, only on a kept photo).
+      await seedMedia(t7.id, "WALKAROUND", 14);
       const inR = await onTruck(t7, "IN", R);
       const tokR = inR.body?.prestart;
+      t.status(await photo(tokR, uniqPng(), undefined, "BACK"), 201, "PS-012: the 15th walk-around photo of the day is kept");
       const ws = await photo(tokR, uniqPng(), undefined, "FRONT");
       t.ok(ws.status === 429 && ws.body?.cap === "WALKAROUND", "PS-012: over the machine's walk-around allowance -> 429, cap WALKAROUND", ws.status);
       t.ok((await notices(t7.id, "WALKAROUND")) === 1 && (await notices(t7.id, "FAULT")) === 0, "PS-012: one walk-around notice for that machine, no fault notice");
@@ -432,11 +434,12 @@ export default {
       const midnight = [10, 11].map((h) => new Date(Date.parse(`${c.today}T00:00:00Z`) - h * 3_600_000))
         .find((d) => sydHour.format(d).replace(",", "") === `${c.today} 00`);
       const allToday = await db.assetFaultMedia.count({ where: { createdAt: { gte: midnight ?? new Date(Date.now() - 86_400_000) } } });
-      await seedMedia(`rc-seed-all-${tag}`, "FAULT", Math.max(0, 400 - allToday));
+      await seedMedia(`rc-seed-all-${tag}`, "FAULT", Math.max(0, 399 - allToday));
       const t8 = await mkTruck();
       const S = await mkPerson("s");
       const inS = await onTruck(t8, "IN", S);
       const tokS = inS.body?.prestart;
+      t.status(await photo(tokS), 201, "PS-012: the 400th photo of the day (all trucks) is kept - and fills the ceiling");
       const a1 = await photo(tokS, uniqPng(), undefined, "FRONT"), a2 = await photo(tokS);
       t.ok(a1.status === 429 && a1.body?.cap === "ALL" && a2.status === 429 && a2.body?.cap === "ALL", "PS-012: the all-day ceiling full -> 429 cap ALL, walk-around and fault photos alike", `${a1.status}/${a1.body?.cap} ${a2.status}/${a2.body?.cap}`);
       t.ok((await notices("*", "ALL")) === 1, "PS-012: ONE notice for the all-day ceiling (for everyone, not per machine)");
@@ -448,6 +451,43 @@ export default {
       t.ok(!!(await db.assetFault.findFirst({ where: { resourceId: t8.id } }))?.photoNote, "...with its 'photo couldn't be added' note");
       await db.assetFaultMedia.deleteMany({ where: { id: { in: seeded } } });
     }
+
+    // (16b2) PS-016: once a cap is full, refused uploads write nothing - not even a notice attempt. Run in one process
+    // through tsx (the store's own counters): 6 photos at once at 64 fault photos -> 1 kept (the notice: 1 run, 1 create),
+    // 5 refused inside the transaction; then 5 more refused by the read-only pre-check. Neither refusal runs the notice.
+    if (photoDir && existsSync(tsxCli)) {
+      const spyId = `rc-spy-${tag}`;
+      await seedMedia(spyId, "FAULT", 64);
+      const script = path.join(c.p.files, `rc74-spy-${tag}.mts`);
+      const store = "file:///" + path.join(c.p.appDir, "src", "lib", "prestart", "store.ts").split(path.sep).join("/");
+      writeFileSync(script, [
+        `import { linkPhoto, noticeStats } from ${JSON.stringify(store)};`,
+        `import { randomBytes } from "node:crypto";`,
+        `const PNG = Buffer.from(${JSON.stringify(PNG_BYTES.toString("base64"))}, "base64");`,
+        `const pic = () => "data:image/png;base64," + Buffer.concat([PNG, randomBytes(16)]).toString("base64");`,
+        `const ctx = { attendanceId: ${JSON.stringify(spyId + "-att")}, kind: "POST", deviceId: null, person: { id: null, name: "RC spy" }, machine: { id: ${JSON.stringify(spyId)}, name: "RC spy truck", type: "VEHICLE", status: "AVAILABLE" }, list: null };`,
+        `const s0 = noticeStats();`,
+        `const burst = await Promise.all(Array.from({ length: 6 }, () => linkPhoto(ctx, pic(), null).then((r) => ("id" in r ? 201 : r.status))));`,
+        `const s1 = noticeStats();`,
+        `const later = []; for (let i = 0; i < 5; i++) later.push(await linkPhoto(ctx, pic(), null).then((r) => ("id" in r ? 201 : r.status)));`,
+        `const s2 = noticeStats();`,
+        `console.log("RESULT " + JSON.stringify({ s0, s1, s2, burst, later }));`,
+        `process.exit(0);`,
+      ].join("\n"));
+      let out = "";
+      try {
+        const childEnv = { ...process.env, ...env };
+        out = execFileSync(process.execPath, [tsxCli, script], { cwd: c.p.appDir, env: childEnv, encoding: "utf8", timeout: 120_000 });
+      } catch (e) { out = String(e?.stdout ?? ""); }
+      const r = JSON.parse(out.match(/RESULT (.*)/)?.[1] ?? "{}");
+      const d = (a, b, k) => (b?.[k] ?? NaN) - (a?.[k] ?? NaN);
+      t.ok(r.burst?.filter((s) => s === 201).length === 1 && r.burst.filter((s) => s === 429).length === 5, "PS-016: 6 at once at 64 - one kept, five refused (inside the transaction)", JSON.stringify(r.burst));
+      t.ok(d(r.s0, r.s1, "runs") === 1 && d(r.s0, r.s1, "creates") === 1, "PS-016: only the kept photo ran the notice - 1 run, 1 create", JSON.stringify({ s0: r.s0, s1: r.s1 }));
+      t.ok((r.later ?? []).every((s) => s === 429) && r.later?.length === 5, "PS-016: five more refused by the pre-check", JSON.stringify(r.later));
+      t.ok(d(r.s1, r.s2, "runs") === 0 && d(r.s1, r.s2, "finds") === 0 && d(r.s1, r.s2, "creates") === 0, "PS-016: refused uploads made no notice run, read or create attempt", JSON.stringify({ s1: r.s1, s2: r.s2 }));
+      t.ok((await db.photoCapNotice.count({ where: { resourceId: spyId } })) === 1, "PS-016: exactly one notice row for it");
+      await db.assetFaultMedia.deleteMany({ where: { resourceId: spyId } });
+    } else t.note("PS-016 spy not run: no TOOL_PHOTO_DIR in the test env or no tsx");
 
     // (16c) PS-015: the crew are told the photos are kept 12 months and seen by the office.
     {

@@ -147,10 +147,8 @@ export async function linkPhoto(ctx: LinkCtx, dataUrl: unknown, deviceId: unknow
     prisma.assetFaultMedia.count({ where: { attendanceId: ctx.attendanceId, sha256 } }),
   ]);
   const early = photoPrecheck({ role, signIn: pSignIn, roleMachineDay: pMachine, allDay: pAll, deviceDay: pDevice, sameOnSignIn: pSame });
-  if (early) {
-    if (early.capFull) await noticeFullCaps(ctx.machine).catch((e) => console.error("photo limit notice", e instanceof Error ? e.message : "failed"));
-    return early;
-  }
+  // PS-016: a refusal writes nothing at all - no notice either (a cap only fills on a kept photo, below).
+  if (early) return early;
   if (queueWaiting() > LIMITS.queueWaiting) return problem("Busy - try again.", 503);
   let id: string;
   try {
@@ -177,13 +175,11 @@ export async function linkPhoto(ctx: LinkCtx, dataUrl: unknown, deviceId: unknow
       return m.id;
     }, TX));
   } catch (e) {
-    if (e instanceof Refused) {
-      if (e.p.capFull) await noticeFullCaps(ctx.machine).catch((err) => console.error("photo limit notice", err instanceof Error ? err.message : "failed"));
-      return e.p;
-    }
+    if (e instanceof Refused) return e.p; // PS-016: nothing more on a refusal
     throw e;
   }
-  // PS-012: this photo may have just filled an allowance - tell the Admins once (never fails the upload).
+  // PS-012: this photo may have just filled an allowance - tell the Admins once (never fails the upload). Only here, on a
+  // kept photo - the only way a cap fills (PS-016).
   await noticeFullCaps(ctx.machine).catch((e) => console.error("photo limit notice", e instanceof Error ? e.message : "failed"));
   try {
     await writePreparedPhoto(prepared);
@@ -197,7 +193,15 @@ export async function linkPhoto(ctx: LinkCtx, dataUrl: unknown, deviceId: unknow
 // PS-012 (10 Nov 2026): when a machine's walk-around or fault allowance, or the all-day ceiling, is full, ONE push to the
 // Admins per cap per machine per Sydney day (the ceiling once for everyone). PhotoCapNotice's unique key records it -
 // a second fill the same day (or a restart, or two uploads at once) sends nothing more. No money in it.
+// PS-016 (10 Nov 2026): a cap already told today is skipped before any write - first from memory (resourceId|cap|day,
+// this process), then by reading the unique key; only a cap not yet recorded is created (P2002 still covers a race).
+// `noticeStats()` counts runs, reads and create attempts in this process - read by the release check.
+const noticeMemo = globalThis as unknown as { __photoCapNoticed?: Set<string>; __photoCapNoticeStats?: { runs: number; finds: number; creates: number } };
+const noticed = () => (noticeMemo.__photoCapNoticed ??= new Set<string>());
+const stats = () => (noticeMemo.__photoCapNoticeStats ??= { runs: 0, finds: 0, creates: 0 });
+export const noticeStats = () => ({ ...stats() });
 export async function noticeFullCaps(machine: { id: string; name: string }): Promise<PhotoCap[]> {
+  stats().runs++;
   const today = { gte: sydneyMidnight() };
   const [walkaroundMachineDay, faultMachineDay, allDay] = await Promise.all([
     prisma.assetFaultMedia.count({ where: { resourceId: machine.id, role: "WALKAROUND", createdAt: today } }),
@@ -208,12 +212,21 @@ export async function noticeFullCaps(machine: { id: string; name: string }): Pro
   const sent: PhotoCap[] = [];
   for (const cap of capsFull({ walkaroundMachineDay, faultMachineDay, allDay })) {
     const resourceId = cap === "ALL" ? "*" : machine.id;
+    const key = `${resourceId}|${cap}|${day}`;
+    if (noticed().has(key)) continue; // told today (this process)
+    stats().finds++;
+    if (await prisma.photoCapNotice.findUnique({ where: { resourceId_cap_day: { resourceId, cap, day } }, select: { id: true } })) {
+      noticed().add(key); // told today (before a restart)
+      continue;
+    }
     try {
+      stats().creates++;
       await prisma.photoCapNotice.create({ data: { resourceId, cap, day } });
     } catch (e) {
-      if ((e as { code?: string }).code === "P2002") continue; // already told today
+      if ((e as { code?: string }).code === "P2002") { noticed().add(key); continue; } // another upload just told them
       throw e;
     }
+    noticed().add(key);
     sent.push(cap);
     const msg = capNotice(cap, linkLabel(machine.name, "a truck"));
     await pushToAdmins({ ...msg, url: "/faults", tag: `photo-limit-${cap}-${resourceId}` }, "normal").catch((e) => console.error("photo limit push", e instanceof Error ? e.message : "failed"));
