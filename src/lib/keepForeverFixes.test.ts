@@ -73,7 +73,7 @@ test("PS-033: an ABN check's hidden inbox line is shown as removed", () => {
 test("PS-034: a sign-in waits its turn (TX) and falls back to the plain create when the database stays busy", async () => {
   const s = src("src/lib/signInCreate.ts");
   assert.match(s, /\}, TX\);/, "the transaction gets the 15 s waits");
-  assert.match(s, /if \(!isBusyError\(e\)\) throw e;[\s\S]*?return prisma\.siteAttendance\.create\(\{ data \}\);/, "busy -> plain create, so the sign-in always wins");
+  assert.match(s, /if \(!isBusyError\(e\)\) throw e;[\s\S]*?return fallbackCreate\(data, jobId\);/, "busy -> the plain create, so the sign-in always wins");
   const { isBusyError } = await import("./signInCreate");
   assert.ok(isBusyError(new Error("Transaction API error: Unable to start a transaction in the given time.")));
   assert.ok(isBusyError(new Error("SQLITE_BUSY: database is locked")));
@@ -103,4 +103,19 @@ test("PS-036: 'Add again' is Admin only; the history row is written in the same 
 
 test("PS-037: the inbox's Read again takes the write lock first", () => {
   assert.match(src("src/app/api/invoice-inbox/uploads/[id]/route.ts"), /prisma\.\$transaction\(async \(tx\) => \{\s*await writeLock\(tx\);/);
+});
+
+test("PS-038: the fallback looks (read-only) whether the job is now cancelled, still creates, and flags it", () => {
+  const s = src("src/lib/signInCreate.ts");
+  const fb = s.slice(s.indexOf("async function fallbackCreate"));
+  const look = fb.indexOf("prisma.job"), create = fb.indexOf("prisma.siteAttendance.create({ data })");
+  assert.ok(look > 0 && create > look, "the read-only look comes just before the create");
+  assert.match(fb.slice(look, create), /findFirst\(\{ where: \{ id: jobId, cancelledAt: \{ not: null \} \}/, "a read - nothing written, nothing refused");
+  assert.match(fb.slice(look, create), /\.then\(\(j\) => !!j, \(\) => false\)/, "a failed look can't stop the sign-in either");
+  assert.doesNotMatch(fb.slice(0, create), /return null|throw /, "never refused before the create");
+  assert.match(fb, /if \(cancelled\) \{[\s\S]*?console\.error\(`sign-in \$\{row\.id\} on job \$\{jobId\}: \$\{FALLBACK_CANCELLED_NOTE\}`\)/, "a log line naming the sign-in and the job");
+  assert.match(fb, /attendanceEdit[\s\S]*?\.create\(\{ data: \{ attendanceId: row\.id,[\s\S]*?\.catch\(/, "a note on the sign-in the office sees, best effort");
+  assert.match(fb, /return row;/);
+  assert.match(s, /FALLBACK_CANCELLED_NOTE = "saved on a cancelled job during fallback – fix by hand on Sign-ins"/);
+  assert.doesNotMatch(src("prisma/schema.prisma"), /signInFallback|fallbackFlag/, "no schema change");
 });

@@ -6,15 +6,20 @@
 // PS-034 (Ilies approved, 10 Nov 2026: sign-in must never be blocked): the transaction waits up to 15 s for its turn
 // (TX, as the pre-start writes). If it still can't run - a lock or timeout error - the sign-in is saved with the plain
 // create, exactly as before PS-031; a cancel's own recount (lib/jobCancel.ts) still catches that race.
-const BUSY_CODES = new Set(["P2024", "P2028", "P2034"]);
-export const isBusyError = (e: unknown) =>
-  (e instanceof Prisma.PrismaClientKnownRequestError && BUSY_CODES.has(e.code)) ||
-  /database is locked|SQLITE_BUSY|busy|timed out|timeout|Transaction already closed|Unable to start a transaction/i.test(e instanceof Error ? e.message : String(e));
+// PS-038 (Ilies approved, 10 Nov 2026): just before that plain create, one read-only look at whether the job is now
+// cancelled. The sign-in is saved either way; on a cancelled job a log line names it and a note is kept on the sign-in
+// (AttendanceEdit, shown on Sign-ins) so the office can sort it by hand.
 import { Prisma } from "@prisma/client";
 import { prisma } from "./prisma";
 import { TX } from "./prestart/queue";
 
+const BUSY_CODES = new Set(["P2024", "P2028", "P2034"]);
+export const isBusyError = (e: unknown) =>
+  (e instanceof Prisma.PrismaClientKnownRequestError && BUSY_CODES.has(e.code)) ||
+  /database is locked|SQLITE_BUSY|busy|timed out|timeout|Transaction already closed|Unable to start a transaction/i.test(e instanceof Error ? e.message : String(e));
+
 export const JOB_CANCELLED_SIGN_IN = "That job has been cancelled - ask the office.";
+export const FALLBACK_CANCELLED_NOTE = "saved on a cancelled job during fallback – fix by hand on Sign-ins";
 class JobCancelled extends Error {}
 
 export async function createSignIn(data: Prisma.SiteAttendanceUncheckedCreateInput) {
@@ -30,6 +35,21 @@ export async function createSignIn(data: Prisma.SiteAttendanceUncheckedCreateInp
     if (e instanceof JobCancelled) return null;
     if (!isBusyError(e)) throw e;
     console.error("sign-in: transaction busy - saved with the plain create (PS-034)");
-    return prisma.siteAttendance.create({ data });
+    return fallbackCreate(data, jobId);
   }
+}
+
+// PS-034 / PS-038: the plain create, never refused - with a read-only look at the job first.
+async function fallbackCreate(data: Prisma.SiteAttendanceUncheckedCreateInput, jobId: string) {
+  const cancelled = await prisma.job
+    .findFirst({ where: { id: jobId, cancelledAt: { not: null } }, select: { id: true } })
+    .then((j) => !!j, () => false); // the look can't stop a sign-in either
+  const row = await prisma.siteAttendance.create({ data });
+  if (cancelled) {
+    console.error(`sign-in ${row.id} on job ${jobId}: ${FALLBACK_CANCELLED_NOTE}`);
+    await prisma.attendanceEdit
+      .create({ data: { attendanceId: row.id, field: "flag", before: null, after: "Job cancelled", reason: FALLBACK_CANCELLED_NOTE, editedBy: "Operations (sign-in fallback)" } })
+      .catch(() => console.error(`sign-in ${row.id}: the cancelled-job note couldn't be kept - the log line above is the record`));
+  }
+  return row;
 }
