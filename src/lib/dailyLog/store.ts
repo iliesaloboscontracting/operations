@@ -6,6 +6,7 @@
 // never touched. Rules: ./rules.ts and ./checks.ts.
 import { dayHoursFor } from "../dayHoursStore";
 import { prisma } from "../prisma";
+import { liveLinks } from "../pushLinks";
 import type { ResolvedLink } from "../siteLinks";
 import { savePhoto } from "../toolPhotos";
 import { signedHours, sydneyTime } from "../signin";
@@ -39,7 +40,8 @@ export async function pilotPeople(): Promise<Map<string, string[]>> {
   const rule = pilotRule();
   if (!pilotOn(rule)) return new Map();
   const links = await prisma.siteLink.findMany({
-    where: { ...(rule.all ? {} : { id: { in: [...rule.ids] } }), kind: "SUPERVISOR", revokedAt: null, resourceId: { not: null }, resource: { active: true } },
+    // PS-023: the same live-link rule as every push (it already wanted the person active).
+    where: liveLinks({ ...(rule.all ? {} : { id: { in: [...rule.ids] } }), kind: "SUPERVISOR", resourceId: { not: null } }),
     select: { id: true, resourceId: true },
   });
   const m = new Map<string, string[]>();

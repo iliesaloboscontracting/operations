@@ -5,7 +5,8 @@
 //   3   3:00pm  Admins: tomorrow's jobs with crew but no way to sign in (SIGNIN_WAY_CHECK=off)
 //   5a  start + 1 h  the job's supervisor link(s): "X, Y not signed in at <site>" (NOT_SIGNED_IN_ALERT=off)
 import { prisma } from "./prisma";
-import { pushToAdmins, pushToSiteLinks } from "./push";
+import { jobSiteLinks, pushToAdmins, pushToSiteLinks } from "./push";
+import { sydneyDay } from "./signinFlags";
 import { effectiveTimes, fromSydneyLocal, parseClock } from "./shiftTimes";
 import { todaySydney } from "./today";
 
@@ -77,7 +78,7 @@ export async function openFromYesterday(today = todaySydney()) {
 // job that started late last night (a night shift at 11:30pm) is caught after midnight; the 1-4 h window keeps it
 // from ever picking up an old job.
 export async function notSignedInToday(now = new Date()) {
-  const today = todaySydney();
+  const today = sydneyDay(now);
   const jobs = await prisma.job.findMany({
     where: { date: { in: [at(addDays(today, -1)), at(today)] }, status: RUNNING, notRunning: false },
     select: {
@@ -102,8 +103,10 @@ export async function notSignedInToday(now = new Date()) {
 
 // ---------- the tick ----------
 
-export async function signInAlertsTick(now = new Date()) {
-  const today = todaySydney();
+// Returns the "not signed in" (5a) jobs alerted and the links each went to (PS-024 - the release check reads them).
+export async function signInAlertsTick(now = new Date()): Promise<{ notSignedIn: Record<string, string[]> }> {
+  const notSignedIn: Record<string, string[]> = {};
+  const today = sydneyDay(now);
   const mins = sydneyMinutes(now);
 
   // 2c - from 7:00am (until noon, in case the server was down at 7).
@@ -127,11 +130,11 @@ export async function signInAlertsTick(now = new Date()) {
   if (!off("NOT_SIGNED_IN_ALERT")) {
     for (const j of await notSignedInToday(now)) {
       if (!(await claim(j.jobId, "NOT_SIGNED_IN_1H", j.missing.length))) continue;
-      const links = await prisma.siteLink.findMany({
-        where: { revokedAt: null, OR: [{ kind: "SUPERVISOR", resourceId: { in: j.crewIds } }, { kind: "HANDOVER", jobId: j.jobId, expiresAt: { gt: new Date() } }] },
-        select: { id: true },
-      });
+      // PS-023: live links only - not switched off, not run out, the person still active (lib/pushLinks.ts).
+      const links = await jobSiteLinks(j.jobId, j.crewIds, now);
+      notSignedIn[j.jobId] = links.map((l) => l.id);
       if (links.length) await pushToSiteLinks(links.map((l) => l.id), { title: `Not signed in at ${j.site}`, body: `${list(j.missing.map((m) => m.name))} not signed in yet.`, url: "?go=signin", tag: `not-signed-in-${j.jobId}` }, "high").catch((e) => console.error("not signed in alert", e));
     }
   }
+  return { notSignedIn };
 }

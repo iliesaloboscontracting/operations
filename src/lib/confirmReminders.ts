@@ -6,7 +6,7 @@
 // send twice). Names and counts only, never a figure. CONFIRM_REMINDER=off stops it. Run once a minute from
 // instrumentation.ts; nothing about confirming changes.
 import { prisma } from "./prisma";
-import { pushToSiteLinks } from "./push";
+import { jobSiteLinks, pushToSiteLinks } from "./push";
 import { effectiveTimes } from "./shiftTimes";
 import { CONFIRM_REMINDER, confirmReminderDue, confirmReminderTargets, confirmReminderText, sydneyDay } from "./signinFlags";
 
@@ -14,9 +14,11 @@ const RUNNING = { notIn: ["COMPLETED", "INACTIVE", "STOOD_DOWN"] };
 const dayBefore = (day: string) => { const d = new Date(`${day}T00:00:00Z`); d.setUTCDate(d.getUTCDate() - 1); return d.toISOString().slice(0, 10); };
 export const confirmReminderOff = () => (process.env[CONFIRM_REMINDER.switchEnv] ?? "").trim().toLowerCase() === "off";
 
-export async function remindUnconfirmedPosters(now = new Date()): Promise<{ sent: string[] }> {
+// sent: the jobs reminded; targets: the links each one went to (PS-024 - the release check reads them).
+export async function remindUnconfirmedPosters(now = new Date()): Promise<{ sent: string[]; targets: Record<string, string[]> }> {
   const sent: string[] = [];
-  if (confirmReminderOff()) return { sent };
+  const targets: Record<string, string[]> = {};
+  if (confirmReminderOff()) return { sent, targets };
   const today = sydneyDay(now);
   // Yesterday too: last night's night shift is reminded this morning.
   const jobs = await prisma.job.findMany({
@@ -45,14 +47,13 @@ export async function remindUnconfirmedPosters(now = new Date()): Promise<{ sent
     if (!claimed) continue;
     sent.push(j.id);
     const crewIds = j.assignments.map((a) => a.resourceId);
-    const [supervisorLinks, handovers] = await Promise.all([
-      prisma.siteLink.findMany({ where: { kind: "SUPERVISOR", revokedAt: null, resourceId: { in: crewIds } }, select: { id: true, resourceId: true } }),
-      prisma.siteLink.findMany({ where: { kind: "HANDOVER", jobId: j.id, revokedAt: null, expiresAt: { gt: now } }, select: { id: true } }),
-    ]);
-    const linkIds = confirmReminderTargets(j.assignments, supervisorLinks, handovers.map((h) => h.id));
+    // PS-023: live links only (lib/pushLinks.ts) - an archived Supervisor's link never takes the lead's place.
+    const links = await jobSiteLinks(j.id, crewIds, now);
+    const linkIds = confirmReminderTargets(j.assignments, links.filter((l) => l.kind === "SUPERVISOR"), links.filter((l) => l.kind === "HANDOVER").map((h) => h.id));
+    targets[j.id] = linkIds;
     if (!linkIds.length) continue;
     const msg = confirmReminderText(count, j.project?.name ?? j.title);
     await pushToSiteLinks(linkIds, { ...msg, url: "?go=signin", tag: `confirm-${j.id}` }, "high").catch((e) => console.error("confirm reminder", e));
   }
-  return { sent };
+  return { sent, targets };
 }

@@ -10,6 +10,7 @@ import {
   type TimesheetSnapshot,
 } from "@/lib/timesheets";
 import { flagSummaryForDays } from "@/lib/attendanceView";
+import { coordinatorOr } from "@/lib/roles";
 
 // GET /api/timesheets?week=YYYY-MM-DD (any date in the week) -> Lobos staff
 // hours for that Monday-Sunday week from site sign-ins, the week's approval
@@ -20,11 +21,12 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
   const q = req.nextUrl.searchParams.get("week");
   const weekStart = weekStartOf(q && isISODate(q) ? q : todaySydney());
   // The Sign-ins page's flag counts for the week (10 Nov 2026) - for the office (Managers, Admins, the coordinator, who
-  // all see the Sign-ins page), not the review-only TIMESHEETS login, which sees exactly what it saw before.
+  // all see the Sign-ins page), not the review-only TIMESHEETS login, which sees exactly what it saw before. PS-025: an allow-list (the Sign-ins
+  // page's own rule, guardOrCoordinator("MANAGER")) - a role added later gets nothing until it's named here.
   // Information only: the approval rule is unchanged.
   const user = await getCurrentUser();
   const today = todaySydney();
-  const signInFlags = user && user.role !== "TIMESHEETS" ? await flagSummaryForDays(weekDates(weekStart).filter((d) => d <= today)) : undefined;
+  const signInFlags = user && coordinatorOr(user.role, "MANAGER") ? await flagSummaryForDays(weekDates(weekStart).filter((d) => d <= today)) : undefined;
   return viewJson({ ...(await timesheetWeek(weekStart)), ...(signInFlags ? { signInFlags } : {}) });
 });
 

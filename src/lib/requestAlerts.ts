@@ -5,6 +5,7 @@
 import type { SiteRequest } from "@prisma/client";
 import { prisma } from "./prisma";
 import { pushToAdmins, pushToSiteLinks, pushToUsers, type PushMessage } from "./push";
+import { liveLinks } from "./pushLinks";
 import { NEEDS_ILIES, OFFICE_KINDS, PRIORITY_DOT, PRIORITY_LABEL, alertRouteFor, requestHref, requestNo, whenText, type Priority } from "./requestTypes";
 import { OWNER_EMAIL } from "./owner";
 import { addEvent } from "./siteRequests";
@@ -17,7 +18,7 @@ async function pushRouted(r: SiteRequest, when: "NEW" | "UPDATE", msg: PushMessa
   const route = alertRouteFor(r, when);
   if (route === "ASSIGNEE_USER" && r.assigneeUserId) await pushToUsers([r.assigneeUserId], msg, urgency);
   else if (route === "ASSIGNEE_LINKS" && r.assigneeId) {
-    const links = await prisma.siteLink.findMany({ where: { resourceId: r.assigneeId, revokedAt: null }, select: { id: true } });
+    const links = await prisma.siteLink.findMany({ where: liveLinks({ resourceId: r.assigneeId }), select: { id: true } }); // PS-023
     await pushToSiteLinks(links.map((l) => l.id), msg, urgency);
   } else if (route === "OWNER") {
     const owner = await prisma.user.findUnique({ where: { email: OWNER_EMAIL }, select: { id: true } });
