@@ -17,7 +17,7 @@ import { looksLikeLobos } from "../staffMatch";
 import { todaySydney } from "../today";
 import { LIMITS, PRIORITY_LABEL, STATUS_LABEL, cleanText, plantQrAllowed, sessionRefusal, type FaultPriority, type FaultStatus } from "./rules";
 import { slotLabel } from "./checklists";
-import { oneAtATime, TX } from "./queue";
+import { oneAtATime, queueWaiting, TX } from "./queue";
 
 type Problem = { error: string; status: number };
 const problem = (error: string, status = 400): Problem => ({ error, status });
@@ -107,9 +107,18 @@ export async function startPlantCheck(body: Record<string, unknown>) {
   }
   const deviceId = typeof body.deviceId === "string" && body.deviceId ? body.deviceId.slice(0, 64) : null;
   const day = todaySydney();
+  // PS-022 (10 Nov 2026): the limits read first, with nothing written and no place in the queue - a QR (or phone) that
+  // has had its day answers 429 at once; over LIMITS.queueWaiting writes waiting, 503 "Busy - try again" as for photos.
+  const [qrNow, deviceNow] = await Promise.all([
+    prisma.plantCheckSession.count({ where: { linkId: t.linkId, day } }),
+    deviceId ? prisma.plantCheckSession.count({ where: { deviceId, day } }) : Promise.resolve(0),
+  ]);
+  const early = sessionRefusal({ qrToday: qrNow, deviceToday: deviceNow });
+  if (early) return early;
+  if (queueWaiting() > LIMITS.queueWaiting) return problem("Busy - try again.", 503);
   // PS-018 (10 Nov 2026): the session is written first, through the one-at-a-time queue, and then counted with it in the
   // same transaction - so parallel starts can't all slip under the 40 a QR. Over it: undone, 429. (The 12 a phone is a
-  // hint - the phone names itself.)
+  // hint - the phone names itself.) The count in the transaction stays the authority.
   class Over extends Error { constructor(public p: Problem) { super(p.error); } }
   try {
     const id = await oneAtATime(() => prisma.$transaction(async (tx) => {

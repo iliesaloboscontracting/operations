@@ -8,7 +8,9 @@
 import { makeLink } from "../lib/setup.mjs";
 import { noMoney } from "../lib/context.mjs";
 import { createHmac, randomBytes } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import path from "node:path";
 
 const PNG_BYTES = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64");
 const uniqPng = () => `data:image/png;base64,${Buffer.concat([PNG_BYTES, randomBytes(16)]).toString("base64")}`;
@@ -214,7 +216,7 @@ export default {
       const ok = burst.filter((r) => r.status === 201).length;
       const link5 = await db.siteLink.findFirst({ where: { kind: "PLANT", resourceId: M5.id, revokedAt: null } });
       const rows = await db.plantCheckSession.count({ where: { linkId: link5?.id, day: c.today } });
-      t.ok(ok <= 40 && rows <= 40 && burst.every((r) => r.status === 201 || r.status === 429), "PS-018: 60 starts at once on one QR - at most 40 sessions, the rest 429", `${ok} started, ${rows} rows; ${burst.map((r) => r.status).join(",")}`);
+      t.ok(ok <= 40 && rows <= 40 && burst.every((r) => [201, 429, 503].includes(r.status)), "PS-018: 60 starts at once on one QR - at most 40 sessions, the rest 429 (or 503 Busy while the queue is full - PS-022)", `${ok} started, ${rows} rows; ${burst.map((r) => r.status).join(",")}`);
       t.ok(ok === rows, "and exactly the started ones are recorded", `${ok} / ${rows}`);
     }
 
@@ -237,11 +239,14 @@ export default {
       t.ok(n.status === 201 && n.body?.hourMeterFlag === null, "PS-019: the next true reading (1002) is NOT flagged LOWER against the junk one", JSON.stringify(n.body?.hourMeterFlag));
       const c1002 = await db.prestartCheck.findFirst({ where: { resourceId: M6.id, hourMeter: 1002 } });
       const wrongUrl = `/api/faults/checks/${c1002?.id}/hour-meter`;
-      for (const who of ["VIEWER", "ACCOUNTS"]) t.status(await c.post(wrongUrl, who, { note: "Typo" }), 403, `'Reading wrong': ${who} refused`);
+      // Managers and Admins only (Ilies, 10 Nov 2026) - the coordinator and the yard see the Checks tab, not this.
+      for (const who of ["VIEWER", "ACCOUNTS", "COORDINATOR", "YARD"]) t.status(await c.post(wrongUrl, who, { note: "Typo" }), 403, `'Reading wrong': ${who} refused`);
       t.status(await c.post(wrongUrl, null, { note: "Typo" }), 401, "'Reading wrong': no login refused");
       t.status(await c.post(wrongUrl, "MANAGER", { note: "" }), 400, "'Reading wrong' needs a reason");
       t.status(await c.post(wrongUrl, "MANAGER", { note: "Typo - meter shows 1020" }), 200, "a Manager marks the 1002 reading wrong");
-      t.status(await c.post(wrongUrl, "COORDINATOR", { note: "again" }), 409, "...once only (409 after)");
+      t.status(await c.post(wrongUrl, "MANAGER", { note: "again" }), 409, "...once only (409 after)");
+      const cJunk = await db.prestartCheck.findFirst({ where: { resourceId: M6.id, hourMeter: 99999 } });
+      t.status(await c.post(`/api/faults/checks/${cJunk?.id}/hour-meter`, "ADMIN", { note: "Junk reading" }), 200, "an Admin marks the junk reading wrong too");
       const marked = await db.prestartCheck.findUnique({ where: { id: c1002?.id } });
       const ev = await db.hourMeterEvent.findMany({ where: { checkId: c1002?.id } });
       t.ok(marked?.hourMeter === 1002 && !!marked.hourMeterWrongAt && !!marked.hourMeterWrongBy && /Typo/.test(marked.hourMeterWrongNote ?? "") && ev.length === 1 && ev[0].action === "WRONG",
@@ -264,6 +269,51 @@ export default {
         t.status(await printQr(m.id), 400, `PS-021: printing a new QR for a machine ${what} is still refused`);
       }
       t.status(await c.post("/api/plant/qr", "VIEWER", { resourceId: M7.id, off: true }), 403, "switching off: a Viewer refused");
+    }
+
+    // (9d2) PS-022: a QR that has had its 40 today is turned away before any write or queue place; a full queue -> 503.
+    // Run in one process through tsx with the queue's own counters (a fetch can't see the server's queue).
+    {
+      const env = (() => { try { return Object.fromEntries(readFileSync(c.p.envFile, "utf8").split(/\r?\n/).filter((l) => /^[A-Z_]+=/.test(l)).map((l) => { const i = l.indexOf("="); return [l.slice(0, i), l.slice(i + 1).replace(/^"|"$/g, "").trim()]; })); } catch { return {}; } })();
+      const tsxCli = path.join(c.p.appDir, "node_modules", "tsx", "dist", "cli.mjs");
+      if (!env.AUTH_SECRET || !existsSync(tsxCli)) t.note("PS-022 not run: no test env or no tsx");
+      else {
+        const M9 = await mkPlant(9), M10 = await mkPlant(10);
+        await printQr(M9.id); await printQr(M10.id);
+        const l9 = await db.siteLink.findFirst({ where: { kind: "PLANT", resourceId: M9.id, revokedAt: null } });
+        const l10 = await db.siteLink.findFirst({ where: { kind: "PLANT", resourceId: M10.id, revokedAt: null } });
+        for (let i = 0; i < 40; i++) await db.plantCheckSession.create({ data: { linkId: l9.id, resourceId: M9.id, kind: "PRE", day: c.today, personName: "RC seed", deviceId: `rc75-p22-${i}` } });
+        const src = (rel) => JSON.stringify("file:///" + path.join(c.p.appDir, ...rel.split("/")).split(path.sep).join("/"));
+        const script = path.join(c.p.files, `rc75-p22-${tag}.mts`);
+        writeFileSync(script, [
+          `import { startPlantCheck } from ${src("src/lib/prestart/plant.ts")};`,
+          `import { oneAtATime, queueStats } from ${src("src/lib/prestart/queue.ts")};`,
+          `import { makePlantTicket } from ${src("src/lib/signin.ts")};`,
+          `import { prisma } from ${src("src/lib/prisma.ts")};`,
+          `const who = { resourceId: ${JSON.stringify(OP1.id)} };`,
+          `const rows0 = await prisma.plantCheckSession.count({ where: { linkId: ${JSON.stringify(l9.id)} } });`,
+          `const q0 = queueStats();`,
+          `const full = []; for (let i = 0; i < 5; i++) { const r = await startPlantCheck({ ticket: makePlantTicket(${JSON.stringify(l9.id)}, ${JSON.stringify(M9.id)}), kind: "PRE", deviceId: "rc75-p22-x" + i, ...who }); full.push("error" in r ? r.status : 201); }`,
+          `const q1 = queueStats();`,
+          `const rows1 = await prisma.plantCheckSession.count({ where: { linkId: ${JSON.stringify(l9.id)} } });`,
+          `const blockers = Array.from({ length: 55 }, () => oneAtATime(() => new Promise((r) => setTimeout(r, 200))));`,
+          `const busyR = await startPlantCheck({ ticket: makePlantTicket(${JSON.stringify(l10.id)}, ${JSON.stringify(M10.id)}), kind: "PRE", deviceId: "rc75-p22-busy", ...who });`,
+          `const busy = "error" in busyR ? busyR.status : 201;`,
+          `await Promise.all(blockers);`,
+          `const after = await startPlantCheck({ ticket: makePlantTicket(${JSON.stringify(l10.id)}, ${JSON.stringify(M10.id)}), kind: "PRE", deviceId: "rc75-p22-after", ...who });`,
+          `console.log("RESULT " + JSON.stringify({ full, rows0, rows1, q0, q1, busy, after: "error" in after ? after.status : 201 }));`,
+          `process.exit(0);`,
+        ].join("\n"));
+        let out = "";
+        try { out = execFileSync(process.execPath, [tsxCli, script], { cwd: c.p.appDir, env: { ...process.env, ...env }, encoding: "utf8", timeout: 120_000 }); }
+        catch (e) { out = String(e?.stdout ?? ""); }
+        const r = JSON.parse(out.match(/RESULT (.*)/)?.[1] ?? "{}");
+        t.ok(r.full?.length === 5 && r.full.every((s) => s === 429), "PS-022: a QR at its 40 for the day - further starts get 429", JSON.stringify(r.full));
+        t.ok(r.rows0 === 40 && r.rows1 === 40, "PS-022: ...and no session row is written", `${r.rows0} -> ${r.rows1}`);
+        t.ok(r.q0 && r.q1 && r.q1.enqueued === r.q0.enqueued, "PS-022: ...and none of them took a place in the queue", JSON.stringify({ q0: r.q0, q1: r.q1 }));
+        t.ok(r.busy === 503, "PS-022: with more than 50 writes waiting, a start gets 503 'Busy - try again'", String(r.busy));
+        t.ok(r.after === 201, "PS-022: once the queue clears, the next start goes through", String(r.after));
+      }
     }
 
     // (9e) A check token from an earlier day is refused (the session's Sydney day must be today).
