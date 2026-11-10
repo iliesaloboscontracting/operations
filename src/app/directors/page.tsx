@@ -18,10 +18,8 @@ import type { CostCatKey } from "@/lib/types";
 import type { DirectorOverviewDTO } from "@/lib/insights/load";
 import { Card, HEALTH, moneyTip, tooltipStyle } from "@/components/tracking/parts";
 import { ConfidenceBadge, DLink, Figure, Help, PriorityPill, Section, pct } from "@/components/directors/parts";
-import FindingsList, { type ExtraRow } from "@/components/findings/FindingsList";
-import { useMyQueries } from "@/components/queries/MyQueries";
+import FindingsList from "@/components/findings/FindingsList";
 import HealthBand from "@/components/directors/HealthBand";
-import QuestionsBanner from "@/components/queries/QuestionsBanner";
 import DirectorChanges from "@/components/changes/DirectorChanges";
 import { ClaimsSection } from "@/components/directors/Claims";
 import WaitingOnYou from "@/components/directors/WaitingOnYou";
@@ -82,12 +80,13 @@ export default function DirectorsPage() {
         <p className="py-10 text-center text-sm text-gray-500">Loading...</p>
       ) : (
         <>
-          {/* Waiting on you (10 Nov 2026): what only the directors can give - three per group, the rest on its page. */}
+          {/* Waiting on you (10 Nov 2026): what only the directors can give - three per group, the rest on its page.
+              It holds this login's questions and approvals, so the old questions banner is gone from here (Ilies,
+              10 Nov 2026: "tidy up the duplicate boxes"). */}
           <WaitingOnYou compact />
-          {/* Information requests (Task I): questions waiting on this login. */}
-          <QuestionsBanner />
-          {/* Controlled changes (LCI phase 4): contract values waiting for Nick or Yoel. */}
-          <DirectorChanges />
+          {/* Controlled changes (LCI phase 4): only the contract values waiting on someone else - this login's own are
+              under Waiting on you. */}
+          <DirectorChanges othersOnly />
           <Overview o={o} showAll={showAll} setShowAll={setShowAll} onRefresh={load} />
         </>
       )}
@@ -360,35 +359,16 @@ function ComputedAttention({ o, showAll, setShowAll }: { o: DirectorOverviewDTO;
 // from Requests (they're work items, not findings).
 // Needs attention (Task J, 25 Oct 2026; Ilies: "i dont think this box should
 // show operational outstanding matters"): director-level findings only
-// (findings/config.ts DIRECTOR_KINDS - the loader filters them), plus budgets
-// waiting for a decision and questions waiting on this login. Operational
-// matters (crew, supervisors, hire, dates, site requests...) are on
-// Operations -> Attention.
+// (findings/config.ts DIRECTOR_KINDS - the loader filters them). Budgets and
+// questions waiting on this login are under Waiting on you, not repeated here
+// (Ilies, 10 Nov 2026). Operational matters (crew, supervisors, hire, dates,
+// site requests...) are on Operations -> Attention.
 function FindingsAttention({ o, onRefresh }: { o: DirectorOverviewDTO; showAll: boolean; setShowAll: (fn: (v: boolean) => boolean) => void; onRefresh: () => void }) {
-  const [budgetsWaiting, setBudgetsWaiting] = useState(0);
-  const { waiting: questionsWaiting } = useMyQueries();
-  // Budgets this login can decide (Nick's and Yoel's DIRECTOR logins); anyone else sees them as waiting for Nick or Yoel.
-  const [budgetsMine, setBudgetsMine] = useState(0);
-  useEffect(() => {
-    apiFetch("/api/directors/budgets").then(async (r) => {
-      if (!r.ok) return;
-      const d = await r.json();
-      setBudgetsWaiting(d.waiting ?? 0);
-      setBudgetsMine(((d.budgets ?? []) as { status: string; cannotDecide: string | null }[]).filter((b) => b.status === "SUBMITTED" && !b.cannotDecide).length);
-    }).catch(() => undefined);
-  }, []);
-  const plural = (n: number) => `${n} budget${n === 1 ? "" : "s"}`;
-  const extra: ExtraRow[] = [
-    ...(budgetsMine ? [{ key: "budgets", priority: "HIGH" as const, title: `${plural(budgetsMine)} waiting for your decision`, href: "/directors/budgets", hint: "Budgets to approve - from Estimating" }]
-      : budgetsWaiting ? [{ key: "budgets", priority: "INFO" as const, title: `${plural(budgetsWaiting)} waiting for Nick or Yoel`, href: "/directors/budgets", hint: "Nick or Yoel approve budgets" }] : []),
-    ...(questionsWaiting ? [{ key: "queries", priority: "MEDIUM" as const, title: `${questionsWaiting} question${questionsWaiting === 1 ? "" : "s"} waiting on you`, href: "/directors/queries", hint: "My queries - Ilies is waiting on your answer" }] : []),
-  ];
   return (
     <FindingsList
       title="Needs attention"
       findings={o.findings}
       meta={o.findingsMeta}
-      extra={extra}
       emptyText="All clear - nothing needs a director right now."
       onRefresh={onRefresh}
     />
