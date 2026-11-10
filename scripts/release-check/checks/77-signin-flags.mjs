@@ -160,9 +160,12 @@ export default {
       person("arch-lead", false), person("revoked-sup"), person("lead"), person("fallback-a"), person("arch-b", false), person("fallback-b"),
       person("arch-c", false), person("other-job-sup"), person("hand-arch", false), person("hand-b"), person("hand-old"), person("crew2"), person("crew3"), person("crew4"),
     ]);
-    const pj = await db.project.create({ data: { name: `RC Push ${tag}`, status: "ACTIVE", unpaidBreakMinutes: 30 } });
-    const mkJob = () => db.job.create({ data: { projectId: pj.id, title: pj.name, date: new Date(`${E}T00:00:00.000Z`), shift: "DAY", status: "ACTIVE", startTime: "7am", endTime: "3:30pm" } });
-    const [A, B, C, Dj] = [await mkJob(), await mkJob(), await mkJob(), await mkJob()];
+    // One project per job (a project has one day shift per date).
+    const mkJob = async (k) => {
+      const pj = await db.project.create({ data: { name: `RC Push ${k} ${tag}`, status: "ACTIVE", unpaidBreakMinutes: 30 } });
+      return db.job.create({ data: { projectId: pj.id, title: pj.name, date: new Date(`${E}T00:00:00.000Z`), shift: "DAY", status: "ACTIVE", startTime: "7am", endTime: "3:30pm" } });
+    };
+    const [A, B, C, Dj] = [await mkJob("A"), await mkJob("B"), await mkJob("C"), await mkJob("D")];
     const put = (j, r, role = null) => db.assignment.create({ data: { jobId: j.id, resourceId: r.id, role } });
     await put(A, leadArch, "Supervisor"); await put(A, revSup, "Supervisor"); await put(A, lead, "Lead"); await put(A, fallA); await put(A, crew2);
     await put(B, archB, "Supervisor"); await put(B, fallB); await put(B, crew3);
