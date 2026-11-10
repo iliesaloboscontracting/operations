@@ -1,5 +1,5 @@
 // Sign-in flags + the supervisor's "confirm your poster sign-ins" reminder (Ilies, 10 Nov 2026: "do A and B").
-// Seeds a 7am-3:30pm job on Mon 9 Mar 2020 (AEDT, far from any live day, so the test server's own minute tick never
+// Seeds a 7am-3:30pm job on Mon 23 Mar 2020 (AEDT, far from any live day, so the test server's own minute tick never
 // picks it up): two poster sign-ins at 3:05pm still TO_CONFIRM, four crew signed out together at 10:47pm by the
 // supervisor, an allocated staff member with no sign-in anywhere, and a night job with a poster sign-in to confirm.
 // Then: the flags, notes and summary for a MANAGER (and the week's counts on Timesheets); VIEWER / TIMESHEETS /
@@ -12,7 +12,7 @@ import path from "node:path";
 import { noMoney } from "../lib/context.mjs";
 import { makeLink } from "../lib/setup.mjs";
 
-const D = "2020-03-09", NEXT = "2020-03-10"; // a Monday in AEDT (UTC+11)
+const D = "2020-03-23", NEXT = "2020-03-24"; // a Monday in AEDT (UTC+11), in a week no other check locks (67 locks 9 Mar 2020)
 const aedt = (date, hhmm) => { const [h, m] = hhmm.split(":").map(Number); const [y, mo, d] = date.split("-").map(Number); return new Date(Date.UTC(y, mo - 1, d, h - 11, m)); };
 const KEYS = ["toConfirm", "late", "longDay", "noSignIn"];
 const diff = (a, b) => Object.fromEntries(KEYS.map((k) => [k, (a?.[k] ?? NaN) - (b?.[k] ?? NaN)]));
@@ -33,6 +33,7 @@ export default {
     // Before: what the day and the week already show (the snapshot may hold something on that day).
     const before = (await c.json(`/api/attendance?date=${D}`, "MANAGER")).body;
     const tsBefore = (await c.json(`/api/timesheets?week=${D}`, "MANAGER")).body;
+    if (tsBefore?.approval) return t.block(`the week of ${D} is approved on this copy - Timesheets would show its locked lines`);
     t.ok(before?.summary && KEYS.every((k) => typeof before.summary[k] === "number"), "the Sign-ins answer carries the summary strip's counts", JSON.stringify(before?.summary ?? null));
 
     // Seed.
