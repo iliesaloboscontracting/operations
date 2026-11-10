@@ -70,6 +70,7 @@ Exit code: **0** everything passed (SKIPPED only where a check is not applicable
 | compliance-s5 | board flag label + date only, TFN refused, nothing on links (writes a ticket) |
 | purchases-s6 | link -> accounts -> Director chain, amount never on the link or for a Manager (writes a request) |
 | receipts | driver link receipts-only, asbestos tap, spoofed price ignored, add-docket rules (writes a docket) |
+| receipt-sender | only when `src/lib/receipts/senderStore.ts` exists: who was on the truck (10 Nov 2026) - two drivers with DRIVER links, driver B signed in on a test truck's QR; the reading run through `runner.readReceipt` in a tsx child with a stand-in reader (no Claude, no outbound); driver A's tip docket naming that truck and A's fuel receipt for it are To check with a note naming B, the truck and A's link; B's own docket is READ; the note shows on the office list (Manager), never on either link; no $ + digit in any link reply (writes a truck, two drivers and links, a project + job, a sign-in, three receipts) |
 | reimbursements | link tile rules, no $ on the link, tip dockets never claims |
 | signin-remove | Admin removal with a reason, locked weeks refuse, gone from Sign-ins and timesheets (writes) |
 | docsearch | only when `src/lib/docsearch` exists: roles, never on links, OFF with no Graph keys, no index file, folders unapproved, index refuses `prisma/`, kill switch |

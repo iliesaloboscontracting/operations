@@ -7,7 +7,8 @@ import { prisma } from "../prisma";
 import { ReadingNotConfigured } from "../invoiceReading";
 import { readReceiptPhoto, receiptMimeOf } from "./files";
 import { claudeReader, type Photo, type ReadContext, type Reader } from "./reading";
-import { decideFuel, decideOdometer, decidePurchase, decideTip, fuelFields, normDocket, purchaseFields, tipFields } from "./checks";
+import { decideFuel, decideOdometer, decidePurchase, decideTip, fuelFields, hasClockTime, normDocket, purchaseFields, tipFields, type Decision } from "./checks";
+import { senderCheck } from "./senderStore";
 import { claimFromOwnReceipt } from "../reimbursements/store";
 import { syncTipMatchesSoon, truckRegos, vehicleForRego } from "./tipStore";
 
@@ -47,6 +48,13 @@ async function failed(kind: "receipt" | "odometer", id: string, prior: ReadingLo
   else await prisma.odometerReading.updateMany({ where: { id, status: "SENT" }, data: { reading: JSON.stringify(log) } });
 }
 
+// Who was on the truck (Ilies, 10 Nov 2026): a docket or fuel receipt naming one of our trucks, sent on the link of
+// someone who wasn't signed in on it while others were, is To check with a note (./senderStore.ts, ./checks.ts).
+async function withSender(d: Decision, r: { kind: string; sentByResourceId: string | null; sentBy: string; sentAt: Date }, f: { vehicleId: string | null; docketAt: Date | null }): Promise<Decision> {
+  const hit = await senderCheck({ kind: r.kind, sentByResourceId: r.sentByResourceId, sentBy: r.sentBy, sentAt: r.sentAt, docketAt: f.docketAt, vehicleId: f.vehicleId });
+  return hit ? { status: "CHECK", reasons: [...d.reasons, hit.reason] } : d;
+}
+
 export async function readReceipt(id: string, reader: Reader = claudeReader): Promise<void> {
   if (!readingEnabled() || inFlight.has(id)) return;
   inFlight.add(id);
@@ -69,6 +77,7 @@ export async function readReceipt(id: string, reader: Reader = claudeReader): Pr
         decision = decideTip(x, { sentAt: r.sentAt, asbestosTap: r.asbestos, ourRegos: ctx.regos, duplicateOf: earlier ? `by ${earlier.sentBy} on ${earlier.sentAt.toLocaleDateString("en-AU", { timeZone: "Australia/Sydney" })}` : null });
         // The docket's rego, when it's one of our trucks, links it to that truck (R3; R4 uses it).
         const vehicleId = vehicleForRego(fields.rego, ctx.trucks);
+        decision = await withSender(decision, r, { vehicleId: vehicleId ?? r.vehicleId, docketAt: hasClockTime(x.dateTime) ? fields.docketAt : null });
         data = { ...fields, ...(vehicleId ? { vehicleId } : {}), reading: JSON.stringify({ ...prior, result: x, reasons: decision.reasons, readAt: new Date().toISOString(), tries: (prior.tries ?? 0) + 1, lastError: undefined }) };
       } else if (r.kind === "PURCHASE") {
         const x = await reader.purchase(photos);
@@ -78,7 +87,9 @@ export async function readReceipt(id: string, reader: Reader = claudeReader): Pr
         const x = await reader.fuel(photos, ctx);
         const picked = ctx.trucks.find((t) => t.id === r.vehicleId)?.rego ?? null;
         decision = decideFuel(x, { sentAt: r.sentAt, ourRegos: ctx.regos, pickedRego: picked });
-        data = { ...fuelFields(x), reading: JSON.stringify({ ...prior, result: x, reasons: decision.reasons, readAt: new Date().toISOString(), tries: (prior.tries ?? 0) + 1, lastError: undefined }) };
+        const fuel = fuelFields(x);
+        decision = await withSender(decision, r, { vehicleId: r.vehicleId, docketAt: hasClockTime(x.dateTime) ? fuel.docketAt : null });
+        data = { ...fuel, reading: JSON.stringify({ ...prior, result: x, reasons: decision.reasons, readAt: new Date().toISOString(), tries: (prior.tries ?? 0) + 1, lastError: undefined }) };
       }
       const saved = await prisma.receipt.updateMany({ where: { id: r.id, status: "SENT" }, data: { ...data, status: decision.status, checkReasons: JSON.stringify(decision.reasons) } });
       // A tip docket that now counts may be one an invoice already bills (R3).
