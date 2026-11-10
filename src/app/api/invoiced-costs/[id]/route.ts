@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { guard, getCurrentUser } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
-import { readInvoice, removeInvoicedCost } from "@/lib/invoicedCosts";
+import { readInvoice, recordAddedAgain, removeInvoicedCost } from "@/lib/invoicedCosts";
 import { syncTipMatchesSoon } from "@/lib/receipts/tipStore";
 import { updateTracked } from "@/lib/history/store";
 
@@ -17,7 +17,8 @@ export const PATCH = withErrorHandling(async (req: NextRequest, { params: params
   if (!existing || existing.removedAt) return NextResponse.json({ error: "not found" }, { status: 404 });
   const body = await req.json().catch(() => ({}));
   const out = await readInvoice({ ...existing, ...body }, existing.id);
-  if ("error" in out) return NextResponse.json({ error: out.error }, { status: 400 });
+  if ("error" in out) return NextResponse.json({ error: out.error, ...(out.removedMatch ? { removedMatch: true } : {}) }, { status: 400 });
+  if (out.againOf) await recordAddedAgain(existing.id, out.againOf, user, body.addAgainReason, "Invoice correction (Tracking) - added again");
   // Every field that changed is kept in the invoice line's history (keep forever, 10 Nov 2026).
   const row = await updateTracked("InvoicedCost", existing.id, { ...out.data, enteredBy: user?.name ?? null }, { by: user, source: "Invoice correction (Tracking)" }) as { category: string };
   if (row.category === "TIP_FEES" || existing.category === "TIP_FEES") syncTipMatchesSoon(); // re-match its dockets (Receipts R3)

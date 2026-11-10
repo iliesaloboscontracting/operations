@@ -15,6 +15,12 @@ const delegate = (db: Tx | PrismaClient, model: HistoryModel) =>
     model.charAt(0).toLowerCase() + model.slice(1)
   ];
 
+// Takes SQLite's write lock at the start of a transaction (an UPDATE that touches no row still claims it), so a
+// transaction that reads and then writes can't deadlock with another doing the same - the second simply waits.
+export async function writeLock(tx: Tx) {
+  await tx.$executeRawUnsafe('UPDATE "RecordChange" SET "id" = "id" WHERE 0');
+}
+
 // Writes one row per changed field. Returns how many.
 export async function writeChanges(db: Tx | PrismaClient, model: HistoryModel, recordId: string, changes: FieldChange[], ctx: HistoryCtx): Promise<number> {
   if (!changes.length) return 0;
@@ -41,24 +47,26 @@ export async function recordChanges(
 export async function updateTracked<T = Record<string, unknown>>(
   model: HistoryModel, id: string, data: Record<string, unknown>, ctx: HistoryCtx, opts: { tx?: Tx; include?: unknown } = {},
 ): Promise<T> {
-  const run = async (tx: Tx) => {
+  const run = async (tx: Tx, own = false) => {
+    if (own) await writeLock(tx);
     const d = delegate(tx, model);
     const before = await d.findUnique({ where: { id } });
     const after = await d.update({ where: { id }, data, ...(opts.include ? { include: opts.include } : {}) });
     await recordChanges(tx, model, id, before, after, ctx, Object.keys(data));
     return after as T;
   };
-  return opts.tx ? run(opts.tx) : prisma.$transaction(run);
+  return opts.tx ? run(opts.tx) : prisma.$transaction((tx) => run(tx, true));
 }
 
 // "Remove" = hide (removedAt / removedBy / removeReason), recorded like any edit. Never twice: a hidden row stays as it is.
 export async function hideTracked<T = Record<string, unknown>>(model: HistoryModel, id: string, ctx: HistoryCtx, opts: { tx?: Tx; extra?: Record<string, unknown> } = {}): Promise<T | null> {
-  const run = async (tx: Tx) => {
+  const run = async (tx: Tx, own = false) => {
+    if (own) await writeLock(tx);
     const row = await delegate(tx, model).findUnique({ where: { id } });
     if (!row || row.removedAt) return null;
     return updateTracked<T>(model, id, { removedAt: new Date(), removedBy: byName(ctx.by).slice(0, 120), removeReason: ctx.reason?.trim().slice(0, 500) || null, ...(opts.extra ?? {}) }, ctx, { tx });
   };
-  return opts.tx ? run(opts.tx) : prisma.$transaction(run);
+  return opts.tx ? run(opts.tx) : prisma.$transaction((tx) => run(tx, true));
 }
 
 // A record's history, newest first (the caller filters it by role - access.ts).

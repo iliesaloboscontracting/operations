@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { JOB_CANCELLED_SIGN_IN, createSignIn } from "@/lib/signInCreate";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { resolveLink, siteUrl, type ResolvedLink } from "@/lib/siteLinks";
 import { syncPersonDayQuietly, syncSignInActualsQuietly } from "@/lib/signInActuals";
@@ -128,19 +129,18 @@ export const POST = withErrorHandling(async (req: NextRequest, { params: paramsP
       });
       if (elsewhere && !allocated) return bad(`${person.name} is signed in at ${elsewhere.job ? jobLabel(elsewhere.job) : elsewhere.placeLabel ?? "another place"}. They can scan your QR, or ask the office.`);
       const ended = await endOpenElsewhere({ who: { resourceId: person.id, workerName: person.name, company: null }, at: now, here: { jobId: job.id }, label: jobLabel(job), by, siteToConfirm: true });
-      await prisma.siteAttendance.create({
-        data: {
-          jobId: job.id,
-          date: job.date.toISOString().slice(0, 10),
-          resourceId: person.id,
-          workerName: person.name,
-          allocated,
-          signInAt: now,
-          signInMethod: "MANUAL",
-          status: "CONFIRMED",
-          runBy: link.person.name,
-        },
+      const made = await createSignIn({
+        jobId: job.id,
+        date: job.date.toISOString().slice(0, 10),
+        resourceId: person.id,
+        workerName: person.name,
+        allocated,
+        signInAt: now,
+        signInMethod: "MANUAL",
+        status: "CONFIRMED",
+        runBy: link.person.name,
       });
+      if (!made) return NextResponse.json({ error: JOB_CANCELLED_SIGN_IN }, { status: 409 }); // PS-031
       await syncSignInActualsQuietly([job.id, ...ended.map((e) => e.jobId)]);
       await syncPersonDayQuietly(person.id, job.date.toISOString().slice(0, 10));
       return NextResponse.json({ ok: true, ...(ended.length ? { message: `${person.name}'s other open sign-in was ended at ${sydneyTime(now)}.` } : {}) });

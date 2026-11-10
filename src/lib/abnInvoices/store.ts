@@ -78,7 +78,9 @@ export async function listAbnChecks() {
     checks.push({
       id: r.id, draftId: r.draftId, resourceId: r.resourceId, personName: r.personName, status: r.status, note: r.note, decidedBy: r.decidedBy, decidedAt: r.decidedAt?.toISOString() ?? null,
       history: JSON.parse(r.history) as { status: string; note: string | null; by: string; at: string }[],
-      invoice: { supplier: d.supplier, invoiceNo: d.invoiceNo, invoiceDate: d.invoiceDate, periodFrom: from, periodTo: to, guessedPeriod: !d.periodFrom && !parseDays(d.workDays), amountExGst: d.amountExGst, gst: d.gst, totalIncGst: d.totalIncGst, supplierAbn: d.supplierAbn, file: d.upload.originalName, uploadId: d.uploadId },
+      // PS-033: an inbox line hidden since (a failed read read again) is shown as removed, not as a live line.
+      removedFromInbox: !!d.removedAt,
+      invoice: { supplier: d.removedAt ? `${d.supplier ?? "Supplier"} (removed from the inbox)` : d.supplier, invoiceNo: d.invoiceNo, invoiceDate: d.invoiceDate, periodFrom: from, periodTo: to, guessedPeriod: !d.periodFrom && !parseDays(d.workDays), amountExGst: d.amountExGst, gst: d.gst, totalIncGst: d.totalIncGst, supplierAbn: d.supplierAbn, file: d.upload.originalName, uploadId: d.uploadId },
       hours, weeks: a.weeks, gstRegistered: registered,
       flags: [...hours.flags, ...(gst ? [GST_FLAG_TEXT[gst]] : []), ...(abnOk === false ? ["The ABN on the invoice doesn't look valid"] : [])],
     });

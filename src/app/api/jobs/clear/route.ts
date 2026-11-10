@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { guard, getCurrentUser } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { logBoardRemoval } from "@/lib/boardGuard/store";
+import { writeLock } from "@/lib/history/store";
 import { ASSIGNMENT_FOR_SNAPSHOT, allocationSnapshot } from "@/lib/boardGuard/snapshot";
 
 // POST /api/jobs/clear { date: "YYYY-MM-DD" }
@@ -28,6 +29,7 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
 
   if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
   const { cleared, briefsCleared } = await prisma.$transaction(async (tx) => {
+    await writeLock(tx); // write lock first, then read what is removed (no deadlock with another writer)
     const rows = await tx.assignment.findMany({ where: { job: { ...dateFilter, cancelledAt: null } }, include: ASSIGNMENT_FOR_SNAPSHOT, orderBy: { createdAt: "asc" } });
     const briefs = await tx.job.findMany({ where: { ...dateFilter, cancelledAt: null, dayBrief: { not: null } }, select: { id: true, title: true, date: true, shift: true, dayBrief: true } });
     if (rows.length) await tx.assignment.deleteMany({ where: { id: { in: rows.map((r) => r.id) } } });

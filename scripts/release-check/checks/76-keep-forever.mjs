@@ -15,7 +15,8 @@
 // WRITES on the test copy: a project, four resources, jobs on two past days (one closed, re-opened and closed again -
 // with the copy's own jobs that day) and two months ahead, allocations, invoices, an upload + drafts, a service record, a contact, a wording,
 // a bug report, a tool. Prints no figure from the copy's own data - only this check's own test amounts.
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync, readdirSync, writeFileSync, existsSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { randomBytes } from "node:crypto";
 
@@ -243,6 +244,100 @@ export default {
     // ---------- (7) the Project DELETE is refused ----------
     for (const who of ["MANAGER", "ADMIN"]) t.status(await c.del(`/api/projects/${pid}`, who), 405, `DELETE /api/projects/:id as ${who} -> 405`);
     t.ok(!!(await db.project.findUnique({ where: { id: pid } })), "the project is still there");
+
+    // ---------- (7b) PS-032: the ACCOUNTS history matrix; a Manager never reads the accounts calendar's ----------
+    const item = await db.accountsItem.create({ data: { category: "OTHER", title: `RC KF item ${tag}`, dueDate: c.today } });
+    t.status(await c.post(`/api/accounts/items/${item.id}`, "ACCOUNTS", { action: "EDIT", title: `RC KF item ${tag} (edited)` }), 200, "accounts edit a calendar item");
+    const hs = async (model, id, who) => (await c.get(`/api/history?model=${model}&id=${id}`, who)).status;
+    t.ok((await hs("InvoicedCost", A.body?.id, "ACCOUNTS")) === 403, "PS-032: ACCOUNTS can't read an invoice line's history (403)");
+    t.ok((await hs("Resource", person.id, "ACCOUNTS")) === 403, "PS-032: ACCOUNTS can't read a resource's history (403)");
+    t.ok((await hs("InvoiceDraft", partial.id, "ACCOUNTS")) === 200, "PS-032: ACCOUNTS read an inbox line's history");
+    const ai = await c.json(`/api/history?model=AccountsItem&id=${item.id}`, "ACCOUNTS");
+    t.ok(ai.status === 200 && (ai.body?.changes ?? []).some((x) => x.field === "title"), "PS-032: ACCOUNTS read their calendar item's history (the edit is there)");
+    t.ok((await hs("AccountsItem", item.id, "MANAGER")) === 403, "PS-032: a Manager is refused the accounts calendar's history (403)");
+
+    // ---------- (7c) PS-029: a removed invoice never comes back on by itself ----------
+    // Manual Add: the same supplier + number as the hidden A -> 400 (removedMatch) unless "Add again"; then 201 + history.
+    // (A was entered again above with amount 1 as "again" - that row is live, so use C, removed by the inbox's Take off.)
+    const cBody = { projectId: pid, category: "MATERIALS", vendor: `RC KF supplier ${tag}`, invoiceNo: `RC-C-${tag}`, weekEnding: c.today, amountExGst: 99 };
+    const noAgain = await c.post("/api/invoiced-costs", "MANAGER", cBody);
+    const nb = await body(noAgain);
+    t.ok(noAgain.status === 400 && nb?.removedMatch === true && /removed from this project/.test(nb?.error ?? ""), "PS-029: re-adding a removed invoice without 'Add again' -> 400, says who / when / why", noAgain.status);
+    const yes = await c.post("/api/invoiced-costs", "MANAGER", { ...cBody, addAgain: true, addAgainReason: note });
+    const yb = await body(yes);
+    t.status(yes.status, 201, "PS-029: with 'Add again - the removal was wrong' it goes back on");
+    const hr = await db.recordChange.findFirst({ where: { model: "InvoicedCost", recordId: yb?.id ?? "-", field: "addedAgainAfterRemoval" } });
+    t.ok(hr && hr.after === C.body?.id && hr.reason === note && hr.changedBy, "PS-029: ...recorded in its history (which removed line, why, who)");
+    t.status(await c.post("/api/invoiced-costs", "VIEWER", { ...cBody, addAgain: true }), 403, "PS-029: who can add is unchanged (Viewer 403)");
+    // Inbox: the same rule the upload runs, against this copy's removed lines (B was removed by an Admin above).
+    const env = (() => { try { return Object.fromEntries(readFileSync(c.p.envFile, "utf8").split(/\r?\n/).filter((l) => /^[A-Z_]+=/.test(l)).map((l) => { const i = l.indexOf("="); return [l.slice(0, i), l.slice(i + 1).replace(/^"|"$/g, "").trim()]; })); } catch { return {}; } })();
+    const tsxCli = path.join(c.p.appDir, "node_modules", "tsx", "dist", "cli.mjs");
+    if (!existsSync(tsxCli)) t.note("PS-029 inbox rule not run: no tsx");
+    else {
+      const script = path.join(c.p.files, `rc76-inbox-${tag}.mts`);
+      const inbox = "file:///" + path.join(c.p.appDir, "src", "lib", "invoiceInbox.ts").split(path.sep).join("/");
+      writeFileSync(script, [
+        `import { decide, removedInvoiceNotes } from ${JSON.stringify(inbox)};`,
+        `const raw = { supplier: ${JSON.stringify(`RC KF hire co ${tag}`)}, entityBilled: "Lobos Contracting", invoiceNo: ${JSON.stringify(`RC-B-${tag}`)}, invoiceDate: ${JSON.stringify(c.today)}, periodFrom: null, periodTo: null, description: "Hire", siteText: null, hireRef: null, amountExGst: 700, gst: 70, totalIncGst: 770, category: "MATERIALS", projectId: ${JSON.stringify(pid)}, confidence: "HIGH", matchReason: null };`,
+        `const removed = await removedInvoiceNotes();`,
+        `const v = await decide(raw, new Set(), new Set(), new Set([${JSON.stringify(pid)}]), [], removed);`,
+        `const fresh = await decide({ ...raw, invoiceNo: "RC-NEW-${tag}" }, new Set(), new Set(), new Set([${JSON.stringify(pid)}]), [], removed);`,
+        `console.log("RESULT " + JSON.stringify({ v, fresh: fresh.status }));`,
+        `process.exit(0);`,
+      ].join("\n"));
+      let out = "";
+      try { out = execFileSync(process.execPath, [tsxCli, script], { cwd: c.p.appDir, env: { ...process.env, ...env }, encoding: "utf8", timeout: 120_000 }); } catch (e) { out = String(e?.stdout ?? ""); }
+      const r = JSON.parse(out.match(/RESULT (.*)/)?.[1] ?? "{}");
+      t.ok(r.v?.status === "NEEDS_REVIEW" && /^Removed from Tracking on .+ by .+: /.test(r.v?.problem ?? ""), "PS-029: a re-uploaded line matching a removed invoice -> NEEDS_REVIEW ('Removed from Tracking on <date> by <who>: <reason>'), not ADDED", JSON.stringify(r.v ?? null));
+      t.ok(r.fresh === "ADDED", "PS-029: a new invoice number on the same job still goes straight on", r.fresh);
+    }
+
+    // ---------- (7d) PS-030 / PS-031: races ----------
+    // A close while a sign-in is added on that day: both go through, and the day has ONE current ledger.
+    // A day two months ahead (no timesheet week can be approved yet), with this check's own job and machine on it.
+    const raceDay = addDays(c.today, 65);
+    const raceClose = await db.job.create({ data: { projectId: pid, title: project.name, date: new Date(`${raceDay}T00:00:00.000Z`), shift: "DAY", startTime: "7am", endTime: "3pm" } });
+    await db.assignment.create({ data: { jobId: raceClose.id, resourceId: machine.id } });
+    const signer = await db.resource.create({ data: { name: `RC KF signer ${tag}`, type: "PERSONNEL", role: "Labourer" } });
+    const inAt = `${raceDay}T07:00:00+11:00`, outAt = `${raceDay}T15:00:00+11:00`;
+    const [cl, si] = await Promise.all([
+      c.post("/api/day-close", "MANAGER", { date: raceDay, action: "close" }),
+      c.post("/api/attendance", "MANAGER", { jobId: raceClose.id, resourceId: signer.id, signInAt: inAt, signOutAt: outAt, reason: note }),
+    ]);
+    const curOpen = await db.allocationCost.count({ where: { date: raceDay, jobId: raceClose.id, supersededAt: null } });
+    t.ok(cl.status === 200 && si.status === 201 && curOpen === 1, "PS-030: a close while a sign-in is added - both go through, one current ledger", `${cl.status}/${si.status}, ${curOpen} current`);
+    const [c1, c2] = await Promise.all([1, 2].map(() => c.post("/api/day-close", "MANAGER", { date: raceDay, action: "close" })));
+    const cur2 = await db.allocationCost.count({ where: { date: raceDay, jobId: raceClose.id, supersededAt: null } });
+    t.ok(c1.status === 200 && c2.status === 200 && cur2 === 1, "PS-030: two closes at once - both answer, still ONE current ledger", `${c1.status}/${c2.status}, ${cur2} current`);
+    t.status(await c.post("/api/day-close", "ADMIN", { date: raceDay, action: "reopen", reason: note }), 200, "(the race day re-opened again)");
+    // A cancel racing a sign-in on the same job: never both.
+    const raceJob = await mkJob(addDays(c.today, 62));
+    const [cx, sx] = await Promise.all([
+      c.del(`/api/jobs/${raceJob.body?.id}`, "MANAGER", { reason: note }),
+      c.post("/api/attendance", "MANAGER", { jobId: raceJob.body?.id, resourceId: signer.id, signInAt: `${addDays(c.today, 62)}T07:00:00+11:00`, signOutAt: `${addDays(c.today, 62)}T15:00:00+11:00`, reason: note }),
+    ]);
+    const jx = await db.job.findUnique({ where: { id: raceJob.body?.id ?? "-" } });
+    const sxRows = await db.siteAttendance.count({ where: { jobId: raceJob.body?.id ?? "-" } });
+    const both = cx.status === 200 && sx.status === 201;
+    t.ok(!both && ((jx?.cancelledAt && sxRows === 0) || (!jx?.cancelledAt && sxRows === 1)), "PS-031: a cancel racing a sign-in - one wins, never both (cancelled with no sign-in, or signed in and not cancelled)", `cancel ${cx.status}, sign-in ${sx.status}, cancelled ${!!jx?.cancelledAt}, sign-ins ${sxRows}`);
+    // And in order: a sign-in made, then the cancel refused (409); a cancelled job refuses a sign-in (409 / 400).
+    const j3 = await mkJob(addDays(c.today, 63));
+    t.status(await c.post("/api/attendance", "MANAGER", { jobId: j3.body?.id, resourceId: signer.id, signInAt: `${addDays(c.today, 63)}T07:00:00+11:00`, signOutAt: `${addDays(c.today, 63)}T15:00:00+11:00`, reason: note }), 201, "a sign-in on a job");
+    t.status(await c.del(`/api/jobs/${j3.body?.id}`, "MANAGER", { reason: note }), 409, "PS-031: ...then its cancel is refused (409)");
+    const j4 = await mkJob(addDays(c.today, 64));
+    t.status(await c.del(`/api/jobs/${j4.body?.id}`, "MANAGER", { reason: note }), 200, "a job cancelled");
+    const late = await c.post("/api/attendance", "MANAGER", { jobId: j4.body?.id, resourceId: signer.id, signInAt: `${addDays(c.today, 64)}T07:00:00+11:00`, signOutAt: `${addDays(c.today, 64)}T15:00:00+11:00`, reason: note });
+    t.ok([400, 409].includes(late.status) && !(await db.siteAttendance.count({ where: { jobId: j4.body?.id ?? "-" } })), "PS-031: ...a sign-in on it is refused, nothing saved", late.status);
+
+    // ---------- (7e) PS-033: an ABN check whose inbox line was hidden says so ----------
+    const abnUp = await db.invoiceUpload.create({ data: { fileName: `rc-kf-abn-${tag}.pdf`, originalName: `rc-kf-abn-${tag}.pdf`, kind: "PDF", status: "DONE", uploadedBy: "RC" } });
+    const abnDraft = await db.invoiceDraft.create({ data: { uploadId: abnUp.id, supplier: `RC KF ABN ${tag}`, invoiceNo: `RC-ABN-${tag}`, status: "NEEDS_REVIEW", removedAt: new Date(), removedBy: "RC", removeReason: note } });
+    if (db.abnInvoice) {
+      await db.abnInvoice.create({ data: { draftId: abnDraft.id, resourceId: person.id, personName: person.name, status: "TO_CHECK", history: "[]", attachedBy: "RC" } }).catch(() => null);
+      const abn = (await c.json("/api/accounts/invoice-checks?tab=abn", "ACCOUNTS")).body;
+      const mineAbn = (abn?.checks ?? []).find((x) => x.draftId === abnDraft.id);
+      t.ok(!mineAbn || (mineAbn.removedFromInbox === true && /\(removed from the inbox\)/.test(mineAbn.invoice?.supplier ?? "")), "PS-033: an ABN check on a hidden inbox line shows it as removed from the inbox", mineAbn ? "listed as removed" : "not listed");
+    } else t.note("PS-033 not exercised: no AbnInvoice table");
 
     // ---------- (8) no automatic deletion is left ----------
     const src = (rel) => { try { return readFileSync(path.join(c.p.appDir, rel), "utf8"); } catch { return ""; } };

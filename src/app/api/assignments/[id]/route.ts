@@ -6,6 +6,7 @@ import { sanitizeAssignment } from "@/lib/serializeResource";
 import { assertDateOpen } from "@/lib/dayLock";
 import { isoDay, logBoardEdit, logBoardRemoval, siteName } from "@/lib/boardGuard/store";
 import { ASSIGNMENT_FOR_SNAPSHOT, allocationSnapshot } from "@/lib/boardGuard/snapshot";
+import { writeLock } from "@/lib/history/store";
 import { offHiredBefore, offHireStop } from "@/lib/hireEstimate";
 import { fmtDay } from "@/lib/dates";
 
@@ -61,6 +62,7 @@ export const PATCH = withErrorHandling(async (
       // Keep forever (10 Nov 2026): the source row goes only with a full snapshot of it, in the same transaction.
       if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
       await prisma.$transaction(async (tx) => {
+    await writeLock(tx); // write lock first, then read what is removed (no deadlock with another writer)
         const row = await tx.assignment.findUniqueOrThrow({ where: { id: params.id }, include: ASSIGNMENT_FOR_SNAPSHOT });
         await tx.assignment.delete({ where: { id: params.id } });
         await logBoardRemoval(tx, user, isoDay(current.job.date), "MOVE",
@@ -112,6 +114,7 @@ export const DELETE = withErrorHandling(async (
   // Keep forever (Ilies, 10 Nov 2026): the allocation row is deleted (costing reads the live rows) but never without a
   // full snapshot of it in BoardEdit, in the same transaction.
   await prisma.$transaction(async (tx) => {
+    await writeLock(tx); // write lock first, then read what is removed (no deadlock with another writer)
     const row = await tx.assignment.findUniqueOrThrow({ where: { id: params.id }, include: ASSIGNMENT_FOR_SNAPSHOT });
     await tx.assignment.delete({ where: { id: params.id } });
     await logBoardRemoval(tx, user, isoDay(current.job.date), "REMOVE", `${current.resource.name} off ${siteName(current.job)}`,

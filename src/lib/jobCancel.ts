@@ -3,11 +3,12 @@
 // removed - cost allocation reads the live rows - with a full snapshot in BoardEdit, all in one transaction with the
 // job's own change history (RecordChange). Adding a job for the same project / day / shift brings it back.
 import { prisma } from "./prisma";
-import { updateTracked, type Tx, type Who } from "./history/store";
+import { recordChanges, updateTracked, type Tx, type Who } from "./history/store";
 import { logBoardRemoval, isoDay, siteName } from "./boardGuard/store";
 import { ASSIGNMENT_FOR_SNAPSHOT, allocationSnapshot, cancelledJobSnapshot } from "./boardGuard/snapshot";
 
 export type CancelProblem = { error: string; status: number };
+class CancelAbort extends Error { constructor(readonly problem: CancelProblem) { super(problem.error); } }
 
 export async function cancelJob(jobId: string, who: { id: string; name: string }, reason: string): Promise<{ ok: true } | CancelProblem> {
   const why = reason.trim().slice(0, 300);
@@ -25,16 +26,28 @@ export async function cancelJob(jobId: string, who: { id: string; name: string }
   }
   if (logs > 0) return { error: "A daily site log is recorded on this job, so it can't be cancelled - mark it Stood down instead.", status: 409 };
 
-  await prisma.$transaction(async (tx) => {
-    const rows = await tx.assignment.findMany({ where: { jobId }, include: ASSIGNMENT_FOR_SNAPSHOT, orderBy: { createdAt: "asc" } });
-    const snapshot = { v: 1 as const, kind: "JOB_CANCEL" as const, allocations: rows.map(allocationSnapshot), job: cancelledJobSnapshot(job) };
-    if (rows.length) await tx.assignment.deleteMany({ where: { id: { in: rows.map((r) => r.id) } } });
-    await updateTracked("Job", jobId, {
-      status: "CANCELLED", cancelledAt: new Date(), cancelledBy: who.name, cancelledById: who.id, cancelReason: why,
-    }, { by: who, source: "Cancel job (board)", reason: why }, { tx });
-    await logBoardRemoval(tx, who, isoDay(job.date), "JOB_CANCEL",
-      `${siteName(job)} cancelled (${rows.length} allocation${rows.length === 1 ? "" : "s"} taken off): ${why}`, snapshot);
-  });
+  // PS-031 (Ilies approved, 10 Nov 2026): the job is marked cancelled FIRST (a write - SQLite's write lock), then the
+  // sign-ins and daily logs are counted again inside the transaction; any made meanwhile aborts it (409) and nothing
+  // changes. A sign-in does the reverse (lib/signInCreate.ts), so the two can never both go through.
+  try {
+    await prisma.$transaction(async (tx) => {
+      const n = await tx.job.updateMany({ where: { id: jobId, cancelledAt: null }, data: { status: "CANCELLED", cancelledAt: new Date(), cancelledBy: who.name, cancelledById: who.id, cancelReason: why } });
+      if (!n.count) throw new CancelAbort({ error: "not found", status: 404 });
+      const [s2, l2] = await Promise.all([tx.siteAttendance.count({ where: { jobId } }), tx.dailyLog.count({ where: { jobId } })]);
+      if (s2 > 0) throw new CancelAbort({ error: `${s2} sign-in${s2 === 1 ? " was" : "s were"} just recorded on this job, so it can't be cancelled - mark it Stood down instead.`, status: 409 });
+      if (l2 > 0) throw new CancelAbort({ error: "A daily site log was just recorded on this job, so it can't be cancelled - mark it Stood down instead.", status: 409 });
+      const after = await tx.job.findUniqueOrThrow({ where: { id: jobId } });
+      await recordChanges(tx, "Job", jobId, job, after, { by: who, source: "Cancel job (board)", reason: why }, ["status", "cancelledAt", "cancelledBy", "cancelledById", "cancelReason"]);
+      const rows = await tx.assignment.findMany({ where: { jobId }, include: ASSIGNMENT_FOR_SNAPSHOT, orderBy: { createdAt: "asc" } });
+      const snapshot = { v: 1 as const, kind: "JOB_CANCEL" as const, allocations: rows.map(allocationSnapshot), job: cancelledJobSnapshot(job) };
+      if (rows.length) await tx.assignment.deleteMany({ where: { id: { in: rows.map((r) => r.id) } } });
+      await logBoardRemoval(tx, who, isoDay(job.date), "JOB_CANCEL",
+        `${siteName(job)} cancelled (${rows.length} allocation${rows.length === 1 ? "" : "s"} taken off): ${why}`, snapshot);
+    });
+  } catch (e) {
+    if (e instanceof CancelAbort) return e.problem;
+    throw e;
+  }
   return { ok: true };
 }
 

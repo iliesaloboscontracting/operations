@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { guard, getCurrentUser } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
-import { freezeDayCosts, supersedeDayCosts } from "@/lib/dayClose";
-import { recordChanges } from "@/lib/history/store";
+import { dayFingerprint, planDayCosts, supersedeDayCosts, writeDayCosts } from "@/lib/dayClose";
+import { recordChanges, writeLock } from "@/lib/history/store";
 
 // GET /api/day-close?date=YYYY-MM-DD -> that date's close status (OPEN if no row)
 export const GET = withErrorHandling(async (req: NextRequest) => {
@@ -40,6 +40,7 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
     // Keep forever (10 Nov 2026): the close it replaces is kept in the day's history (RecordChange), and the frozen
     // ledger is marked superseded (kept, never deleted) so the date goes back to live costing - one transaction.
     const close = await prisma.$transaction(async (tx) => {
+      await writeLock(tx);
       const before = await tx.dayClose.findUnique({ where: { date } });
       const row = await tx.dayClose.upsert({
         where: { date },
@@ -53,17 +54,26 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
     return NextResponse.json(close);
   }
 
-  // The close, its history and the fresh ledger (earlier rows superseded, kept) in one transaction.
-  const close = await prisma.$transaction(async (tx) => {
-    const before = await tx.dayClose.findUnique({ where: { date } });
-    const row = await tx.dayClose.upsert({
-      where: { date },
-      create: { date, status: "CLOSED", closedBy: user!.name, closedAt: new Date() },
-      update: { status: "CLOSED", closedBy: user!.name, closedAt: new Date() },
+  // PS-030 (Ilies approved, 10 Nov 2026): the costs are worked out first, read-only, outside any transaction. The short
+  // transaction takes the write lock, checks the day still reads the same, then closes, supersedes the earlier ledger
+  // (kept) and writes the new one with the day's history. If the day changed meanwhile it is worked out once more;
+  // changed again -> 409, nothing written.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const plan = await planDayCosts(date);
+    const close = await prisma.$transaction(async (tx) => {
+      await writeLock(tx);
+      if ((await dayFingerprint(tx, date)) !== plan.fingerprint) return null;
+      const before = await tx.dayClose.findUnique({ where: { date } });
+      const row = await tx.dayClose.upsert({
+        where: { date },
+        create: { date, status: "CLOSED", closedBy: user!.name, closedAt: new Date() },
+        update: { status: "CLOSED", closedBy: user!.name, closedAt: new Date() },
+      });
+      await recordChanges(tx, "DayClose", row.id, before, row, { by: user, source: "Close day" }, ["status", "closedBy", "closedAt"]);
+      await writeDayCosts(tx, date, plan.rows, `Closed again by ${user!.name}`);
+      return row;
     });
-    await recordChanges(tx, "DayClose", row.id, before, row, { by: user, source: "Close day" }, ["status", "closedBy", "closedAt"]);
-    await freezeDayCosts(date, `Closed again by ${user!.name}`, tx);
-    return row;
-  }, { timeout: 30_000 });
-  return NextResponse.json(close);
+    if (close) return NextResponse.json(close);
+  }
+  return NextResponse.json({ error: "The day changed while closing - try again." }, { status: 409 });
 });

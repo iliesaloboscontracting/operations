@@ -121,8 +121,9 @@ async function rawFromSheet(fileName: string, jobs: JobForMatching[]): Promise<R
   // Only rows that could still be added are sent for matching - ones already
   // in Tracking, or billed to Lobos Civil, are settled by the rules alone.
   const existing = await existingInvoiceKeys();
+  const removed = await removedInvoiceNotes(); // PS-029: these wait for a person anyway - never sent for matching
   const aliases = await aliasMap();
-  const toMatch = rows.filter((r) => !isCivil(r) && !existing.has(dupKey(r.supplier, r.invoiceNo)));
+  const toMatch = rows.filter((r) => !isCivil(r) && !existing.has(dupKey(r.supplier, r.invoiceNo)) && !(invoiceKey(r.invoiceNo) && removed.has(dupKey(r.supplier, r.invoiceNo))));
   for (let i = 0; i < toMatch.length; i += 60) {
     const batch = toMatch.slice(i, i + 60);
     const matches = await matchInvoiceRows(
@@ -149,6 +150,17 @@ const dupKey = (supplier: string | null, invoiceNo: string | null) => `${vendorK
 async function existingInvoiceKeys() {
   const rows = await prisma.invoicedCost.findMany({ where: { removedAt: null }, select: { vendor: true, invoiceNo: true } });
   return new Set(rows.filter((r) => invoiceKey(r.invoiceNo)).map((r) => dupKey(r.vendor, r.invoiceNo)));
+}
+
+// PS-029 (Ilies approved, 10 Nov 2026): invoices removed from Tracking (hidden, keep forever) -> why, by supplier +
+// number. A new upload's line that matches one waits for a person instead of going straight back on.
+export const removedNote = (r: { removedAt: Date | null; removedBy: string | null; removeReason: string | null }) =>
+  `Removed from Tracking on ${r.removedAt ? r.removedAt.toLocaleDateString("en-AU", { timeZone: "Australia/Sydney", day: "numeric", month: "short", year: "numeric" }) : "an earlier date"} by ${r.removedBy ?? "someone"}: ${r.removeReason ?? "no reason given"}`;
+export async function removedInvoiceNotes() {
+  const rows = await prisma.invoicedCost.findMany({
+    where: { removedAt: { not: null } }, select: { vendor: true, invoiceNo: true, removedAt: true, removedBy: true, removeReason: true }, orderBy: { removedAt: "asc" },
+  });
+  return new Map(rows.filter((r) => invoiceKey(r.invoiceNo)).map((r) => [dupKey(r.vendor, r.invoiceNo), removedNote(r)] as const));
 }
 
 async function aliasMap() {
@@ -183,7 +195,7 @@ function fiveMonthsAgo() {
   return d.toISOString().slice(0, 10);
 }
 
-export async function decide(r: Raw, seen: Set<string>, existing: Set<string>, jobIds: Set<string>, abnPeople: AbnPerson[] = []): Promise<Verdict> {
+export async function decide(r: Raw, seen: Set<string>, existing: Set<string>, jobIds: Set<string>, abnPeople: AbnPerson[] = [], removed: Map<string, string> = new Map()): Promise<Verdict> {
   const key = dupKey(r.supplier, r.invoiceNo);
   const site = r.siteText ? `"${r.siteText}"` : "the site on it";
   if (r.documentType && !["invoice", "credit_note", "receipt"].includes(r.documentType)) {
@@ -191,6 +203,8 @@ export async function decide(r: Raw, seen: Set<string>, existing: Set<string>, j
   }
   if (isCivil(r)) return { status: "SKIPPED", problem: "Billed to Lobos Civil - not counted on Lobos Contracting jobs. Add it by hand if this one should count." };
   if (invoiceKey(r.invoiceNo) && (existing.has(key) || seen.has(key))) return { status: "DUPLICATE", problem: "Already entered." };
+  // PS-029: removed from Tracking on purpose - never put straight back on; a person decides.
+  if (invoiceKey(r.invoiceNo) && removed.has(key)) return { status: "NEEDS_REVIEW", problem: removed.get(key)! };
   // Accounts stage 4: an ABN worker's own invoice is never a job cost (own crew are costed from hours) - it's
   // checked against their approved hours on Accounts instead.
   // Only strong evidence (the recorded ABN, or a full two-word name) takes it off job cost; a first name alone waits.
@@ -245,6 +259,8 @@ async function addToTracking(
     notes: [d.description, d.siteText && `Site: ${d.siteText}`, source].filter(Boolean).join(". "),
     docketNos: d.docketNos ?? [],
   });
+  // PS-029: removed from Tracking on purpose - only a Manager / Admin puts it back, on Tracking ("Add again").
+  if ("error" in out && out.removedMatch) return { error: out.error.replace(/ Tick .*$/, " A Manager or Admin can put it back from the job's Tracking page (Add invoice - \"Add again\").") };
   if ("error" in out) return out;
   const row = await prisma.invoicedCost.create({ data: { ...out.data, enteredBy } });
   if (row.category === "TIP_FEES") syncTipMatchesSoon(); // it replaces the dockets it bills (Receipts R3)
@@ -260,6 +276,7 @@ export async function processUpload(uploadId: string) {
     const jobs = await jobsForMatching();
     const raws = upload.kind === "SHEET" ? await rawFromSheet(upload.fileName, jobs) : await rawFromDocument(upload.fileName, jobs);
     const existing = await existingInvoiceKeys();
+    const removed = await removedInvoiceNotes();
     const jobIds = new Set(jobs.map((j) => j.id));
     const seen = new Set<string>();
     // ABN workers, and anyone with an ABN recorded at onboarding (stage 5) - the strongest match.
@@ -269,7 +286,7 @@ export async function processUpload(uploadId: string) {
     })).map((p) => ({ id: p.id, name: p.name, engagement: p.engagement, active: p.active, abn: p.onboarding?.abn ?? null }));
     const source = `From ${upload.originalName}${upload.uploadedBy ? `, uploaded by ${upload.uploadedBy}` : ""} (invoices inbox)`;
     for (const r of raws) {
-      const v = await decide(r, seen, existing, jobIds, abnPeople);
+      const v = await decide(r, seen, existing, jobIds, abnPeople, removed);
       let status = v.status, problem = v.problem, invoicedCostId: string | null = null;
       if (status === "ADDED") {
         const added = await addToTracking({ ...r, hireResourceId: v.hireResourceId ?? null }, source, "Invoices inbox (automatic)");

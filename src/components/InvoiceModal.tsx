@@ -5,6 +5,7 @@
 // it covers - Tracking then stops estimating those days, so the invoice
 // replaces the estimate instead of being added on top of it. A tip invoice can list the docket
 // numbers it bills (Receipts R3) - those dockets' estimates stop, the invoice replaces them.
+import { useState } from "react";
 import FormModal, { type FieldDef } from "./FormModal";
 import { apiFetch, serverErrorMessage } from "@/lib/apiFetch";
 import type { HireItemCostDTO, InvoicedCostDTO } from "@/lib/types";
@@ -66,15 +67,39 @@ export default function InvoiceModal({
       }
     : { category: "PLANT_HIRE", vendor: "", invoiceNo: "", weekEnding: "", amountExGst: "", gst: "", hireResourceId: "", periodFrom: "", periodTo: "", notes: "", docketNos: "" };
 
+  // PS-029: the same invoice was removed from this job on purpose - it goes back on only with this ticked.
+  const [removedMatch, setRemovedMatch] = useState(false);
+  const [addAgain, setAddAgain] = useState(false);
+  const [againWhy, setAgainWhy] = useState("");
+
   async function save(values: Record<string, any>) {
     const res = await apiFetch(invoice ? `/api/invoiced-costs/${invoice.id}` : "/api/invoiced-costs", {
       method: invoice ? "PATCH" : "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...values, projectId }),
+      body: JSON.stringify({ ...values, projectId, ...(addAgain ? { addAgain: true, addAgainReason: againWhy } : {}) }),
     });
-    if (!res.ok) throw new Error(await serverErrorMessage(res, "Couldn't save the invoice"));
+    if (!res.ok) {
+      const j = await res.clone().json().catch(() => null);
+      if (j?.removedMatch) setRemovedMatch(true);
+      throw new Error(await serverErrorMessage(res, "Couldn't save the invoice"));
+    }
     onSaved();
   }
+  const againBox = removedMatch ? (
+    <div className="mt-3 space-y-2 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-gray-300">
+      <label className="flex items-center gap-2">
+        <input type="checkbox" checked={addAgain} onChange={(e) => setAddAgain(e.target.checked)} /> Add again – the removal was wrong
+      </label>
+      {addAgain && (
+        <input
+          className="w-full rounded-lg border border-edge bg-panel2 px-3 py-2 text-sm text-gray-200"
+          placeholder="Why (kept with the invoice) - optional"
+          value={againWhy}
+          onChange={(e) => setAgainWhy(e.target.value)}
+        />
+      )}
+    </div>
+  ) : null;
 
   async function remove(reason?: string) {
     const res = await apiFetch(`/api/invoiced-costs/${invoice!.id}`, {
@@ -97,7 +122,7 @@ export default function InvoiceModal({
       deleteLabel="Remove"
       deleteReasons={REMOVE_REASONS}
       deleteNote="The invoice is kept (with who and why) but no longer counts on Tracking, Directors or accounts' checks."
-      extra={invoice ? <div className="mt-3 flex justify-end"><HistoryButton model="InvoicedCost" id={invoice.id} /></div> : undefined}
+      extra={invoice || againBox ? <>{againBox}{invoice && <div className="mt-3 flex justify-end"><HistoryButton model="InvoicedCost" id={invoice.id} /></div>}</> : undefined}
       submitLabel={invoice ? "Save" : "Add invoice"}
     />
   );

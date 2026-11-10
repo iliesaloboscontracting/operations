@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { JOB_CANCELLED_SIGN_IN, createSignIn } from "@/lib/signInCreate";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { nameWithoutAmounts } from "@/lib/dailyLog/money";
 import { jobLabel, makeOdometerToken, makePrestartToken, makeTravelPass, openJob, pointOf, readTicket, sydneyTime, takesSignIns } from "@/lib/signin";
@@ -108,8 +109,7 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
     // that one ends now. A site one goes to its supervisor to confirm.
     // (Fix 1, 2 Nov 2026: the same helper every sign-in path uses, with a note kept on the ended line.)
     const elsewhere = await endOpenElsewhere({ who, at: now, here: { jobId: where.jobId, place: where.place, vehicleId: where.vehicleId }, label: where.label, by: runBy ?? "Sign-in", siteToConfirm: true });
-    const signedIn = await prisma.siteAttendance.create({
-      data: {
+    const signedIn = await createSignIn({
         jobId: where.jobId,
         place: where.place,
         vehicleId: where.vehicleId,
@@ -125,8 +125,8 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
         // Accounts stage 2 (Ilies: GPS "with sign in", never tracked): where the phone was at this moment
         // only, if it said. Missing / refused never stops a sign-in. Accounts / Admin see it; nobody else.
         ...parseGps(body.gps),
-      },
     });
+    if (!signedIn) return bad(JOB_CANCELLED_SIGN_IN, 409); // PS-031: the job was cancelled a moment ago
     // Anywhere they were just moved off now has their hours.
     await syncSignInActualsQuietly([...elsewhere.map((e) => e.jobId), where.jobId]);
     await syncPersonDayQuietly(who.resourceId, where.date);

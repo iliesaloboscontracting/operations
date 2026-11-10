@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { JOB_CANCELLED_SIGN_IN, createSignIn } from "@/lib/signInCreate";
 import { guard, getCurrentUser, guardOrCoordinator } from "@/lib/auth";
 import { viewJson } from "@/lib/coordinatorView"; // the coordinator gets no dollar figure (2 Nov 2026)
 import { withErrorHandling } from "@/lib/apiHandler";
@@ -88,8 +89,7 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   // a line added WITH its sign-out (filling in the past) only does that when the office ticks "end their other open
   // sign-in" (endOpen: true); an open line (still on site today) always does.
   const ended = signOutAt && body.endOpen !== true ? [] : await endOpenElsewhere({ who, at: signInAt, here: job ? { jobId: job.id } : { jobId: null, place: point!.place, vehicleId: point!.vehicleId }, label: job ? "another job (added by the office)" : point!.placeLabel, by });
-  const created = await prisma.siteAttendance.create({
-    data: {
+  const created = await createSignIn({
       jobId: job?.id ?? null,
       ...(point ?? {}),
       date,
@@ -104,8 +104,8 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
       confirmedAt: new Date(),
       runBy: by,
       edits: { create: { field: "added", before: null, after: `${signInAt.toISOString()} - ${signOutAt?.toISOString() ?? "open"}`, reason, editedBy: by } },
-    },
   });
+  if (!created) return NextResponse.json({ error: JOB_CANCELLED_SIGN_IN }, { status: 409 }); // PS-031
   await syncSignInActualsQuietly([created.jobId, ...ended.map((e) => e.jobId)]);
   await syncPersonDayQuietly(who.resourceId, date);
   return NextResponse.json({ id: created.id, ...(ended.length ? { ended: ended.length } : {}) }, { status: 201 });

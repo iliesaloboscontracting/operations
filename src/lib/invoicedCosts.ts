@@ -6,7 +6,7 @@ import { prisma } from "./prisma";
 import { isISODate } from "./dateRules";
 import { docketNosOf, parseDocketNos } from "./receipts/tipCosts";
 import { syncTipMatchesSoon } from "./receipts/tipStore";
-import { hideTracked, type HistoryCtx } from "./history/store";
+import { hideTracked, writeChanges, type HistoryCtx } from "./history/store";
 
 export const INVOICE_CATEGORIES = ["PLANT_HIRE", "LABOUR_HIRE", "TIP_FEES", "MATERIALS"] as const;
 
@@ -32,7 +32,7 @@ const round = (n: number) => Math.round(n * 100) / 100;
 
 // Checks and normalises a submitted invoice. `existingId` is the row being
 // corrected (left out of the duplicate check).
-export async function readInvoice(body: Record<string, unknown>, existingId?: string): Promise<{ error: string } | { data: InvoiceInput }> {
+export async function readInvoice(body: Record<string, unknown>, existingId?: string): Promise<{ error: string; removedMatch?: true } | { data: InvoiceInput; againOf?: string }> {
   const projectId = text(body.projectId, 40);
   if (!projectId || !(await prisma.project.findUnique({ where: { id: projectId }, select: { id: true } }))) return { error: "Pick the project." };
   const category = String(body.category ?? "");
@@ -70,12 +70,26 @@ export async function readInvoice(body: Record<string, unknown>, existingId?: st
   const raw = typeof body.docketNos === "string" && body.docketNos.trim().startsWith("[") ? docketNosOf(body.docketNos) : body.docketNos;
   const nos = category === "TIP_FEES" ? parseDocketNos(raw) : [];
 
+  let againOf: string | undefined;
   if (invoiceNo) {
     const dup = await prisma.invoicedCost.findFirst({
       where: { projectId, invoiceNo, vendor, removedAt: null, ...(existingId ? { id: { not: existingId } } : {}) },
       select: { id: true },
     });
     if (dup) return { error: `${vendor} invoice ${invoiceNo} is already entered on this project.` };
+    // PS-029 (Ilies approved, 10 Nov 2026): the same invoice was removed from this project on purpose (kept, hidden).
+    // It goes back on only when the person says the removal was wrong (addAgain) - recorded in its history.
+    const hidden = await prisma.invoicedCost.findFirst({
+      where: { projectId, invoiceNo, vendor, removedAt: { not: null }, ...(existingId ? { id: { not: existingId } } : {}) },
+      select: { id: true, removedAt: true, removedBy: true, removeReason: true }, orderBy: { removedAt: "desc" },
+    });
+    if (hidden) {
+      if (body.addAgain !== true) {
+        const on = hidden.removedAt!.toLocaleDateString("en-AU", { timeZone: "Australia/Sydney", day: "numeric", month: "short", year: "numeric" });
+        return { error: `${vendor} invoice ${invoiceNo} was removed from this project on ${on} by ${hidden.removedBy ?? "someone"} (${hidden.removeReason ?? "no reason given"}). Tick "Add again - the removal was wrong" to put it back on.`, removedMatch: true };
+      }
+      againOf = hidden.id;
+    }
   }
 
   return {
@@ -84,6 +98,7 @@ export async function readInvoice(body: Record<string, unknown>, existingId?: st
       amountExGst: round(ex), gst, totalIncGst: round(ex + gst),
       notes: text(body.notes, 1000), hireResourceId, periodFrom, periodTo, docketNos: nos.length ? JSON.stringify(nos) : null,
     },
+    ...(againOf ? { againOf } : {}),
   };
 }
 
@@ -99,4 +114,11 @@ export async function removeInvoicedCost(id: string, ctx: HistoryCtx = { by: nul
   await hideTracked("InvoicedCost", existing.id, ctx);
   if (existing.category === "TIP_FEES") syncTipMatchesSoon();
   return { ok: true };
+}
+
+// PS-029: an invoice added again after it was removed - the new line's history says so (and why, when given).
+export async function recordAddedAgain(newId: string, againOf: string, by: { id?: string | null; name?: string | null } | null, reason: unknown, source: string) {
+  await writeChanges(prisma, "InvoicedCost", newId, [{ field: "addedAgainAfterRemoval", before: null, after: againOf }], {
+    by, source, reason: typeof reason === "string" && reason.trim() ? reason.trim().slice(0, 500) : "The removal was wrong",
+  });
 }
