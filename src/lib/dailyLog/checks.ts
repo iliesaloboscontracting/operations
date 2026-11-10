@@ -73,9 +73,15 @@ const norm = (s: string | null | undefined) => (s ?? "").trim().toUpperCase();
 export function pickApprovedBudget<T extends { estimate_id: string; revision: number; status: string; jobNo: string; quoteNo: string }>(
   rows: T[], project: { jobNo: string | null; quoteNo: string | null },
 ): T | null {
+  return pickBudget(rows, project, "APPROVED");
+}
+// The same match for a budget in another state (Directors -> Waiting on you: a SUBMITTED one waiting for a decision).
+export function pickBudget<T extends { estimate_id: string; revision: number; status: string; jobNo: string; quoteNo: string }>(
+  rows: T[], project: { jobNo: string | null; quoteNo: string | null }, status: string,
+): T | null {
   const keys = new Set([norm(project.jobNo), norm(project.quoteNo)].filter(Boolean));
   if (!keys.size) return null;
-  const hits = rows.filter((r) => r.status === "APPROVED" && (keys.has(norm(r.jobNo)) || keys.has(norm(r.quoteNo))));
+  const hits = rows.filter((r) => r.status === status && (keys.has(norm(r.jobNo)) || keys.has(norm(r.quoteNo))));
   return hits.sort((a, b) => b.revision - a.revision)[0] ?? null;
 }
 

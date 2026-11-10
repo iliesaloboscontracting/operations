@@ -24,6 +24,7 @@ import HealthBand from "@/components/directors/HealthBand";
 import QuestionsBanner from "@/components/queries/QuestionsBanner";
 import DirectorChanges from "@/components/changes/DirectorChanges";
 import { ClaimsSection } from "@/components/directors/Claims";
+import WaitingOnYou from "@/components/directors/WaitingOnYou";
 
 const day = (iso: string) => fmtDay(iso, { day: "numeric", month: "short" });
 const weekday = (iso: string) => fmtDay(iso, { weekday: "short", day: "numeric" });
@@ -81,6 +82,8 @@ export default function DirectorsPage() {
         <p className="py-10 text-center text-sm text-gray-500">Loading...</p>
       ) : (
         <>
+          {/* Waiting on you (10 Nov 2026): what only the directors can give - three per group, the rest on its page. */}
+          <WaitingOnYou compact />
           {/* Information requests (Task I): questions waiting on this login. */}
           <QuestionsBanner />
           {/* Controlled changes (LCI phase 4): contract values waiting for Nick or Yoel. */}

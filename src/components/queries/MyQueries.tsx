@@ -54,7 +54,8 @@ export default function MyQueries({ rows, onChange, restLabel = "Answered and cl
   );
 }
 
-function QueryCard({ q, onChange }: { q: QuestionRow; onChange: () => void }) {
+// Also used on Directors -> Waiting on you (10 Nov 2026), one question at a time.
+export function QueryCard({ q, onChange }: { q: QuestionRow; onChange: () => void }) {
   const [answer, setAnswer] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);

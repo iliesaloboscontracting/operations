@@ -106,7 +106,7 @@ type Q = SiteRequest & { events?: SiteRequestEvent[] };
 const lastAt = (r: Q, action: string) => [...(r.events ?? [])].reverse().find((e) => e.action === action)?.at.toISOString() ?? null;
 
 export const assigneeView = (r: Q, forLink: boolean) => {
-  const d = JSON.parse(r.details || "{}") as { question?: string; finding?: string; need?: string; infoType?: string };
+  const d = JSON.parse(r.details || "{}") as { question?: string; finding?: string; need?: string; why?: string; infoType?: string };
   // Information requests (Task I) carry a title, "what we need" and a type; FYI is only marked read.
   const fyi = d.infoType === "FYI";
   return {
@@ -127,6 +127,7 @@ export const assigneeView = (r: Q, forLink: boolean) => {
     canAnswer: ANSWERABLE.includes(r.status) && !fyi,
     title: !r.findingId && r.origin !== "FINDING" ? r.summary : null,
     need: d.need ?? null,
+    why: forLink ? null : d.why ?? null, // an information request's own "why" (Directors -> Waiting on you)
     infoType: fyi ? ("FYI" as const) : ("QUESTION" as const),
     canMarkRead: fyi && ANSWERABLE.includes(r.status),
     remindedAt: lastAt(r, "REMINDED"),

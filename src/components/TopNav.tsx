@@ -86,6 +86,7 @@ const Divider = () => <span className="mx-1.5 h-5 w-px shrink-0 self-center bg-w
 // one sees exactly those tabs too, plus a way back to Operations.
 const DIRECTORS = [
   { href: "/directors", label: "Overview" },
+  { href: "/directors/waiting", label: "Waiting on you" }, // 10 Nov 2026
   { href: "/directors/pipeline", label: "Pipeline" },
   { href: "/directors/production", label: "Production" },
   { href: "/directors/budgets", label: "Budgets to approve" },
