@@ -22,6 +22,11 @@ test("the local fake: signed PUT (type AND length pinned - PS-043), multipart wi
   const send = (url: string, body: Uint8Array, ct: string | null = "image/jpeg") => fetch(url, { method: "PUT", headers: ct ? { "Content-Type": ct } : {}, body: Buffer.from(body) }).then((r) => r.status);
   assert.equal(await send(put, JPEG, "image/png"), 403, "another type");
   assert.equal(await send(put + "x", JPEG), 403, "a tampered signature");
+  // The MAC's last base64url character carries only 4 bits: the 3 characters that differ from it in the 2 discarded
+  // bits decode to the same bytes, so the signature must be compared as written (the release check 80 flake, 11 Nov).
+  const ALPHA = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+  const last = ALPHA.indexOf(put.slice(-1));
+  for (const flip of [1, 2, 3]) assert.equal(await send(put.slice(0, -1) + ALPHA[last ^ flip], JPEG), 403, `the last character changed within its discarded bits (^${flip})`);
   assert.equal(await send(put, new Uint8Array([...JPEG, 0])), 403, "PS-043: one byte more");
   assert.equal(await send(put, JPEG.subarray(1)), 403, "PS-043: one byte less");
   assert.equal(await store.head(key), null, "...nothing stored by a refused PUT");

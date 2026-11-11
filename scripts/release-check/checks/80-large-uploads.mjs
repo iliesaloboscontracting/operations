@@ -148,8 +148,13 @@ export default {
     t.ok(own.status === 302 && /^http:\/\/127\.0\.0\.1:\d+\/o\?t=/.test(loc) && own.headers.get("cache-control") === "no-store", "its own link: a redirect to a signed read (never cached)", own.status);
     const got = loc ? await fetch(loc) : null;
     t.ok(got?.status === 200 && Number(got.headers.get("content-length")) === 10 * MB, "...which serves the checked photo", got?.status);
-    const tampered = loc ? await fetch(loc.replace(/.$/, (ch) => (ch === "A" ? "B" : "A"))) : null;
+    // Tamper with the signed part (the grant, before the "."), so what's signed always changes - flipping the MAC's last
+    // character can land in its 2 discarded bits and decode to the same bytes (the flake this replaces).
+    const tamper = (u) => u.replace(/([?&]t=)(.)/, (_, k, ch) => `${k}${ch === "e" ? "f" : "e"}`);
+    const tampered = loc ? await fetch(tamper(loc)) : null;
     t.status({ status: tampered?.status ?? 0 }, 403, "a tampered signed address is refused");
+    const lastChar = loc ? await fetch(loc.replace(/.$/, (ch) => (ch === "A" ? "B" : "A"))) : null;
+    t.status({ status: lastChar?.status ?? 0 }, 403, "...and so is one with the signature's last character changed");
 
     // (7) The daily log cites them: a new ref must be this link's READY upload; the photo + video + a delay video.
     const dv = await upload(link, { area: "DELAY", jobId: job.id }, mp4(MB, 20), { kind: "VIDEO", mime: "video/mp4", durationSec: 20 });

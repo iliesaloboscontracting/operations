@@ -37,8 +37,11 @@ function verify(token: string | null): Grant | null {
   if (!token) return null;
   const [body, mac] = token.split(".");
   if (!body || !mac) return null;
-  const want = createHmac("sha256", state().secret).update(body).digest();
-  const got = Buffer.from(mac, "base64url");
+  // Compare the signature as written, not as decoded: a 32-byte MAC is 43 base64url characters whose last one carries
+  // only 4 bits, so a decode-then-compare accepted a last character changed within its 2 discarded bits (S3 compares
+  // the exact string too).
+  const want = Buffer.from(b64(createHmac("sha256", state().secret).update(body).digest()));
+  const got = Buffer.from(mac);
   if (got.length !== want.length || !timingSafeEqual(got, want)) return null;
   try {
     const gr = JSON.parse(Buffer.from(body, "base64url").toString("utf8")) as Grant;
