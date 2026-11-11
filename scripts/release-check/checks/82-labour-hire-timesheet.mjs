@@ -48,11 +48,13 @@ export default {
       kimPoster: await att(jTue, TUE, kim, "Advanced", "07:00", "15:30", { signInMethod: "POSTER", signOutMethod: "POSTER", status: "TO_CONFIRM" }), // 8.0, to confirm
       kimOpen: await att(jWed, WED, kim, "Advanced", "07:00", null), // no sign-out
       joe: await att(jWed, WED, joe, "ALH", "07:00", "17:00"), // 10h less 45 min = 9.25
-      ann: await att(jMon, MON, ann, other, "09:30", "14:30"), // 5.0, no break (not over 5h), LATE_IN
+      ann: await att(jMon, MON, ann, other, "09:30", "14:30"), // 4.5 (a 2020 date: the pre-26 Oct 2026 rule, a break off each line), LATE_IN
       rejected: await att(jWed, WED, sam, "Advanced Labour Hire", "07:00", "15:30", { status: "REJECTED" }),
       removed: await att(jMon, MON, joe, "ALH", "07:00", "15:30", { status: "REJECTED", removedAt: new Date(), removedBy: "release-check" }),
     };
-    const expectHours = { sam1: 8, sam2: 8, eve: 8, kimPoster: 8, kimOpen: null, joe: 9.25, ann: 5 };
+    const expectHours = { sam1: 8, sam2: 8, eve: 8, kimPoster: 8, kimOpen: null, joe: 9.25, ann: 4.5 };
+    // 2020 is before BREAK_RULE_FROM (26 Oct 2026), so each line keeps its own break (lib/dayHours.ts, as for staff) - the
+    // day rule (one break over 5h, never below 5h) is in the unit tests; here what matters is "the same as Sign-ins".
 
     // (1) Grouping (before any mapping): Advanced's spellings together; ALH and the other company apart.
     const all = await c.json(`${API}?week=${WEEK}&company=all`, "MANAGER");
@@ -79,8 +81,8 @@ export default {
 
     // (3) Hours: the expected values, and exactly what the Sign-ins page shows for the same lines (the staff rule).
     const byId = new Map(allLines.map((l) => [l.attendanceId, l]));
-    t.ok(Object.entries(expectHours).every(([k, h]) => byId.get(L[k].id)?.hours === h), "hours: 8 / 8 / 8 / 8 / none / 9.25 / 5 (break only over 5h, the project's break)", JSON.stringify(Object.fromEntries(Object.keys(expectHours).map((k) => [k, byId.get(L[k].id)?.hours]))));
-    t.ok(byId.get(L.joe.id)?.breakMinutes === 45 && byId.get(L.ann.id)?.breakMinutes === 0, "the break is the project's (45 min), none on a 5h day");
+    t.ok(Object.entries(expectHours).every(([k, h]) => byId.get(L[k].id)?.hours === h), "hours: 8 / 8 / 8 / 8 / none / 9.25 / 4.5 (the staff rule for that date, the project's break)", JSON.stringify(Object.fromEntries(Object.keys(expectHours).map((k) => [k, byId.get(L[k].id)?.hours]))));
+    t.ok(byId.get(L.joe.id)?.breakMinutes === 45 && byId.get(L.ann.id)?.breakMinutes === 30, "the break is each line's project's (45 / 30 min)");
     let same = true;
     for (const d of [MON, TUE, WED]) {
       const a = await c.json(`/api/attendance?date=${d}`, "MANAGER");
