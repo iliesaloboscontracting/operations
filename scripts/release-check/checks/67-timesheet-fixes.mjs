@@ -1,6 +1,7 @@
 // Timesheet fixes (Ilies, 2 Nov 2026: "build fixes 1-5, break once per day over 5h", "yes fix the payroll $ names",
-// and the security review TF-001..012). The once-a-day break (never below 5 h, the day rounded once, from 26 Oct
-// 2026); overlaps once; fix 1 + TF-002 (tick-in ends another open line only for this crew); TF-006 (a filled-in
+// and the security review TF-001..012). The once-a-day break (the day rounded once, from 26 Oct 2026; since 12 Nov 2026
+// - Ilies "change it to over 4 hours" - over 4 h with no floor from 2 Nov 2026, so the Feb 2027 week below is on the
+// 4-hour rule; the 5-hour week of 26 Oct and salaried staff are in 83-break-4h); overlaps once; fix 1 + TF-002 (tick-in ends another open line only for this crew); TF-006 (a filled-in
 // office add ends one only when asked); fix 2 + TF-003 (supervisor sign-out limits); fix 3; fix 4 + TF-008/009;
 // fix 5; payroll "$" names + TF-004 ("Aba"); TF-005 (same-name hire on two phones); TF-007c (a locked week's totals
 // never change). WRITES on the test copy: projects, jobs, allocations, links, sign-ins, a lock that is reopened.
@@ -22,13 +23,14 @@ function sydMidnight(date) {
 }
 
 export default {
-  id: "timesheet-fixes", title: "Timesheet fixes: break once a day (never below 5h, rounded once), overlaps, fixes 1-5, TF-001..012",
+  id: "timesheet-fixes", title: "Timesheet fixes: break once a day (over 4h from 2 Nov 2026, rounded once), overlaps, fixes 1-5, TF-001..012",
   writes: true, timeoutMs: 300_000,
   applies: (c) => c.hasPath("src/lib/dayHours.ts") || "needs the once-a-day break rule",
   async run(t, c) {
     const db = c.db, today = c.today, tag = Date.now().toString(36);
     t.note(`approved timesheet weeks in 2026 on the snapshot: ${await db.timesheetWeek.count({ where: { weekStart: { gte: "2026-01-01", lte: "2026-12-31" } } })}`);
-    const people = await db.resource.findMany({ where: { type: "PERSONNEL", active: true, attendances: { none: { date: today } }, siteLinks: { none: { kind: "SUPERVISOR", revokedAt: null } } }, select: { id: true, name: true }, take: 14 });
+    // Not salaried staff (no break at all from 2 Nov 2026 - lib/dayHours.ts): the hours below assume the break.
+    const people = await db.resource.findMany({ where: { type: "PERSONNEL", active: true, attendances: { none: { date: today } }, siteLinks: { none: { kind: "SUPERVISOR", revokedAt: null } }, OR: [{ payRateBasis: null }, { payRateBasis: { not: "SALARY" } }] }, select: { id: true, name: true }, take: 14 });
     if (people.length < 14) return t.block("fewer than 14 active Labour-register people without a sign-in today or a supervisor link on the snapshot");
     const [P, P2, A, A2, B, C, D, E, F, S, G, H, J, K] = people;
     const proj = (name, brk = 30) => db.project.create({ data: { name: `RC ${name} ${tag}`, status: "ACTIVE", unpaidBreakMinutes: brk } });
@@ -37,7 +39,7 @@ export default {
     const office = { place: "OFFICE", placeLabel: "Office" };
     const rowsOf = (b) => [...(b?.jobs ?? []), ...(b?.points ?? [])].flatMap((j) => j.rows ?? []);
 
-    // (1) The break rule, on a week after 26 Oct 2026 (15-21 Feb 2027).
+    // (1) The break rule, on a week after 2 Nov 2026 (15-21 Feb 2027): the 4-hour rule.
     const W = "2027-02-15";
     const pA = await proj("rule"), pB = await proj("rule45", 45);
     const jobOn = {};
@@ -56,7 +58,7 @@ export default {
     await add({ ...office, ...me("2027-02-20"), signInAt: aedt("2027-02-20", "06:00"), signOutAt: aedt("2027-02-20", "10:00") });
     await add({ jobId: j45.id, ...me("2027-02-20"), signInAt: aedt("2027-02-20", "10:30"), signOutAt: aedt("2027-02-20", "16:00") });
     await add({ jobId: night.id, ...me("2027-02-21"), signInAt: aedt("2027-02-21", "20:00"), signOutAt: aedt("2027-02-22", "04:30") });
-    // TF-011 on someone else: 5:10 -> 5.0, 6:00 -> 5.5.
+    // On someone else: 5:10 -> 4.75 (no 5-hour floor from 2 Nov 2026), 6:00 -> 5.5.
     await add({ ...office, date: "2027-02-15", resourceId: P2.id, workerName: P2.name, signInAt: aedt("2027-02-15", "07:00"), signOutAt: aedt("2027-02-15", "12:10") });
     await add({ ...office, date: "2027-02-16", resourceId: P2.id, workerName: P2.name, signInAt: aedt("2027-02-16", "07:00"), signOutAt: aedt("2027-02-16", "13:00") });
     // TF-005: two hire workers who typed the same name, on two phones, at the same time.
@@ -66,16 +68,16 @@ export default {
     const p = w?.people?.find((x) => x.resourceId === P.id), p2 = w?.people?.find((x) => x.resourceId === P2.id);
     const dayTotal = (pp, d) => (pp?.days?.[d] ?? []).reduce((n, l) => n + (l.hours ?? 0), 0);
     t.ok(dayTotal(p, "2027-02-15") === 12 && (p?.days?.["2027-02-15"] ?? []).every((l) => l.overlap), "Carlos's Monday: truck + site overlapping count once = 12h, both 'overlap'", JSON.stringify((p?.days?.["2027-02-15"] ?? []).map((l) => [l.site, l.hours])));
-    t.ok(dayTotal(p, "2027-02-16") === 4.5, "a 4.5h day gets no break");
+    t.ok(dayTotal(p, "2027-02-16") === 4, "a 4:30 day is over 4h: the 30 min break comes off -> 4.0h", String(dayTotal(p, "2027-02-16")));
     t.ok(dayTotal(p, "2027-02-17") === 9 && (p?.days?.["2027-02-17"] ?? []).reduce((n, l) => n + l.breakMinutes, 0) === 30, "truck + site on one day: ONE break, the day rounded once (537 min -> 9.0h)", String(dayTotal(p, "2027-02-17")));
     t.ok(dayTotal(p, "2027-02-18") === 2.75, "TF-001: 20 x 8 min = 2.75h (not 0)", String(dayTotal(p, "2027-02-18")));
     t.ok(dayTotal(p, "2027-02-19") === 9.5, "nested lines count once (06:00-16:00 with 08:00-09:00 inside = 9.5h)", String(dayTotal(p, "2027-02-19")));
     t.ok(dayTotal(p, "2027-02-20") === 8.75 && (p?.days?.["2027-02-20"] ?? []).some((l) => l.breakMinutes === 45), "differing breaks: the largest (45 min) comes off once", String(dayTotal(p, "2027-02-20")));
     t.ok(dayTotal(p, "2027-02-21") === 8, "a night shift 20:00-04:30 stays on its start date: 8h", String(dayTotal(p, "2027-02-21")));
-    t.ok(p?.total === 54.5, "the week: 12 + 4.5 + 9 + 2.75 + 9.5 + 8.75 + 8 = 54.5h", p?.total);
-    t.ok(dayTotal(p2, "2027-02-15") === 5 && dayTotal(p2, "2027-02-16") === 5.5, "TF-011 'never below 5': 5:10 -> 5.0h, 6:00 -> 5.5h", `${dayTotal(p2, "2027-02-15")} / ${dayTotal(p2, "2027-02-16")}`);
+    t.ok(p?.total === 54, "the week: 12 + 4 + 9 + 2.75 + 9.5 + 8.75 + 8 = 54h", p?.total);
+    t.ok(dayTotal(p2, "2027-02-15") === 4.75 && dayTotal(p2, "2027-02-16") === 5.5, "the 4-hour rule has no floor: 5:10 -> 4.75h, 6:00 -> 5.5h", `${dayTotal(p2, "2027-02-15")} / ${dayTotal(p2, "2027-02-16")}`);
     const pay = (await c.json(`/api/accounts/payroll?week=${W}`, "ACCOUNTS")).body;
-    t.ok(pay?.people?.find((x) => x.personKey === P.id)?.hours === 54.5, "Accounts payroll: the same 54.5h", pay?.people?.find((x) => x.personKey === P.id)?.hours);
+    t.ok(pay?.people?.find((x) => x.personKey === P.id)?.hours === 54, "Accounts payroll: the same 54h", pay?.people?.find((x) => x.personKey === P.id)?.hours);
     const sam = pay?.people?.find((x) => x.name === `RC Sam ${tag}`);
     t.ok(sam?.hours === 16, "TF-005: same-name hire workers on two phones keep their own hours (8 + 8)", sam?.hours);
     const att = (await c.json("/api/attendance?date=2027-02-15", "MANAGER")).body;

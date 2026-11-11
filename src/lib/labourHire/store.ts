@@ -14,7 +14,8 @@ import type { HireLine } from "./week";
 
 // Every hire / subcontract sign-in of the week (no Labour-register person - the worker typed their name and company),
 // not removed and not rejected, with the hours the Sign-ins page shows (lib/dayHoursStore.ts dayHoursFor - one break
-// per person per day over 5 h, overlaps once, each day rounded once: the staff rule) and the Sign-ins page's flags.
+// per person per day, over 4 h from 2 Nov 2026 (Ilies, 12 Nov 2026: labour hire "same new rule"), overlaps once, each
+// day rounded once: the staff rule; hire workers are never salaried) and the Sign-ins page's flags.
 export async function hireLines(weekStart: string): Promise<HireLine[]> {
   const rows = await prisma.siteAttendance.findMany({
     where: { date: { gte: weekStart, lte: weekEnd(weekStart) }, resourceId: null, removedAt: null, status: { not: "REJECTED" } },
@@ -30,7 +31,7 @@ export async function hireLines(weekStart: string): Promise<HireLine[]> {
     },
   });
   if (!rows.length) return [];
-  const day = await dayHoursFor(rows);
+  const day = await dayHoursFor(rows, { payRule: true });
 
   // Late sign-in / long day / signed out together - exactly as the Sign-ins page works them out: each job's sign-ins
   // (staff too, for "signed out together"), and who had already signed in earlier that day.

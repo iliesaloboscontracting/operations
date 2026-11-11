@@ -8,6 +8,16 @@ import type { ResourceDTO } from "@/lib/types";
 import { FLAG_LABEL, METHOD_LABEL, type AttendanceJob, type AttendanceRow } from "./types";
 import { jobFinish, parseClock } from "@/lib/shiftTimes";
 import { LOCATION_LABEL, locationKind, type LocationKind } from "@/lib/signinHow";
+import { breakRuleFor } from "@/lib/dayHours";
+
+// The break rule for the page's date, in a few words (lib/dayHours.ts; Ilies 12 Nov 2026: over 4 h from 2 Nov, none for
+// salaried staff; 26 Oct - 1 Nov over 5 h; earlier, a break off each sign-in).
+const breakNote = (date: string, min: number) => {
+  const rule = breakRuleFor(date);
+  return rule === "OVER_4H" ? ` (one ${min} min break a day, over 4h; none for salaried staff)`
+    : rule === "OVER_5H" ? ` (one ${min} min break a day, over 5h)`
+    : ` (${min} min break off each sign-in)`;
+};
 
 const btn = "rounded-lg bg-brand-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-brand-500 disabled:opacity-50";
 const quiet = "rounded-lg border border-edge px-2.5 py-1 text-xs text-gray-300 hover:bg-panel2 disabled:opacity-50";
@@ -135,7 +145,7 @@ export default function AttendanceJobCard({
             {point ? "" : `${job.times ?? "No times set"} · ${job.allocated.length} allocated · `}
             {filtered ? `${job.rows.length} shown (filtered)` : `${job.rows.filter((r) => r.status !== "REJECTED").length} signed in`}
             {!filtered && total > 0 && ` · ${total}h signed`}
-            {job.breakMinutes ? ` (one ${job.breakMinutes} min break a day, over 5h)` : ""}
+            {job.breakMinutes ? breakNote(date, job.breakMinutes) : ""}
           </div>
           {job.note && <div className="text-[11px] text-gray-400">{job.note}</div>}
           {handover && <div className="text-[11px] text-brand-300">Sign-in handed to {handover.name} until {fmt(handover.expiresAt)}</div>}

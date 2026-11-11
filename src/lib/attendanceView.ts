@@ -118,10 +118,10 @@ export async function attendanceForDate(date: string) {
     prisma.siteLink.findMany({ where: { kind: "POSTER", place: "VEHICLE", revokedAt: null }, select: { resource: { select: { id: true, name: true } } } }),
   ]);
 
-  // Hours per person per day (one break over 5 h, overlaps once - lib/dayHours.ts), and the active staff a hire
-  // sign-in might really be (fix 4).
+  // Hours per person per day (one break - over 4 h from 2 Nov 2026, none for salaried staff - overlaps once,
+  // lib/dayHours.ts), and the active staff a hire sign-in might really be (fix 4).
   const [dayMap, staffAll] = await Promise.all([
-    dayHoursFor([...jobs.flatMap((j) => j.attendances), ...pointRows]),
+    dayHoursFor([...jobs.flatMap((j) => j.attendances), ...pointRows], { payRule: true }),
     prisma.resource.findMany({ where: { type: "PERSONNEL", active: true }, select: { id: true, name: true } }),
   ]);
 
@@ -281,7 +281,8 @@ export async function signInHoursForJobs(jobIds: string[]) {
     const m = matchHireSignIns(tiles.filter((t) => t.jobId === jobId).map((t) => t.resource), rows.filter((r) => r.jobId === jobId && !r.resourceId).map((r) => ({ ...r, workerName: r.workerName })));
     m.forEach((t, id) => slot.set(id, t));
   }
-  // A person's whole day counts (their truck / office / other-site lines too): one break over 5 h, overlaps once.
+  // A person's whole day counts (their truck / office / other-site lines too): one break a day (lib/dayHours.ts - over
+  // 4 h from 2 Nov 2026), overlaps once. Day Review's site hours: salaried staff keep the break here (no payRule).
   const day = await dayHoursFor(rows);
   return rows.map((r) => ({
     jobId: r.jobId,

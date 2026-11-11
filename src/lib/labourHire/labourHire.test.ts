@@ -61,14 +61,16 @@ test("worker names: same person typed differently", () => {
   assert.notEqual(workerKey("Sam Brien"), workerKey("Sam O Brien"));
 });
 
-test("hours use the staff rule (lib/dayHours.ts): one break over 5h, never below 5h", () => {
+test("hours use the staff rule (lib/dayHours.ts): one break on a day over 4h from 2 Nov 2026 (Ilies, 12 Nov: \"same new rule\")", () => {
   const at = (h: number, m = 0) => new Date(Date.UTC(2026, 10, 9, h - 11, m)); // AEDT
-  const line = (id: string, personKey: string, s: Date, e: Date) => ({ id, personKey, date: "2026-11-09", start: s, end: e, breakMinutes: 30 });
+  const line = (id: string, personKey: string, s: Date, e: Date, date = "2026-11-09") => ({ id, personKey, date, start: s, end: e, breakMinutes: 30 });
   const hire = dayHours([line("h", personKeyFor(null, "Sam Smith", "Advanced"), at(7), at(15, 30))]).get("h")!;
   const staff = dayHours([line("s", "res1", at(7), at(15, 30))]).get("s")!;
   assert.deepEqual(hire, staff);
   assert.equal(hire.hours, 8);
-  assert.equal(dayHours([line("x", personKeyFor(null, "A", "B"), at(7), at(12, 10))]).get("x")!.hours, 5, "5:10 counts 5.0");
+  assert.equal(dayHours([line("x", personKeyFor(null, "A", "B"), at(7), at(12, 10))]).get("x")!.hours, 4.75, "5:10 counts 4.75 (no 5-hour floor)");
+  assert.equal(dayHours([line("y", personKeyFor(null, "A", "B"), at(7), at(11, 1))]).get("y")!.hours, 3.5, "4:01 counts 3.5");
+  assert.equal(dayHours([line("z", personKeyFor(null, "A", "B"), at(7), at(12, 10), "2026-10-30")]).get("z")!.hours, 5, "the week of 26 Oct keeps the 5-hour rule: 5:10 counts 5.0");
 });
 
 test("the flags on a line", () => {

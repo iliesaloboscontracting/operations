@@ -91,11 +91,15 @@ test("an export that still looks like bank / tax details is refused, not sent", 
 
 test("the explainer says the rules the code uses, and no money", () => {
   const text = JSON.stringify(TIMESHEETS_EXPLAINER);
-  assert.equal(TIMESHEETS_NOTICE, "ACCOUNTS_TIMESHEETS_V3", "bumped with the notes explained one by one (4 Nov 2026)");
+  assert.equal(TIMESHEETS_NOTICE, "ACCOUNTS_TIMESHEETS_V4", "bumped with the over-4-hours break rule (12 Nov 2026)");
   assert.ok(text.includes(`${POINT_BREAK_MINUTES} minutes at the office, yard and trucks`), "the sign-in point break is the code's constant");
-  assert.match(text, /One unpaid break per person per day, and only when their day's total is over 5 hours - and the break never takes the day below 5 hours/);
+  assert.match(text, /unpaid lunch break \(30 min\) comes off any day over 4 hours \(from Monday 2 November 2026\)/);
+  assert.match(text, /4:01 counts 3\.5/);
+  assert.match(text, /Staff on salary: no break taken off/);
+  assert.match(text, /26 October 2026 - 1 November 2026 used the 5-hour rule/);
+  assert.match(text, /never taking it below 5/);
   assert.match(text, /rounded once/);
-  assert.match(text, /applies from Monday 26 October 2026/);
+  assert.match(text, /Before Monday 26 October 2026 each sign-in lost its own break/);
   assert.match(text, /overlap - counted once/);
   assert.ok(text.includes(`last ${STILL_ON_HOURS} hours`), "on-site-now window is the code's constant");
   assert.match(text, /nearest quarter hour/);

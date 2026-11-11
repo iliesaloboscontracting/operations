@@ -142,7 +142,7 @@ export default function LabourHireHoursPage() {
           <CompanyNames data={data} reload={load} />
 
           <p className="mt-4 text-[11px] text-gray-500">
-            Hire and subcontract workers sign in with their own name and the company they typed. Hours are worked out exactly as for staff: signed in to signed out; one unpaid break per person per day (the project&apos;s break), only when the day is over 5h and never taking it below 5h; time signed in twice at once counts once; each day rounded once to the quarter hour. Removed and rejected sign-ins are left out. Company names are grouped ignoring case, spaces, punctuation and words like Pty Ltd, Labour and Hire (not Group or Services - two companies can share those; map them if they are one). To fix a time, use the Sign-ins page (the change and reason are kept).
+            Hire and subcontract workers sign in with their own name and the company they typed. Hours are worked out exactly as for staff: signed in to signed out; one unpaid break per person per day (the project&apos;s break) on any day over 4 hours (from 2 Nov 2026; 26 Oct - 1 Nov 2026 used the 5-hour rule: only a day over 5h, never taking it below 5h); time signed in twice at once counts once; each day rounded once to the quarter hour. Removed and rejected sign-ins are left out. Company names are grouped ignoring case, spaces, punctuation and words like Pty Ltd, Labour and Hire (not Group or Services - two companies can share those; map them if they are one). To fix a time, use the Sign-ins page (the change and reason are kept).
           </p>
         </>
       )}

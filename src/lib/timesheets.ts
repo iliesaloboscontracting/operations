@@ -5,7 +5,7 @@
 // and hours only - never a dollar figure.
 import { prisma } from "./prisma";
 import { jobLabel, POINT_BREAK_MINUTES, STILL_ON_HOURS, sydneyTime } from "./signin";
-import { dayHours } from "./dayHours";
+import { dayHours, isSalaried } from "./dayHours";
 import { todaySydney } from "./today";
 import { csvCell } from "./payroll/rules";
 import type { TravelLine } from "./travel/store";
@@ -24,7 +24,7 @@ export type TimesheetLine = {
   onSite?: boolean; // signed in within the last 20 hours and not out yet - not a missing sign-out // office / yard / truck sign-in rather than a project site
   in: string;
   out: string | null;
-  breakMinutes: number; // the unpaid break taken off THIS line (one per person per day, over 5 h - lib/dayHours.ts)
+  breakMinutes: number; // the unpaid break taken off THIS line (one per person per day - lib/dayHours.ts; 0 for salaried staff from 2 Nov 2026)
   hours: number | null;
   status: string; // CONFIRMED | TO_CONFIRM
   allocated: boolean;
@@ -89,14 +89,14 @@ export async function timesheetLines(weekStart: string): Promise<TimesheetLine[]
     where: { date: { gte: weekStart, lte: weekEnd(weekStart) }, status: { not: "REJECTED" }, resource: { type: "PERSONNEL" } },
     orderBy: [{ workerName: "asc" }, { signInAt: "asc" }],
     include: {
-      resource: { select: { id: true, name: true, role: true } },
+      resource: { select: { id: true, name: true, role: true, payRateBasis: true } },
       job: { select: { title: true, shift: true, project: { select: { name: true, unpaidBreakMinutes: true } } } },
       edits: { orderBy: { editedAt: "asc" } },
     },
   });
-  // One break per person per day over 5 h, overlaps counted once (Ilies, 2 Nov 2026) - every staff line of the week
-  // is here, so each person's whole day is too.
-  const day = dayHours(rows.map((a) => ({ id: a.id, personKey: a.resource!.id, date: a.date, start: a.signInAt, end: a.signOutAt, breakMinutes: a.job ? a.job.project?.unpaidBreakMinutes ?? 0 : POINT_BREAK_MINUTES })));
+  // One break per person per day (over 4 h from 2 Nov 2026, none for salaried staff), overlaps counted once
+  // (lib/dayHours.ts) - every staff line of the week is here, so each person's whole day is too.
+  const day = dayHours(rows.map((a) => ({ id: a.id, personKey: a.resource!.id, date: a.date, start: a.signInAt, end: a.signOutAt, breakMinutes: a.job ? a.job.project?.unpaidBreakMinutes ?? 0 : POINT_BREAK_MINUTES, noBreak: isSalaried(a.resource) })));
   return rows.map((a) => {
     const h = day.get(a.id)!;
     return {

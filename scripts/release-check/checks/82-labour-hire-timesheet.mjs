@@ -57,7 +57,8 @@ export default {
     await att(jWed, WED, `RC Stu ${tag}`, `RC Abc${tag} Services Pty Ltd`, "07:00", "15:30");
     const expectHours = { sam1: 8, sam2: 8, eve: 8, kimPoster: 8, kimOpen: null, joe: 9.25, ann: 4.5 };
     // 2020 is before BREAK_RULE_FROM (26 Oct 2026), so each line keeps its own break (lib/dayHours.ts, as for staff) - the
-    // day rule (one break over 5h, never below 5h) is in the unit tests; here what matters is "the same as Sign-ins".
+    // day rule (one break over 4h from 2 Nov 2026; over 5h, never below 5h, 26 Oct - 1 Nov) is in the unit tests and
+    // 83-break-4h; here what matters is "the same as Sign-ins".
 
     // (1) Grouping (before any mapping): Advanced's spellings together; ALH and the other company apart.
     const all = await c.json(`${API}?week=${WEEK}&company=all`, "MANAGER");

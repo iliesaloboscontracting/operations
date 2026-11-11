@@ -8,9 +8,10 @@ import { POINT_BREAK_MINUTES, STILL_ON_HOURS } from "./signin";
 import { timesheetCsv, type TimesheetLine, type TravelLine } from "./timesheets";
 import { fileIsSafe } from "./payroll/rules";
 import { HOME_OFFER_HOURS, TRAVEL_CAP_HOURS } from "./travel/rules";
-import { BREAK_OVER_MINUTES, breakRuleFrom } from "./dayHours";
+import { BREAK_OVER_MINUTES, BREAK_OVER_MINUTES_4H, break4hFrom, breakRuleFrom } from "./dayHours";
 
-const ruleFromText = () => new Date(breakRuleFrom() + "T12:00:00Z").toLocaleDateString("en-AU", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
+const dateText = (d: string, weekday = true) => new Date(d + "T12:00:00Z").toLocaleDateString("en-AU", { ...(weekday ? { weekday: "long" as const } : {}), day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
+const dayBefore = (d: string) => new Date(new Date(d + "T12:00:00Z").getTime() - 86_400_000).toISOString().slice(0, 10);
 
 // ---------- the one-time notice ----------
 
@@ -19,7 +20,10 @@ const ruleFromText = () => new Date(breakRuleFrom() + "T12:00:00Z").toLocaleDate
 // V3 (4 Nov 2026, Ilies: "a notification to pop up on the accounts dashboard ... how the sign-ins work, how they
 // reflect on the timesheets, and any of the small indicators and what they mean"): the notes on the timesheet are
 // explained one by one, and it comes up on the Accounts dashboard too - she sees it again.
-export const TIMESHEETS_NOTICE = "ACCOUNTS_TIMESHEETS_V3";
+// V4 (12 Nov 2026, Ilies: "change it to over 4 hours from this week but adjust the hours on the new rule from last week
+// aswell"; "Alex is on salary and therefore this rule wouldnt apply to him or anyone else on salary"): the break comes
+// off any day over 4 hours from 2 Nov 2026, none for salaried staff - she sees it again.
+export const TIMESHEETS_NOTICE = "ACCOUNTS_TIMESHEETS_V4";
 
 // New projects start with a 30-minute unpaid break (prisma/schema.prisma Project.unpaidBreakMinutes @default(30);
 // the project form's placeholder, lib/projectFormFields.ts). Not importable from the schema, so it is stated here.
@@ -42,16 +46,17 @@ export const TIMESHEETS_EXPLAINER: Explainer = {
       ],
     },
     {
-      // lib/dayHours.ts (BREAK_OVER_MINUTES, never below 5 h - TF-011, the day merge, the break off the longest line, the day
-      // rounded once - TF-001, BREAK_RULE_FROM - TF-007a);
-      // lib/signin.ts POINT_BREAK_MINUTES; lib/timesheets.ts timesheetLines / peopleOf (Ilies, 2 Nov 2026: "break once per day over 5h")
+      // lib/dayHours.ts (BREAK_OVER_MINUTES_4H and BREAK_4H_FROM, no floor, DayLine.noBreak for payRateBasis SALARY -
+      // Ilies 12 Nov 2026; BREAK_OVER_MINUTES, never below 5 h - TF-011, 26 Oct - 1 Nov; the day merge, the break off the
+      // longest line, the day rounded once - TF-001, BREAK_RULE_FROM - TF-007a);
+      // lib/signin.ts POINT_BREAK_MINUTES; lib/timesheets.ts timesheetLines / peopleOf
       heading: "How hours are worked out",
       bullets: [
-        `Hours = sign-out time minus sign-in time. One unpaid break per person per day, and only when their day's total is over ${BREAK_OVER_MINUTES / 60} hours - and the break never takes the day below ${BREAK_OVER_MINUTES / 60} hours (5:10 counts 5.0, 6:00 counts 5.5).`,
-        `The break is the largest set on any of that day's places: each project's own setting (new projects start at ${PROJECT_BREAK_DEFAULT} minutes), and ${POINT_BREAK_MINUTES} minutes at the office, yard and trucks. It comes off the day's longest sign-in.`,
+        `Hours = sign-out time minus sign-in time. The unpaid lunch break (${PROJECT_BREAK_DEFAULT} min) comes off any day over ${BREAK_OVER_MINUTES_4H / 60} hours (from ${dateText(break4hFrom())}): 4:01 counts 3.5, 5:03 counts 4.5. A day of ${BREAK_OVER_MINUTES_4H / 60} hours or less has no break. Staff on salary: no break taken off.`,
+        `One break per person per day - the largest set on any of that day's places: each project's own setting (new projects start at ${PROJECT_BREAK_DEFAULT} minutes), and ${POINT_BREAK_MINUTES} minutes at the office, yard and trucks. It comes off the day's longest sign-in.`,
         "Signed in at two places at the same time (a truck and a site, say)? That time counts once, and both lines show \"overlap - counted once\".",
         "Each day is rounded once to the nearest quarter hour and shared across its lines, so the lines always add up to the day.",
-        `This applies from ${ruleFromText()}. Earlier days keep the old rule (a break off each sign-in, each rounded on its own).`,
+        `Earlier weeks: ${dateText(breakRuleFrom(), false)} - ${dateText(dayBefore(break4hFrom()), false)} used the ${BREAK_OVER_MINUTES / 60}-hour rule (the break only on a day over ${BREAK_OVER_MINUTES / 60} hours, never taking it below ${BREAK_OVER_MINUTES / 60} - 5:10 counted 5.0, 6:00 counted 5.5). Before ${dateText(breakRuleFrom())} each sign-in lost its own break, each rounded on its own.`,
       ],
     },
     {
@@ -110,7 +115,7 @@ export const TIMESHEETS_EXPLAINER: Explainer = {
       heading: "The notes on a sign-in: information only",
       bullets: [
         `"on site now" - signed in within the last ${STILL_ON_HOURS} hours and not out yet. Not a problem.`,
-        "\"less 30 min break\" (or another number) - the unpaid break taken off this line. Only one line a day has it.",
+        "\"less 30 min break\" (or another number) - the unpaid break taken off this line. Only one line a day has it, and never a salaried person's.",
         "\"overlap - counted once\" - signed in at two places at the same time; that time is counted once.",
         "\"office changed\" - the office changed a time. On a computer, hover over the box to see the reason; it's also in the export's Notes column.",
         "\"not allocated\" - they weren't on that job on the board when they signed in. The hours still count.",

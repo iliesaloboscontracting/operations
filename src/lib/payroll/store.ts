@@ -4,7 +4,7 @@
 // only; writes HoursApproval and PayWeekReview rows. Hours only, never money.
 import { prisma } from "../prisma";
 import { jobLabel, POINT_BREAK_MINUTES, sydneyTime } from "../signin";
-import { dayHours } from "../dayHours";
+import { dayHours, isSalaried } from "../dayHours";
 import { dayHoursFor } from "../dayHoursStore";
 import { matchHireSignIns } from "../labourHireMatch";
 import { activeApproval, weekDates, weekEnd, weekHasEnded } from "../timesheets";
@@ -41,7 +41,7 @@ export async function payLines(weekStart: string): Promise<PayLine[]> {
     select: {
       id: true, date: true, jobId: true, resourceId: true, workerName: true, company: true, deviceId: true, signInAt: true, signOutAt: true, status: true,
       placeLabel: true, place: true, gpsLat: true, gpsLng: true, gpsAccuracyM: true, gpsStatus: true,
-      resource: { select: { id: true, name: true, type: true, engagement: true } },
+      resource: { select: { id: true, name: true, type: true, engagement: true, payRateBasis: true } },
       job: { select: { title: true, shift: true, project: { select: { name: true, unpaidBreakMinutes: true } } } },
     },
   });
@@ -53,8 +53,9 @@ export async function payLines(weekStart: string): Promise<PayLine[]> {
     matchHireSignIns(tiles.filter((t) => t.jobId === jobId).map((t) => t.resource), rows.filter((r) => r.jobId === jobId && !r.resourceId)).forEach((t, id) => tileOf.set(id, t.name));
   }
   const kept = rows.filter((r) => !r.resource || r.resource.type === "PERSONNEL");
-  // One break per person per day over 5 h, overlaps counted once (lib/dayHours.ts, Ilies 2 Nov 2026).
-  const day = dayHours(kept.map((r) => ({ id: r.id, personKey: personKeyOf(r.resourceId, r.resource?.name ?? r.workerName, r.company), date: r.date, start: r.signInAt, end: r.signOutAt, breakMinutes: r.job ? r.job.project?.unpaidBreakMinutes ?? 0 : POINT_BREAK_MINUTES, deviceId: r.deviceId })));
+  // One break per person per day (over 4 h from 2 Nov 2026, none for salaried staff), overlaps counted once
+  // (lib/dayHours.ts).
+  const day = dayHours(kept.map((r) => ({ id: r.id, personKey: personKeyOf(r.resourceId, r.resource?.name ?? r.workerName, r.company), date: r.date, start: r.signInAt, end: r.signOutAt, breakMinutes: r.job ? r.job.project?.unpaidBreakMinutes ?? 0 : POINT_BREAK_MINUTES, deviceId: r.deviceId, noBreak: isSalaried(r.resource) })));
   return kept.map((r) => {
     const name = r.resource?.name ?? r.workerName;
     const chk: string[] = []; // TF-004: which of name / company / site had to be swapped for a placeholder
@@ -254,8 +255,9 @@ export async function dayHoursForLink(link: ResolvedLink, date: string): Promise
     where: { jobId: { in: jobs.map((j) => j.id) }, status: { not: "REJECTED" } }, orderBy: { signInAt: "asc" },
     select: { id: true, jobId: true, date: true, resourceId: true, allocated: true, workerName: true, company: true, signInAt: true, signOutAt: true, status: true, resource: { select: { name: true } } },
   }) : [];
-  // Each person's whole day (their truck, office or other-site lines too): one break over 5 h, overlaps once.
-  const day = await dayHoursFor(atts);
+  // Each person's whole day (their truck, office or other-site lines too): one break (over 4 h from 2 Nov 2026, none
+  // for salaried staff - the same hours payLines shows accounts), overlaps once.
+  const day = await dayHoursFor(atts, { payRule: true });
   const approvals = await latestApprovals(jobs.map((j) => ({ jobId: j.id, date })));
   const dto: DayHoursDTO = {
     date,
