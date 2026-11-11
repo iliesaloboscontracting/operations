@@ -8,7 +8,9 @@ export const MAY_ANSWER = {
   NO_LOGIN: [/^\/api\/auth\/(login|setup|me)$/],
   // TIMESHEETS (Alex, review-only weekly timesheets): guardTimesheetViewer(); /api/queries is only ever this login's own.
   // /api/messages/unread answers a plain { unread: 0 } to logins that don't chat (so the nav can ask for any login).
-  TIMESHEETS: [/^\/api\/auth\//, /^\/api\/timesheets(\/|$)/, /^\/api\/queries$/, /^\/api\/messages\/unread$/],
+  // The labour hire hours (/api/timesheets/labour-hire, 11 Nov 2026) are NOT this login's - left out of its pattern on
+  // purpose, so the matrix proves they refuse it.
+  TIMESHEETS: [/^\/api\/auth\//, /^\/api\/timesheets(\/(?!labour-hire(\/|$))|$)/, /^\/api\/queries$/, /^\/api\/messages\/unread$/],
   // DIRECTOR logins: the Directors screen, plus what it reads (findings, own queries, Xero mirror, info requests,
   // controlled changes to approve, lessons). Everything in Operations refuses them.
   DIRECTOR: [/^\/api\/auth\//, /^\/api\/directors(\/|$)/, /^\/api\/findings(\/|$)/, /^\/api\/queries$/, /^\/api\/xero(\/|$)/,
@@ -27,7 +29,8 @@ export const MAY_ANSWER = {
   // Day Review with its site logs / dockets / photos, the calendar (+ the project list it reads), the Hire register
   // (type=HIRE only, money-free) with its alerts and site checks, tools / toolboxes / faults, his own purchase
   // requests, office chat, the site & safety documents, his own queries. checks/63-coordinator.mjs looks closer.
-  COORDINATOR: [/^\/api\/auth\//, /^\/api\/timesheets$/, /^\/api\/attendance$/, /^\/api\/day-review$/, /^\/api\/day-review\/dockets$/,
+  // + the labour hire hours, view and export (Ilies, 11 Nov 2026 - checks/82-labour-hire-timesheet.mjs).
+  COORDINATOR: [/^\/api\/auth\//, /^\/api\/timesheets$/, /^\/api\/timesheets\/labour-hire(\/export)?$/, /^\/api\/attendance$/, /^\/api\/day-review$/, /^\/api\/day-review\/dockets$/,
     /^\/api\/day-review\/site-logs(\/photo|\/before-after)?$/, /^\/api\/calendar$/, /^\/api\/projects$/, /^\/api\/resources$/,
     /^\/api\/hire-(alerts|checks)$/, /^\/api\/tools$/, /^\/api\/toolboxes$/, /^\/api\/tool-issues$/, /^\/api\/stock-takes$/, /^\/api\/purchases$/,
     /^\/api\/messages(\/|$)/, /^\/api\/documents(\/|$)/, /^\/api\/queries$/, /^\/api\/inventory$/,

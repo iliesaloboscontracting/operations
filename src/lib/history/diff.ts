@@ -9,6 +9,7 @@ export type FieldChange = { field: string; before: string | null; after: string 
 export const HISTORY_MODELS = [
   "Resource", "Project", "Job", "Tool", "Toolbox", "ToolIssue", "InvoicedCost", "InvoiceDraft", "ServiceRecord",
   "ProjectContact", "SiteAlias", "BugReport", "AccountsItem", "JobActual", "DayClose", "TimesheetWeek",
+  "LabourHireCompanyAlias", // the labour hire timesheet's company-name mappings (11 Nov 2026)
 ] as const;
 export type HistoryModel = (typeof HISTORY_MODELS)[number];
 export const isHistoryModel = (m: unknown): m is HistoryModel => typeof m === "string" && (HISTORY_MODELS as readonly string[]).includes(m);

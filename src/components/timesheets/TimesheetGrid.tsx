@@ -58,9 +58,9 @@ function Entry({ l, today, showSite = true }: { l: TimesheetLine; today: string;
         </span>
         <span className="text-xs font-semibold text-gray-100">{hrs(l.hours)}</span>
       </div>
-      {(onNow || noOut || pending || zero || l.overlap || l.changedByOffice || !l.allocated) && (
+      {(onNow || noOut || pending || zero || l.overlap || l.changedByOffice || !l.allocated || !!l.flagNotes?.length) && (
         <div className="text-[10px] leading-tight text-amber-400">
-          {[onNow && "on site now", noOut && "no sign-out", pending && "to confirm", zero && !l.overlap && "check: 0h", l.overlap && "overlap - counted once", l.breakMinutes > 0 && `less ${l.breakMinutes} min break`, l.changedByOffice && "office changed", !l.allocated && "not allocated"].filter(Boolean).join(" · ")}
+          {[onNow && "on site now", noOut && "no sign-out", pending && "to confirm", zero && !l.overlap && "check: 0h", l.overlap && "overlap - counted once", l.breakMinutes > 0 && `less ${l.breakMinutes} min break`, l.changedByOffice && "office changed", !l.allocated && "not allocated", ...(l.flagNotes ?? [])].filter(Boolean).join(" · ")}
         </div>
       )}
     </div>
@@ -126,7 +126,7 @@ export function useWeekInUrl(today: () => string) {
 
 // By site (21 Oct 2026, Ilies): each project (then office, yard, trucks) as
 // its own tile with the people who worked there under it, Monday-Sunday.
-export function SiteView({ data, search }: { data: TimesheetData; search: string }) {
+export function SiteView({ data, search, emptyText = "No staff sign-ins this week." }: { data: TimesheetData; search: string; emptyText?: string }) {
   const lines = data.people.flatMap((p) => Object.values(p.days).flat());
   const sites = new Map<string, TimesheetLine[]>();
   for (const l of lines) sites.set(l.site, [...(sites.get(l.site) ?? []), l]);
@@ -158,7 +158,7 @@ export function SiteView({ data, search }: { data: TimesheetData; search: string
     // Project sites first (A-Z), then the office, yard and trucks.
     .sort((a, b) => Number(a.point) - Number(b.point) || a.site.localeCompare(b.site));
 
-  if (groups.length === 0) return <p className="rounded-xl border border-edge bg-panel p-6 text-center text-sm text-gray-500">No staff sign-ins this week.</p>;
+  if (groups.length === 0) return <p className="rounded-xl border border-edge bg-panel p-6 text-center text-sm text-gray-500">{emptyText}</p>;
   return (
     <div className="space-y-4">
       {groups.map((g) => (
@@ -214,10 +214,10 @@ export function SiteView({ data, search }: { data: TimesheetData; search: string
 }
 
 // By person: one row per person, their sign-ins under each day, the week total, and a day-total footer.
-export function PersonView({ data, search }: { data: TimesheetData; search: string }) {
+export function PersonView({ data, search, emptyText = "No staff sign-ins this week." }: { data: TimesheetData; search: string; emptyText?: string }) {
   const people = data.people.filter((p) => !search || p.name.toLowerCase().includes(search.toLowerCase()));
   const dayTotals = data.days.map((d) => data.people.reduce((n, p) => n + (p.days[d] ?? []).reduce((m, l) => m + (l.hours ?? 0), 0), 0));
-  if (people.length === 0) return <p className="rounded-xl border border-edge bg-panel p-6 text-center text-sm text-gray-500">No staff sign-ins this week.</p>;
+  if (people.length === 0) return <p className="rounded-xl border border-edge bg-panel p-6 text-center text-sm text-gray-500">{emptyText}</p>;
   return (
     <div className="overflow-x-auto rounded-xl border border-edge shadow-soft">
       <table className="w-full min-w-[1000px] border-collapse text-left text-sm">

@@ -30,6 +30,9 @@ export type TimesheetLine = {
   allocated: boolean;
   overlap?: boolean; // overlapped another of their sign-ins that day - the shared time counted once (2 Nov 2026)
   changedByOffice: string | null; // "sign-out 3:30pm -> 4:00pm (forgot to sign out)"
+  // Information-only notes (the labour hire timesheet, 11 Nov 2026: "Signed in 3:05pm – job starts 7am"). Staff lines
+  // never carry them, so the staff timesheet and its export are unchanged.
+  flagNotes?: string[];
 };
 
 export type TimesheetPerson = {
@@ -75,6 +78,10 @@ export const showEditValue = (field: string, v: string | null) =>
   : field === "status" ? v.toLowerCase().replace("_", " ")
   : field === "added" ? v.split(" - ").map((p) => (p === "open" ? "open" : timeText(p))).join(" - ")
   : timeText(v);
+// A sign-in's office changes as one note: "sign-out 3:30pm -> 4:00pm (forgot to sign out)" (null when none). Also the
+// labour hire timesheet's (lib/labourHire/store.ts).
+export const officeChangesText = (edits: { field: string; before: string | null; after: string | null; reason: string }[]) =>
+  edits.length ? edits.map((e) => `${FIELD[e.field] ?? e.field} ${showEditValue(e.field, e.before)} -> ${showEditValue(e.field, e.after)} (${e.reason})`).join("; ") : null;
 
 // Every non-rejected staff sign-in for the week, as timesheet lines.
 export async function timesheetLines(weekStart: string): Promise<TimesheetLine[]> {
@@ -108,9 +115,7 @@ export async function timesheetLines(weekStart: string): Promise<TimesheetLine[]
       overlap: h.overlap || undefined,
       status: a.status,
       allocated: a.allocated,
-      changedByOffice: a.edits.length
-        ? a.edits.map((e) => `${FIELD[e.field] ?? e.field} ${showEditValue(e.field, e.before)} -> ${showEditValue(e.field, e.after)} (${e.reason})`).join("; ")
-        : null,
+      changedByOffice: officeChangesText(a.edits),
     };
   });
 }
@@ -236,14 +241,20 @@ export async function exportLines(weekStart: string) {
 
 // Spreadsheet for accounts: one line per sign-in, one per travel leg (regional jobs, 2 Nov 2026 - its own
 // "Travel (h)" column, never in Hours), then each person's week total.
-export function timesheetCsv(weekStart: string, lines: TimesheetLine[], approval: { approvedBy: string; approvedAt: Date } | null, travel: TravelLine[] = []) {
+// `opts` (the labour hire timesheet, 11 Nov 2026): its own two title lines and its company totals under the same
+// columns. Left out, the file is exactly the staff timesheet.
+export type CsvRow = (string | number | null)[];
+export function timesheetCsv(
+  weekStart: string, lines: TimesheetLine[], approval: { approvedBy: string; approvedAt: Date } | null, travel: TravelLine[] = [],
+  opts: { head?: [string, string]; tail?: CsvRow[] } = {},
+) {
   // SEC-012 (27 Oct 2026): the same cell writer as the payroll exports - a name or note starting with = + - @ can't
   // become a formula when accounts open the file.
   const cell = csvCell;
   const dayName = (d: string) => new Date(d + "T12:00:00Z").toLocaleDateString("en-AU", { weekday: "short", timeZone: "UTC" });
-  const out: (string | number | null)[][] = [
-    [`Lobos Contracting - staff timesheet, week ${weekStart} to ${weekEnd(weekStart)}`],
-    [approval ? `APPROVED by ${approval.approvedBy} on ${approval.approvedAt.toLocaleString("en-AU", { timeZone: "Australia/Sydney" })}` : "DRAFT - not approved yet"],
+  const out: CsvRow[] = [
+    [opts.head?.[0] ?? `Lobos Contracting - staff timesheet, week ${weekStart} to ${weekEnd(weekStart)}`],
+    [opts.head?.[1] ?? (approval ? `APPROVED by ${approval.approvedBy} on ${approval.approvedAt.toLocaleString("en-AU", { timeZone: "Australia/Sydney" })}` : "DRAFT - not approved yet")],
     [],
     ["Employee", "Role", "Date", "Day", "Site / place", "Sign in", "Sign out", "Unpaid break (min)", "Hours", "Travel (h)", "Status", "Notes"],
   ];
@@ -256,6 +267,7 @@ export function timesheetCsv(weekStart: string, lines: TimesheetLine[], approval
           ...(l.allocated ? [] : ["Not on the allocation"]),
           ...(l.overlap ? ["Overlap - counted once"] : []),
           ...(l.changedByOffice ? ["Office changed: " + l.changedByOffice] : []),
+          ...(l.flagNotes ?? []),
         ].join("; ");
         out.push([p.name, p.role, l.date, dayName(l.date), l.site, l.in, l.out, l.breakMinutes, l.hours, "", l.status === "CONFIRMED" ? "Confirmed" : "To confirm", notes]);
       }
@@ -266,5 +278,6 @@ export function timesheetCsv(weekStart: string, lines: TimesheetLine[], approval
     }
     out.push([p.name, p.role, "", "WEEK TOTAL", "", "", "", "", p.total, p.travelTotal, "", ""]);
   }
+  out.push(...(opts.tail ?? []));
   return out.map((r) => r.map(cell).join(",")).join("\r\n") + "\r\n";
 }

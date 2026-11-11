@@ -26,6 +26,8 @@ const OPERATIONS = [
   { href: "/receipts", label: "Receipts" },
   { href: "/attendance", label: "Sign-ins" },
   { href: "/timesheets", label: "Timesheets" },
+  // Labour hire hours (11 Nov 2026, Ilies): the hire workers' week by company, to send to the labour hire company.
+  { href: "/timesheets/labour-hire", label: "Labour hire hours" },
   { href: "/tracking", label: "Project Tracking" },
   // Production has no tab (Ilies, 8 Nov 2026: "hide the tab only") - /production still works by its address
   // (with Offer to Estimating), and Directors -> Production is unchanged.
@@ -118,6 +120,7 @@ const ACCOUNTS = [
 const COORDINATOR = [
   { href: "/coordinator", label: "Dashboard" },
   { href: "/timesheets", label: "Timesheets" },
+  { href: "/timesheets/labour-hire", label: "Labour hire hours" }, // view + export (11 Nov 2026)
   { href: "/attendance", label: "Sign-ins" },
   { href: "/day-review", label: "Day Review" },
   { href: "/calendar", label: "Calendar" },
@@ -207,7 +210,8 @@ export default function TopNav() {
   }, [refreshBadge]);
   useAutoRefresh(refreshBadge);
 
-  const isActive = (href: string) => path === href || path.startsWith(href + "/");
+  // The labour hire hours page is its own tab, not part of Timesheets (11 Nov 2026).
+  const isActive = (href: string) => path === href || (path.startsWith(href + "/") && !(href === "/timesheets" && path.startsWith("/timesheets/labour-hire")));
 
   // Which screen this page belongs to. Remembered for the tab, so the invoices inbox opened from the
   // Accounts screen keeps the Accounts tabs, and Messages keeps the Accounts or Directors tabs it was opened
@@ -265,7 +269,7 @@ export default function TopNav() {
             <Divider />
           </>
         )}
-        {OPERATIONS.filter((i) => (i.href !== "/tracking" && i.href !== "/invoices" && i.href !== "/assistant" && i.href !== "/attendance" && i.href !== "/timesheets" && i.href !== "/requests" && i.href !== "/office-requests" && i.href !== "/purchases" && i.href !== "/questions" && i.href !== "/messages" && i.href !== "/receipts" && i.href !== "/documents") || canEdit).filter((i) => i.href !== "/questions" || myQuestions >= 0).map((i) => (
+        {OPERATIONS.filter((i) => (i.href !== "/tracking" && i.href !== "/invoices" && i.href !== "/assistant" && i.href !== "/attendance" && i.href !== "/timesheets" && i.href !== "/timesheets/labour-hire" && i.href !== "/requests" && i.href !== "/office-requests" && i.href !== "/purchases" && i.href !== "/questions" && i.href !== "/messages" && i.href !== "/receipts" && i.href !== "/documents") || canEdit).filter((i) => i.href !== "/questions" || myQuestions >= 0).map((i) => (
           <NavTab
             key={i.href}
             href={i.href}

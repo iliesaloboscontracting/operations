@@ -154,7 +154,7 @@ export async function markNoticeSeen(userId: string, notice = TIMESHEETS_NOTICE)
 // rates. Null when it still fails - the route then refuses rather than send it.
 // Only "$"-led amounts go (so "12 Grand Pde" or "5 Tonne Excavator" stay as they are).
 export const AMOUNT_REMOVED = "(amount removed)";
-const noDollar = (s: string) => s.replace(/[$＄﹩]\s?\d(?:[\d,]*\d)?(?:\.\d+)?/g, AMOUNT_REMOVED);
+export const noDollar = (s: string) => s.replace(/[$＄﹩]\s?\d(?:[\d,]*\d)?(?:\.\d+)?/g, AMOUNT_REMOVED);
 const noDollarOrNull = (s: string | null) => (s == null ? null : noDollar(s));
 
 export function accountsTimesheetCsv(weekStart: string, lines: TimesheetLine[], approval: { approvedBy: string; approvedAt: Date } | null, travel: TravelLine[] = []): string | null {

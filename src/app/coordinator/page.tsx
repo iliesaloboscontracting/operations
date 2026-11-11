@@ -11,6 +11,7 @@ import { useAuth } from "@/components/AuthProvider";
 // code here.
 const TILES = [
   { href: "/timesheets", label: "Timesheets", what: "The week's staff hours from sign-ins. View only.", icon: Clock },
+  { href: "/timesheets/labour-hire", label: "Labour hire hours", what: "The hire workers' week by company, to send to the labour hire company. View and export.", icon: Clock },
   { href: "/attendance", label: "Sign-ins", what: "Who signed in and out, on each site, the office, yard and trucks. View only.", icon: UserCheck },
   { href: "/day-review", label: "Day Review", what: "Planned vs what happened, the site logs and daily site reports. View only.", icon: ClipboardCheck },
   { href: "/calendar", label: "Calendar", what: "Every job coming up and running. View only.", icon: CalendarDays },

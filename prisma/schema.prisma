@@ -1053,6 +1053,25 @@ model TimesheetWeek {
   @@index([weekStart])
 }
 
+// Labour hire timesheet (11 Nov 2026, Ilies): hire workers type their company at sign-in, so one company shows up
+// spelt several ways. The office (Manager / Admin) maps a typed name to a company, e.g. "ALH" -> "Advanced Labour
+// Hire". One row per typed name (`alias` is its tidied key - lib/labourHire/rules.ts companyKey). Keep forever: a
+// mapping is never deleted - it is retired (retiredAt / By / Reason), and mapping the same name again brings the row
+// back. Every change is in RecordChange (model "LabourHireCompanyAlias"). Names only - never a rate or amount.
+model LabourHireCompanyAlias {
+  id           String    @id @default(cuid())
+  alias        String    @unique // the typed name's key ("alh")
+  aliasText    String // the typed name as the office entered it ("ALH")
+  company      String // the company it means ("Advanced Labour Hire")
+  createdBy    String
+  createdById  String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  retiredAt    DateTime?
+  retiredBy    String?
+  retireReason String?
+}
+
 // Site requests (21 Oct 2026, Ilies): supervisors ask for labour, trucks,
 // hire, tools and so on from their private link instead of a call or a
 // WhatsApp. Only Ilies (ADMIN) decides; approved ones go on the to-do list of
