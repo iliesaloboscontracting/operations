@@ -9,7 +9,10 @@
 // the video; pre-start fault videos and full-quality walk-around photos through the same caps, /faults plays the
 // video; feature OFF / kill switch -> the protocol refuses and the old routes are as before; the company's daily
 // ceiling (one Admin notice a day, cap ALL for the pre-start waiver); the 24 h abort is OFF unless MEDIA_ABORT_STALE=on;
-// no $ + digit in any link reply.
+// no $ + digit in any link reply. Security fixes (PS-043..046, 11 Nov 2026): a PUT / part bigger than signed is 403 and
+// nothing is stored; no address for a READY upload; the usage watch alerts once on an extra version; starts that
+// never send don't use up the company's day; a 4th upload on its way from one link is 429; the company ceiling never
+// waives a pre-start photo (the phone falls back to the old route, which still works); no version -> REJECTED.
 // WRITES on the test copy: a project + job today, links, a truck, two drivers, sign-ins, a check + fault, media rows, a
 // daily log; one seeded ceiling row (removed again).
 import { execFileSync } from "node:child_process";
@@ -85,9 +88,24 @@ export default {
     t.ok(photo.done?.status === 200 && photo.done.body.state === "READY" && photo.done.body.ref === `media:${photo.mediaId}`, "...complete: checked, READY, a media ref", JSON.stringify({ s: photo.done?.status, b: photo.done?.body }));
     const pRow = await db.mediaObject.findUnique({ where: { id: photo.mediaId } });
     t.ok(pRow?.state === "READY" && pRow.storedBytes === 10 * MB && pRow.versionId && /^daily-log\/\d{4}\/\d{2}\/[a-f0-9]{32}\.jpg$/.test(pRow.objectKey) && pRow.siteLinkId === link.id, "...the row: size from HEAD, version pinned, key made by the server");
+    t.status(await op(link, "parts", { mediaId: photo.mediaId }), 409, "PS-043: no new address for a READY upload");
+    t.status({ status: await put(photo.start.body.put.url, jpeg(10 * MB + 1), "image/jpeg") }, 403, "PS-043: one byte more than signed - refused by the store");
+    // The same still-valid address used again with the signed length: a second VERSION (never shown - reads are pinned);
+    // the usage watch reports it below.
+    t.status({ status: await put(photo.start.body.put.url, jpeg(10 * MB), "image/jpeg") }, 200, "the address re-used within its 5 minutes makes a second version");
+    const pinned = await fetch((await c.get(c.site(link, `/media/${photo.mediaId}`), null)).headers.get("location") ?? "", { headers: { Range: "bytes=0-3" } }).then((r) => r.arrayBuffer()).catch(() => null);
+    t.ok(pinned && Buffer.from(pinned).subarray(0, 3).equals(Buffer.from([0xff, 0xd8, 0xff])), "...reads stay pinned to the checked version");
 
     // (3) A 20 MB video: 3 parts, part 2 "dropped" - complete says what's missing, /parts resumes just that one.
     const vbytes = mp4(20 * MB, 90);
+    {
+      const s = await op(link, "start", { area: "DAILY_LOG", jobId: job.id, kind: "VIDEO", mime: "video/mp4", size: vbytes.length, durationSec: 90 });
+      t.ok(s.status === 201 && JSON.stringify(s.body.urls?.map((u) => u.n)) === "[1,2,3]", "PS-043: part addresses only for the planned parts 1..3", JSON.stringify(s.body.urls?.map((u) => u.n)));
+      t.status({ status: await put(s.body.urls?.[0]?.url, Buffer.alloc(PARTS + 1)) }, 403, "PS-043: a part bigger than signed - refused by the store");
+      t.status({ status: await put(s.body.urls?.[2]?.url, vbytes.subarray(2 * PARTS, 2 * PARTS + 10)) }, 403, "PS-043: a part shorter than signed - refused");
+      const left = await op(link, "complete", { mediaId: s.body.mediaId });
+      t.ok(left.status === 409 && left.body.missing, "...nothing stored - complete says it's still to send", left.status);
+    }
     const v = await upload(link, { area: "DAILY_LOG", jobId: job.id }, vbytes, { kind: "VIDEO", mime: "video/mp4", durationSec: 90, skip: [2] });
     t.ok(v.start.status === 201 && v.start.body.multipart === true && v.start.body.partCount === 3 && v.start.body.urls?.length === 3, "a 20 MB video: multipart, 3 x 8 MB parts", JSON.stringify({ s: v.start.status, n: v.start.body.partCount }));
     t.ok(v.done?.status === 409 && v.done.body.missing === true, "...part 2 dropped: complete says it isn't all there (409)", v.done?.status);
@@ -108,16 +126,17 @@ export default {
     t.status(await op(link, "start", { area: "DAILY_LOG", jobId: "not-a-job", kind: "PHOTO", mime: "image/jpeg", size: 100 }), 403, "another job's id: 403");
     t.status(await op(L.office ?? link, "start", { area: "DAILY_LOG", jobId: job.id, kind: "PHOTO", mime: "image/jpeg", size: 100 }), L.office ? 404 : 403, "an office link (no daily log): 404");
 
-    // (5) The server's checks are what count: more bytes than declared, wrong first bytes, a video's own header over 125 s.
+    // (5) The server's checks are what count: more bytes than declared (PS-043: now refused by the store itself), wrong
+    // first bytes, a video's own header over 125 s.
     const big = await upload(link, { area: "DAILY_LOG", jobId: job.id }, jpeg(2000), { declare: 1000 });
     const bad = await upload(link, { area: "DAILY_LOG", jobId: job.id }, ascii("<html><script>alert(1)</script></html>" + " ".repeat(200)));
     const longV = await upload(link, { area: "DAILY_LOG", jobId: job.id }, mp4(3 * MB, 130), { kind: "VIDEO", mime: "video/mp4", durationSec: 60 });
-    const rows = await db.mediaObject.findMany({ where: { id: { in: [big.mediaId, bad.mediaId, longV.mediaId].filter(Boolean) } } });
+    const rows = await db.mediaObject.findMany({ where: { id: { in: [bad.mediaId, longV.mediaId].filter(Boolean) } } });
     const reason = (id) => rows.find((r) => r.id === id)?.rejectReason;
-    t.ok(big.done?.status === 422 && reason(big.mediaId) === "SIZE", "more bytes than declared: 422, REJECTED (SIZE)", JSON.stringify({ s: big.done?.status, r: reason(big.mediaId) }));
+    t.ok(big.done?.status === 409 && big.done.body.missing && !(await db.mediaObject.findUnique({ where: { id: big.mediaId } }))?.storedBytes, "more bytes than declared: the store refused the PUT - nothing arrived (409 missing)", JSON.stringify({ s: big.done?.status }));
     t.ok(bad.done?.status === 422 && reason(bad.mediaId) === "TYPE", "an HTML file sent as a JPEG: 422, REJECTED (TYPE - first bytes)", JSON.stringify({ s: bad.done?.status, r: reason(bad.mediaId) }));
     t.ok(longV.done?.status === 422 && reason(longV.mediaId) === "TOO_LONG", "a video whose own header says 130 s (the phone said 60): REJECTED (TOO_LONG)", JSON.stringify({ s: longV.done?.status, r: reason(longV.mediaId) }));
-    t.ok(rows.length === 3 && rows.every((r) => r.state === "REJECTED"), "...all three rows kept (REJECTED), none deleted");
+    t.ok(rows.length === 2 && rows.every((r) => r.state === "REJECTED"), "...both rows kept (REJECTED), none deleted");
     t.status(await keep(await c.get(c.site(link, `/media/${bad.mediaId}`), null)), 404, "a REJECTED upload is never shown, even to its own link");
 
     // (6) Only its own link: another link can't resume, complete or read; the owner reads by a short-lived redirect.
@@ -251,16 +270,33 @@ export default {
 
     // (12) The company's daily ceiling: one seeded 20 GB row today -> a start is refused (cap ALL for a pre-start), one
     // Admin notice a day (PhotoCapNotice "*media" / MEDIA_DAY), a second refusal adds nothing. Then the seed is removed.
-    const seed = await db.mediaObject.create({ data: { area: "DAILY_LOG", kind: "VIDEO", mime: "video/mp4", bytes: 2147483647, objectKey: `rc80/${tag}/seed-a.mp4`, state: "REJECTED", rejectReason: "RC_SEED" } });
-    const seed2 = await db.mediaObject.create({ data: { area: "DAILY_LOG", kind: "VIDEO", mime: "video/mp4", bytes: 2147483647, objectKey: `rc80/${tag}/seed-b.mp4`, state: "REJECTED", rejectReason: "RC_SEED" } });
+    // PS-044 first: 60 starts of 400 MB an hour ago that never sent anything (24 GB declared) don't use up the day.
+    const ghosts = [];
+    for (let i = 0; i < 60; i++) ghosts.push((await db.mediaObject.create({ data: { area: "DAILY_LOG", kind: "VIDEO", mime: "video/mp4", bytes: 400 * MB, objectKey: `rc80/${tag}/ghost-${i}.mp4`, createdAt: new Date(Date.now() - 3600_000) } })).id);
+    const p3 = await makeLink(db, "SUPERVISOR", L.sup.resourceId);
+    const g1 = await op(p3, "start", { area: "DAILY_LOG", jobId: job.id, kind: "PHOTO", mime: "image/jpeg", size: 1000 });
+    t.status(g1, 201, "PS-044: 24 GB of starts an hour ago that never sent anything - a new start still goes");
+    // PS-044: at most 3 on their way at once from one link.
+    const g2 = await op(p3, "start", { area: "DAILY_LOG", jobId: job.id, kind: "PHOTO", mime: "image/jpeg", size: 1000 });
+    const g3 = await op(p3, "start", { area: "DAILY_LOG", jobId: job.id, kind: "PHOTO", mime: "image/jpeg", size: 1000 });
+    const g4 = await op(p3, "start", { area: "DAILY_LOG", jobId: job.id, kind: "PHOTO", mime: "image/jpeg", size: 1000 });
+    t.ok(g2.status === 201 && g3.status === 201 && g4.status === 429 && /3 uploads are already on their way/.test(g4.body.error ?? ""), "PS-044: a 4th upload on its way from one link: 429", JSON.stringify([g2.status, g3.status, g4.status]));
+    await db.mediaObject.deleteMany({ where: { id: { in: ghosts } } }); // the test copy's own seed only
+    // The ceiling itself: 11 checked uploads of 2 GB today (seeded, with what was stored).
     const extra = [];
-    for (let i = 0; i < 9; i++) extra.push((await db.mediaObject.create({ data: { area: "DAILY_LOG", kind: "VIDEO", mime: "video/mp4", bytes: 2147483647, objectKey: `rc80/${tag}/seed-${i}.mp4`, state: "REJECTED", rejectReason: "RC_SEED" } })).id);
+    for (let i = 0; i < 11; i++) extra.push((await db.mediaObject.create({ data: { area: "DAILY_LOG", kind: "VIDEO", mime: "video/mp4", bytes: 2147483647, storedBytes: 2147483647, objectKey: `rc80/${tag}/seed-${i}.mp4`, state: "REJECTED", rejectReason: "RC_SEED" } })).id);
+    const [seed, seed2] = [{ id: extra[0] }, { id: extra[1] }];
     const c1 = await op(link, "start", { area: "DAILY_LOG", jobId: job.id, kind: "PHOTO", mime: "image/jpeg", size: 1000 });
     const c2 = await op(link, "start", { area: "DAILY_LOG", jobId: job.id, kind: "PHOTO", mime: "image/jpeg", size: 1000 });
     const c3 = await pop(tokB, "start", { kind: "PHOTO", mime: "image/jpeg", size: 1000 });
     const notices = await db.photoCapNotice.count({ where: { resourceId: "*media", cap: "MEDIA_DAY" } });
     t.ok(c1.status === 429 && c2.status === 429 && notices === 1, "over the company's 20 GB today: refused, ONE notice for the day", JSON.stringify({ c1: c1.status, c2: c2.status, notices }));
-    t.ok(c3.status === 429 && c3.body.capFull === true && c3.body.cap === "ALL", "...a pre-start upload is told cap ALL (an Urgent fault can still go without a photo - PS-010)", JSON.stringify(c3.body));
+    t.ok(c3.status === 429 && !c3.body.capFull && c3.body.fallback === true, "PS-044: a pre-start photo is NOT told capFull - it's told to fall back to the old route", JSON.stringify(c3.body));
+    const urgent = Object.fromEntries(items.map((k) => [k, k === "brakes" ? "FAULT" : "OK"]));
+    const noPhoto = await keep(await c.post("/api/site/in/prestart", null, { token: tokB, answers: urgent, walkaround: {}, stillThere: [], faults: [{ itemKey: "brakes", description: "Release check - brakes", priority: "URGENT", mediaIds: [] }] }));
+    t.status(noPhoto, 400, "PS-044: with the bucket's day full, an Urgent fault with no photo (and no walk-around) is still refused - no waiver");
+    const oldRoute = await keep(await c.post("/api/site/in/prestart/photo", null, { token: tokB, photo: uniqPng() }));
+    t.status(oldRoute, 201, "...the old shrunk-photo route still takes the photo (the phone's fallback)");
     await db.mediaObject.deleteMany({ where: { id: { in: [seed.id, seed2.id, ...extra] } } }); // the test copy's own seed only
 
     // (13) OFF (no MEDIA_* settings) and the kill switch: run through tsx with the protocol itself - it refuses (404)
@@ -299,6 +335,44 @@ export default {
       const sRow = await db.mediaObject.findUnique({ where: { id: stale.mediaId } });
       t.ok(on.aborted >= 1 && sRow?.abortedAt && sRow.state === "PENDING", "MEDIA_ABORT_STALE=on: the unfinished multipart upload is aborted, its record kept (PENDING + abortedAt)", JSON.stringify({ on, state: sRow?.state }));
       t.status(await op(link, "parts", { mediaId: stale.mediaId }), 410, "...and it can't be carried on (start again)");
+
+      // PS-045: a bucket with versioning off (the fake told so) - the upload is REJECTED NO_VERSION, Admins told once.
+      const nv = path.join(c.p.files, `rc80-nover-${tag}.mts`);
+      const src = `rc80-nover-${tag}`;
+      writeFileSync(nv, [
+        `import { startUpload, completeUpload } from ${JSON.stringify(proto)};`,
+        `import { randomBytes } from "node:crypto";`,
+        `const party = { source: { siteLinkId: ${JSON.stringify(src)}, takenBy: "RC" }, owns: (r) => r.siteLinkId === ${JSON.stringify(src)}, prepare: async () => ({ area: "DAILY_LOG", fields: {} }), attach: async () => ({ reply: {} }), replyFor: async () => ({}) };`,
+        `const body = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), randomBytes(2000)]);`,
+        `const out = [];`,
+        `for (let i = 0; i < 2; i++) { const s = await startUpload(party, { kind: "PHOTO", mime: "image/jpeg", size: body.length }); const p = await fetch(s.body.put.url, { method: "PUT", headers: { "Content-Type": "image/jpeg" }, body }); const d = await completeUpload(party, { mediaId: s.body.mediaId }); out.push({ start: s.status, put: p.status, done: d.status, id: s.body.mediaId }); }`,
+        `console.log("RESULT " + JSON.stringify(out));`,
+        `process.exit(0);`,
+      ].join("\n"));
+      const runFile = (file, extraEnv) => {
+        const e = { ...process.env, ...env, ...extraEnv };
+        let out = "";
+        try { out = execFileSync(process.execPath, [tsxCli, file], { cwd: c.p.appDir, env: e, encoding: "utf8", timeout: 120_000 }); } catch (x) { out = String(x?.stdout ?? ""); }
+        try { return JSON.parse(out.match(/RESULT (.*)/)?.[1] ?? "null"); } catch { return null; }
+      };
+      const nvr = runFile(nv, { MEDIA_FAKE_VERSIONING: "off" }) ?? [];
+      const nvRows = await db.mediaObject.findMany({ where: { siteLinkId: src } });
+      t.ok(nvr.length === 2 && nvr.every((r) => r.start === 201 && r.put === 200 && r.done === 422) && nvRows.length === 2 && nvRows.every((r) => r.state === "REJECTED" && r.rejectReason === "NO_VERSION"),
+        "PS-045: versioning off - no version from the bucket -> REJECTED NO_VERSION (kept, never shown)", JSON.stringify(nvr));
+      t.ok((await db.photoCapNotice.count({ where: { resourceId: "*media", cap: "MEDIA_NO_VERSION" } })) === 1, "...ONE Admin notice for the day, not one per upload");
+
+      // PS-043: the usage watch - every version and unfinished upload against what was recorded. The photo's extra
+      // version (above) -> ONE Admin notice; a second run the same day adds nothing; MEDIA_USAGE_WATCH=off skips.
+      const uw = path.join(c.p.files, `rc80-usage-${tag}.mts`);
+      const usage = proto.replace("protocol.ts", "usage.ts");
+      writeFileSync(uw, [`import { watchBucketUsage } from ${JSON.stringify(usage)};`, `const a = await watchBucketUsage({ force: true });`, `const b = await watchBucketUsage({ force: true });`,
+        `console.log("RESULT " + JSON.stringify({ a, b }));`, `process.exit(0);`].join("\n"));
+      const offW = runFile(uw, { MEDIA_USAGE_WATCH: "off" });
+      t.ok(offW?.a?.skipped === "OFF", "MEDIA_USAGE_WATCH=off: the watch skips", JSON.stringify(offW));
+      const w = runFile(uw, {});
+      const uNotices = await db.photoCapNotice.count({ where: { resourceId: "*media", cap: "MEDIA_USAGE" } });
+      t.ok(w?.a?.ran && w.a.reasons?.includes("EXTRA_VERSION") && w.a.extraVersionKeys >= 1 && w.a.notified === true && w.b?.notified === false && uNotices === 1,
+        "PS-043: the usage watch finds the READY photo's extra version - ONE Admin notice, none on a second run", JSON.stringify({ a: w?.a && { ...w.a }, b: w?.b?.notified, uNotices }));
     } else t.note("tsx not found - the OFF / kill switch / abort checks were not run");
 
     // (14) No dollar figure in anything a link was sent.
