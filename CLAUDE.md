@@ -670,6 +670,21 @@ business, without becoming unnecessarily complicated.
   Directors read the same list on `/directors/production` (27 Oct,
   `guardDirector`, shared `components/production/ProductionList.tsx`, no
   offer button).
+- **Large uploads – media bucket** (11 Nov 2026, Ilies: option A, "deploy once it passes"; `src/lib/media/`):
+  **outbound connection #8**. Site-log photos/videos (daily log, Before/After, delays) and truck/plant fault
+  photos/videos go phone → bucket through short-lived signed addresses (single PUT ≤ 15 MB, 5 min; else 8 MB
+  multipart parts), in chunks that resume. Photos full quality (25 MB), videos ≤ 2 min / 400 MB. The server
+  checks size + first bytes + a version id before READY (`MediaObject`); REJECTED is kept, never shown. Kept
+  forever (versioning). Videos have a Download link. Bucket `lobos-ops-media`, Sydney, private; allowlisted
+  host `lobos-ops-media.s3.ap-southeast-2.amazonaws.com` only. **Runbook (PS-047):** CORS = origins
+  `https://photos.lobostools.com.mx` + `https://ops.lobostools.com.mx`, PUT/GET/HEAD, ETag exposed (set in
+  AWS CloudShell); versioning Enabled; no public access; one bucket-only access key, entered by Ilies with
+  `/home/ubuntu/set-media-bucket.sh` (Claude never sees it). Env `MEDIA_BUCKET`, `MEDIA_REGION`,
+  `MEDIA_ACCESS_KEY_ID`, `MEDIA_SECRET_ACCESS_KEY`; kill switch `MEDIA_UPLOADS=off` (photos fall back to the
+  old route); daily usage watch alerts Admins (`MEDIA_USAGE_WATCH=off`); aborting unfinished multipart uploads
+  is OFF (`MEDIA_ABORT_STALE`) – Ilies hasn't approved it. Caps: ≤ 3 uploads in progress per source, a
+  company daily byte ceiling (fresh pending + stored). **New packages need `npm ci` at deploy** (the 11 Nov
+  deploy skipped it and was down ~4.5 min). Release check `80-large-uploads` (local fake store).
 - **Money-guard principle:** crew-facing/operational views (day sheets, Day
   Review, the Yard) never carry dollar figures — enforced at both the
   TypeScript type level (narrow DTOs with no money fields) and via a runtime
