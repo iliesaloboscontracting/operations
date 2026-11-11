@@ -38,6 +38,7 @@ const LOCATION_ICON: Record<LocationKind, { icon: string; tone: string }> = {
   SHARED: { icon: "✅", tone: "text-emerald-400" },
   REFUSED: { icon: "⛔", tone: "text-red-300" },
   UNAVAILABLE: { icon: "⚠️", tone: "text-amber-300" },
+  TIMED_OUT: { icon: "⏱️", tone: "text-amber-300" }, // PS-057: slow to get a fix - not the same as refused
   NOT_ASKED: { icon: "–", tone: "text-gray-500" },
 };
 function HowChips({ r }: { r: AttendanceRow }) {

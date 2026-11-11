@@ -40,18 +40,21 @@ export function signOutHow(inMethod: string, outMethod: string | null | undefine
   return `out: ${OUT_LABEL[outMethod] ?? outMethod.toLowerCase()}`;
 }
 
-export type LocationKind = "SHARED" | "REFUSED" | "UNAVAILABLE" | "NOT_ASKED";
+export type LocationKind = "SHARED" | "REFUSED" | "UNAVAILABLE" | "TIMED_OUT" | "NOT_ASKED";
 export const LOCATION_LABEL: Record<LocationKind, string> = {
   SHARED: "Location shared",
   REFUSED: "Location refused",
   UNAVAILABLE: "Location unavailable",
+  TIMED_OUT: "Location timed out",
   NOT_ASKED: "Location not asked",
 };
-/** SiteAttendance.gpsStatus -> what the line shows. null = never asked (office entries, ticks, older sign-ins). */
+/** SiteAttendance.gpsStatus -> what the line shows. null = never asked (office entries, ticks, older sign-ins).
+ *  PS-057: a phone slow to get a fix (TIMEOUT) reads differently from one that refused. */
 export function locationKind(gpsStatus: string | null | undefined): LocationKind {
   if (gpsStatus === "OK") return "SHARED";
   if (gpsStatus === "DENIED") return "REFUSED";
-  if (gpsStatus === "UNAVAILABLE" || gpsStatus === "TIMEOUT") return "UNAVAILABLE";
+  if (gpsStatus === "TIMEOUT") return "TIMED_OUT";
+  if (gpsStatus === "UNAVAILABLE") return "UNAVAILABLE";
   return "NOT_ASKED";
 }
 export const locationLabel = (gpsStatus: string | null | undefined) => LOCATION_LABEL[locationKind(gpsStatus)];

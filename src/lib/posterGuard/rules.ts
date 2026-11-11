@@ -51,6 +51,15 @@ export function median(xs: number[]): number {
   return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
 }
 
+/**
+ * PS-055 (Ilies approved, 11 Nov 2026): which sign-ins may teach us where the site is. Only CONFIRMED lines, and a
+ * site poster line only from a Labour-register person - never an unconfirmed poster line (a faked position nobody
+ * has checked) and never a free-typed hire name on a poster.
+ */
+export function learnsSite(r: { status: string; signInMethod: string; resourceId: string | null }): boolean {
+  return r.status === "CONFIRMED" && (r.signInMethod !== "POSTER" || r.resourceId != null);
+}
+
 /** One sign-in's position on the project. person: resource id, or name|company for hire. */
 export type SiteFix = { lat: number; lng: number; accuracyM: number | null; person: string };
 
@@ -85,12 +94,23 @@ export type GpsRow = {
   gpsAccuracyM: number | null;
 };
 
+/**
+ * PS-057 (Ilies approved, 11 Nov 2026): the words for a NO_LOCATION line say WHY, so the supervisor can judge - a
+ * phone slow to get a fix isn't someone refusing. Still the same flag either way (and "Confirm all" still skips it).
+ */
+export function noLocationWords(gpsStatus: string | null | undefined): string {
+  if (gpsStatus === "DENIED") return "Location refused";
+  if (gpsStatus === "TIMEOUT") return "Location timed out";
+  if (gpsStatus === "UNAVAILABLE") return "Location unavailable";
+  return "No location shared";
+}
+
 /** A site poster sign-in's location flag and its words, or null. Rejected lines and other methods: never. */
 export function posterGpsFlag(row: GpsRow, site: Point | null): { flag: PosterGpsFlag; note: string } | null {
   if (row.signInMethod !== "POSTER" || row.status === "REJECTED") return null;
   if (row.gpsStatus !== "OK" || row.gpsLat == null || row.gpsLng == null) {
     if (row.date < POSTER_GUARD.gpsSince) return null; // before phones were asked
-    return { flag: "NO_LOCATION", note: "No location shared" };
+    return { flag: "NO_LOCATION", note: noLocationWords(row.gpsStatus) };
   }
   if (!site) return null;
   const d = distanceMetres(site, { lat: row.gpsLat, lng: row.gpsLng });

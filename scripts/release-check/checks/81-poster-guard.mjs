@@ -47,9 +47,9 @@ export default {
     const job = await db.job.create({ data: { projectId: P.id, title: P.name, date: day, shift: "DAY", status: "ACTIVE", startTime: ampm(pStart), endTime: ampm(pEnd) } });
     const shut = await db.job.create({ data: { projectId: P2.id, title: P2.name, date: day, shift: "DAY", status: "ACTIVE", startTime: qStart, endTime: qEnd } });
     const person = (n) => db.resource.create({ data: { type: "PERSONNEL", name: `Rcposter${n} Tester ${tag}` } });
-    const [S, A, B, F, N, C, W, O, Q, M, H, H2, HT, X, Y, T, Z] = await Promise.all(
-      ["s", "a", "b", "f", "n", "c", "w", "o", "q", "m", "h", "h2", "ht", "x", "y", "t", "z"].map(person));
-    for (const r of [S, A, B, F, N, C]) await db.assignment.create({ data: { jobId: job.id, resourceId: r.id, ...(r === S ? { role: "Supervisor" } : {}) } });
+    const [S, A, B, F, N, C, W, O, Q, M, H, H2, HT, X, Y, T, Z, TM, K1, K2] = await Promise.all(
+      ["s", "a", "b", "f", "n", "c", "w", "o", "q", "m", "h", "h2", "ht", "x", "y", "t", "z", "tm", "k1", "k2"].map(person));
+    for (const r of [S, A, B, F, N, C, TM]) await db.assignment.create({ data: { jobId: job.id, resourceId: r.id, ...(r === S ? { role: "Supervisor" } : {}) } });
     for (const r of [S, W, O, Q, M, H, H2, HT]) await db.assignment.create({ data: { jobId: shut.id, resourceId: r.id, ...(r === S ? { role: "Supervisor" } : {}) } });
     const hourAgo = new Date(Date.now() - 3_600_000);
     // The site's crew: 3 confirmed GPS sign-ins at the same spot from 2 people.
@@ -58,6 +58,15 @@ export default {
       signInAt: new Date(hourAgo.getTime() + i * 60_000), ...(i === 0 ? { signOutAt: new Date(hourAgo.getTime() + 30 * 60_000), signOutMethod: "SUPERVISOR_QR" } : {}),
       gpsStatus: "OK", gpsLat: SITE.lat + i * 0.00002, gpsLng: SITE.lng, gpsAccuracyM: 15 } });
     await fixRow(A, 0); await fixRow(A, 1); await fixRow(B, 2);
+    // PS-055: yesterday on the same project, sign-ins that must NOT teach the site - 4 unconfirmed poster lines and 2
+    // confirmed poster lines with typed hire names, all at a fake spot right where F will sign in. Counted, they'd win
+    // the median (6 of 9) and F would look on site.
+    const yday = new Date(day.getTime() - 86_400_000);
+    const yJob = await db.job.create({ data: { projectId: P.id, title: P.name, date: yday, shift: "DAY", status: "ACTIVE", startTime: "7am", endTime: "3:30pm" } });
+    const fake = { jobId: yJob.id, date: yday.toISOString().slice(0, 10), allocated: false, signInMethod: "POSTER", signInAt: new Date(yday.getTime() - 3 * 3_600_000), signOutAt: new Date(yday.getTime() - 2 * 3_600_000), signOutMethod: "POSTER", gpsStatus: "OK", gpsLat: SITE.lat + 0.0162, gpsLng: SITE.lng, gpsAccuracyM: 10 };
+    for (const r of [K1, K2]) await db.siteAttendance.create({ data: { ...fake, resourceId: r.id, workerName: r.name, status: "TO_CONFIRM" } });
+    for (const n of ["fake1", "fake2"]) await db.siteAttendance.create({ data: { ...fake, workerName: `Rc ${n} ${tag}`, company: "RC Hire", status: "TO_CONFIRM" } });
+    for (const n of ["fake3", "fake4"]) await db.siteAttendance.create({ data: { ...fake, workerName: `Rc ${n} ${tag}`, company: "RC Hire", status: "CONFIRMED" } });
     const poster = await makeLink(db, "POSTER", null, { projectId: P.id });
     const posterShut = await makeLink(db, "POSTER", null, { projectId: P2.id });
     const office = await makeLink(db, "POSTER", null, { place: "OFFICE" });
@@ -82,14 +91,19 @@ export default {
     t.status({ status: denied.status }, 200, "a poster sign-in with location refused is accepted");
     const clean = await sign(poster.secret, job.id, "IN", C, at(SITE.lat + 0.0003, 10));
     t.status({ status: clean.status }, 200, "a poster sign-in on site is accepted");
+    const slow = await sign(poster.secret, job.id, "IN", TM, { status: "TIMEOUT" });
+    t.status({ status: slow.status }, 200, "a poster sign-in whose phone timed out getting a fix is accepted");
     const view = await c.json(`/api/attendance?date=${today}`, "MANAGER");
     const g = view.body?.jobs?.find((j) => j.id === job.id);
     const rowOf = (r, grp = g) => grp?.rows?.find((x) => x.resourceId === r.id);
-    t.ok(rowOf(F)?.flags?.includes("FAR_FROM_SITE") && rowOf(F)?.notes?.FAR_FROM_SITE === "1.8 km from site", "FAR_FROM_SITE '1.8 km from site' on the Sign-ins page", JSON.stringify(rowOf(F)?.notes ?? null));
-    t.ok(rowOf(N)?.flags?.includes("NO_LOCATION") && rowOf(N)?.notes?.NO_LOCATION === "No location shared", "NO_LOCATION 'No location shared'", JSON.stringify(rowOf(N)?.notes ?? null));
+    t.ok(rowOf(F)?.flags?.includes("FAR_FROM_SITE") && rowOf(F)?.notes?.FAR_FROM_SITE === "1.8 km from site",
+      "FAR_FROM_SITE '1.8 km from site' on the Sign-ins page - PS-055: 6 unconfirmed / typed-name poster lines at F's spot didn't move the site", JSON.stringify(rowOf(F)?.notes ?? null));
+    t.ok(rowOf(N)?.flags?.includes("NO_LOCATION") && rowOf(N)?.notes?.NO_LOCATION === "Location refused", "NO_LOCATION 'Location refused'", JSON.stringify(rowOf(N)?.notes ?? null));
+    t.ok(rowOf(TM)?.flags?.includes("NO_LOCATION") && rowOf(TM)?.notes?.NO_LOCATION === "Location timed out" && rowOf(TM)?.location === "Location timed out",
+      "PS-057: a timed-out phone is NO_LOCATION 'Location timed out' - not the refused wording", JSON.stringify({ n: rowOf(TM)?.notes ?? null, l: rowOf(TM)?.location }));
     t.ok(!rowOf(C)?.flags?.some((f) => f === "FAR_FROM_SITE" || f === "NO_LOCATION"), "on site: no location flag");
     t.ok(![A, B].some((r) => rowOf(r)?.flags?.some((f) => f === "FAR_FROM_SITE" || f === "NO_LOCATION")), "supervisor QR lines never get a poster flag");
-    t.ok((view.body?.summary?.location ?? NaN) - (before?.summary?.location ?? NaN) === 2, "the summary strip: +2 no location / far", JSON.stringify(view.body?.summary ?? null));
+    t.ok((view.body?.summary?.location ?? NaN) - (before?.summary?.location ?? NaN) === 3, "the summary strip: +3 no location / far", JSON.stringify(view.body?.summary ?? null));
     t.ok(rowOf(F)?.status === "TO_CONFIRM" && rowOf(N)?.status === "TO_CONFIRM", "flags change nothing - both still wait for the supervisor");
 
     // (2) The window - poster sign-IN only.
@@ -134,12 +148,14 @@ export default {
     const link = await keep(await c.get(c.site(sup, "/signin"), null));
     const tc = link.body?.jobs?.find((j) => j.id === job.id)?.toConfirm ?? [];
     const w = (r) => tc.find((x) => x.name === r.name)?.warning;
-    t.ok(w(F) === "1.8 km from site" && w(N) === "No location shared" && w(C) == null, "the link's 'to confirm' list shows 'No location shared' / '1.8 km from site' beside the name");
+    t.ok(w(F) === "1.8 km from site" && w(N) === "Location refused" && w(TM) === "Location timed out" && w(C) == null,
+      "the link's 'to confirm' list shows 'Location refused' / 'Location timed out' (PS-057: different words) / '1.8 km from site' beside the name",
+      JSON.stringify([w(F), w(N), w(TM), w(C)]));
     const all = await keep(await c.post(c.site(sup, "/signin"), null, { action: "CONFIRM_ALL", jobId: job.id }));
-    t.ok(all.status === 200 && all.body?.confirmed === 1 && all.body?.skipped === 2 && all.body?.message === "2 need checking – confirm or reject each.",
-      "Confirm all: confirms the clean one, skips the 2 with a warning and says so", JSON.stringify({ s: all.status, c: all.body?.confirmed, k: all.body?.skipped }));
+    t.ok(all.status === 200 && all.body?.confirmed === 1 && all.body?.skipped === 3 && all.body?.message === "3 need checking – confirm or reject each.",
+      "Confirm all: confirms the clean one, skips the 3 with a warning (the timed-out one too) and says so", JSON.stringify({ s: all.status, c: all.body?.confirmed, k: all.body?.skipped }));
     const st = async (r) => (await db.siteAttendance.findFirst({ where: { jobId: job.id, resourceId: r.id } }))?.status;
-    t.ok((await st(C)) === "CONFIRMED" && (await st(F)) === "TO_CONFIRM" && (await st(N)) === "TO_CONFIRM", "...in the database too");
+    t.ok((await st(C)) === "CONFIRMED" && (await st(F)) === "TO_CONFIRM" && (await st(N)) === "TO_CONFIRM" && (await st(TM)) === "TO_CONFIRM", "...in the database too");
     const fId = (await db.siteAttendance.findFirst({ where: { jobId: job.id, resourceId: F.id } }))?.id;
     const nId = (await db.siteAttendance.findFirst({ where: { jobId: job.id, resourceId: N.id } }))?.id;
     t.status(await c.post(c.site(sup, "/signin"), null, { action: "CONFIRM", attendanceId: fId }), 200, "the supervisor can still confirm a flagged one by itself");
@@ -159,7 +175,7 @@ export default {
       [F, "Site poster", "Location shared"], [N, "Site poster", "Location refused"], [A, "Supervisor's QR", "Location shared"],
       [Q, "Supervisor's QR", "Location unavailable"], [H2, "Hand-over QR", "Location shared"], [HT, "Hand-over tick", "Location not asked"],
       [M, "Supervisor tick", "Location not asked"], [Z, "Office - missed sign-in", "Location not asked"], [X, "Office QR", "Location refused"],
-      [Y, "Yard QR", "Location shared"], [T, "Truck QR", "Location unavailable"],
+      [Y, "Yard QR", "Location shared"], [T, "Truck QR", "Location timed out"], [TM, "Site poster", "Location timed out"],
     ];
     for (const [r, how, loc] of want) t.ok(r2(r)?.how === how && r2(r)?.location === loc, `the line shows '${how}' and '${loc}'`, JSON.stringify({ how: r2(r)?.how, loc: r2(r)?.location }));
     t.ok(r2(Q)?.howOut === "out: supervisor" && r2(O)?.howOut == null && r2(F)?.howOut == null, "the sign-out way shows only when it differs ('out: supervisor')", JSON.stringify([r2(Q)?.howOut, r2(O)?.howOut]));
@@ -174,12 +190,12 @@ export default {
 
     // (5) Nobody new sees any of it.
     for (const who of ["VIEWER", "TIMESHEETS", "ACCOUNTS"]) t.status(await c.get(`/api/attendance?date=${today}`, who), 403, `Sign-ins still refused for ${who}`);
-    const NEW = /NO_LOCATION|FAR_FROM_SITE|from site|Location (shared|refused|unavailable|not asked)|gpsStatus|gpsLat|"how"/;
+    const NEW = /NO_LOCATION|FAR_FROM_SITE|from site|Location (shared|refused|unavailable|timed out|not asked)|gpsStatus|gpsLat|"how"/;
     const tsT = await c.json(`/api/timesheets?week=${c.thisWeek}`, "TIMESHEETS");
     t.ok(tsT.status === 200 && !NEW.test(JSON.stringify(tsT.body ?? {})) && !("signInFlags" in (tsT.body ?? {})), "TIMESHEETS: the week as before - no location words, no flag counts", tsT.status);
     t.status(await c.get(`/api/timesheets?week=${c.thisWeek}`, "VIEWER"), 403, "Operations timesheets still refused for VIEWER");
     const acc = await c.json(`/api/accounts/timesheets?week=${c.thisWeek}`, "ACCOUNTS");
-    t.ok(acc.status === 200 && !/NO_LOCATION|FAR_FROM_SITE|from site|Location (shared|refused|unavailable|not asked)|"how"/.test(JSON.stringify(acc.body ?? {})), "ACCOUNTS' timesheets: as before, nothing new", acc.status);
+    t.ok(acc.status === 200 && !/NO_LOCATION|FAR_FROM_SITE|from site|Location (shared|refused|unavailable|timed out|not asked)|"how"/.test(JSON.stringify(acc.body ?? {})), "ACCOUNTS' timesheets: as before, nothing new", acc.status);
 
     t.ok(r2(F)?.status === "CONFIRMED" && r2(N)?.status === "REJECTED", "the individual confirm / reject went through");
   },

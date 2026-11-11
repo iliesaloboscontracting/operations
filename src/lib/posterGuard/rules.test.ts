@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  clockWithMinutes, distanceLabel, distanceMetres, learnSite, median, outsideWindow, POSTER_GUARD, posterGpsFlag, posterRefusal, posterWindow,
+  clockWithMinutes, distanceLabel, distanceMetres, learnSite, learnsSite, median, noLocationWords, outsideWindow, POSTER_GUARD, posterGpsFlag, posterRefusal, posterWindow,
   windowMessage, type GpsRow, type SiteFix,
 } from "./rules";
 
@@ -48,15 +48,41 @@ test("site location: median of good fixes, thresholds, the person checked left o
   assert.equal(learnSite([]), null);
 });
 
+test("PS-055: only confirmed lines teach the site - never an unconfirmed poster line or a typed hire name on a poster", () => {
+  assert.equal(learnsSite({ status: "CONFIRMED", signInMethod: "SUPERVISOR_QR", resourceId: "a" }), true);
+  assert.equal(learnsSite({ status: "CONFIRMED", signInMethod: "SUPERVISOR_QR", resourceId: null }), true, "hire on the supervisor's QR");
+  assert.equal(learnsSite({ status: "CONFIRMED", signInMethod: "POSTER", resourceId: "a" }), true, "a confirmed poster line by a register person");
+  assert.equal(learnsSite({ status: "CONFIRMED", signInMethod: "POSTER", resourceId: null }), false, "a typed hire name on a poster");
+  assert.equal(learnsSite({ status: "TO_CONFIRM", signInMethod: "POSTER", resourceId: "a" }), false, "unconfirmed poster");
+  assert.equal(learnsSite({ status: "TO_CONFIRM", signInMethod: "SUPERVISOR_QR", resourceId: "a" }), false);
+  assert.equal(learnsSite({ status: "REJECTED", signInMethod: "SUPERVISOR_QR", resourceId: "a" }), false);
+  // 3 confirmed fixes at the site + 4 unconfirmed poster sign-ins at a fake spot 1.8 km away: the site doesn't move.
+  const good = [
+    { ...fix("a"), status: "CONFIRMED", signInMethod: "SUPERVISOR_QR", resourceId: "a" },
+    { ...fix("a", 0.0001), status: "CONFIRMED", signInMethod: "SUPERVISOR_QR", resourceId: "a" },
+    { ...fix("b"), status: "CONFIRMED", signInMethod: "MANUAL", resourceId: "b" },
+  ];
+  const fake = ["f1", "f2", "f3", "f4"].map((p, i) => ({ ...fix(p, 0.0162), status: "TO_CONFIRM", signInMethod: "POSTER", resourceId: i < 2 ? p : null }));
+  const all = [...good, ...fake];
+  const unfiltered = learnSite(all)!;
+  assert.ok(distanceMetres(SITE, unfiltered) > 1000, "without the rule the fakes would win the median");
+  const learned = learnSite(all.filter(learnsSite))!;
+  assert.ok(learned && distanceMetres(SITE, learned) < 20, "with the rule the site stays put");
+  assert.deepEqual(posterGpsFlag(row({ gpsLat: SITE.lat + 0.0162 }), learned)?.flag, "FAR_FROM_SITE", "and the far sign-in is still far");
+});
+
 const row = (o: Partial<GpsRow> = {}): GpsRow => ({
   signInMethod: "POSTER", status: "TO_CONFIRM", date: DAY, gpsStatus: "OK", gpsLat: SITE.lat, gpsLng: SITE.lng, gpsAccuracyM: 20, ...o,
 });
 
 test("flags: no location, far from site - poster only, never rejected or before GPS", () => {
-  for (const s of ["DENIED", "UNAVAILABLE", "TIMEOUT", null]) {
-    assert.deepEqual(posterGpsFlag(row({ gpsStatus: s, gpsLat: null, gpsLng: null }), SITE), { flag: "NO_LOCATION", note: "No location shared" }, String(s));
+  // PS-057: the same flag, but the words say why - slow GPS isn't a refusal.
+  const words = { DENIED: "Location refused", UNAVAILABLE: "Location unavailable", TIMEOUT: "Location timed out", null: "No location shared" } as const;
+  for (const s of ["DENIED", "UNAVAILABLE", "TIMEOUT", null] as const) {
+    assert.deepEqual(posterGpsFlag(row({ gpsStatus: s, gpsLat: null, gpsLng: null }), SITE), { flag: "NO_LOCATION", note: words[String(s) as keyof typeof words] }, String(s));
     assert.deepEqual(posterGpsFlag(row({ gpsStatus: s, gpsLat: null, gpsLng: null }), null)?.flag, "NO_LOCATION", "no location needs no known site");
   }
+  assert.notEqual(noLocationWords("TIMEOUT"), noLocationWords("DENIED"));
   // 1.8 km away.
   assert.deepEqual(posterGpsFlag(row({ gpsLat: SITE.lat + 0.0162 }), SITE), { flag: "FAR_FROM_SITE", note: "1.8 km from site" });
   // Within 500 m + accuracy: fine. 600 m with a 150 m accuracy: fine; with 20 m: far.

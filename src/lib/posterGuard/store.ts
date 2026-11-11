@@ -1,7 +1,7 @@
 // Site poster guard - the database side (rules in ./rules.ts). Reads only: nothing here writes or changes a sign-in.
 import { prisma } from "../prisma";
 import { effectiveTimes } from "../shiftTimes";
-import { learnSite, POSTER_GUARD, posterGpsFlag, posterWindow, type GpsRow, type PosterGpsFlag, type PosterWindow, type SiteFix } from "./rules";
+import { learnSite, learnsSite, POSTER_GUARD, posterGpsFlag, posterWindow, type GpsRow, type PosterGpsFlag, type PosterWindow, type SiteFix } from "./rules";
 
 export const posterWindowOn = () => (process.env[POSTER_GUARD.windowSwitch] ?? "").trim().toLowerCase() !== "off";
 export const posterGpsFlagsOn = () => (process.env[POSTER_GUARD.gpsSwitch] ?? "").trim().toLowerCase() !== "off";
@@ -30,14 +30,16 @@ export async function siteFixes(projectId: string, date: string): Promise<SiteFi
       gpsLat: { not: null },
       gpsLng: { not: null },
       gpsAccuracyM: { lte: POSTER_GUARD.maxFixAccuracyM },
-      status: { not: "REJECTED" },
+      // PS-055: confirmed lines only; a poster line only from a Labour-register person (learnsSite, checked again below).
+      status: "CONFIRMED",
+      OR: [{ signInMethod: { not: "POSTER" } }, { resourceId: { not: null } }],
       removedAt: null,
     },
-    select: { gpsLat: true, gpsLng: true, gpsAccuracyM: true, resourceId: true, workerName: true, company: true },
+    select: { gpsLat: true, gpsLng: true, gpsAccuracyM: true, resourceId: true, workerName: true, company: true, status: true, signInMethod: true },
     take: 2000,
     orderBy: { signInAt: "desc" },
   });
-  const fixes = rows.map((r) => ({ lat: r.gpsLat!, lng: r.gpsLng!, accuracyM: r.gpsAccuracyM, person: personKey(r) }));
+  const fixes = rows.filter(learnsSite).map((r) => ({ lat: r.gpsLat!, lng: r.gpsLng!, accuracyM: r.gpsAccuracyM, person: personKey(r) }));
   if (cache.size > 500) cache.clear();
   cache.set(key, { at: Date.now(), fixes });
   return fixes;

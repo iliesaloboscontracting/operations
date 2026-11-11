@@ -30,7 +30,9 @@ test("location status - words for every state, never the position", () => {
   assert.equal(locationLabel("OK"), "Location shared");
   assert.equal(locationLabel("DENIED"), "Location refused");
   assert.equal(locationLabel("UNAVAILABLE"), "Location unavailable");
-  assert.equal(locationLabel("TIMEOUT"), "Location unavailable");
+  // PS-057: slow GPS reads differently from refused (and from unavailable).
+  assert.equal(locationLabel("TIMEOUT"), "Location timed out");
+  assert.notEqual(locationLabel("TIMEOUT"), locationLabel("DENIED"));
   assert.equal(locationLabel(null), "Location not asked");
   assert.equal(locationLabel(undefined), "Location not asked");
   assert.equal(locationKind("something else"), "NOT_ASKED");
