@@ -12,7 +12,8 @@ import { serverErrorMessage } from "@/lib/apiFetch";
 
 type AttendanceRow = { id: string; in: string | null; out: string | null; method: string; outMethod: string | null; status: string };
 type CrewRow = { resourceId: string | null; name: string; company: string | null; allocated: boolean; attendance: AttendanceRow | null };
-type Job = { id: string; label: string; times: string | null; qrUrl: string; crew: CrewRow[]; toConfirm: (AttendanceRow & { name: string; company: string | null })[] };
+// warning (11 Nov 2026): a poster sign-in with no location shared, or far from the site - "1.8 km from site".
+type Job = { id: string; label: string; times: string | null; qrUrl: string; crew: CrewRow[]; toConfirm: (AttendanceRow & { name: string; company: string | null; warning?: string | null })[] };
 type Data = { person: string; handover: boolean; rotateSeconds: number; jobs: Job[] };
 
 const btn = "rounded-lg bg-brand-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50";
@@ -60,15 +61,14 @@ export default function SignInCrew({ api }: { api: string }) {
     }
   }
 
-  // "Confirm all": the ordinary CONFIRM for each, one at a time; stops at the first one that's refused.
-  async function confirmAll(ids: string[]) {
+  // "Confirm all" (11 Nov 2026): one CONFIRM_ALL - the server confirms every waiting sign-in on the job except the
+  // ones with a warning (no location / far from site), which stay for the supervisor to confirm or reject each.
+  async function confirmAll(jobId: string) {
     setBusy("all");
     setError(null);
     try {
-      for (const id of ids) {
-        const res = await fetch(`${api}/signin`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "CONFIRM", attendanceId: id }) });
-        if (!res.ok) throw new Error(await serverErrorMessage(res, "Couldn't confirm them all - check the list and try again."));
-      }
+      const res = await fetch(`${api}/signin`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "CONFIRM_ALL", jobId }) });
+      if (!res.ok) throw new Error(await serverErrorMessage(res, "Couldn't confirm them all - check the list and try again."));
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -87,6 +87,8 @@ export default function SignInCrew({ api }: { api: string }) {
   }
   const job = data.jobs.find((j) => j.id === jobId) ?? data.jobs[0];
   const signedIn = job.crew.filter((c) => c.attendance && !c.attendance.out && c.attendance.status !== "REJECTED").length;
+  const clear = job.toConfirm.filter((a) => !a.warning);
+  const flagged = job.toConfirm.length - clear.length;
 
   return (
     <div className="space-y-5">
@@ -123,16 +125,21 @@ export default function SignInCrew({ api }: { api: string }) {
           <div className="mb-2 flex items-center justify-between gap-2">
             <h2 className="text-sm font-semibold text-amber-400">Signed in from the poster - confirm ({job.toConfirm.length})</h2>
             {/* One tap for all of them (10 Nov 2026) - each is the same Confirm as below, one after another. */}
-            {job.toConfirm.length > 1 && (
-              <button className={btn} disabled={!!busy} onClick={() => confirm(`Confirm all ${job.toConfirm.length} were on site?`) && confirmAll(job.toConfirm.map((a) => a.id))}>
-                {busy === "all" ? <Loader2 size={14} className="inline animate-spin" /> : `Confirm all (${job.toConfirm.length})`}
+            {clear.length > 1 && (
+              <button className={btn} disabled={!!busy} onClick={() => confirm(`Confirm all ${clear.length} were on site?${flagged ? ` (${flagged} with a warning ${flagged === 1 ? "is" : "are"} left for you to check.)` : ""}`) && confirmAll(job.id)}>
+                {busy === "all" ? <Loader2 size={14} className="inline animate-spin" /> : `Confirm all (${clear.length})`}
               </button>
             )}
           </div>
+          {/* 11 Nov 2026: "Confirm all" never confirms one with a warning. */}
+          {flagged > 0 && (
+            <p className="mb-2 text-sm font-medium text-red-300">⚠️ {flagged} need{flagged === 1 ? "s" : ""} checking – confirm or reject each.</p>
+          )}
           <div className="space-y-2">
             {job.toConfirm.map((a) => (
-              <div key={a.id} className="rounded-xl bg-panel p-3">
+              <div key={a.id} className={`rounded-xl bg-panel p-3 ${a.warning ? "ring-1 ring-red-500/50" : ""}`}>
                 <div className="text-base text-gray-100">{a.name}{a.company && <span className="text-gray-400"> ({a.company})</span>}</div>
+                {a.warning && <div className="text-sm font-semibold text-red-300">⚠️ {a.warning}</div>}
                 <div className="mb-2 text-sm text-gray-400">In {a.in}{a.out ? ` · Out ${a.out}` : ""}{a.outMethod === "MOVED" ? " (signed in at another site)" : ""}</div>
                 <div className="flex gap-2">
                   <button className={btn} disabled={!!busy} onClick={() => post(a.id, { action: "CONFIRM", attendanceId: a.id })}>Confirm</button>

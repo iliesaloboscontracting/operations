@@ -14,6 +14,12 @@ export type AttendanceRow = {
   out: string | null;
   signInMethod: string;
   signOutMethod: string | null;
+  // 11 Nov 2026 (lib/signinHow.ts): how they signed in / out in words, and the phone's location status only - never
+  // the position itself (accounts / Admin only).
+  how?: string;
+  howOut?: string | null;
+  gpsStatus?: string | null;
+  location?: string;
   status: "CONFIRMED" | "TO_CONFIRM" | "REJECTED";
   confirmedBy: string | null;
   runBy: string | null;
@@ -72,6 +78,8 @@ export const FLAG_LABEL: Record<string, string> = {
   LATE_IN: "Late sign-in",
   LONG_SHIFT: "Long day",
   BULK_OUT: "Signed out together",
+  NO_LOCATION: "No location shared",
+  FAR_FROM_SITE: "Far from site",
 };
 export const METHOD_LABEL: Record<string, string> = {
   SUPERVISOR_QR: "Supervisor QR",

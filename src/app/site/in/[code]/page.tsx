@@ -16,7 +16,8 @@ import { looksLikeLobos } from "@/lib/staffMatch";
 // server's.
 
 type Person = { id: string; name: string };
-type Job = { id: string; label: string; times: string | null; crew: Person[] };
+// signInClosed: a site poster outside its sign-in window (11 Nov 2026) - the words to show; signing out still works.
+type Job = { id: string; label: string; times: string | null; crew: Person[]; signInClosed?: string };
 type Scan = { method: "SUPERVISOR_QR" | "POSTER" | "POINT"; ticket: string; jobs: Job[] };
 type Me = { resourceId: string; name: string } | { hire: { name: string; company: string } };
 
@@ -30,7 +31,7 @@ export default function CrewSignInPage({ params: paramsP }: { params: Promise<{ 
   const [dead, setDead] = useState<string | null>(null);
   const [jobId, setJobId] = useState("");
   const [me, setMe] = useState<Me | null>(null);
-  const [status, setStatus] = useState<{ signedIn: boolean; since: string | null } | null>(null);
+  const [status, setStatus] = useState<{ signedIn: boolean; since: string | null; signInClosed?: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
@@ -151,11 +152,15 @@ export default function CrewSignInPage({ params: paramsP }: { params: Promise<{ 
           {scan.jobs.map((j) => (
             <button key={j.id} onClick={() => setJobId(j.id)} className="w-full rounded-2xl border border-edge bg-panel p-4 text-left text-base text-gray-100">
               {j.label} {j.times && <span className="text-sm text-gray-500">· {j.times}</span>}
+              {j.signInClosed && <span className="mt-1 block text-sm text-amber-300">Sign-in closed now - signing out still works.</span>}
             </button>
           ))}
         </div>
       ) : !me ? (
-        <WhoAreYou job={job!} ticket={scan.ticket} onPick={(m) => setMe(store(ME_KEY, m))} />
+        <>
+          {job?.signInClosed && <Closed text={job.signInClosed} out />}
+          <WhoAreYou job={job!} ticket={scan.ticket} onPick={(m) => setMe(store(ME_KEY, m))} />
+        </>
       ) : (
         <div className="space-y-4">
           <div>
@@ -181,6 +186,8 @@ export default function CrewSignInPage({ params: paramsP }: { params: Promise<{ 
                 {busy ? <Loader2 className="animate-spin" /> : <LogOut />} Sign out
               </button>
             </>
+          ) : status.signInClosed || job?.signInClosed ? (
+            <Closed text={(status.signInClosed || job?.signInClosed)!} />
           ) : (
             <>
               <button className={`${big} bg-brand-600`} disabled={busy} onClick={() => act("IN")}>
@@ -270,6 +277,16 @@ function Odometer({ token, signedIn, required, onDone, onSkipAll }: { token: str
       {required
         ? <button className="w-full py-2 text-sm text-gray-400" disabled={busy} onClick={() => send({ skip: true }, true)}>Do it later (skip the pre-start)</button>
         : <button className="w-full py-2 text-sm text-gray-400" disabled={busy} onClick={() => send({ skip: true })}>Can&apos;t now</button>}
+    </div>
+  );
+}
+
+// The site poster outside its sign-in window (11 Nov 2026): no Sign in button. Signing out is never blocked.
+function Closed({ text, out = false }: { text: string; out?: boolean }) {
+  return (
+    <div className="mb-3 rounded-xl border border-amber-500/50 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+      {text}
+      {out && <span className="mt-1 block text-amber-300/80">Signing out still works - pick your name.</span>}
     </div>
   );
 }

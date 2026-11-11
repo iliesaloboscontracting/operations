@@ -11,6 +11,8 @@ import type { LineHours } from "./dayHours";
 import { dayHoursFor } from "./dayHoursStore";
 import { staffSuggestions, type StaffMatch } from "./staffMatch";
 import { flagsForJobRows, flagSummary, signedInEarlierIds, type SigninFlagSummary } from "./signinFlags";
+import { posterGpsFlags } from "./posterGuard/store";
+import { locationLabel, signInHow, signOutHow } from "./signinHow";
 
 export type AttendanceFlag =
   | "NO_SIGN_IN" // allocated, never signed in
@@ -29,7 +31,10 @@ export type AttendanceFlag =
   // 10 Nov 2026 (Ilies: "do A and B") - information only (lib/signinFlags.ts); the words are in the row's notes.
   | "LATE_IN" // signed in more than 60 min after the job's start (and not signed in anywhere earlier that day)
   | "LONG_SHIFT" // signed out more than 2 h after the job's finish, or over 12 h on the line
-  | "BULK_OUT"; // ...and signed out with 2+ others in the same minute by the supervisor / office
+  | "BULK_OUT" // ...and signed out with 2+ others in the same minute by the supervisor / office
+  // 11 Nov 2026 (Ilies: "do 1 and 2") - site poster sign-ins only, information only (lib/posterGuard).
+  | "NO_LOCATION" // the phone shared no position
+  | "FAR_FROM_SITE"; // further than 500 m (+ the fix's accuracy) from where the site's crew sign in
 
 type AttendanceWithEdits = Prisma.SiteAttendanceGetPayload<{ include: { edits: true } }>;
 
@@ -39,8 +44,11 @@ const weekday = (iso: string) => new Date(iso + "T12:00:00Z").getUTCDay();
 function rowOf(
   a: AttendanceWithEdits,
   // slot: the labour hire tile a hire worker fills on this job (null = none left); undefined for staff / points.
-  opts: { date: string; today: string; breakMin: number | null; devices: Map<string, Set<string>>; point: boolean; slot?: string | null; day: Map<string, LineHours>; staff?: StaffMatch[] }
+  opts: { date: string; today: string; breakMin: number | null; devices: Map<string, Set<string>>; point: boolean; slot?: string | null; day: Map<string, LineHours>; staff?: StaffMatch[]; handoverNames?: Set<string> }
 ) {
+  // How they signed in / out and whether the phone shared its location (11 Nov 2026) - words and the status only,
+  // never the position (that stays accounts / Admin only). A hand-over's QR and ticks carry the stand-in's name.
+  const how = { place: a.place, handover: !!a.runBy && !!opts.handoverNames?.has(a.runBy) };
   const flags: AttendanceFlag[] = [];
   if (a.status === "TO_CONFIRM") flags.push("TO_CONFIRM");
   if (a.status === "REJECTED") flags.push("REJECTED");
@@ -71,6 +79,10 @@ function rowOf(
     out: sydneyTime(a.signOutAt),
     signInMethod: a.signInMethod,
     signOutMethod: a.signOutMethod,
+    how: signInHow(a.signInMethod, how),
+    howOut: signOutHow(a.signInMethod, a.signOutMethod, how),
+    gpsStatus: a.gpsStatus,
+    location: locationLabel(a.gpsStatus),
     status: a.status,
     confirmedBy: a.confirmedBy,
     runBy: a.runBy,
@@ -130,6 +142,14 @@ export async function attendanceForDate(date: string) {
       .map((a) => a.resourceId!),
   );
 
+  // 11 Nov 2026: site poster sign-ins with no location / far from the site (lib/posterGuard), and the stand-ins whose
+  // hand-over link ran a job's sign-in (so the line says "Hand-over QR" / "Hand-over tick").
+  const [gpsByJob, handovers] = await Promise.all([
+    Promise.all(jobs.map(async (j) => [j.id, await posterGpsFlags(j.attendances, j.project?.id ?? null, date)] as const)).then((x) => new Map(x)),
+    prisma.siteLink.findMany({ where: { kind: "HANDOVER", jobId: { in: jobs.map((j) => j.id) } }, select: { jobId: true, resource: { select: { name: true } } } }),
+  ]);
+  const handoverNames = (jobId: string) => new Set(handovers.filter((h) => h.jobId === jobId && h.resource).map((h) => h.resource!.name));
+
   const jobGroups = jobs
     .filter((j) => j.status === "ACTIVE" || j.attendances.length > 0)
     .map((j) => {
@@ -144,10 +164,14 @@ export async function attendanceForDate(date: string) {
         j.attendances.map((a) => ({ id: a.id, signInAt: a.signInAt, signOutAt: a.signOutAt, signOutMethod: a.signOutMethod, status: a.status, signedInEarlier: earlier.has(a.id) })),
         { date, shift: j.shift, start: times.start, end: times.end },
       );
+      const gps = gpsByJob.get(j.id);
+      const stand = handoverNames(j.id);
       const rows = j.attendances.map((a) => {
-        const r = rowOf(a, { date, today, breakMin, devices, point: false, slot: a.resourceId ? undefined : slots.get(a.id)?.name ?? null, day: dayMap, staff: staffAll });
+        const r = rowOf(a, { date, today, breakMin, devices, point: false, slot: a.resourceId ? undefined : slots.get(a.id)?.name ?? null, day: dayMap, staff: staffAll, handoverNames: stand });
         const x = extra.get(a.id);
         if (x) { r.flags.push(...x.flags); Object.assign(r.notes, x.notes); }
+        const p = gps?.get(a.id);
+        if (p) { r.flags.push(p.flag); r.notes[p.flag] = p.note; }
         return r;
       });
       const signedIn = new Set(j.attendances.filter((a) => a.status !== "REJECTED").map((a) => a.resourceId));
@@ -228,7 +252,7 @@ export async function attendanceForDate(date: string) {
 // The Sign-ins page's strip added up over several days (10 Nov 2026 - the Timesheets page's "need sorting" banner).
 // The same days the Sign-ins page shows, so the counts always agree with it. Counts only.
 export async function flagSummaryForDays(dates: string[]): Promise<SigninFlagSummary> {
-  const total: SigninFlagSummary = { toConfirm: 0, late: 0, longDay: 0, noSignIn: 0 };
+  const total: SigninFlagSummary = { toConfirm: 0, late: 0, longDay: 0, noSignIn: 0, location: 0 };
   for (const d of dates) {
     const s = (await attendanceForDate(d)).summary;
     for (const k of Object.keys(total) as (keyof SigninFlagSummary)[]) total[k] += s[k];

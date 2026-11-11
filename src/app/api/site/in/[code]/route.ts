@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { withErrorHandling } from "@/lib/apiHandler";
-import { jobLabel, makeTicket, openJob, openJobsAtProject, pointCrew, readRotatingCode, resolvePoster, type Method } from "@/lib/signin";
+import { jobLabel, makeTicket, openJob, openJobsAtProject, pointCrew, readRotatingCode, resolvePoster, takesSignIns, type Method } from "@/lib/signin";
+import { outsideWindow } from "@/lib/posterGuard/rules";
+import { posterWindowOn, projectHours, windowForJob } from "@/lib/posterGuard/store";
 
 // GET /api/site/in/:code - a phone has scanned a sign-in QR: the supervisor's
 // changing code, a site poster, or a fixed office / yard / truck QR. Public,
@@ -14,7 +16,9 @@ export const GET = withErrorHandling(async (_req: NextRequest, { params: paramsP
   const code = decodeURIComponent(params.code);
   let method: Method;
   let linkId: string;
-  let jobs: { id: string; label: string; times: string | null; crew: { id: string; name: string }[] }[];
+  // signInClosed (site poster only, 11 Nov 2026): outside the poster's sign-in window - the words to show. Signing
+  // OUT still works, so the job is still listed.
+  let jobs: { id: string; label: string; times: string | null; crew: { id: string; name: string }[]; signInClosed?: string }[];
 
   if (code.includes(".")) {
     const q = readRotatingCode(code);
@@ -40,6 +44,14 @@ export const GET = withErrorHandling(async (_req: NextRequest, { params: paramsP
       method = "POSTER";
       linkId = poster.id;
       jobs = open.map(shape);
+      if (posterWindowOn()) {
+        const hours = await projectHours(poster.projectId);
+        const now = new Date();
+        for (const [i, j] of open.entries()) {
+          const closed = takesSignIns(j) ? outsideWindow(windowForJob(j, hours), now) : null;
+          if (closed) jobs[i].signInClosed = closed;
+        }
+      }
     }
   }
 

@@ -157,7 +157,8 @@ export function signedInEarlierIds(rows: { id: string; key: string; signInAt: Da
 }
 
 // The summary strip: "N to confirm · N late · N long day · N no sign-in".
-export type SigninFlagSummary = { toConfirm: number; late: number; longDay: number; noSignIn: number };
+// location (11 Nov 2026): site poster sign-ins with no location shared, or far from the site.
+export type SigninFlagSummary = { toConfirm: number; late: number; longDay: number; noSignIn: number; location: number };
 export function flagSummary(groups: { rows: { flags: string[] }[]; noShows: { id: string; nowhere?: boolean }[] }[]): SigninFlagSummary {
   const rows = groups.flatMap((g) => g.rows);
   const has = (...f: string[]) => rows.filter((r) => f.some((x) => r.flags.includes(x))).length;
@@ -166,6 +167,7 @@ export function flagSummary(groups: { rows: { flags: string[] }[]; noShows: { id
     late: has("LATE_IN"),
     longDay: has("LONG_SHIFT", "LONG_DAY"), // LONG_DAY: office / yard / truck over 14h (unchanged)
     noSignIn: groups.reduce((n, g) => n + g.noShows.filter((s) => s.nowhere).length, 0),
+    location: has("NO_LOCATION", "FAR_FROM_SITE"),
   };
 }
 

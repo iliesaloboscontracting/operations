@@ -39,7 +39,8 @@ export default {
       `/api/day-review/dockets?date=${q.date}`, `/api/calendar?from=${c.lastWeek}&to=${c.today}`, "/api/projects", "/api/resources?type=HIRE", "/api/hire-alerts", "/api/hire-checks",
       "/api/tools", "/api/toolboxes", "/api/tool-issues", "/api/purchases", "/api/messages", "/api/documents/status"]) t.status(await read(pth), 200, `view ${pth.split("?")[0]}`);
     const att = await read(`/api/attendance?date=${q.date}`);
-    t.ok(!/"gps/i.test(att.text), "sign-ins carry no GPS position");
+    // 11 Nov 2026 (Ilies): each line now carries the location STATUS (gpsStatus: shared / refused / ...) - never the position.
+    t.ok(!/"gps(Lat|Lng|Accuracy)/i.test(att.text), "sign-ins carry no GPS position");
     const projects = (await read("/api/projects")).body ?? [];
     t.ok(Array.isArray(projects) && projects.every((p) => !("contractValue" in p) && !("costToDate" in p && p.costToDate != null)), "the project list has no contract value or cost");
     const st = (await read("/api/documents/status")).body;
