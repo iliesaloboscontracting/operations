@@ -11,8 +11,11 @@ import { timesheetCsv } from "../timesheets";
 // The labour hire timesheet (Ilies, 11 Nov 2026).
 
 test("company names: case, spaces, punctuation and filler words are ignored", () => {
-  for (const s of ["Advanced Labour Hire", "Advanced Labour Hire P/L", "Advanced Labour Hire P.T.Y. L.T.D.", "advanced labour hire pty ltd", "ADVANCED  labour-hire", "Advanced Group", "advanced labour hiee", " advanced. "])
+  for (const s of ["Advanced Labour Hire", "Advanced Labour Hire P/L", "Advanced Labour Hire P.T.Y. L.T.D.", "advanced labour hire pty ltd", "ADVANCED  labour-hire", "advanced labour hiee", " advanced. "])
     assert.equal(companyKey(s), "advanced", s);
+  // PS-051: Group / Services / Australia are part of the name - two companies can differ only by them.
+  assert.equal(companyKey("Advanced Group"), "advanced group");
+  assert.equal(companyKey("ABC Australia Pty Ltd"), "abc australia");
   assert.equal(companyKey("Smith & Sons Pty Ltd"), "smith sons");
   assert.equal(companyKey("ALH"), "alh");
   assert.equal(companyKey("A.L.H."), "alh", "letters typed one at a time are one word");
@@ -24,6 +27,14 @@ test("company names: case, spaces, punctuation and filler words are ignored", ()
 
 test("the built-in list and the office's mappings", () => {
   const none = new Map<string, string>();
+  // PS-051: every Advanced spelling seen on the sign-ins so far still comes together (the built-in list)...
+  for (const s of ["Advanced", "Advance", "Adcanced", "Advanced Group", "Advanced group", "advanced group", "Advance group", "Advanced labour", "Advanced labour hiee", "Advanced Labour Hire Group"])
+    assert.equal(resolveCompany(s, none), "advanced", s);
+  assert.equal(resolveCompany("advanced group Anthony", none), "advanced group anthony", "...a name with more in it is left for the office");
+  // ...while two other companies that differ only by Group / Services stay apart, unless the office maps them.
+  assert.notEqual(resolveCompany("ABC Group", none), resolveCompany("ABC Services", none));
+  assert.notEqual(resolveCompany("ABC Group", none), resolveCompany("ABC", none));
+  assert.equal(resolveCompany("ABC Services", aliasMap([{ alias: "abc services", company: "ABC Group" }])), resolveCompany("ABC Group", none), "mapped by the office, they come together");
   assert.equal(resolveCompany("Advance group", none), "advanced", "built-in misspelling");
   assert.equal(resolveCompany("Adcanced", none), "advanced");
   assert.equal(resolveCompany("ALH", none), "alh", "ALH is its own until the office maps it");
@@ -125,6 +136,32 @@ test("the export: the staff timesheet's columns, that company only, no $ and for
   assert.ok(csv.includes("No sign-out") && csv.includes("Waiting for supervisor"));
   assert.equal(exportFileName("Advanced Labour Hire", WEEK), "Advanced-Labour-Hire_week-2026-11-09.csv");
   assert.equal(exportFileName(null, WEEK), "All-companies_week-2026-11-09.csv");
+});
+
+// PS-051: what was grouped together is in the file, under the company's total.
+test("the export lists every spelling grouped into a company, and the office mapping with who made it", () => {
+  const raw = [...lines(), mk("8", "2026-11-12", "Lee Wong", "=ALH$5", {})];
+  const aliases = [
+    { alias: "alh", aliasText: "ALH", company: "Advanced Labour Hire", createdBy: "Pat Office" },
+    { alias: "alh 5", aliasText: "=ALH$5", company: "Advanced Labour Hire", createdBy: "Pat Office" },
+  ];
+  const w = hireWeek(WEEK, raw, aliases, "advanced");
+  const adv = w.companies.find((c) => c.key === "advanced")!;
+  assert.deepEqual(adv.mappings.map((m) => m.typed).sort(), ["=ALH$5", "ALH"]);
+  const csv = labourHireCsv(WEEK, w, w.companies)!;
+  assert.ok(csv, "passes fileIsSafe");
+  const rows = csv.split("\r\n");
+  const total = rows.findIndex((r) => r.includes("COMPANY TOTAL"));
+  const grouped = rows[total + 1];
+  assert.ok(total > 0 && /Grouped from: /.test(grouped), "the line straight under COMPANY TOTAL");
+  for (const s of ["Advanced Labour Hire (1)", "advanced labour hire pty ltd (1)", "Advanced (2)", "ALH (1)"]) assert.ok(grouped.includes(s), s);
+  assert.ok(grouped.includes(`"ALH" -> Advanced Labour Hire (by Pat Office)`) || grouped.includes(`""ALH"" -> Advanced Labour Hire (by Pat Office)`), "the office mapping and who made it");
+  assert.ok(!csv.includes("$"), "an amount in a typed name is taken out");
+  assert.ok(!/(^|,)=/m.test(csv), "and nothing can start a formula");
+  // All companies: one total and one "Grouped from" per company.
+  const all = hireWeek(WEEK, raw, aliases, "all");
+  const allCsv = labourHireCsv(WEEK, all, all.companies)!;
+  assert.equal(allCsv.split("\r\n").filter((r) => r.includes("Grouped from: ")).length, all.companies.length);
 });
 
 test("the staff export is unchanged when no options are given", () => {

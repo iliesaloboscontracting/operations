@@ -16,7 +16,7 @@ import type { TimesheetPerson } from "@/lib/timesheets";
 // and the same spreadsheet. View and export only - no approval or lock. Managers, Admins and the coordinator; the
 // company-name mappings are Managers / Admins only. Hours only - never a rate.
 
-type Company = { key: string; name: string; typed: { text: string; lines: number }[]; workers: number; lines: number; hours: number; unfinished: number; flagged: number; looksLikeLobos: boolean };
+type Company = { key: string; name: string; typed: { text: string; lines: number }[]; mappings: { typed: string; company: string; by: string }[]; groupedFrom: string; workers: number; lines: number; hours: number; unfinished: number; flagged: number; looksLikeLobos: boolean };
 type Alias = { id: string; aliasText: string; alias: string; company: string; createdBy: string; createdAt: string; retiredAt: string | null; retiredBy: string | null; retireReason: string | null };
 type Data = {
   weekStart: string; weekEnd: string; days: string[]; today: string; weekEnded: boolean;
@@ -88,6 +88,12 @@ export default function LabourHireHoursPage() {
               <Download size={14} /> Export {chosen ? chosen.name : "all companies"}
             </a>
           )}
+          {/* PS-052: the all-companies file has every company's workers in it. */}
+          {data && data.company === "all" && (
+            <span className="w-full text-right text-xs text-amber-300" data-testid="lh-all-warning">
+              Don&apos;t send this to a labour hire company – export one company at a time.
+            </span>
+          )}
         </div>
       </div>
 
@@ -117,7 +123,8 @@ export default function LabourHireHoursPage() {
             <Tile label="Companies" value={data.companies.length} />
           </div>
 
-          {data.company === "all" && data.companies.length > 0 && <CompanyTotals companies={data.companies} onPick={setCompany} />}
+          {/* Each company's totals and what was grouped into it (PS-051) - just the chosen one when filtered. */}
+          {data.companies.length > 0 && <CompanyTotals companies={chosen ? [chosen] : data.companies} onPick={setCompany} />}
           {chosen?.looksLikeLobos && (
             <p className="mb-4 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-300">
               These people typed Lobos as their company - they&apos;re probably Lobos staff. On the Sign-ins page, use &quot;Move to&quot; to put them on their own name.
@@ -135,7 +142,7 @@ export default function LabourHireHoursPage() {
           <CompanyNames data={data} reload={load} />
 
           <p className="mt-4 text-[11px] text-gray-500">
-            Hire and subcontract workers sign in with their own name and the company they typed. Hours are worked out exactly as for staff: signed in to signed out; one unpaid break per person per day (the project&apos;s break), only when the day is over 5h and never taking it below 5h; time signed in twice at once counts once; each day rounded once to the quarter hour. Removed and rejected sign-ins are left out. Company names are grouped ignoring case, spaces, punctuation and words like Pty Ltd, Labour, Hire and Group. To fix a time, use the Sign-ins page (the change and reason are kept).
+            Hire and subcontract workers sign in with their own name and the company they typed. Hours are worked out exactly as for staff: signed in to signed out; one unpaid break per person per day (the project&apos;s break), only when the day is over 5h and never taking it below 5h; time signed in twice at once counts once; each day rounded once to the quarter hour. Removed and rejected sign-ins are left out. Company names are grouped ignoring case, spaces, punctuation and words like Pty Ltd, Labour and Hire (not Group or Services - two companies can share those; map them if they are one). To fix a time, use the Sign-ins page (the change and reason are kept).
           </p>
         </>
       )}
@@ -162,7 +169,14 @@ function CompanyTotals({ companies, onPick }: { companies: Company[]; onPick: (k
               <td className="px-3 py-2">
                 <button className="font-medium text-brand-300 hover:underline" onClick={() => onPick(c.key)}>{c.name}</button>
               </td>
-              <td className="px-3 py-2 text-xs text-gray-400">{c.typed.map((t) => `${t.text} (${t.lines})`).join(", ")}</td>
+              <td className="px-3 py-2 text-xs text-gray-400">
+                {c.typed.map((t) => `${t.text} (${t.lines})`).join(", ")}
+                {c.mappings.length > 0 && (
+                  <div className="mt-0.5 text-sky-300">
+                    Office mapping{c.mappings.length === 1 ? "" : "s"}: {c.mappings.map((m) => `"${m.typed}" → ${m.company} (by ${m.by})`).join(", ")}
+                  </div>
+                )}
+              </td>
               <td className="px-3 py-2 text-right text-gray-200">{c.workers}</td>
               <td className={`px-3 py-2 text-right ${c.unfinished ? "font-semibold text-amber-400" : "text-gray-500"}`}>{c.unfinished || ""}</td>
               <td className="px-3 py-2 text-right font-bold text-gray-100">{hrs(c.hours)}</td>
@@ -207,7 +221,7 @@ function CompanyNames({ data, reload }: { data: Data; reload: () => void }) {
     <section className="mt-6 rounded-xl border border-edge bg-panel p-4">
       <h3 className="mb-1 flex items-center gap-1.5 text-sm font-semibold text-gray-100"><Info size={14} /> Company names</h3>
       <p className="mb-3 text-xs text-gray-400">
-        Workers type their company when they sign in, so one company can be spelt several ways. Names that differ only in case, spaces, punctuation or words like Pty Ltd, Labour, Hire and Group are grouped automatically.
+        Workers type their company when they sign in, so one company can be spelt several ways. Names that differ only in case, spaces, punctuation or words like Pty Ltd, Labour and Hire (not Group or Services - two companies can share those; map them if they are one) are grouped automatically.
         {data.canMap ? " For anything else (e.g. ALH), map the typed name to the company below." : " The office (Managers and Admins) maps any others."}
       </p>
       {data.canMap && (

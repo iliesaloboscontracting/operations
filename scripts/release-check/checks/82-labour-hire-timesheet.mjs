@@ -44,7 +44,7 @@ export default {
     const L = {
       sam1: await att(jMon, MON, sam, "Advanced Labour Hire", "07:00", "15:30"), // 8.0
       sam2: await att(jTue, TUE, sam.toLowerCase().replace(" ", "  "), "advanced labour hire pty ltd", "06:58", "15:31"), // 8.0
-      eve: await att(jMon, MON, eve, "Advanced", "07:00", "15:30", { deviceId: `rc-eve-${tag}` }), // 8.0
+      eve: await att(jMon, MON, eve, "Advanced Group", "07:00", "15:30", { deviceId: `rc-eve-${tag}` }), // 8.0 - "Group" kept, built-in Advanced spelling (PS-051)
       kimPoster: await att(jTue, TUE, kim, "Advanced", "07:00", "15:30", { signInMethod: "POSTER", signOutMethod: "POSTER", status: "TO_CONFIRM" }), // 8.0, to confirm
       kimOpen: await att(jWed, WED, kim, "Advanced", "07:00", null), // no sign-out
       joe: await att(jWed, WED, joe, "ALH", "07:00", "17:00"), // 10h less 45 min = 9.25
@@ -52,6 +52,9 @@ export default {
       rejected: await att(jWed, WED, sam, "Advanced Labour Hire", "07:00", "15:30", { status: "REJECTED" }),
       removed: await att(jMon, MON, joe, "ALH", "07:00", "15:30", { status: "REJECTED", removedAt: new Date(), removedBy: "release-check" }),
     };
+    // PS-051: two companies that differ only by Group / Services stay apart.
+    await att(jWed, WED, `RC Gus ${tag}`, `RC Abc${tag} Group`, "07:00", "15:30");
+    await att(jWed, WED, `RC Stu ${tag}`, `RC Abc${tag} Services Pty Ltd`, "07:00", "15:30");
     const expectHours = { sam1: 8, sam2: 8, eve: 8, kimPoster: 8, kimOpen: null, joe: 9.25, ann: 4.5 };
     // 2020 is before BREAK_RULE_FROM (26 Oct 2026), so each line keeps its own break (lib/dayHours.ts, as for staff) - the
     // day rule (one break over 5h, never below 5h) is in the unit tests; here what matters is "the same as Sign-ins".
@@ -61,7 +64,10 @@ export default {
     const cos = all.body?.companies ?? [];
     const adv = cos.find((x) => x.key === "advanced");
     t.ok(all.status === 200 && adv?.name === "Advanced Labour Hire", "'Advanced Labour Hire', 'advanced labour hire pty ltd' and 'Advanced' are one company, Advanced Labour Hire", JSON.stringify(cos.map((x) => x.key)));
-    t.ok(adv && ["Advanced Labour Hire", "advanced labour hire pty ltd", "Advanced"].every((s) => adv.typed.some((x) => x.text === s)), "...listing every spelling typed");
+    t.ok(adv && ["Advanced Labour Hire", "advanced labour hire pty ltd", "Advanced", "Advanced Group"].every((s) => adv.typed.some((x) => x.text === s)), "...with 'Advanced Group' (PS-051: built-in), listing every spelling typed");
+    const gKey = `rc abc${tag} group`, sKey = `rc abc${tag} services`;
+    t.ok(cos.some((x) => x.key === gKey) && cos.some((x) => x.key === sKey), "PS-051: 'ABC Group' and 'ABC Services' stay two companies", JSON.stringify(cos.filter((x) => x.key.includes("abc")).map((x) => x.key)));
+    t.ok((cos.find((x) => x.key === gKey)?.groupedFrom ?? "").startsWith("Grouped from: "), "each company says what it was grouped from");
     t.ok(adv?.workers === 3 && adv?.hours === 32, "Advanced: 3 workers (Sam typed two ways is one), 32h", JSON.stringify({ w: adv?.workers, h: adv?.hours }));
     t.ok(cos.some((x) => x.key === "alh") && cos.some((x) => x.key === `rc otherco${tag}`), "'ALH' and the other company are their own groups until mapped");
     const lines = (body) => (body?.people ?? []).flatMap((p) => Object.values(p.days ?? {}).flat());
@@ -109,6 +115,15 @@ export default {
     t.ok(/WEEK TOTAL/.test(csv) && /COMPANY TOTAL/.test(csv) && /No sign-out/.test(csv) && /Waiting for supervisor/.test(csv), "week totals, the company total and the unfinished notes");
     const exAll = await c.get(`${API}/export?week=${WEEK}&company=all`, "MANAGER");
     t.ok(exAll.status === 200 && /filename="All-companies_week-2020-05-04\.csv"/.test(exAll.headers.get("content-disposition") ?? ""), "All companies exports as All-companies_week-...");
+    // PS-051: a "Grouped from:" line straight under each COMPANY TOTAL - every spelling typed (the file passed fileIsSafe, or it is 422).
+    const grouped = rows[rows.findIndex((r) => r.includes("COMPANY TOTAL")) + 1] ?? "";
+    t.ok(/Grouped from: /.test(grouped) && ["Advanced Labour Hire (1)", "advanced labour hire pty ltd (1)", "Advanced (2)", "Advanced Group (1)"].every((x) => grouped.includes(x)) && !/ALH/.test(grouped),
+      "PS-051: under the company total, every spelling grouped into it (ALH not yet)", grouped.slice(0, 200));
+    const allRows = (await exAll.text()).split("\r\n");
+    t.ok(allRows.filter((r) => r.includes("Grouped from: ")).length === cos.length && allRows.filter((r) => r.includes("COMPANY TOTAL")).length === cos.length, "All companies: one total and one 'Grouped from' per company");
+    let page = "";
+    try { page = readFileSync(path.join(c.p.appDir, "src", "app", "timesheets", "labour-hire", "page.tsx"), "utf8"); } catch { /* missing */ }
+    t.ok(page.includes("Don&apos;t send this to a labour hire company – export one company at a time.") && page.includes('data.company === "all"'), "PS-052: the All companies export says not to send it to a labour hire company");
 
     // (6) Roles.
     for (const who of ["MANAGER", "ADMIN", "COORDINATOR"]) {
@@ -144,6 +159,8 @@ export default {
     t.ok(after.body?.totalHours === 41.25, "Advanced's week is now 41.25h", after.body?.totalHours);
     const ex2 = await c.text(`${API}/export?week=${WEEK}&company=advanced`, "MANAGER");
     t.ok(ex2.text.includes(joe), "...and in its export");
+    const g2 = ex2.text.split("\r\n").find((r) => r.includes("Grouped from: ")) ?? "";
+    t.ok(g2.includes("ALH (1)") && /ALH"+ -> Advanced Labour Hire \(by Release check MANAGER\)/.test(g2), "PS-051: the export names the office mapping and who made it", g2.slice(0, 240));
     t.status(await c.post(ALIASES, "ADMIN", { action: "map", typed: "ALH", company: `RC Otherco${tag}` }), 200, "an Admin points ALH at another company");
     const h2 = await hist();
     t.ok(h2.some((r) => r.field === "company" && r.before === "Advanced Labour Hire" && r.after === `RC Otherco${tag}`), "the change is in the history (before -> after)");

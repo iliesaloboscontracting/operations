@@ -5,7 +5,7 @@
 // Hire workers TYPE their company at sign-in, so one company arrives spelt many ways ("Advanced", "Advanced Group",
 // "advanced labour hiee", "ALH"). Names are compared by a tidied key:
 //   1. lower case, "&" -> "and", every run of punctuation / spaces -> one space;
-//   2. filler words dropped (pty, ltd, labour, hire, group ... COMPANY_FILLER) - unless that leaves nothing;
+//   2. filler words dropped (pty, ltd, labour, hire ... COMPANY_FILLER - never group / services, PS-051) - unless that leaves nothing;
 //   3. then the office's own mappings (LabourHireCompanyAlias, e.g. "ALH" -> "Advanced Labour Hire") and the small
 //      built-in list below (known misspellings), followed a few steps at most.
 // Worker names are tidied the same way (case, spaces, punctuation) within their company - nothing else is guessed
@@ -14,17 +14,20 @@
 export const NO_COMPANY_KEY = "(none)";
 export const NO_COMPANY_NAME = "No company given";
 
-// Words that say nothing about which company it is.
+// Words that say nothing about which company it is. PS-051 (Ilies approved, 11 Nov 2026): "group", "services",
+// "australia" and "aust" are NOT filler - "ABC Group" and "ABC Services" can be two companies; they only come together
+// when the office maps them (or the built-in list below names them).
 export const COMPANY_FILLER = [
   "pty", "ltd", "ptyltd", "pl", "limited", "proprietary", "co", "company", "inc", "the", "and",
-  "labour", "labor", "hire", "hiee", "hier", "group", "services", "australia", "aust",
+  "labour", "labor", "hire", "hiee", "hier",
 ] as const;
 const FILLER = new Set<string>(COMPANY_FILLER);
 
 // Known spellings of companies Lobos uses (from the sign-ins so far). key = the company's own key; also = other keys
 // that mean it. Anything else is mapped by the office on the page.
 export const BUILT_IN_COMPANIES: readonly { key: string; name: string; also: readonly string[] }[] = [
-  { key: "advanced", name: "Advanced Labour Hire", also: ["advance", "adcanced", "advanved", "advaced"] },
+  // "Advanced Group" / "Advance group": how their workers type it (the sign-ins so far) - Ilies, PS-051.
+  { key: "advanced", name: "Advanced Labour Hire", also: ["advance", "adcanced", "advanved", "advaced", "advanced group", "advance group"] },
 ];
 
 const tidy = (s: string | null | undefined) => (s ?? "").normalize("NFKD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/&/g, " and ").replace(/[^a-z0-9]+/g, " ").trim();
@@ -47,7 +50,7 @@ export const workerKey = (typed: string | null | undefined) => tidy((typed ?? ""
 // The tidied text shown for a typed value: single spaces, trimmed.
 export const tidyText = (s: string | null | undefined) => (s ?? "").replace(/\s+/g, " ").trim();
 
-export type CompanyAlias = { alias: string; company: string; retiredAt?: Date | string | null };
+export type CompanyAlias = { alias: string; company: string; retiredAt?: Date | string | null; aliasText?: string; createdBy?: string };
 
 // The office's live mappings: alias key -> the company name it means.
 export function aliasMap(rows: CompanyAlias[]): Map<string, string> {
@@ -59,7 +62,15 @@ const BUILT_IN_TARGET = new Map(BUILT_IN_COMPANIES.flatMap((c) => c.also.map((a)
 // The group a typed company belongs to (its final key). Office mappings first, then the built-in list; at most a few
 // steps, and a loop ("A" -> "B" -> "A") stops where it started repeating.
 export function resolveCompany(typed: string | null | undefined, aliases: Map<string, string>): string {
+  const path = resolvePath(typed, aliases);
+  return path[path.length - 1];
+}
+
+// Every key a typed company passes through on the way to its group (the first is its own key) - which office
+// mappings grouped it (PS-051: the export and the page say what was grouped, and by whom).
+export function resolvePath(typed: string | null | undefined, aliases: Map<string, string>): string[] {
   let k = companyKey(typed);
+  const path = [k];
   const seen = new Set<string>();
   for (let i = 0; i < 6 && !seen.has(k); i++) {
     seen.add(k);
@@ -67,8 +78,16 @@ export function resolveCompany(typed: string | null | undefined, aliases: Map<st
     const next = office != null ? companyKey(office) : BUILT_IN_TARGET.get(k);
     if (next == null || next === k) break;
     k = next;
+    path.push(k);
   }
-  return k;
+  return path;
+}
+
+// PS-051: "Grouped from: Advanced group (9), Advanced (3), ALH (1); office mapping: "ALH" -> Advanced Labour Hire (by Sam)".
+export function groupedFromText(typed: { text: string; lines: number }[], mappings: { typed: string; company: string; by: string }[]): string {
+  const spellings = typed.map((t) => `${t.text} (${t.lines})`).join(", ");
+  const maps = mappings.map((m) => `"${m.typed}" -> ${m.company} (by ${m.by})`).join(", ");
+  return `Grouped from: ${spellings}${maps ? `; office mapping${mappings.length === 1 ? "" : "s"}: ${maps}` : ""}`;
 }
 
 // The name shown for a group: the office's mapping to it (the newest first - rows come in that order), else the

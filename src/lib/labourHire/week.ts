@@ -3,7 +3,7 @@
 // the database side is ./store.ts. Hours come in already worked out (lib/dayHours.ts, the staff rule); this only groups.
 import { peopleOf, type TimesheetLine, type TimesheetPerson } from "../timesheets";
 import {
-  aliasMap, companyName, isFlaggedInfo, isUnfinished, mostCommon, resolveCompany, tidyText, workerKey,
+  aliasMap, companyName, groupedFromText, isFlaggedInfo, isUnfinished, mostCommon, resolvePath, tidyText, workerKey,
   type CompanyAlias, type HireFlag,
 } from "./rules";
 
@@ -14,6 +14,8 @@ export type HireCompany = {
   key: string;
   name: string;
   typed: { text: string; lines: number }[]; // every spelling typed at sign-in, most used first
+  mappings: { typed: string; company: string; by: string }[]; // the office mappings that grouped them (PS-051)
+  groupedFrom: string; // "Grouped from: ..." - on the page and under the export's COMPANY TOTAL (PS-051)
   workers: number;
   lines: number;
   hours: number;
@@ -42,8 +44,9 @@ const bump = (m: Map<string, Map<string, number>>, k: string, text: string) => {
 export function hireWeek(weekStart: string, raw: HireLine[], aliasRows: CompanyAlias[], selected: string | null | undefined): HireWeek {
   const amap = aliasMap(aliasRows);
   const keyed = raw.map((l) => {
-    const ck = resolveCompany(l.company, amap);
-    return { l, ck, wk: `${ck}|${workerKey(l.workerName)}` };
+    const path = resolvePath(l.company, amap);
+    const ck = path[path.length - 1];
+    return { l, ck, path, wk: `${ck}|${workerKey(l.workerName)}` };
   });
   const typedCo = new Map<string, Map<string, number>>();
   const typedWorker = new Map<string, Map<string, number>>();
@@ -63,10 +66,18 @@ export function hireWeek(weekStart: string, raw: HireLine[], aliasRows: CompanyA
 
   const companies: HireCompany[] = [...typedCo.keys()].map((key) => {
     const mine = keyed.filter((x) => x.ck === key);
+    const typed = [...typedCo.get(key)!].map(([text, lines]) => ({ text, lines })).sort((a, b) => b.lines - a.lines || a.text.localeCompare(b.text));
+    // The office mappings these lines went through on the way to this company.
+    const used = new Set(mine.flatMap((x) => x.path.slice(0, -1)));
+    const mappings = aliasRows
+      .filter((r) => !r.retiredAt && used.has(r.alias))
+      .map((r) => ({ typed: tidyText(r.aliasText ?? r.alias), company: tidyText(r.company), by: tidyText(r.createdBy ?? "the office") }));
     return {
       key,
       name: names.get(key)!,
-      typed: [...typedCo.get(key)!].map(([text, lines]) => ({ text, lines })).sort((a, b) => b.lines - a.lines || a.text.localeCompare(b.text)),
+      typed,
+      mappings,
+      groupedFrom: groupedFromText(typed, mappings),
       workers: new Set(mine.map((x) => x.wk)).size,
       lines: mine.length,
       hours: q4(mine.reduce((n, x) => n + (x.l.hours ?? 0), 0)),

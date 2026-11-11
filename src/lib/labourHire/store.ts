@@ -87,7 +87,7 @@ export type AliasRow = {
 export const companyAliases = (): Promise<AliasRow[]> =>
   prisma.labourHireCompanyAlias.findMany({ orderBy: [{ updatedAt: "desc" }, { id: "asc" }] });
 
-export const toCompanyAlias = (r: AliasRow): CompanyAlias => ({ alias: r.alias, company: r.company, retiredAt: r.retiredAt });
+export const toCompanyAlias = (r: AliasRow): CompanyAlias => ({ alias: r.alias, company: r.company, retiredAt: r.retiredAt, aliasText: r.aliasText, createdBy: r.createdBy });
 
 const MAX = 80;
 export class AliasError extends Error {
