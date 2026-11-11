@@ -3,7 +3,9 @@
 // multipart (create / list / complete / abort), HEAD, ranged GET and versions - against that folder, through a tiny
 // HTTP server on 127.0.0.1 (a random port, or MEDIA_FAKE_PORT) that this server process starts the first time it's
 // needed. Nothing here ever leaves the machine. Signed addresses are HMAC'd with a key made fresh in this process and
-// expire like the real ones; a PUT must send the Content-Type it was signed for. Never deletes anything.
+// expire like the real ones; a PUT must send the Content-Type it was signed for and exactly the length (PS-043 - a
+// bigger or smaller body is 403, as Lightsail does with a signed content-length). MEDIA_FAKE_VERSIONING=off makes it
+// behave like a bucket with versioning off (HEAD gives no version - PS-045). Never deletes anything.
 import http from "http";
 import fs from "fs";
 import fsp from "fs/promises";
@@ -11,8 +13,9 @@ import path from "path";
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "crypto";
 import { MediaStoreError, type HeadResult, type MediaStore, type UploadPartRef } from "./store";
 
-type Grant = { op: "put" | "part" | "get"; key: string; exp: number; ct?: string; uploadId?: string; n?: number; v?: string | null; dl?: string | null };
-type ObjMeta = { contentType: string; versions: string[] }; // newest last
+type Grant = { op: "put" | "part" | "get"; key: string; exp: number; ct?: string; len?: number; uploadId?: string; n?: number; v?: string | null; dl?: string | null };
+type ObjMeta = { contentType: string; versions: string[]; key?: string }; // newest last
+const versioningOn = () => process.env.MEDIA_FAKE_VERSIONING !== "off";
 type UploadMeta = { key: string; contentType: string; createdAt: number; state: "OPEN" | "DONE" | "ABORTED" };
 
 const g = globalThis as unknown as { __mediaFake?: { secret: Buffer; server: http.Server | null; base: Promise<string> | null } };
@@ -72,6 +75,7 @@ export class FakeMediaStore implements MediaStore {
     await fsp.writeFile(path.join(d, `${versionId}.bin`), bytes);
     meta.versions.push(versionId);
     meta.contentType = contentType;
+    meta.key = key;
     await fsp.writeFile(path.join(d, "meta.json"), JSON.stringify(meta));
     return { etag: md5(bytes), versionId };
   }
@@ -98,9 +102,13 @@ export class FakeMediaStore implements MediaStore {
     const deny = (code: number) => { res.writeHead(code, cors); res.end(); };
     if (!gr) return deny(403);
     if (req.method === "PUT" && (u.pathname === "/o" || u.pathname === "/p")) {
+      // PS-043: the signed length - a declared length that differs is refused before reading, a body that differs after.
+      if (gr.len == null || Number(req.headers["content-length"]) !== gr.len) { req.resume(); return deny(403); }
       const chunks: Buffer[] = [];
-      for await (const c of req) chunks.push(c as Buffer);
+      let got = 0;
+      for await (const c of req) { got += (c as Buffer).length; if (got <= gr.len) chunks.push(c as Buffer); } // past the length: drained, refused below
       const bytes = Buffer.concat(chunks);
+      if (got !== gr.len) return deny(403);
       if (u.pathname === "/o") {
         if (gr.op !== "put" || (req.headers["content-type"] ?? "") !== gr.ct) return deny(403); // the type is part of the signature
         const { etag, versionId } = await this.putObject(gr.key, gr.ct!, bytes);
@@ -138,8 +146,8 @@ export class FakeMediaStore implements MediaStore {
     deny(405);
   }
 
-  async presignPut(key: string, mime: string, ttlSec: number) {
-    return `${await this.base()}/o?t=${sign({ op: "put", key, ct: mime, exp: Date.now() + ttlSec * 1000 })}`;
+  async presignPut(key: string, mime: string, bytes: number, ttlSec: number) {
+    return `${await this.base()}/o?t=${sign({ op: "put", key, ct: mime, len: bytes, exp: Date.now() + ttlSec * 1000 })}`;
   }
   async createMultipart(key: string, mime: string) {
     const id = randomBytes(16).toString("hex");
@@ -149,8 +157,8 @@ export class FakeMediaStore implements MediaStore {
     await fsp.writeFile(path.join(dir, "meta.json"), JSON.stringify(meta));
     return id;
   }
-  async presignPart(key: string, uploadId: string, n: number, ttlSec: number) {
-    return `${await this.base()}/p?t=${sign({ op: "part", key, uploadId, n, exp: Date.now() + ttlSec * 1000 })}`;
+  async presignPart(key: string, uploadId: string, n: number, bytes: number, ttlSec: number) {
+    return `${await this.base()}/p?t=${sign({ op: "part", key, uploadId, n, len: bytes, exp: Date.now() + ttlSec * 1000 })}`;
   }
   private async openUpload(key: string, uploadId: string) {
     const dir = uploadDir(this.root, uploadId);
@@ -187,7 +195,7 @@ export class FakeMediaStore implements MediaStore {
   async head(key: string): Promise<HeadResult | null> {
     const o = await this.object(key, null);
     if (!o) return null;
-    return { size: (await fsp.stat(o.file)).size, contentType: o.contentType, versionId: o.versionId };
+    return { size: (await fsp.stat(o.file)).size, contentType: o.contentType, versionId: versioningOn() ? o.versionId : null };
   }
   async getRange(key: string, versionId: string | null, start: number, end: number) {
     const o = await this.object(key, versionId);
@@ -201,6 +209,28 @@ export class FakeMediaStore implements MediaStore {
       await fh.read(buf, 0, buf.length, start);
       return new Uint8Array(buf);
     } finally { await fh.close(); }
+  }
+  async listVersions() {
+    const out: { key: string; versionId: string | null; size: number }[] = [];
+    const dir = path.join(this.root, "objects");
+    for (const d of await fsp.readdir(dir).catch(() => [] as string[])) {
+      const meta = await readJson<ObjMeta>(path.join(dir, d, "meta.json"));
+      if (!meta?.key) continue;
+      for (const v of meta.versions) out.push({ key: meta.key, versionId: v, size: (await fsp.stat(path.join(dir, d, `${v}.bin`))).size });
+    }
+    return out;
+  }
+  async listUploads() {
+    const out: { key: string; uploadId: string; bytes: number }[] = [];
+    const dir = path.join(this.root, "uploads");
+    for (const id of await fsp.readdir(dir).catch(() => [] as string[])) {
+      const meta = await readJson<UploadMeta>(path.join(dir, id, "meta.json"));
+      if (!meta || meta.state !== "OPEN") continue;
+      let bytes = 0;
+      for (const f of await fsp.readdir(path.join(dir, id))) if (/^part-\d+\.bin$/.test(f)) bytes += (await fsp.stat(path.join(dir, id, f))).size;
+      out.push({ key: meta.key, uploadId: id, bytes });
+    }
+    return out;
   }
   async presignGet(key: string, versionId: string | null, ttlSec: number, o: { mime: string; download?: string | null }) {
     return `${await this.base()}/o?t=${sign({ op: "get", key, v: versionId, ct: o.mime, dl: o.download ? o.download.replace(/[^A-Za-z0-9._-]/g, "") : null, exp: Date.now() + ttlSec * 1000 })}`;

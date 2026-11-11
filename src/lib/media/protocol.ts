@@ -19,7 +19,8 @@ import { todaySydney } from "../today";
 import { pushToAdmins } from "../push";
 import type { MediaObject } from "@prisma/client";
 import {
-  MEDIA_LIMITS, TOO_LONG, abortStaleOn, capRefusal, ceilingNotice, ceilingReached, isFinal, maxBytesFor, nextPartNumbers, objectKey, parseStart, partsComplete, planUpload,
+  MEDIA_LIMITS, PENDING_FULL, TOO_LONG, abortStaleOn, capRefusal, ceilingNotice, ceilingReached, countedBytes, dayTotals, isFinal, maxBytesFor, nextPartNumbers, objectKey, parseStart,
+  partRange, partsComplete, planUpload,
   type MediaArea, type MediaKind, type Refusal, type StartAsk,
 } from "./rules";
 import { matchesClaim, mp4DurationSec } from "./magic";
@@ -50,55 +51,65 @@ const sourceWhere = (s: Source) =>
   s.siteLinkId ? { siteLinkId: s.siteLinkId } : s.attendanceId ? { attendanceId: s.attendanceId } : s.sessionId ? { sessionId: s.sessionId } : { id: "-none-" };
 
 // One start at a time on this server: the row is made and the caps counted together, so a burst can't all slip under.
-let chain: Promise<unknown> = Promise.resolve();
+// PS-046: the queue and the "being completed" set live on globalThis - every route bundle (the link's, the pre-start's)
+// shares the same ones.
+const shared = globalThis as unknown as { __mediaChain?: Promise<unknown>; __mediaCompleting?: Set<string> };
 function serial<T>(f: () => Promise<T>): Promise<T> {
-  const run = chain.then(f, f);
-  chain = run.catch(() => undefined);
+  const run = (shared.__mediaChain ?? Promise.resolve()).then(f, f);
+  shared.__mediaChain = run.catch(() => undefined);
   return run;
 }
 // One complete per upload at a time (a phone retrying while the first is still being checked).
-const completing = new Set<string>();
+const completing = (shared.__mediaCompleting ??= new Set<string>());
 
-// Bytes are added up here, not with Prisma's _sum: a day's total passes 2 GB, beyond a 32-bit Int's range.
-const sumBytes = (rows: { bytes: number }[]) => rows.reduce((a, r) => a + r.bytes, 0);
+// PS-044 (11 Nov 2026): the caps count what the bucket really received (storedBytes, once checked) and only FRESH
+// PENDING declarations (under 30 minutes) - starts that never send anything can't use up a day (rules.ts dayTotals).
+// Added up here, not with Prisma's _sum: a day's total passes 2 GB, beyond a 32-bit Int's range.
+const COUNTED = { state: true, bytes: true, storedBytes: true, createdAt: true, abortedAt: true, kind: true } as const;
 async function dayCounts(s: Source) {
-  const since = { gte: sydneyMidnight() };
-  const [items, videos, bytes, company] = await Promise.all([
-    prisma.mediaObject.count({ where: { ...sourceWhere(s), createdAt: since } }),
-    prisma.mediaObject.count({ where: { ...sourceWhere(s), kind: "VIDEO", createdAt: since } }),
-    prisma.mediaObject.findMany({ where: { ...sourceWhere(s), createdAt: since }, select: { bytes: true } }),
-    companyBytesToday(),
+  const now = new Date();
+  const [mine, company] = await Promise.all([
+    prisma.mediaObject.findMany({ where: { ...sourceWhere(s), createdAt: { gte: sydneyMidnight() } }, select: COUNTED }),
+    companyBytesToday(now),
   ]);
-  return { source: { items, videos, bytes: sumBytes(bytes) }, company };
+  return { source: dayTotals(mine, now), company };
 }
-export async function companyBytesToday(): Promise<number> {
-  return sumBytes(await prisma.mediaObject.findMany({ where: { createdAt: { gte: sydneyMidnight() } }, select: { bytes: true } }));
+export async function companyBytesToday(now = new Date()): Promise<number> {
+  const rows = await prisma.mediaObject.findMany({ where: { createdAt: { gte: sydneyMidnight() } }, select: COUNTED });
+  return rows.reduce((a, r) => a + countedBytes(r, now), 0);
 }
-// Is today's company-wide ceiling reached? (The pre-start lets an Urgent fault through without a photo then - PS-010.)
+// Is today's company-wide ceiling reached? (PS-044: it never waives a pre-start photo - the phone falls back to the
+// old shrunk-photo route instead.)
 export async function mediaCeilingFull(): Promise<boolean> {
   return ceilingReached(await companyBytesToday());
 }
 
-// The company's ceiling reached: ONE push to the Admins a Sydney day (PhotoCapNotice's unique key records it, as the
-// pre-start photo caps do - PS-012). Never fails an upload.
-export async function noticeCeiling(): Promise<boolean> {
+// ONE push to the Admins a Sydney day per kind of notice (PhotoCapNotice's unique key records it, as the pre-start
+// photo caps do - PS-012): MEDIA_DAY (the company's ceiling), MEDIA_NO_VERSION (PS-045), MEDIA_USAGE (PS-043). Never fails
+// an upload. -> true when this call sent it.
+export async function noticeOnce(cap: string, msg: { title: string; body: string }, url = "/day-review"): Promise<boolean> {
   const day = todaySydney();
-  const key = { resourceId: "*media", cap: "MEDIA_DAY", day };
+  const key = { resourceId: "*media", cap, day };
   if (await prisma.photoCapNotice.findUnique({ where: { resourceId_cap_day: key }, select: { id: true } })) return false;
   try { await prisma.photoCapNotice.create({ data: key }); } catch (e) { if ((e as { code?: string }).code === "P2002") return false; throw e; }
-  await pushToAdmins({ ...ceilingNotice(), url: "/day-review", tag: "media-limit" }, "normal").catch((e) => console.error("media limit push", e instanceof Error ? e.message : "failed"));
+  await pushToAdmins({ ...msg, url, tag: `media-${cap.toLowerCase()}` }, "normal").catch((e) => console.error("media notice push", e instanceof Error ? e.message : "failed"));
   return true;
 }
+export const noticeCeiling = () => noticeOnce("MEDIA_DAY", ceilingNotice());
 
 // The addresses for the parts still to send (a batch), and which are done.
 async function partsReply(store: MediaStore, row: MediaObject) {
   const done = await store.listParts(row.objectKey, row.uploadId!);
   const next = nextPartNumbers(row.partCount, done.map((p) => p.n));
-  const urls = await Promise.all(next.map(async (n) => ({ n, url: await store.presignPart(row.objectKey, row.uploadId!, n, MEDIA_LIMITS.putTtlSec) })));
+  // PS-043: only the planned part numbers (1..partCount), each with its exact length signed.
+  const urls = await Promise.all(next.map(async (n) => { const r = partRange(row.bytes, n); return { n, url: await store.presignPart(row.objectKey, row.uploadId!, n, r.end - r.start, MEDIA_LIMITS.putTtlSec) }; }));
   if (done.length !== row.partsDone) await prisma.mediaObject.update({ where: { id: row.id }, data: { partsDone: done.length } });
   return { done: done.map((p) => ({ n: p.n, etag: p.etag })), urls };
 }
-const expiresAt = () => new Date(Date.now() + MEDIA_LIMITS.putTtlSec * 1000).toISOString();
+const expiresAt = (ttlSec: number = MEDIA_LIMITS.putTtlSec) => new Date(Date.now() + ttlSec * 1000).toISOString();
+// PS-043: one PUT - the declared type and exactly the declared size signed, 5 minutes.
+const singlePut = async (store: MediaStore, row: Pick<MediaObject, "objectKey" | "mime" | "bytes">) =>
+  ({ put: { url: await store.presignPut(row.objectKey, row.mime, row.bytes, MEDIA_LIMITS.singlePutTtlSec), contentType: row.mime }, expiresAt: expiresAt(MEDIA_LIMITS.singlePutTtlSec) });
 
 // ---------- start ----------
 
@@ -116,6 +127,7 @@ export async function startUpload(party: Party, body: Record<string, unknown>): 
   // The row and the caps together, one start at a time.
   const made = await serial(async (): Promise<MediaObject | (Refusal & { ceiling?: true })> => {
     const c = await dayCounts(party.source);
+    if (c.source.pending >= MEDIA_LIMITS.pendingPerSource) return { error: PENDING_FULL, status: 429 }; // PS-044
     const refused = capRefusal(ask.kind, ask.size, c.source, c.company);
     if (refused) return refused;
     const row = await prisma.mediaObject.create({
@@ -132,12 +144,13 @@ export async function startUpload(party: Party, body: Record<string, unknown>): 
   if ("error" in made) {
     if (made.ceiling) await noticeCeiling().catch(() => false);
     const { ceiling, ...r } = made;
-    // The pre-start's waiver (PS-010): the company ceiling counts as "the day's photo limit is full" (cap ALL).
-    return fail(ceiling && (prep.area === "FAULT" || prep.area === "WALKAROUND" || prep.area === "HOUR_METER") ? { ...r, capFull: true, cap: "ALL" } : r);
+    // PS-044: the company ceiling never waives a pre-start photo (no capFull). A photo can still go the old way
+    // (shrunk, through Operations) - fallback tells the phone to use it; a video can't.
+    return fail(ceiling && ask.kind === "PHOTO" ? { ...r, fallback: true } : r);
   }
   try {
     if (!plan.multipart) {
-      return { status: 201, body: { mediaId: made.id, kind: made.kind, multipart: false, put: { url: await store.presignPut(made.objectKey, made.mime, MEDIA_LIMITS.putTtlSec), contentType: made.mime }, expiresAt: expiresAt() } };
+      return { status: 201, body: { mediaId: made.id, kind: made.kind, multipart: false, ...(await singlePut(store, made)) } };
     }
     const uploadId = await store.createMultipart(made.objectKey, made.mime);
     const row = await prisma.mediaObject.update({ where: { id: made.id }, data: { uploadId } });
@@ -170,7 +183,7 @@ export async function uploadParts(party: Party, body: Record<string, unknown>): 
     if (!row.uploadId) {
       const there = await store.head(row.objectKey);
       if (there) return { status: 200, body: { mediaId: row.id, multipart: false, uploaded: true } };
-      return { status: 200, body: { mediaId: row.id, multipart: false, put: { url: await store.presignPut(row.objectKey, row.mime, MEDIA_LIMITS.putTtlSec), contentType: row.mime }, expiresAt: expiresAt() } };
+      return { status: 200, body: { mediaId: row.id, multipart: false, ...(await singlePut(store, row)) } };
     }
     return { status: 200, body: { mediaId: row.id, multipart: true, partCount: row.partCount, partBytes: MEDIA_LIMITS.partBytes, ...(await partsReply(store, row)), expiresAt: expiresAt() } };
   } catch (e) {
@@ -186,6 +199,7 @@ const REJECT_WORDS: Record<string, string> = {
   SIZE: "That file didn't arrive whole - try again.",
   TYPE: "That file isn't a photo or video we can use.",
   TOO_LONG,
+  NO_VERSION: "That couldn't be stored safely - the office has been told. Try again later.",
 };
 // What the bucket holds, checked: exactly the declared size (within the kind's cap), the declared type stored, the first
 // bytes that type, and an MP4 / MOV no longer than 125 s where its header can be read (start, or the last 2 MB).
@@ -238,9 +252,14 @@ export async function completeUpload(party: Party, body: Record<string, unknown>
       if (!v) return { status: 409, body: { error: "It hasn't arrived yet - carrying on.", missing: true } };
       const now = new Date();
       await prisma.mediaObject.update({ where: { id: row.id }, data: { completedAt: row.completedAt ?? now, partsDone: row.partCount, storedBytes: v.size, versionId: v.versionId } });
-      if (!v.ok) {
-        await prisma.mediaObject.updateMany({ where: { id: row.id, state: "PENDING" }, data: { state: "REJECTED", rejectReason: v.reason, verifiedAt: now } });
-        return { status: 422, body: { error: REJECT_WORDS[v.reason] ?? REJECT_WORDS.TYPE, rejected: true } };
+      // PS-045 (11 Nov 2026): every read is pinned to the checked version - so READY needs one. No version = the bucket
+      // isn't versioning (the key can't read the bucket's setting - checked per object instead): REJECTED, Admins told
+      // once a day.
+      const reason = !v.ok ? v.reason : !v.versionId ? "NO_VERSION" : null;
+      if (reason) {
+        await prisma.mediaObject.updateMany({ where: { id: row.id, state: "PENDING" }, data: { state: "REJECTED", rejectReason: reason, verifiedAt: now } });
+        if (reason === "NO_VERSION") await noticeOnce("MEDIA_NO_VERSION", { title: "Media bucket: versioning looks off", body: "An upload came back with no version, so it was refused. Check the bucket's versioning in Lightsail." }).catch(() => false);
+        return { status: 422, body: { error: REJECT_WORDS[reason] ?? REJECT_WORDS.TYPE, rejected: true } };
       }
       const fresh = await prisma.mediaObject.findUniqueOrThrow({ where: { id: row.id } });
       const a = await party.attach(fresh);

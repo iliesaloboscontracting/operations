@@ -150,7 +150,12 @@ export default function BeforeAfterPhotos({ api, jobId, phase, initial, onChange
       {media ? (
         <MediaUpload api={{ start: `${api}/media/start`, parts: `${api}/media/parts`, complete: `${api}/media/complete` }} fields={{ area: "BEFORE_AFTER", jobId, phase }}
           kinds={media.kinds} room={{ items: perSet - shown.length, videos: LOG_MEDIA.setVideos - shown.filter((p) => p.video).length }}
-          tag={`${api}|${jobId}|BEFORE_AFTER|${phase}`} onDone={(r) => apply(r.body.photos as Sets | undefined)} />
+          tag={`${api}|${jobId}|BEFORE_AFTER|${phase}`} onDone={(r) => apply(r.body.photos as Sets | undefined)}
+          fallback={async (f) => { // PS-044: the bucket's day is full - this photo goes the old way (shrunk)
+            const r = await send(`${url}?phase=${phase}`, { jobId, photo: await resizePhoto(f) }, () => {});
+            if (r.status !== 201) throw new Error(r.body.error ?? "That photo wasn't saved.");
+            return { mediaId: "", kind: "PHOTO", body: { photos: r.body.photos } };
+          }} />
       ) : (<>
       <div className="flex gap-2">
         <button className={`${big} bg-brand-600 text-white`} disabled={room <= 0} onClick={() => camera.current?.click()}><Camera size={20} /> Take photo</button>

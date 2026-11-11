@@ -24,6 +24,7 @@ export async function register() {
     const { remindUnconfirmedPosters } = await import("./lib/confirmReminders");
     const { mondayWaitingTick } = await import("./lib/directorsWaiting/store");
     const { abortStaleMultipart } = await import("./lib/media/protocol");
+    const { watchBucketUsage } = await import("./lib/media/usage");
     setInterval(() => {
       // Xero (read-only, G3): once a day from 2am Sydney, after the backup. Does nothing until set up and connected.
       nightlyXeroSync().catch((e) => console.error("xero nightly", e instanceof Error ? e.message : "failed"));
@@ -65,6 +66,9 @@ export async function register() {
       // 24 h is ABORTED (the bucket has no lifecycle rules) - never a finished object, never a record (the MediaObject
       // row stays). OFF by default - it runs only with MEDIA_ABORT_STALE=on (awaiting Ilies's approval); never while the bucket isn't set up.
       abortStaleMultipart().catch((e) => console.error("media abort stale", e instanceof Error ? e.message : "failed"));
+      // PS-043 (11 Nov 2026): once a Sydney day, the media bucket's usage (every version, unfinished uploads) against what
+      // was recorded - one Admin push if it's more or a checked upload has an extra version. Read-only. MEDIA_USAGE_WATCH=off.
+      watchBucketUsage().catch((e) => console.error("media usage watch", e instanceof Error ? e.message : "failed"));
     }, 60_000);
   }
 }

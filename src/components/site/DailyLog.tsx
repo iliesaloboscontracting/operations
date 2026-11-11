@@ -481,7 +481,8 @@ function MediaPhotos({ api, jobId, area, media, photos, videos, photoMax, videoM
       )}
       <MediaUpload compact api={{ start: `${api}/media/start`, parts: `${api}/media/parts`, complete: `${api}/media/complete` }} fields={{ area, jobId }} kinds={media.kinds}
         room={{ items: photoMax + videoMax - photos.length, videos: videoMax - nVideos }} tag={remember ? `${api}|${jobId}|DAILY_LOG` : undefined} busyChange={onBusy}
-        onDone={(r) => { const ref = typeof r.body.ref === "string" ? r.body.ref : null; if (ref) onAdd(ref, r.kind === "VIDEO"); }} />
+        onDone={(r) => { const ref = typeof r.body.ref === "string" ? r.body.ref : null; if (ref) onAdd(ref, r.kind === "VIDEO"); }}
+        fallback={async (f) => ({ mediaId: "", kind: "PHOTO", body: { ref: await resizePhoto(f) } })} /* PS-044: the old way (shrunk, in the log) */ />
     </div>
   );
 }

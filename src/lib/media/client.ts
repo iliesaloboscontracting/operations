@@ -10,7 +10,7 @@ import { MEDIA_LIMITS, partRange, type MediaKind } from "./rules";
 export type MediaEndpoints = { start: string; parts: string; complete: string; headers?: Record<string, string> };
 export type UploadResult = { mediaId: string; kind: MediaKind; body: Record<string, unknown> };
 export class UploadError extends Error {
-  constructor(message: string, public status: number, public body: Record<string, unknown> = {}, public retryable = false) { super(message); }
+  constructor(public message: string, public status: number, public body: Record<string, unknown> = {}, public retryable = false) { super(message); }
 }
 type Batch = { mediaId: string; multipart: boolean; put?: { url: string; contentType: string }; urls?: { n: number; url: string }[]; done?: { n: number; etag: string }[]; uploaded?: boolean };
 

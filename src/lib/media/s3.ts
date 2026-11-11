@@ -7,7 +7,7 @@
 // Server only - loaded by ./store.ts with a dynamic import, never by a browser bundle.
 import {
   AbortMultipartUploadCommand, CompleteMultipartUploadCommand, CreateMultipartUploadCommand, GetObjectCommand, HeadObjectCommand,
-  ListPartsCommand, PutObjectCommand, S3Client, UploadPartCommand,
+  ListMultipartUploadsCommand, ListObjectVersionsCommand, ListPartsCommand, PutObjectCommand, S3Client, UploadPartCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { MEDIA_REGION, MediaStoreError, type HeadResult, type MediaStore, type UploadPartRef } from "./store";
@@ -67,15 +67,19 @@ export async function makeS3Store(o: { bucket: string; accessKeyId: string; secr
 
   return {
     name: "s3",
-    // Content-Type is signed: the PUT must send exactly that type, one key, one method, for ttl seconds.
-    presignPut: (key, mime, ttlSec) => signed("presignPut", () => getSignedUrl(client, new PutObjectCommand({ Bucket, Key: key, ContentType: mime }), { expiresIn: ttlSec })),
+    // Content-Type AND Content-Length are signed (PS-043 - tested on the real bucket 11 Nov 2026: a bigger body gets 403
+    // SignatureDoesNotMatch): the PUT must send exactly that type and that many bytes, one key, one method, ttl seconds.
+    presignPut: (key, mime, bytes, ttlSec) => signed("presignPut", () => getSignedUrl(client, new PutObjectCommand({ Bucket, Key: key, ContentType: mime, ContentLength: bytes }),
+      { expiresIn: ttlSec, signableHeaders: new Set(["content-type", "content-length"]) })),
     createMultipart: (key, mime) => call("createMultipart", async () => {
       const r = await client.send(new CreateMultipartUploadCommand({ Bucket, Key: key, ContentType: mime }));
       if (!r.UploadId) throw new MediaStoreError("createMultipart", "NO_UPLOAD_ID");
       return r.UploadId;
     }),
-    presignPart: (key, uploadId, n, ttlSec) =>
-      signed("presignPart", () => getSignedUrl(client, new UploadPartCommand({ Bucket, Key: key, UploadId: uploadId, PartNumber: n }), { expiresIn: ttlSec })),
+    // A part's exact length is signed too (PS-043).
+    presignPart: (key, uploadId, n, bytes, ttlSec) =>
+      signed("presignPart", () => getSignedUrl(client, new UploadPartCommand({ Bucket, Key: key, UploadId: uploadId, PartNumber: n, ContentLength: bytes }),
+        { expiresIn: ttlSec, signableHeaders: new Set(["content-length"]) })),
     listParts: (key, uploadId) => call("listParts", async () => {
       const out: UploadPartRef[] = [];
       let marker: string | undefined;
@@ -107,6 +111,34 @@ export async function makeS3Store(o: { bucket: string; accessKeyId: string; secr
       const r = await client.send(new GetObjectCommand({ Bucket, Key: key, VersionId: versionId ?? undefined, Range: `bytes=${start}-${end}` }));
       if (!r.Body) return new Uint8Array(0);
       return await r.Body.transformToByteArray();
+    }),
+    // PS-043's usage watch (the bucket key may list versions and unfinished uploads - checked on the server 11 Nov 2026).
+    listVersions: () => call("listVersions", async () => {
+      const out: { key: string; versionId: string | null; size: number }[] = [];
+      let KeyMarker: string | undefined, VersionIdMarker: string | undefined;
+      for (let page = 0; page < 200; page++) {
+        const r = await client.send(new ListObjectVersionsCommand({ Bucket, KeyMarker, VersionIdMarker, MaxKeys: 1000 }));
+        for (const v of r.Versions ?? []) if (v.Key) out.push({ key: v.Key, versionId: v.VersionId && v.VersionId !== "null" ? v.VersionId : null, size: Number(v.Size ?? 0) });
+        if (!r.IsTruncated) break;
+        KeyMarker = r.NextKeyMarker; VersionIdMarker = r.NextVersionIdMarker;
+      }
+      return out;
+    }),
+    listUploads: () => call("listUploads", async () => {
+      const ups: { key: string; uploadId: string }[] = [];
+      let KeyMarker: string | undefined, UploadIdMarker: string | undefined;
+      for (let page = 0; page < 20; page++) {
+        const r = await client.send(new ListMultipartUploadsCommand({ Bucket, KeyMarker, UploadIdMarker, MaxUploads: 1000 }));
+        for (const u of r.Uploads ?? []) if (u.Key && u.UploadId) ups.push({ key: u.Key, uploadId: u.UploadId });
+        if (!r.IsTruncated) break;
+        KeyMarker = r.NextKeyMarker; UploadIdMarker = r.NextUploadIdMarker;
+      }
+      const out: { key: string; uploadId: string; bytes: number }[] = [];
+      for (const u of ups.slice(0, 500)) {
+        const r = await client.send(new ListPartsCommand({ Bucket, Key: u.key, UploadId: u.uploadId, MaxParts: 1000 })).catch(() => null);
+        out.push({ ...u, bytes: (r?.Parts ?? []).reduce((a, p) => a + Number(p.Size ?? 0), 0) });
+      }
+      return out;
     }),
     presignGet: (key, versionId, ttlSec, o2) => signed("presignGet", () => getSignedUrl(client, new GetObjectCommand({
       Bucket, Key: key, VersionId: versionId ?? undefined, ResponseContentType: o2.mime,

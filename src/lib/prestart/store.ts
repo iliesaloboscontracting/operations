@@ -14,7 +14,7 @@ import { pushToAdmins } from "../push";
 import { preparePhoto, writePreparedPhoto } from "../toolPhotos";
 import type { Prisma } from "@prisma/client";
 import { mediaOn } from "../media/store";
-import { mediaCeilingFull, phoneConfig } from "../media/protocol";
+import { phoneConfig } from "../media/protocol";
 import { HOUR_METER_SLOT, checklistFor, slotLabel, walkaroundSlotsFor, type Checklist } from "./checklists";
 import { plantChecksForDay, plantSource } from "./plant";
 import { oneAtATime, queueWaiting, TX } from "./queue";
@@ -337,11 +337,11 @@ export async function submitCheck(ctx: LinkCtx, body: unknown) {
   // let through only when the WALK-AROUND allowance (or the ceiling) is full.
   const allDay = await prisma.assetFaultMedia.count({ where: { createdAt: today } });
   const roleDay = (role: PhotoRole) => prisma.assetFaultMedia.count({ where: { resourceId: ctx.machine.id, role, createdAt: today } });
-  // Large uploads (10 Nov 2026): with the bucket on, the company's day ceiling counts as the ceiling too (cap ALL).
-  const mediaFull = mediaOn() && (await mediaCeilingFull());
-  const faultFull = mediaFull || photoCapFull("FAULT", { roleMachineDay: await roleDay("FAULT"), allDay });
-  const walkFull = mediaFull || photoCapFull("WALKAROUND", { roleMachineDay: await roleDay("WALKAROUND"), allDay });
-  const meterFull = isPlant(ctx) && (mediaFull || photoCapFull("METER", { roleMachineDay: await roleDay("METER"), allDay }));
+  // PS-044 (11 Nov 2026): the media bucket's company ceiling never waives a photo here - the phone falls back to the old
+  // shrunk-photo route; the waivers stay tied to these per-role photo caps only.
+  const faultFull = photoCapFull("FAULT", { roleMachineDay: await roleDay("FAULT"), allDay });
+  const walkFull = photoCapFull("WALKAROUND", { roleMachineDay: await roleDay("WALKAROUND"), allDay });
+  const meterFull = isPlant(ctx) && photoCapFull("METER", { roleMachineDay: await roleDay("METER"), allDay });
   const v = validateSubmission(ctx.list, body, open.map((f) => ({ id: f.id, itemKey: f.itemKey })), { capFull: faultFull });
   if (!v.ok) return problem(v.error);
   const slots = walkaroundSlotsFor(ctx.machine.type, ctx.kind);

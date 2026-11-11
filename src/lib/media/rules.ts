@@ -25,12 +25,15 @@ export const MEDIA_LIMITS = {
   singlePutMax: 15 * MB, // up to this: one PUT; above: multipart
   partBytes: 8 * MB, // multipart part size (S3's minimum is 5 MB for all but the last)
   partBatch: 10, // signed part addresses handed out at a time (renewed as the phone goes)
-  putTtlSec: 15 * 60, // a signed upload address lives 15 minutes (renewable)
+  putTtlSec: 15 * 60, // a signed part address lives 15 minutes (renewable)
+  singlePutTtlSec: 5 * 60, // PS-043: a one-PUT address lives 5 minutes (renewable while the upload is PENDING)
   getTtlSec: 5 * 60, // a signed read address lives 5 minutes
   // Per link / sign-in / plant session, per Sydney day (every area together).
   perSourceDay: { items: 80, videos: 10, bytes: 4 * GB },
   companyDayBytes: 20 * GB, // every upload in the company, one Sydney day - the Admins are told once when it's reached
-  pendingFreshMin: 30, // a PENDING upload this recent still holds its place in a set
+  pendingFreshMin: 30, // a PENDING upload this recent still holds its place in a set - and counts towards the caps (PS-044)
+  pendingPerSource: 3, // PS-044: uploads on their way at once from one link / sign-in / plant session
+  usageMarginBytes: 100 * MB, // PS-043: the bucket may hold this much (and 5%) more than recorded before the Admins are told
   staleMultipartHours: 24, // an unfinished multipart upload older than this is aborted (only with MEDIA_ABORT_STALE=on - off by default)
 } as const;
 
@@ -149,6 +152,34 @@ export function capRefusal(kind: MediaKind, size: number, source: SourceDay, com
   return null;
 }
 // The 24 h abort of unfinished multipart uploads (protocol.ts abortStaleMultipart) - OFF unless MEDIA_ABORT_STALE=on.
+// PS-044 (11 Nov 2026): what an upload counts towards the day's caps - the bytes the bucket really received once it was
+// checked (READY or REJECTED); a PENDING one only while it's fresh (under 30 minutes) and not stopped, at its declared
+// size. So starts that never send anything can't use up a link's day - or the company's.
+export type CountedRow = { state: string; bytes: number; storedBytes: number | null; createdAt: Date; abortedAt: Date | null; kind: string };
+export function counts(row: CountedRow, now: Date): boolean {
+  if (row.storedBytes != null) return true;
+  return row.state === "PENDING" && !row.abortedAt && now.getTime() - row.createdAt.getTime() < MEDIA_LIMITS.pendingFreshMin * 60_000;
+}
+export const countedBytes = (row: CountedRow, now: Date) => (row.storedBytes != null ? row.storedBytes : counts(row, now) ? row.bytes : 0);
+export function dayTotals(rows: CountedRow[], now: Date): SourceDay & { pending: number } {
+  const c = rows.filter((r) => counts(r, now));
+  return {
+    items: c.length, videos: c.filter((r) => r.kind === "VIDEO").length, bytes: c.reduce((a, r) => a + countedBytes(r, now), 0),
+    pending: c.filter((r) => r.state === "PENDING" && r.storedBytes == null).length,
+  };
+}
+export const PENDING_FULL = `${MEDIA_LIMITS.pendingPerSource} uploads are already on their way - wait for one to finish.`;
+
+// PS-043: the bucket's own usage against what Operations recorded. ALERT when it holds more than recorded + 5% + 100 MB,
+// or when a READY key has more than one version (someone PUT again with a still-valid address).
+export function usageVerdict(x: { bucketBytes: number; recordedBytes: number; extraVersionKeys: number }): { alert: boolean; reasons: string[] } {
+  const reasons: string[] = [];
+  if (x.bucketBytes > x.recordedBytes * 1.05 + MEDIA_LIMITS.usageMarginBytes) reasons.push("OVER");
+  if (x.extraVersionKeys > 0) reasons.push("EXTRA_VERSION");
+  return { alert: reasons.length > 0, reasons };
+}
+export const usageWatchOn = (env: Record<string, string | undefined> = process.env) => (env.MEDIA_USAGE_WATCH ?? "").trim().toLowerCase() !== "off";
+
 export const abortStaleOn = (env: Record<string, string | undefined> = process.env) => (env.MEDIA_ABORT_STALE ?? "").trim().toLowerCase() === "on";
 export const ceilingReached = (companyBytes: number) => companyBytes >= MEDIA_LIMITS.companyDayBytes;
 export const ceilingNotice = () => ({

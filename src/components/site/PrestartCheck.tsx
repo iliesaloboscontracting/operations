@@ -8,7 +8,7 @@ import { deviceId } from "@/lib/signinDevice";
 import { answerLabel, type Answer, type ChecklistItem } from "@/lib/prestart/checklists";
 import { LIMITS, PRIORITIES, PRIORITY_HINT, PRIORITY_LABEL, PRIORITY_TONE, type FaultPriority } from "@/lib/prestart/rules";
 import { FAULT_MEDIA, type PhoneMediaConfig } from "@/lib/media/rules";
-import { uploadMedia, UploadError, type MediaEndpoints } from "@/lib/media/client";
+import { uploadMedia, UploadError, type MediaEndpoints, type UploadResult } from "@/lib/media/client";
 import MediaUpload from "./MediaUpload";
 
 // The pre-start after signing in on a truck's QR, and the short post-check after signing out there (8 Nov 2026,
@@ -139,10 +139,17 @@ export default function PrestartCheck({ token, banner, odometerToken, onDone, on
         const r = await uploadMedia({ api: mediaApi, file, kind: "PHOTO", fields: { deviceId: deviceId(), ...(slot ? { slot } : {}) } });
         return { id: String(r.body.id), preview };
       } catch (e) {
-        if (e instanceof UploadError) capFrom(e.body);
-        throw new Error(e instanceof Error ? e.message : "The photo didn't send - try again.");
+        // PS-044: the bucket's company day is full - the photo goes the old way (shrunk, the same caps).
+        if (!(e instanceof UploadError && e.body.fallback)) {
+          if (e instanceof UploadError) capFrom(e.body);
+          throw new Error(e instanceof Error ? e.message : "The photo didn't send - try again.");
+        }
       }
     }
+    return oldUpload(file, slot);
+  }
+  // The old route: a shrunk photo through Operations (PS-010's capFull answers come from here).
+  async function oldUpload(file: File, slot?: string): Promise<Photo> {
     const preview = await resizePhoto(file);
     const res = await fetch("/api/site/in/prestart/photo", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token, photo: preview, deviceId: deviceId(), ...(slot ? { slot } : {}) }) });
     const j = await res.json().catch(() => ({}));
@@ -313,6 +320,7 @@ export default function PrestartCheck({ token, banner, odometerToken, onDone, on
               {needsDraft(item.key) && (
                 <FaultForm draft={d} busy={uploading > 0} capFull={faultFull} onChange={(p) => setDraft(item.key, p)} onPhoto={(f) => addPhoto(item.key, f)}
                   media={view.media ? { api: mediaApi, deviceId: deviceId(), onBusy: busyFor(item.key), onCap: capFrom,
+                    fallback: async (f) => { const p = await oldUpload(f); return { mediaId: p.id, kind: "PHOTO", body: { id: p.id } }; },
                     onAdded: (p) => setDrafts((x) => { const cur = x[item.key] ?? emptyDraft(); return { ...x, [item.key]: { ...cur, photos: [...cur.photos, p] } }; }) } : null} />
               )}
             </div>
@@ -359,7 +367,7 @@ function CameraButton({ busy, label, onPhoto }: { busy: boolean; label: string; 
   );
 }
 
-type FaultMedia = { api: MediaEndpoints; deviceId: string; onBusy: (b: boolean) => void; onCap: (j: Record<string, unknown>) => void; onAdded: (p: Photo) => void };
+type FaultMedia = { api: MediaEndpoints; deviceId: string; onBusy: (b: boolean) => void; onCap: (j: Record<string, unknown>) => void; onAdded: (p: Photo) => void; fallback: (f: File) => Promise<UploadResult> };
 function FaultForm({ draft, busy, capFull, onChange, onPhoto, media }: { draft: Draft; busy: boolean; capFull: boolean; onChange: (p: Partial<Draft>) => void; onPhoto: (f: File | undefined) => void; media?: FaultMedia | null }) {
   const camera = useRef<HTMLInputElement>(null);
   const gallery = useRef<HTMLInputElement>(null);
@@ -398,7 +406,7 @@ function FaultForm({ draft, busy, capFull, onChange, onPhoto, media }: { draft: 
         {media && (
           <MediaUpload compact api={media.api} fields={{ deviceId: media.deviceId }} kinds={["PHOTO", "VIDEO"]} busyChange={media.onBusy}
             room={{ items: LIMITS.photosPerFault - draft.photos.length, videos: FAULT_MEDIA.videosPerSignIn - draft.photos.filter((p) => p.video).length }}
-            onError={(e) => media.onCap(e.body)}
+            onError={(e) => media.onCap(e.body)} fallback={media.fallback}
             onDone={(r) => media.onAdded({ id: String(r.body.id), preview: null, video: r.kind === "VIDEO" })} />
         )}
         {!media && draft.photos.length < LIMITS.photosPerFault && (

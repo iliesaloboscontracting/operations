@@ -17,12 +17,14 @@ type Item = {
 };
 const kindOf = (f: File): MediaKind => ((f.type || "").startsWith("video/") || /\.(mp4|mov|webm)$/i.test(f.name) ? "VIDEO" : "PHOTO");
 
-export default function MediaUpload({ api, fields, kinds, gallery = true, room, tag, onDone, onError, compact = false, busyChange }: {
+export default function MediaUpload({ api, fields, kinds, gallery = true, room, tag, onDone, onError, compact = false, busyChange, fallback }: {
   api: MediaEndpoints; fields: Record<string, unknown>; kinds: readonly MediaKind[]; gallery?: boolean;
   room: { items: number; videos: number }; // how many more this place takes (photos + videos, and of them videos)
   tag?: string; // remember uploads under this tag so they can be resumed after the page is opened again
   onDone: (r: UploadResult) => void; onError?: (e: UploadError) => void; compact?: boolean;
   busyChange?: (busy: boolean) => void; // something is still uploading (the screen may hold its Send)
+  // PS-044: when the bucket refuses a PHOTO with fallback (the company's day is full), send it the old way instead.
+  fallback?: (file: File) => Promise<UploadResult>;
 }) {
   const [items, setItemsState] = useState<Item[]>([]);
   const ref = useRef<Item[]>([]);
@@ -71,6 +73,14 @@ export default function MediaUpload({ api, fields, kinds, gallery = true, room, 
           onDone(r);
         } catch (e) {
           const u = e instanceof UploadError ? e : new UploadError("That didn't send.", 0, {}, true);
+          if (u.body.fallback && fallback && it.kind === "PHOTO" && it.file) {
+            try {
+              const r = await fallback(it.file as File);
+              setItems((q) => q.filter((x) => x.key !== it.key));
+              onDone(r);
+              continue;
+            } catch (f) { u.message = f instanceof Error ? f.message : u.message; }
+          }
           if (c.signal.aborted) patch(it.key, { state: "paused", error: null });
           else if (u.retryable) patch(it.key, { state: "failed", error: u.status === 0 ? "Didn't send - no signal? Tap Retry." : u.message });
           else {
@@ -86,7 +96,7 @@ export default function MediaUpload({ api, fields, kinds, gallery = true, room, 
     } finally {
       pumping.current = false;
     }
-  }, [api, fields, tag, onDone, onError, patch, setItems]);
+  }, [api, fields, tag, onDone, onError, patch, setItems, fallback]);
 
   useEffect(() => {
     const again = () => { setItems((q) => q.map((x) => (x.state === "failed" ? { ...x, state: "waiting", error: null } : x))); setTimeout(pump, 0); };

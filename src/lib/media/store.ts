@@ -12,10 +12,10 @@ export type HeadResult = { size: number; contentType: string | null; versionId: 
 
 export interface MediaStore {
   readonly name: "s3" | "fake";
-  // A signed PUT for the whole object (one part), Content-Type pinned.
-  presignPut(key: string, mime: string, ttlSec: number): Promise<string>;
+  // A signed PUT for the whole object (one part), Content-Type and Content-Length pinned (PS-043).
+  presignPut(key: string, mime: string, bytes: number, ttlSec: number): Promise<string>;
   createMultipart(key: string, mime: string): Promise<string>; // -> uploadId
-  presignPart(key: string, uploadId: string, n: number, ttlSec: number): Promise<string>;
+  presignPart(key: string, uploadId: string, n: number, bytes: number, ttlSec: number): Promise<string>; // the part's exact length signed (PS-043)
   listParts(key: string, uploadId: string): Promise<UploadPartRef[]>; // throws NoSuchUpload as MediaStoreError code NO_UPLOAD
   completeMultipart(key: string, uploadId: string, parts: UploadPartRef[]): Promise<void>;
   abortMultipart(key: string, uploadId: string): Promise<void>;
@@ -23,6 +23,9 @@ export interface MediaStore {
   getRange(key: string, versionId: string | null, start: number, endInclusive: number): Promise<Uint8Array>;
   // A signed GET of that version, with the type and (download) the file name to save it as.
   presignGet(key: string, versionId: string | null, ttlSec: number, o: { mime: string; download?: string | null }): Promise<string>;
+  // PS-043's daily usage watch: every version of every object, and the unfinished multipart uploads (with their parts' size).
+  listVersions(): Promise<{ key: string; versionId: string | null; size: number }[]>;
+  listUploads(): Promise<{ key: string; uploadId: string; bytes: number }[]>;
 }
 
 // A failed store call - with no address, key or secret in the message (they're never logged).
