@@ -172,11 +172,34 @@ export const PENDING_FULL = `${MEDIA_LIMITS.pendingPerSource} uploads are alread
 
 // PS-043: the bucket's own usage against what Operations recorded. ALERT when it holds more than recorded + 5% + 100 MB,
 // or when a READY key has more than one version (someone PUT again with a still-valid address).
-export function usageVerdict(x: { bucketBytes: number; recordedBytes: number; extraVersionKeys: number }): { alert: boolean; reasons: string[] } {
+// PS-049 (11 Nov 2026): also OVERSIZE_KEY - a key whose versions add up to more than 2x its declared size, whatever its
+// state (a phone retry after a dropped signal can leave 2 versions; more is someone re-using an address).
+export function usageVerdict(x: { bucketBytes: number; recordedBytes: number; extraVersionKeys: number; oversizeKeys?: number }): { alert: boolean; reasons: string[] } {
   const reasons: string[] = [];
   if (x.bucketBytes > x.recordedBytes * 1.05 + MEDIA_LIMITS.usageMarginBytes) reasons.push("OVER");
   if (x.extraVersionKeys > 0) reasons.push("EXTRA_VERSION");
+  if ((x.oversizeKeys ?? 0) > 0) reasons.push("OVERSIZE_KEY");
   return { alert: reasons.length > 0, reasons };
+}
+// The watch's figures from the bucket's listings and the MediaObject rows (pure). PS-049: recorded = what each checked
+// upload stored + a PENDING declaration only while it's fresh (countedBytes - the caps' own 30-minute rule), so old
+// never-sent declarations can't hide over-storage.
+export const OVERSIZE_FACTOR = 2;
+export function usageFigures(
+  rows: (CountedRow & { objectKey: string })[], versions: { key: string; size: number }[], uploads: { bytes: number }[], now: Date,
+): { bucketBytes: number; recordedBytes: number; extraVersionKeys: number; oversizeKeys: number } {
+  const recordedBytes = rows.reduce((a, r) => a + countedBytes(r, now), 0);
+  const bucketBytes = versions.reduce((a, v) => a + v.size, 0) + uploads.reduce((a, u) => a + u.bytes, 0);
+  const byKey = new Map<string, { n: number; bytes: number }>();
+  for (const v of versions) { const k = byKey.get(v.key) ?? { n: 0, bytes: 0 }; k.n++; k.bytes += v.size; byKey.set(v.key, k); }
+  let extraVersionKeys = 0, oversizeKeys = 0;
+  for (const r of rows) {
+    const k = byKey.get(r.objectKey);
+    if (!k) continue;
+    if (r.state === "READY" && k.n > 1) extraVersionKeys++;
+    if (k.bytes > OVERSIZE_FACTOR * r.bytes) oversizeKeys++;
+  }
+  return { bucketBytes, recordedBytes, extraVersionKeys, oversizeKeys };
 }
 export const usageWatchOn = (env: Record<string, string | undefined> = process.env) => (env.MEDIA_USAGE_WATCH ?? "").trim().toLowerCase() !== "off";
 

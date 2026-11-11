@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { MB, MEDIA_LIMITS, PENDING_FULL, countedBytes, dayTotals, objectKey, usageVerdict, usageWatchOn, type CountedRow } from "./rules";
+import { MB, MEDIA_LIMITS, PENDING_FULL, countedBytes, dayTotals, objectKey, usageFigures, usageVerdict, usageWatchOn, type CountedRow } from "./rules";
 import { FakeMediaStore } from "./fake";
 
 const R = "0123456789abcdef0123456789abcdef";
@@ -91,6 +91,26 @@ test("PS-043: one-PUT addresses live 5 minutes; the usage watch's verdict and sw
   assert.deepEqual(usageVerdict({ bucketBytes: 10, recordedBytes: 10, extraVersionKeys: 1 }).reasons, ["EXTRA_VERSION"]);
   assert.equal(usageWatchOn({}), true);
   assert.equal(usageWatchOn({ MEDIA_USAGE_WATCH: "off" }), false);
+});
+
+test("PS-049: the usage watch counts only fresh PENDING declarations, and flags a key holding more than 2x its size", () => {
+  const now = new Date("2026-11-11T02:00:00Z");
+  const ago = (min: number) => new Date(now.getTime() - min * 60_000);
+  const row = (key: string, o: Partial<CountedRow> = {}) => ({ objectKey: key, state: "PENDING", bytes: 10 * MB, storedBytes: null, createdAt: ago(1), abortedAt: null, kind: "PHOTO", ...o });
+  // 60 never-sent 400 MB declarations from an hour ago, and one PENDING key holding 15 x 10 MB: the ghosts don't hide it.
+  const ghosts = Array.from({ length: 60 }, (_, i) => row(`g${i}`, { bytes: 400 * MB, createdAt: ago(60) }));
+  const versions = Array.from({ length: 15 }, () => ({ key: "k", size: 10 * MB }));
+  const f = usageFigures([...ghosts, row("k")], versions, [], now);
+  assert.equal(f.recordedBytes, 10 * MB, "only the fresh declaration counts");
+  assert.equal(f.oversizeKeys, 1);
+  assert.deepEqual(usageVerdict(f).reasons, ["OVER", "OVERSIZE_KEY"]);
+  // Up to 2x is fine (a retry after a dropped signal); 3 versions of a PENDING key is not; a READY key's 2nd version is EXTRA_VERSION.
+  assert.equal(usageFigures([row("a")], [{ key: "a", size: 10 * MB }, { key: "a", size: 10 * MB }], [], now).oversizeKeys, 0);
+  const three = usageFigures([row("b", { createdAt: ago(600) })], [1, 2, 3].map(() => ({ key: "b", size: 10 * MB })), [], now);
+  assert.equal(three.oversizeKeys, 1, "3 versions of a PENDING key, whatever its age");
+  assert.deepEqual(usageVerdict(three).reasons, ["OVERSIZE_KEY"]);
+  const ready = usageFigures([row("c", { state: "READY", storedBytes: 10 * MB })], [{ key: "c", size: 10 * MB }, { key: "c", size: 10 * MB }], [], now);
+  assert.deepEqual([ready.extraVersionKeys, ready.oversizeKeys], [1, 0]);
 });
 
 test("PS-043..046 in the code: lengths signed, no ceiling waiver on pre-starts, READY needs a version, one shared lock", () => {

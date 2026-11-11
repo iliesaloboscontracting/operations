@@ -373,6 +373,35 @@ export default {
       const uNotices = await db.photoCapNotice.count({ where: { resourceId: "*media", cap: "MEDIA_USAGE" } });
       t.ok(w?.a?.ran && w.a.reasons?.includes("EXTRA_VERSION") && w.a.extraVersionKeys >= 1 && w.a.notified === true && w.b?.notified === false && uNotices === 1,
         "PS-043: the usage watch finds the READY photo's extra version - ONE Admin notice, none on a second run", JSON.stringify({ a: w?.a && { ...w.a }, b: w?.b?.notified, uNotices }));
+      t.ok(!w?.a?.reasons?.includes("OVERSIZE_KEY"), "PS-049: 2 versions (a retry after a dropped signal) is not over 2x - no OVERSIZE_KEY", JSON.stringify(w?.a?.reasons));
+
+      // PS-049 (a): a PENDING key holding 3 versions (the same address used 3 times) -> ONE notice. Today's usage notice is
+      // cleared first so this one is seen on its own (the test copy only).
+      await db.photoCapNotice.deleteMany({ where: { resourceId: "*media", cap: "MEDIA_USAGE" } });
+      const p4 = await makeLink(db, "SUPERVISOR", L.sup.resourceId);
+      const s4 = await op(p4, "start", { area: "DAILY_LOG", jobId: job.id, kind: "PHOTO", mime: "image/jpeg", size: 4000 });
+      const b4 = jpeg(4000);
+      const puts4 = [];
+      for (let i = 0; i < 3; i++) puts4.push(await put(s4.body.put?.url, b4, "image/jpeg"));
+      const w2 = runFile(uw, {});
+      const n2 = await db.photoCapNotice.count({ where: { resourceId: "*media", cap: "MEDIA_USAGE" } });
+      t.ok(puts4.every((s) => s === 200) && w2?.a?.reasons?.includes("OVERSIZE_KEY") && w2.a.oversizeKeys >= 1 && w2.a.notified === true && w2.b?.notified === false && n2 === 1,
+        "PS-049: a PENDING key with 3 versions (3x its declared size) -> ONE Admin notice, none on a second run", JSON.stringify({ puts4, a: w2?.a, b: w2?.b?.notified, n2 }));
+
+      // PS-049 (b): 60 never-sent 400 MB declarations from an hour ago (24 GB) don't hide a PENDING key holding 11 x 15 MB:
+      // only fresh declarations count as recorded, so the bucket's total is OVER and the key OVERSIZE_KEY.
+      const ghosts2 = [];
+      for (let i = 0; i < 60; i++) ghosts2.push((await db.mediaObject.create({ data: { area: "DAILY_LOG", kind: "VIDEO", mime: "video/mp4", bytes: 400 * MB, objectKey: `rc80/${tag}/ghost2-${i}.mp4`, createdAt: new Date(Date.now() - 3600_000) } })).id);
+      const p5 = await makeLink(db, "SUPERVISOR", L.sup.resourceId);
+      const s5 = await op(p5, "start", { area: "DAILY_LOG", jobId: job.id, kind: "PHOTO", mime: "image/jpeg", size: 15 * MB });
+      const b5 = jpeg(15 * MB);
+      let ok5 = 0;
+      for (let i = 0; i < 11; i++) if ((await put(s5.body.put?.url, b5, "image/jpeg")) === 200) ok5++;
+      const w3 = runFile(uw, {});
+      t.ok(ok5 === 11 && w3?.a?.ran && w3.a.reasons?.includes("OVER") && w3.a.reasons.includes("OVERSIZE_KEY") && w3.a.recordedBytes < 2 * 1024 * MB,
+        "PS-049: old never-sent declarations don't hide an over-stored PENDING key (OVER + OVERSIZE_KEY; recorded counts fresh ones only)", JSON.stringify({ ok5, a: w3?.a }));
+      t.ok((await db.photoCapNotice.count({ where: { resourceId: "*media", cap: "MEDIA_USAGE" } })) === 1, "...still one notice for the day");
+      await db.mediaObject.deleteMany({ where: { id: { in: ghosts2 } } }); // the test copy's own seed only
     } else t.note("tsx not found - the OFF / kill switch / abort checks were not run");
 
     // (14) No dollar figure in anything a link was sent.
