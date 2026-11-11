@@ -139,7 +139,7 @@ export default function TimesheetsPage() {
               {data.signInFlags && Object.values(data.signInFlags).some((n) => n > 0) && (
                 <div className="mt-1.5 text-xs text-gray-300">
                   Worth a look on the <a href="/attendance" className="text-brand-300 underline">Sign-ins page</a> this week:{" "}
-                  {data.signInFlags.toConfirm} to confirm · {data.signInFlags.late} late · {data.signInFlags.longDay} long day · {data.signInFlags.noSignIn} no sign-in
+                  {data.signInFlags.toConfirm} to confirm · {data.signInFlags.late} late · {data.signInFlags.longDay} long day · {data.signInFlags.noSignIn} no sign-in{data.signInFlags.location ? ` · ${data.signInFlags.location} no location / far` : ""}
                   <span className="text-gray-500"> (information only)</span>
                 </div>
               )}

@@ -12,6 +12,8 @@ import { todaySydney } from "@/lib/today";
 import { syncPersonDayQuietly, syncSignInActualsQuietly } from "@/lib/signInActuals";
 import { endOpenElsewhere } from "@/lib/signinOverlap";
 import { parseGps } from "@/lib/payroll/rules";
+import { outsideWindow, posterRefusal, type PosterWindow } from "@/lib/posterGuard/rules";
+import { posterWindowOn, projectHours, windowForJob } from "@/lib/posterGuard/store";
 
 // POST /api/site/in/sign - someone signing in or out from their phone.
 //   { ticket, jobId, action: "STATUS" | "IN" | "OUT", deviceId?,
@@ -37,6 +39,8 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
     allocatedIds: string[] | null; // null = everyone counts as allocated (points)
     projectId: string | null;
   };
+  // Site poster only (11 Nov 2026): when its sign-IN window is open (1 h before the start to 2 h after the finish).
+  let posterWin: PosterWindow | null = null;
   if (ticket.method === "POINT") {
     const link = await prisma.siteLink.findUnique({
       where: { id: ticket.linkId },
@@ -50,6 +54,7 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
     if (!job) return bad("That job isn't open for sign-in any more.");
     // An earlier job kept open only so people still on it can sign out.
     if (body.action === "IN" && !takesSignIns(job)) return bad("That shift has finished - sign in to today's job.");
+    if (ticket.method === "POSTER" && posterWindowOn()) posterWin = windowForJob(job, await projectHours(job.project?.id));
     where = {
       jobId: job.id, place: null, vehicleId: null, label: jobLabel(job),
       date: job.date.toISOString().slice(0, 10), allocatedIds: job.assignments.map((a) => a.resource.id), projectId: job.project?.id ?? null,
@@ -92,7 +97,8 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   }
 
   if (body.action === "STATUS") {
-    return NextResponse.json({ signedIn: !!open, since: open ? sydneyTime(open.signInAt) : null, site: where.label });
+    const closed = ticket.method === "POSTER" ? outsideWindow(posterWin, now) : null;
+    return NextResponse.json({ signedIn: !!open, since: open ? sydneyTime(open.signInAt) : null, site: where.label, ...(closed ? { signInClosed: closed } : {}) });
   }
 
   const toConfirm = ticket.method === "POSTER";
@@ -103,6 +109,10 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
 
   if (body.action === "IN") {
     if (open) return bad(`You're already signed in here since ${sydneyTime(open.signInAt)}.`, 409);
+    // The site poster's window (11 Nov 2026, Ilies): refused outside it - no sign-in saved and nothing else changed
+    // (no other open sign-in of theirs is ended). Sign-out is never windowed; nor is any other way of signing in.
+    const refusal = posterRefusal({ action: "IN", method: ticket.method, window: posterWin, now, windowOn: posterWindowOn() });
+    if (refusal) return bad(refusal, 403);
     const sinceMidnight = await prisma.siteAttendance.count({ where: { ...(where.jobId ? { jobId: where.jobId } : { place: where.place, vehicleId: where.vehicleId, date: where.date }) } });
     if (sinceMidnight >= 300) return bad("Too many sign-ins here today - call the office.", 429);
     // Signed in somewhere else (another site, another truck) and moved here:

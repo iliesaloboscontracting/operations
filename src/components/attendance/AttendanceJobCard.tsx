@@ -7,6 +7,7 @@ import { apiFetch, serverErrorMessage } from "@/lib/apiFetch";
 import type { ResourceDTO } from "@/lib/types";
 import { FLAG_LABEL, METHOD_LABEL, type AttendanceJob, type AttendanceRow } from "./types";
 import { jobFinish, parseClock } from "@/lib/shiftTimes";
+import { LOCATION_LABEL, locationKind, type LocationKind } from "@/lib/signinHow";
 
 const btn = "rounded-lg bg-brand-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-brand-500 disabled:opacity-50";
 const quiet = "rounded-lg border border-edge px-2.5 py-1 text-xs text-gray-300 hover:bg-panel2 disabled:opacity-50";
@@ -27,8 +28,30 @@ const fmt = (iso: string | null) =>
 // The 10 Nov 2026 flags (late sign-in, long day, signed out together) stand out a little more - they're where hours
 // went missing that week. Information only.
 const HOURS_FLAGS = new Set(["LATE_IN", "LONG_SHIFT", "BULK_OUT"]);
+// 11 Nov 2026: a site poster sign-in with no location, or far from the site - the most serious, so red.
+const SERIOUS_FLAGS = new Set(["NO_LOCATION", "FAR_FROM_SITE"]);
 const flagTone = (f: string) =>
-  f === "STILL_ON" ? "bg-emerald-500/15 text-emerald-400" : f === "REJECTED" ? "bg-gray-700 text-gray-300" : HOURS_FLAGS.has(f) ? "bg-orange-500/20 text-orange-300" : "bg-amber-500/15 text-amber-500";
+  SERIOUS_FLAGS.has(f) ? "bg-red-500/20 text-red-300 ring-1 ring-red-500/40"
+  : f === "STILL_ON" ? "bg-emerald-500/15 text-emerald-400" : f === "REJECTED" ? "bg-gray-700 text-gray-300" : HOURS_FLAGS.has(f) ? "bg-orange-500/20 text-orange-300" : "bg-amber-500/15 text-amber-500";
+// The phone's location status on every line (11 Nov 2026) - an icon and a word, never colour alone.
+const LOCATION_ICON: Record<LocationKind, { icon: string; tone: string }> = {
+  SHARED: { icon: "✅", tone: "text-emerald-400" },
+  REFUSED: { icon: "⛔", tone: "text-red-300" },
+  UNAVAILABLE: { icon: "⚠️", tone: "text-amber-300" },
+  NOT_ASKED: { icon: "–", tone: "text-gray-500" },
+};
+function HowChips({ r }: { r: AttendanceRow }) {
+  const how = r.how ?? METHOD_LABEL[r.signInMethod] ?? r.signInMethod;
+  const kind = locationKind(r.gpsStatus);
+  const loc = LOCATION_ICON[kind];
+  return (
+    <>
+      <span className="rounded border border-edge px-1 py-px text-[10px] text-gray-300">{how}</span>
+      {r.howOut && <span className="rounded border border-edge px-1 py-px text-[10px] text-gray-400">{r.howOut}</span>}
+      <span className={`whitespace-nowrap text-[10px] ${loc.tone}`}><span aria-hidden>{loc.icon}</span> {r.location ?? LOCATION_LABEL[kind]}</span>
+    </>
+  );
+}
 
 export default function AttendanceJobCard({
   job,
@@ -226,10 +249,14 @@ export default function AttendanceJobCard({
                   <span className={r.status === "REJECTED" ? "text-gray-500 line-through" : "text-gray-200"}>{r.name}</span>
                   {r.company && <span className="text-xs text-gray-400"> ({r.company})</span>}
                   {r.slot && <span className="ml-1.5 rounded-full border border-yellow-400/60 bg-yellow-400/15 px-1.5 py-0.5 text-[10px] font-semibold text-yellow-200">{r.slot}</span>}
-                  <div className="text-[11px] text-gray-500">
-                    {METHOD_LABEL[r.signInMethod] ?? r.signInMethod}
-                    {r.runBy && ` · ${r.runBy}`}
-                    {r.confirmedBy && r.signInMethod === "POSTER" && ` · confirmed by ${r.confirmedBy}`}
+                  <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] text-gray-500">
+                    <HowChips r={r} />
+                    {(r.runBy || (r.confirmedBy && r.signInMethod === "POSTER")) && (
+                      <span>
+                        {r.runBy && r.runBy}
+                        {r.confirmedBy && r.signInMethod === "POSTER" && `${r.runBy ? " · " : ""}confirmed by ${r.confirmedBy}`}
+                      </span>
+                    )}
                   </div>
                   {(r.flags.length > 0 || r.edits.length > 0) && (
                     <div className="mt-0.5 flex flex-wrap items-center gap-1">

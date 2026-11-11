@@ -28,12 +28,13 @@ function Tile({ label, value, tone = "" }: { label: string; value: number; tone?
 }
 
 type FilterKey = keyof SigninFlagSummary;
-const ROW_FILTER: Record<Exclude<FilterKey, "noSignIn">, string[]> = { toConfirm: ["TO_CONFIRM"], late: ["LATE_IN"], longDay: ["LONG_SHIFT", "LONG_DAY"] };
+const ROW_FILTER: Record<Exclude<FilterKey, "noSignIn">, string[]> = { toConfirm: ["TO_CONFIRM"], late: ["LATE_IN"], longDay: ["LONG_SHIFT", "LONG_DAY"], location: ["NO_LOCATION", "FAR_FROM_SITE"] };
 const STRIP: { key: FilterKey; label: string; showing: string }[] = [
   { key: "toConfirm", label: "to confirm", showing: "poster sign-ins waiting for the supervisor" },
   { key: "late", label: "late", showing: "signed in over an hour after the start" },
   { key: "longDay", label: "long day", showing: "signed out over 2h after the finish, or over 12h" },
   { key: "noSignIn", label: "no sign-in", showing: "on the board with no sign-in anywhere that day" },
+  { key: "location", label: "no location / far", showing: "site poster sign-ins with no location shared, or far from the site" },
 ];
 
 const shiftDate = (iso: string, days: number) => {

@@ -9,6 +9,7 @@ import { fromSydneyLocal } from "@/lib/shiftTimes";
 import { todaySydney } from "@/lib/today";
 import { createHandover, jobLabel, openJob, openJobsFor, ROTATE_SECONDS, rotatingCode, STILL_ON_HOURS, sydneyTime, takesSignIns } from "@/lib/signin";
 import { lockedWeekFor } from "@/lib/timesheets";
+import { posterGpsFlags } from "@/lib/posterGuard/store";
 
 // The supervisor's side of crew sign-in, through their own link (or a
 // stand-in's one-day hand-over link). Supervisors confirm or reject poster
@@ -48,6 +49,8 @@ export const GET = withErrorHandling(async (req: NextRequest, { params: paramsP 
     where: { jobId: { in: jobs.map((j) => j.id) }, removedAt: null },
     orderBy: { signInAt: "asc" },
   });
+  // 11 Nov 2026: a poster sign-in with no location, or far from the site - words and a distance only on the link.
+  const warnings = await warningsFor(jobs, attendances);
   return NextResponse.json({
     person: link.person.name,
     handover: link.kind === "HANDOVER",
@@ -77,7 +80,7 @@ export const GET = withErrorHandling(async (req: NextRequest, { params: paramsP 
         times: j.startTime && j.endTime ? `${j.startTime}-${j.endTime}` : null,
         qrUrl: siteUrl(`in/${rotatingCode(j.id, link.id)}`, req.nextUrl.origin),
         crew: [...crew, ...others],
-        toConfirm: mine.filter((a) => a.status === "TO_CONFIRM").map((a) => ({ ...row(a), name: a.workerName, company: a.company })),
+        toConfirm: mine.filter((a) => a.status === "TO_CONFIRM").map((a) => ({ ...row(a), name: a.workerName, company: a.company, warning: warnings.get(a.id) ?? null })),
       };
     }),
   });
@@ -107,6 +110,27 @@ export const POST = withErrorHandling(async (req: NextRequest, { params: paramsP
       });
       await syncSignInActualsQuietly([attendance.jobId]);
       return NextResponse.json({ ok: true });
+    }
+    case "CONFIRM_ALL": {
+      // "Confirm all" (11 Nov 2026): every poster sign-in waiting on this job EXCEPT the ones with a warning (no
+      // location, far from the site) - those are confirmed or rejected one by one.
+      const job = jobs.find((j) => j.id === body.jobId);
+      if (!job) return bad("Pick one of your jobs.");
+      const waiting = await prisma.siteAttendance.findMany({ where: { jobId: job.id, status: "TO_CONFIRM", removedAt: null } });
+      const warn = await warningsFor([job], waiting);
+      const ok = waiting.filter((a) => !warn.has(a.id));
+      if (ok.length) {
+        await prisma.siteAttendance.updateMany({
+          where: { id: { in: ok.map((a) => a.id) }, status: "TO_CONFIRM" },
+          data: { status: "CONFIRMED", confirmedBy: by, confirmedAt: new Date() },
+        });
+        await syncSignInActualsQuietly([job.id]);
+      }
+      const skipped = waiting.length - ok.length;
+      return NextResponse.json({
+        ok: true, confirmed: ok.length, skipped,
+        ...(skipped ? { message: `${skipped} need${skipped === 1 ? "s" : ""} checking – confirm or reject each.` } : {}),
+      });
     }
     case "MANUAL_IN": {
       const job = jobs.find((j) => j.id === body.jobId);
@@ -203,6 +227,20 @@ export const POST = withErrorHandling(async (req: NextRequest, { params: paramsP
 });
 
 const bad = (error: string) => NextResponse.json({ error }, { status: 400 });
+
+// The poster location warnings for these jobs' lines: attendance id -> "No location shared" / "1.8 km from site".
+// Never a coordinate (lib/posterGuard).
+async function warningsFor(
+  jobs: { id: string; date: Date; project: { id: string } | null }[],
+  rows: { id: string; jobId: string | null; signInMethod: string; status: string; date: string; gpsStatus: string | null; gpsLat: number | null; gpsLng: number | null; gpsAccuracyM: number | null; resourceId: string | null; workerName: string; company: string | null }[],
+): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  for (const j of jobs) {
+    const flags = await posterGpsFlags(rows.filter((r) => r.jobId === j.id), j.project?.id ?? null, j.date.toISOString().slice(0, 10));
+    for (const [id, f] of flags) out.set(id, f.note);
+  }
+  return out;
+}
 // TF-003: what a supervisor may not do to a sign-out - the office does these (with a reason, on Sign-ins).
 const MAX_LINE_HOURS = 16;
 async function outRefusal(a: { signInAt: Date; status: string; removedAt: Date | null; date: string }, at: Date): Promise<string | null> {

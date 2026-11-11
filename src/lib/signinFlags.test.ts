@@ -111,9 +111,10 @@ test("signed in earlier that day: the first line isn't 'earlier', a later one is
 test("summary strip counts", () => {
   const s = flagSummary([
     { rows: [{ flags: ["TO_CONFIRM", "LATE_IN"] }, { flags: ["LONG_SHIFT", "BULK_OUT"] }, { flags: ["TO_CONFIRM"] }], noShows: [{ id: "a", nowhere: true }, { id: "b", nowhere: false }, { id: "tile" }] },
-    { rows: [{ flags: ["LONG_DAY"] }], noShows: [{ id: "c" }] },
+    { rows: [{ flags: ["LONG_DAY"] }, { flags: ["TO_CONFIRM", "NO_LOCATION"] }, { flags: ["FAR_FROM_SITE"] }], noShows: [{ id: "c" }] },
   ]);
-  assert.deepEqual(s, { toConfirm: 2, late: 1, longDay: 2, noSignIn: 1 });
+  // location (11 Nov 2026): poster sign-ins with no location / far from the site.
+  assert.deepEqual(s, { toConfirm: 3, late: 1, longDay: 2, noSignIn: 1, location: 2 });
 });
 
 test("A: the confirm reminder is due at 3:30pm on a day shift (up to 4 h late), 30 min after a night shift's finish", () => {
