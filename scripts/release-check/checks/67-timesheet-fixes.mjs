@@ -102,7 +102,7 @@ export default {
     const midnight = sydMidnight(today);
     const sinceMidnight = Math.floor((now - midnight) / MIN);
     // Times "N hours ago" below must stay on today's Sydney date - before 3am, squeeze them into the time since midnight.
-    const U = Math.max(10_000, Math.min(HOUR, (now - midnight - 2 * MIN) / 3));
+    const AGO = Math.max(10_000, Math.min(HOUR, (now - midnight - 2 * MIN) / 3));
     const supPost = (body) => c.post(c.site(sup, "/signin"), null, body);
 
     // (3) Fix 1 + TF-002: tick-in ends the crew's other open line; never pulls a non-crew person off another site.
@@ -111,23 +111,23 @@ export default {
     t.status(await supPost({ action: "MANUAL_IN", jobId: T.id, resourceId: A.id }), 200, "the supervisor ticks crew member A in");
     const aOffice = await db.siteAttendance.findFirst({ where: { resourceId: A.id, date: today, place: "OFFICE" }, include: { edits: true } });
     t.ok(aOffice?.signOutAt && aOffice.signOutMethod === "MOVED" && aOffice.edits.some((e) => /counted once/.test(e.reason)), "fix 1: A's open office sign-in ended at the tick-in, with a note");
-    await c.post("/api/attendance", "MANAGER", { jobId: T2.id, resourceId: A2.id, signInAt: new Date(now - 2 * U).toISOString(), reason: "RC A2 at T2" });
+    await c.post("/api/attendance", "MANAGER", { jobId: T2.id, resourceId: A2.id, signInAt: new Date(now - 2 * AGO).toISOString(), reason: "RC A2 at T2" });
     t.status(await supPost({ action: "MANUAL_IN", jobId: T.id, resourceId: A2.id }), 200, "an allocated crew member signed in at another site is ticked in");
     const a2Other = await db.siteAttendance.findFirst({ where: { resourceId: A2.id, jobId: T2.id } });
     t.ok(a2Other?.signOutAt && a2Other.status === "TO_CONFIRM", "TF-002: their other site line is ended and sent to its supervisor to confirm");
-    await c.post("/api/attendance", "MANAGER", { jobId: T2.id, resourceId: H.id, signInAt: new Date(now - 2 * U).toISOString(), reason: "RC H at T2" });
+    await c.post("/api/attendance", "MANAGER", { jobId: T2.id, resourceId: H.id, signInAt: new Date(now - 2 * AGO).toISOString(), reason: "RC H at T2" });
     const hTick = await supPost({ action: "MANUAL_IN", jobId: T.id, resourceId: H.id });
     t.ok(hTick.status === 400 && /signed in at/.test((await hTick.json().catch(() => ({}))).error ?? ""), "TF-002: ticking in someone NOT on this crew who's signed in elsewhere is refused", hTick.status);
     t.ok(!(await db.siteAttendance.findFirst({ where: { resourceId: H.id, jobId: T2.id } }))?.signOutAt, "...and their line elsewhere stays open");
 
     // (4) TF-006: a filled-in office add ends another open line only when asked (endOpen).
-    t.status(await c.post("/api/attendance", "MANAGER", { place: "OFFICE", resourceId: B.id, signInAt: new Date(now - 3 * U).toISOString(), reason: "RC B office open" }), 201, "office adds B at the office, still on site today");
-    t.status(await c.post("/api/attendance", "MANAGER", { jobId: T3.id, resourceId: B.id, signInAt: new Date(now - 2 * U).toISOString(), signOutAt: new Date(now - 1.5 * U).toISOString(), reason: "RC B site, filled in" }), 201, "office fills in B's site line (with a sign-out)");
+    t.status(await c.post("/api/attendance", "MANAGER", { place: "OFFICE", resourceId: B.id, signInAt: new Date(now - 3 * AGO).toISOString(), reason: "RC B office open" }), 201, "office adds B at the office, still on site today");
+    t.status(await c.post("/api/attendance", "MANAGER", { jobId: T3.id, resourceId: B.id, signInAt: new Date(now - 2 * AGO).toISOString(), signOutAt: new Date(now - 1.5 * AGO).toISOString(), reason: "RC B site, filled in" }), 201, "office fills in B's site line (with a sign-out)");
     t.ok(!(await db.siteAttendance.findFirst({ where: { resourceId: B.id, date: today, place: "OFFICE" } }))?.signOutAt, "TF-006: without 'end their other open sign-in' the office line stays open");
-    const withEnd = await c.post("/api/attendance", "MANAGER", { jobId: T3.id, resourceId: B.id, signInAt: new Date(now - U).toISOString(), signOutAt: new Date(now - 0.5 * U).toISOString(), reason: "RC B site again", endOpen: true });
+    const withEnd = await c.post("/api/attendance", "MANAGER", { jobId: T3.id, resourceId: B.id, signInAt: new Date(now - AGO).toISOString(), signOutAt: new Date(now - 0.5 * AGO).toISOString(), reason: "RC B site again", endOpen: true });
     const withEndB = await withEnd.json().catch(() => ({}));
     const bOffice = await db.siteAttendance.findFirst({ where: { resourceId: B.id, date: today, place: "OFFICE" } });
-    t.ok(withEnd.status === 201 && withEndB.ended === 1 && bOffice?.signOutAt && Math.abs(bOffice.signOutAt.getTime() - (now - U)) < MIN, "TF-006: with endOpen the office line ends at the new sign-in time, and the answer says 1 ended", `${withEnd.status} ${JSON.stringify(withEndB)}`);
+    t.ok(withEnd.status === 201 && withEndB.ended === 1 && bOffice?.signOutAt && Math.abs(bOffice.signOutAt.getTime() - (now - AGO)) < MIN, "TF-006: with endOpen the office line ends at the new sign-in time, and the answer says 1 ended", `${withEnd.status} ${JSON.stringify(withEndB)}`);
 
     // (5) Fix 2a: an earlier day needs a sign-out.
     const past = { place: "OFFICE", resourceId: G.id, signInAt: aedt("2020-02-20", "07:00").toISOString(), reason: "RC past add" };
