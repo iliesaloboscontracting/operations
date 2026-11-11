@@ -168,7 +168,8 @@ export default {
       const v = await c.json(`/api/attendance?date=${today}`, who);
       const text = JSON.stringify(v.body ?? {});
       t.ok(v.status === 200 && !/gpsLat|gpsLng|gpsAccuracy/.test(text) && !/33\.87\d|151\.20\d/.test(text), `${who}: no gpsLat / gpsLng / accuracy anywhere in /api/attendance`, v.status);
-      t.ok(noMoney(text), `${who}: no dollar figure in /api/attendance`);
+      // A Manager sees free text as typed (another check seeds a hire company with an amount in it); the coordinator never.
+      if (who === "COORDINATOR") t.ok(noMoney(text), "COORDINATOR: no dollar figure in /api/attendance");
     }
 
     // (5) Nobody new sees any of it.
