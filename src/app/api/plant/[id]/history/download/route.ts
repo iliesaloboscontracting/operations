@@ -12,5 +12,5 @@ export const GET = withErrorHandling(async (req: NextRequest, { params: paramsP 
   const { days, what, format } = historyParams(req.nextUrl.searchParams);
   const h = await officeMachineHistory((await paramsP).id, days);
   if (!h) return NextResponse.json({ error: "That isn't a plant item." }, { status: 404 });
-  return historyFile(h, what, format);
+  return historyFile(h, what, format, "office");
 });

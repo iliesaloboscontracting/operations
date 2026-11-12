@@ -10,7 +10,7 @@
 //     `linkSafe` stays the backstop on every reply. No coordinates, phones or device ids;
 //   - the QR ("public") gets only the service-due / inspection dates (PS-061) and no check ids (PS-064); the Plant page
 //     ("office") gets all its dates and the ids.
-import { nameWithoutAmounts, linkLabel } from "../dailyLog/money";
+import { nameWithoutAmounts, linkLabel, NUMBER_WORDS } from "../dailyLog/money";
 import { dueSummary } from "../assets/rules";
 import { toCsv } from "../payroll/rules";
 import { PRIORITY_LABEL, STATUS_LABEL, isOpenStatus, priorityRank, type FaultPriority, type FaultStatus } from "./rules";
@@ -62,13 +62,17 @@ export function noAmounts(s: string | null | undefined, max = 200): string | nul
 const UNIT = String.raw`(?:\s?(?:\/\s?|per\s+)(?:hrs?|hours?|h|day|days|wk|week|t|tonne|m|km|ea|each|load)\b|\s?(?:hrs?|hours?|h|kms?|k|ltrs?|litres?|l|mm|t|ea|each)\b)?`;
 export function publicWords(s: string | null | undefined, max = 200): string | null {
   if (!s) return null;
-  let t = s.replace(/[＄﹩]/g, "$").replace(/\s+/g, " ")
+  // PS-065: NFKC first - full-width, superscript and circled digits become 0-9, full-width "$" becomes "$".
+  let t = s.normalize("NFKC").replace(/[＄﹩]/g, "$").replace(/\s+/g, " ")
     // invoice references: "tax invoice no. 1234", "inv # A-77", "invoice number: 99", "INV-10234"
     .replace(/\b(?:tax\s+)?(?:invoice|inv)\b\.?\s*(?:no\b\.?|number\b|num\b\.?|#)?\s*[:#]?\s*(?:[A-Za-z]{0,4}[-\/]?\d[\w\/-]*)?/gi, " ")
     .replace(/\bINV-?\d+\b/gi, " ")
     // every figure, with what hangs off it
     .replace(new RegExp(String.raw`\$?\s?\d[\d,.]*` + UNIT + String.raw`(?:\s*(?:inc|incl|ex)\.?\s*gst\b)?`, "gi"), " ")
-    .replace(/\d+/g, " ")
+    .replace(/\p{N}+/gu, " ") // PS-065: any digit in any script (Arabic-Indic, ...), not just 0-9
+    // PS-065: a figure in words - two or more number-words in a row with a real number in them ("four fifty", "one
+    // thousand two hundred"). One on its own ("one hose") and runs of only a / an / and / half stay.
+    .replace(NUMBER_RUN, (m) => (NUMBER_CORE.test(m) ? " " : m))
     // the money words left behind
     .replace(/\b(?:sub\s?total|total|cost|price|labour\s+rate|rate|charge)(?:\s+(?:was|is|of))?\b/gi, " ")
     .replace(/\b(?:aud|gst|incl|inc|ex)\b\.?/gi, " ")
@@ -77,8 +81,10 @@ export function publicWords(s: string | null | undefined, max = 200): string | n
     .replace(/\(\s*[x×@#+=]?\s*\)|\[\s*[x×@#+=]?\s*\]/gi, " ");
   t = t.replace(/\s+([,.;:])/g, "$1").replace(/\s+/g, " ").replace(/[\s,;:.\-–+=@\/(]+$/g, "").replace(/^[\s,;:.\-–+=@\/)]+/g, "").trim();
   const out = noAmounts(t, max);
-  return out && !/\d/.test(out) ? out : out ? out.replace(/\d+/g, "").replace(/\s+/g, " ").trim() || null : null;
+  return out && !/\p{N}/u.test(out) ? out : out ? out.replace(/\p{N}+/gu, "").replace(/\s+/g, " ").trim() || null : null;
 }
+const NUMBER_RUN = new RegExp(String.raw`\b(?:(?:${NUMBER_WORDS})\b[\s-]*){2,}`, "gi");
+const NUMBER_CORE = /\b(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|million)\b/i;
 
 // ---------- the rows ----------
 

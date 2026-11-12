@@ -249,3 +249,19 @@ test("PS-061 / PS-064: the QR (public) gets only the service-due and inspection 
   assert.deepEqual(office.service.dates.map((d) => d.label).sort(), ["Inspection / certificate", "Insurance", "Rego", "Service due"]);
   assert.equal(office.checks[0].id, "c1");
 });
+
+// PS-065 (Ilies approved 12 Nov 2026): figures in other scripts and in words.
+test("PS-065: full-width, Arabic-Indic, superscript and circled digits, and number-word figures are removed", () => {
+  const probes = ["$１２０ service", "Repair ٤٥٠ parts", "Service ⁴⁵⁰", "Parts ①②③", "Labour four fifty", "Charged one thousand two hundred", "Parts one hundred and twenty"];
+  for (const s of probes) {
+    const out = publicWords(s) ?? "";
+    assert.ok(!/\p{N}/u.test(out), `${s} -> ${out}`);
+    assert.ok(!/\b(?:four fifty|one thousand|two hundred|one hundred|twenty)\b/i.test(out), `${s} -> ${out}`);
+  }
+  assert.equal(publicWords("$１２０ service"), "service");
+  assert.equal(publicWords("Repair ٤٥٠ parts"), "Repair parts");
+  assert.equal(publicWords("Labour four fifty"), "Labour");
+  assert.equal(publicWords("Charged one thousand two hundred"), "Charged");
+  assert.equal(publicWords("250 hr service"), "service", "a reading in the words still goes");
+  assert.equal(publicWords("Replaced one hose and a filter"), "Replaced one hose and a filter", "one number-word alone, and 'and a', stay");
+});

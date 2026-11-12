@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { Document, Image, Page, Text, View, StyleSheet, renderToBuffer } from "@react-pdf/renderer";
-import { STATE_LABEL, pdfText, type CheckRow, type HistoryWhat, type MachineHistory } from "./history";
+import { STATE_LABEL, pdfText, type Audience, type CheckRow, type HistoryWhat, type MachineHistory } from "./history";
 
 // A machine's pre-start records / service history as a PDF (12 Nov 2026) - made on the server with @react-pdf/renderer,
 // as the scope PDF is (lib/scopePdf.tsx). It only ever gets the history DTO (history.ts), which the route has already
@@ -80,13 +80,14 @@ function CheckLine({ c }: { c: CheckRow }) {
   );
 }
 
-function ChecksDoc({ h }: { h: MachineHistory }) {
+function ChecksDoc({ h, capped }: { h: MachineHistory; capped: boolean }) {
   const title = "Lobos Contracting – pre-start records";
   return (
     <Document title={`${h.machine} - pre-start records`}>
       <Page size="A4" style={styles.page}>
         <Header h={h} title={title} />
         <Text style={styles.meta}>Pre-start and post-check records, last {h.days} days, newest first. {h.checks.length} check{h.checks.length === 1 ? "" : "s"}.</Text>
+        {capped && <Text style={[styles.meta, { fontFamily: "Helvetica-Bold" }]}>Showing the latest {PUBLIC_PDF_CHECKS} checks – download the CSV for all</Text>}
         <Text style={styles.section}>Checks</Text>
         <View style={styles.head} fixed>
           <Text style={{ width: W.when, paddingRight: 6 }}>Date</Text><Text style={{ width: W.kind, paddingRight: 6 }}>Check</Text><Text style={{ width: W.who, paddingRight: 6 }}>Operator</Text>
@@ -147,7 +148,13 @@ function ServiceDoc({ h }: { h: MachineHistory }) {
 const safe = <T,>(x: T): T =>
   (typeof x === "string" ? pdfText(x) : Array.isArray(x) ? x.map(safe) : x && typeof x === "object" ? Object.fromEntries(Object.entries(x).map(([k, v]) => [k, safe(v)])) : x) as T;
 
-export async function renderHistoryPdf(h: MachineHistory, what: HistoryWhat): Promise<Buffer> {
+// PS-066 (Ilies approved 12 Nov 2026): a 400-check PDF blocked the server's event loop for ~4 s (measured on a copy,
+// 12 Nov 2026), so the QR's (public) PDF carries the latest PUBLIC_PDF_CHECKS checks and says so; the CSV and the
+// office PDF keep up to MAX_CHECKS.
+export const PUBLIC_PDF_CHECKS = 150;
+export async function renderHistoryPdf(h: MachineHistory, what: HistoryWhat, audience: Audience = "public"): Promise<Buffer> {
+  const capped = what === "checks" && audience === "public" && h.checks.length > PUBLIC_PDF_CHECKS;
+  if (capped) h = { ...h, checks: h.checks.slice(0, PUBLIC_PDF_CHECKS) };
   const s = safe(h);
-  return renderToBuffer(what === "service" ? <ServiceDoc h={s} /> : <ChecksDoc h={s} />);
+  return renderToBuffer(what === "service" ? <ServiceDoc h={s} /> : <ChecksDoc h={s} capped={capped} />);
 }

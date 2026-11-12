@@ -214,9 +214,22 @@ export default {
         answers: JSON.stringify(PRE.map((k) => ({ key: k, label: k, answer: i % 13 === 0 && k === "hoses" ? "FAULT" : "OK" }))), hourMeter: 2000 + i, createdAt: new Date(now - i * 3 * 60 * 60_000) })) });
       const t0 = Date.now();
       const big = await c.get(`/api/plant/${M5.id}/history/download?what=checks&days=90&format=pdf`, "MANAGER");
-      const bytes = (await big.arrayBuffer()).byteLength;
-      t.ok(big.status === 200, "a 400-check PDF downloads", big.status);
-      t.note(`PS-063 timing: a 400-check pre-start PDF took ${Date.now() - t0} ms (${Math.round(bytes / 1024)} KB)`);
+      const bigBuf = Buffer.from(await big.arrayBuffer());
+      const officeMs = Date.now() - t0;
+      const count = (txt) => (txt.match(/RC bulk \d/g) ?? []).length;
+      const officeText = pdfText(bigBuf);
+      t.ok(big.status === 200 && count(officeText) === 400 && !/Showing the latest/.test(officeText), "PS-066: the office PDF keeps all 400 checks", `${big.status} ${count(officeText)}`);
+      t.note(`PS-066 timing: the office 400-check pre-start PDF took ${officeMs} ms (${Math.round(bigBuf.length / 1024)} KB)`);
+      // PS-066: the QR's PDF carries the latest 150 and says so; its CSV keeps all 400.
+      const s5 = secretOf((await printQr(M5.id)).body?.url);
+      const t1 = Date.now();
+      const pub = await dl(s5, "?what=checks&days=90&format=pdf");
+      const pubMs = Date.now() - t1;
+      const pubText = pdfText(pub.buf);
+      t.ok(pub.status === 200 && count(pubText) === 150 && /Showing the latest 150 checks/.test(pubText) && /download the CSV for all/.test(pubText), "PS-066: the QR's PDF - the latest 150 checks, and the line saying so", `${pub.status} ${count(pubText)}`);
+      const pubCsv = await dl(s5, "?what=checks&days=90&format=csv");
+      t.ok(pubCsv.status === 200 && count(pubCsv.text) === 400, "PS-066: the QR's CSV keeps all 400", `${pubCsv.status} ${count(pubCsv.text)}`);
+      t.note(`PS-066 timing: the QR's 150-check PDF took ${pubMs} ms`);
     }
 
     // (7) The limits: 60 looks a QR in 10 minutes, 20 downloads an hour (machine 4's QR).

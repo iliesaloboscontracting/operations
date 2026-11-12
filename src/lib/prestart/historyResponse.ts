@@ -3,7 +3,7 @@
 // "$" figure anywhere and nothing goes out.
 import { NextResponse } from "next/server";
 import { linkSafe } from "../receipts/rules";
-import { checksCsv, fileName, parseDays, parseWhat, serviceCsv, type MachineHistory } from "./history";
+import { checksCsv, fileName, parseDays, parseWhat, serviceCsv, type Audience, type MachineHistory } from "./history";
 import { renderHistoryPdf } from "./historyPdf";
 import { PDF_BUSY, withPdfSlot } from "../pdfSlots";
 
@@ -20,7 +20,7 @@ export function historyJson(h: MachineHistory) {
   return linkSafe(h) ? NextResponse.json(h, { headers }) : NextResponse.json(REFUSED, { status: 500 });
 }
 
-export async function historyFile(h: MachineHistory, what: "checks" | "service", format: "pdf" | "csv") {
+export async function historyFile(h: MachineHistory, what: "checks" | "service", format: "pdf" | "csv", audience: Audience = "public") {
   if (!linkSafe(h)) return NextResponse.json(REFUSED, { status: 500 });
   const name = fileName(h, what, format);
   if (format === "csv") {
@@ -31,7 +31,7 @@ export async function historyFile(h: MachineHistory, what: "checks" | "service",
     });
   }
   // PS-063: at most two PDFs being made at once across the app (lib/pdfSlots.ts) - beyond that, 503.
-  const pdf = await withPdfSlot(() => renderHistoryPdf(h, what));
+  const pdf = await withPdfSlot(() => renderHistoryPdf(h, what, audience));
   if (!pdf) return NextResponse.json({ error: PDF_BUSY }, { status: 503, headers: { ...headers, "Retry-After": "5" } });
   return new NextResponse(new Uint8Array(pdf), {
     headers: { ...headers, "Content-Type": "application/pdf", "Content-Disposition": `attachment; filename="${name}"`, "Content-Length": String(pdf.length) },

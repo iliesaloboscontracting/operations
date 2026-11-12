@@ -7,7 +7,7 @@ import { assertNoMoney } from "../moneyGuard";
 
 export const AMOUNTS_NOTICE = "Amounts aren't recorded here - tell the office.";
 export const AMOUNT_TAG = "(amount not recorded)";
-const NUMBER_WORDS = "a|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|million|and|half";
+export const NUMBER_WORDS = "a|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|million|and|half";
 // Words for money: a currency after the number, or slang (SEC-006: AUD / USD / EUR / quid / pounds / euros too).
 const CURRENCY = String.raw`(?:dollars?|bucks|cents?|grand|aud|usd|eur|euros?|quid|pounds?)`;
 // A rate after an amount goes with it: "$80 an hour", "$850/day", "45 dollars per tonne".
