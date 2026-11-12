@@ -117,6 +117,17 @@ export function weekRows(from: string, to: string): string[][] {
   return rows;
 }
 
+// Rolling weeks (Ilies, 12 Nov 2026: "i dont want to see the days of the calender that have already gone"): rows of
+// seven days starting at `from` (today), whatever weekday that is, covering [from, to].
+export function rollingRows(from: string, to: string): string[][] {
+  const rows: string[][] = [];
+  for (let s = from; s <= to; s = addDays(s, 7)) rows.push(Array.from({ length: 7 }, (_, i) => addDays(s, i)));
+  return rows;
+}
+
+// The last day of rolling weeks from `from` that cover `end` (whole rows of seven).
+export const rollingEnd = (from: string, end: string) => addDays(from, Math.ceil((daysBetween(from, end) + 1) / 7) * 7 - 1);
+
 export interface Segment {
   bar: Bar;
   from: string;
@@ -249,36 +260,38 @@ function markWords(day: ShiftMark | null, night: ShiftMark | null, notRunning: b
 }
 
 // One colour per project in the Allocations board's tile style (Ilies, 12 Nov 2026: "the colour scheme could match the
-// same theme as the tiles in the allocation tab" - components/AssignedChip.tsx): a dark tinted fill (<hue>-950 at 60%),
-// a coloured outline (<hue>-500 at 80%), light text in the same hue (<hue>-200, secondary <hue>-300).
+// same theme as the tiles in the allocation tab" - components/AssignedChip.tsx), a notch brighter ("make them a little
+// brighter"): a tinted fill (<hue>-900 at 70%), a coloured outline (<hue>-400), light text in the same hue (<hue>-100,
+// secondary <hue>-200).
 // Twelve hues in a fixed order. Red, rose, amber, orange and yellow are left out: amber is the board's warning ring,
 // orange = plant and yellow = labour hire on the board. Teal (hire on the board) and blue / sky (near the brand blue
 // of crew chips) are kept only because no other non-warning hues are left for twelve; a calendar bar never stands for
 // a resource, and every bar carries its name.
-// Checked with the dataviz validate_palette.js on the outlines composited over the panel (#181B20, 12 Nov 2026):
-// adjacent slots PASS CVD (worst 11.7) and the normal-vision floor (worst 20.8). All-pairs cannot hold at twelve hues
-// (worst normal 4.4, violet / purple; CVD fails all-pairs) - identity is never colour alone (the name is on the bar).
-// Text >= 8:1 on every composited fill (calendarTiles.test.ts). Past twelve projects: a labelled neutral (gray).
-const TW = (name: string, c950: string, c500: string, c200: string, c300: string) => ({
+// Checked with the dataviz validate_palette.js on the outlines over the panel (#181B20, 12 Nov 2026): adjacent slots
+// PASS CVD (worst 9.9) and the normal-vision floor (worst 21.2); the 400 outlines sit above the mark lightness band on
+// purpose (brighter, as asked). All-pairs cannot hold at twelve hues (worst normal 4.1, purple / violet; CVD fails
+// all-pairs) - identity is never colour alone (the name is on the bar). Text >= 8:1 on every composited fill
+// (calendarTiles.test.ts). Past twelve projects: a labelled neutral (gray).
+const TW = (name: string, c900: string, c400: string, c100: string, c200: string) => ({
   name,
-  fill: `${c950}99`, // 60%
-  border: `${c500}cc`, // 80%
-  text: c200,
-  sub: c300,
+  fill: `${c900}b3`, // 70%
+  border: c400,
+  text: c100,
+  sub: c200,
 });
 export const TILE_PALETTE = [
-  TW("violet", "#2e1065", "#8b5cf6", "#ddd6fe", "#c4b5fd"),
-  TW("cyan", "#083344", "#06b6d4", "#a5f3fc", "#67e8f9"),
-  TW("purple", "#3b0764", "#a855f7", "#e9d5ff", "#d8b4fe"),
-  TW("teal", "#042f2e", "#14b8a6", "#99f6e4", "#5eead4"),
-  TW("fuchsia", "#4a044e", "#d946ef", "#f5d0fe", "#f0abfc"),
-  TW("lime", "#1a2e05", "#84cc16", "#d9f99d", "#bef264"),
-  TW("indigo", "#1e1b4b", "#6366f1", "#c7d2fe", "#a5b4fc"),
-  TW("green", "#052e16", "#22c55e", "#bbf7d0", "#86efac"),
-  TW("sky", "#082f49", "#0ea5e9", "#bae6fd", "#7dd3fc"),
-  TW("pink", "#500724", "#ec4899", "#fbcfe8", "#f9a8d4"),
-  TW("blue", "#172554", "#3b82f6", "#bfdbfe", "#93c5fd"),
-  TW("emerald", "#022c22", "#10b981", "#a7f3d0", "#6ee7b7"),
+  TW("violet", "#4c1d95", "#a78bfa", "#ede9fe", "#ddd6fe"),
+  TW("cyan", "#164e63", "#22d3ee", "#cffafe", "#a5f3fc"),
+  TW("purple", "#581c87", "#c084fc", "#f3e8ff", "#e9d5ff"),
+  TW("teal", "#134e4a", "#2dd4bf", "#ccfbf1", "#99f6e4"),
+  TW("fuchsia", "#701a75", "#e879f9", "#fae8ff", "#f5d0fe"),
+  TW("lime", "#365314", "#a3e635", "#ecfccb", "#d9f99d"),
+  TW("indigo", "#312e81", "#818cf8", "#e0e7ff", "#c7d2fe"),
+  TW("green", "#14532d", "#4ade80", "#dcfce7", "#bbf7d0"),
+  TW("sky", "#0c4a6e", "#38bdf8", "#e0f2fe", "#bae6fd"),
+  TW("pink", "#831843", "#f472b6", "#fce7f3", "#fbcfe8"),
+  TW("blue", "#1e3a8a", "#60a5fa", "#dbeafe", "#bfdbfe"),
+  TW("emerald", "#064e3b", "#34d399", "#d1fae5", "#a7f3d0"),
 ];
 export const TILE_SLOTS = TILE_PALETTE.length;
 export const TILE_SURFACES = ["#181B20", "#20242A"]; // tailwind panel, panel2 (weekends) - what the fills sit on
@@ -290,7 +303,7 @@ export interface TileColour {
   text: string; // the name
   sub: string; // job number, counts
 }
-export const NEUTRAL_TILE: TileColour = { slot: null, fill: "#1f293799", border: "#6b7280cc", text: "#e5e7eb", sub: "#d1d5db" };
+export const NEUTRAL_TILE: TileColour = { slot: null, fill: "#374151b3", border: "#9ca3af", text: "#f3f4f6", sub: "#e5e7eb" };
 
 // FNV-1a, so a project's preferred slot depends on its id alone.
 export function hashKey(s: string) {
