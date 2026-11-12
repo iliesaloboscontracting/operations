@@ -2,7 +2,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { assertNoMoney } from "../moneyGuard";
-import { buildHistory, checkRow, checksCsv, noAmounts, pdfText, parseDays, parseWhat, serviceCsv, serviceRow, MAX_CHECKS, type RawCheck } from "./history";
+import { buildHistory, checkRow, checksCsv, noAmounts, pdfText, publicWords, INVOICE_SERVICE, parseDays, parseWhat, serviceCsv, serviceRow, MAX_CHECKS, type RawCheck } from "./history";
 import { badCode, ipGate, oneDownload, resetForTests, take, viewGate, VIEW_LIMITS } from "./viewLimit";
 
 const NOW = new Date("2026-11-12T01:00:00Z"); // 12 Nov, 12pm Sydney
@@ -19,7 +19,7 @@ const check = (over: Partial<RawCheck> = {}): RawCheck => ({
 });
 const base = (over: Record<string, unknown> = {}) => ({
   machineId: "M1", machineName: "Kubota KX040", status: "AVAILABLE", serviceDue: null,
-  checks: [check()], companies: new Map<string, string | null>(), services: [], docs: [], faults: [], days: 90 as const, now: NOW, ...over,
+  checks: [check()], companies: new Map<string, string | null>(), services: [], docs: [], faults: [], days: 90 as const, now: NOW, audience: "office" as const, ...over,
 });
 
 test("no money - even when a service record holds amounts in its money fields and in its words", () => {
@@ -40,8 +40,9 @@ test("no money - even when a service record holds amounts in its money fields an
   for (const bad of ["$", "450", "360", "1,250", "1250", "1136", "113.64", "INV-7781", "Paid", "380", "amountExGst", "invoiceNo", "\"total\"", "notes"]) assert.ok(!json.includes(bad), `"${bad}" leaked: ${json}`);
   assert.equal(h.service.records.length, 1);
   assert.deepEqual(Object.keys(h.service.records[0]).sort(), ["date", "provider", "reading", "work"]);
-  assert.match(h.service.records[0].work ?? "", /Full service 250hr/);
-  assert.match(h.service.records[0].work ?? "", /Replaced filters/);
+  assert.match(h.service.records[0].work, /Full service/);
+  assert.match(h.service.records[0].work, /Replaced filters/);
+  assert.ok(!/\d/.test(h.service.records[0].work), "PS-059: no figure at all in the work text");
   assert.equal(h.service.records[0].provider, "Mechanics Pty Ltd");
   assert.equal(h.service.records[0].reading, 3100);
   assert.ok(assertNoMoney(checksCsv(h)) && assertNoMoney(serviceCsv(h)));
@@ -62,6 +63,57 @@ test("noAmounts: words stay, amounts go (with or without a $)", () => {
   assert.equal(noAmounts("Next at 1,250 hrs"), "Next at 1,250 hrs", "an hours reading stays");
   assert.equal(noAmounts("Odometer 12,400 km"), "Odometer 12,400 km");
   assert.equal(noAmounts("Next at 1,250 hrs, cost 1,250"), "Next at 1,250 hrs");
+});
+
+// PS-059 (Ilies, 12 Nov 2026: "no amounts or figure shown"): prices with no "$", invoice numbers - no digit at all.
+const PS059 = [
+  "Full service 450 inc GST", "Cost was 980", "Parts 380 + labour 220", "Labour 3 hrs 165/hr", "Parts: 380.5", "Service: 1250",
+  "invoice INV-10234", "Full service 450 inc GST invoice INV-10234 165/hr", "Tax invoice no. 7781 - replaced hydraulic hose",
+  "Inv # A-77 track tension", "Next at 1,250 hrs", "AUD 400 for tyres", "Price 99 ex GST", "Labour rate 120 per hour",
+  "Replaced 2 x filters, 4L oil, 10 each", "250 hr service. Parts $412.50, labour 3 hrs @ 120 = 360.00, total 849.75 inc GST",
+];
+test("PS-059: publicWords leaves no digit, no invoice reference, no money word", () => {
+  for (const s of PS059) {
+    const out = publicWords(s) ?? "";
+    assert.ok(!/\d/.test(out), `${s} -> ${out}`);
+    assert.ok(!/\b(?:inv|invoice|gst|aud|total|cost|price)\b|\$/i.test(out), `${s} -> ${out}`);
+  }
+  assert.equal(publicWords("Full service 450 inc GST invoice INV-10234 165/hr"), "Full service");
+  assert.equal(publicWords("Tax invoice no. 7781 - replaced hydraulic hose"), "replaced hydraulic hose");
+  assert.equal(publicWords("Parts: 380.5"), "Parts");
+  assert.equal(publicWords("Fuel filter (x2)"), "Fuel filter");
+  assert.equal(publicWords("Sydney Plant Repairs"), "Sydney Plant Repairs");
+  assert.equal(publicWords("Cost was 980"), null);
+  assert.equal(publicWords(null), null);
+});
+
+test("PS-059: service rows - inbox-derived say only 'Service (mechanic's invoice)'; empty -> 'Service'; the reading stays in its field", () => {
+  const inbox = serviceRow({ resourceId: "M1", date: "2026-10-01", work: "Kubota 500hr service 1,980.00 ex GST INV-555", mechanic: "Kubota Dealer 2000 Pty", odometer: 1500, invoiceDraftId: "draft1" });
+  assert.equal(inbox.work, INVOICE_SERVICE);
+  assert.equal(inbox.work, "Service (mechanic's invoice)");
+  assert.equal(inbox.provider, "Kubota Dealer Pty");
+  assert.equal(inbox.reading, 1500, "the hours / odometer reading only in its own field");
+  assert.equal(serviceRow({ resourceId: "M1", date: "2026-10-01", work: "Service: 1250", mechanic: null, odometer: null }).work, "Service");
+  assert.equal(serviceRow({ resourceId: "M1", date: "2026-10-01", work: "1250", mechanic: null, odometer: null }).work, "Service");
+  assert.equal(serviceRow({ resourceId: "M1", date: "2026-10-01", work: null, mechanic: null, odometer: null }).work, "Service");
+  const h = buildHistory(base({
+    serviceDue: "Next at 1,250 hrs",
+    services: PS059.map((w, i) => ({ resourceId: "M1", date: `2026-09-${String(i + 1).padStart(2, "0")}`, work: w, mechanic: `Mech ${i} 450 inc GST`, odometer: 900 + i })),
+    faults: PS059.map((d) => ({ resourceId: "M1", itemLabel: "Hoses", description: d, priority: "LOW", status: "OPEN", reportedAt: ago(1) })),
+    checks: [check({ faults: PS059.map((d) => ({ itemLabel: "Hoses", description: d, priority: "LOW", status: "OPEN" })) })],
+  }));
+  const texts = [
+    ...h.service.records.flatMap((r) => [r.work, r.provider ?? ""]), h.service.registerNote ?? "",
+    ...h.service.openFaults.map((f) => f.description ?? ""), ...h.checks.flatMap((c) => c.faults.map((f) => f.description ?? "")),
+  ];
+  for (const x of texts) assert.ok(!/\d/.test(x), `a figure in: ${x}`);
+  assert.equal(h.service.records.length, Math.min(PS059.length, 20));
+  assert.ok(h.service.records.every((r) => typeof r.reading === "number"), "the readings still come through, as numbers");
+  // The CSV's text cells carry no figure either (dates and the reading column are figures by design).
+  for (const line of serviceCsv(h).split("\r\n").filter((l) => /^2026-09-/.test(l))) {
+    const cells = line.split(",");
+    assert.ok(!/\d/.test(cells.slice(1, -1).join(",")), `CSV text with a figure: ${line}`);
+  }
 });
 
 test("only this machine - every list filtered by the machine, whatever came in", () => {
@@ -146,8 +198,10 @@ test("CSV: formula cells escaped, the header and the machine", () => {
   for (const line of csv.split("\r\n")) for (const cell of line.split(",")) assert.ok(!/^[=+\-@]/.test(cell), `unescaped cell: ${cell}`);
   assert.match(csv, /"'=HYPERLINK/);
   assert.match(csv, /"'\+SUM/);
-  assert.match(serviceRow({ resourceId: "M1", date: "2026-01-02", work: "=cmd()", mechanic: null, odometer: null }).work ?? "", /=cmd/);
-  assert.match(serviceCsv(buildHistory(base({ services: [{ resourceId: "M1", date: "2026-01-02", work: "=cmd()", mechanic: null, odometer: null }] }))), /"'=cmd"/);
+  // Service words lose a leading = + - @ when cleaned (PS-059), and the CSV would escape one anyway.
+  assert.equal(serviceRow({ resourceId: "M1", date: "2026-01-02", work: "=cmd()", mechanic: null, odometer: null }).work, "cmd");
+  const scsv = serviceCsv(buildHistory(base({ services: [{ resourceId: "M1", date: "2026-01-02", work: "=cmd()", mechanic: "@evil", odometer: null }] })));
+  for (const line of scsv.split("\r\n")) for (const cell of line.split(",")) assert.ok(!/^[=+\-@]/.test(cell), `unescaped cell: ${cell}`);
 });
 
 test("view limits: per QR, per address, bad codes, one download at a time", async () => {
@@ -175,4 +229,23 @@ test("pdfText keeps Windows-1252 text and drops what the PDF's Helvetica can't p
   assert.equal(pdfText("Lobos Contracting – pre-start records"), "Lobos Contracting – pre-start records");
   assert.equal(pdfText("Hose \u{1F525} split → fix"), "Hose  split -> fix");
   assert.equal(pdfText("Café Müller"), "Café Müller");
+});
+
+test("PS-061 / PS-064: the QR (public) gets only the service-due and inspection dates, and no check ids; the office gets all", () => {
+  const docs = [
+    { resourceId: "M1", kind: "SERVICE_DUE", status: "ACTIVE", expiryDate: "2026-12-01" },
+    { resourceId: "M1", kind: "PLANT_INSPECTION", status: "ACTIVE", expiryDate: "2027-02-01" },
+    { resourceId: "M1", kind: "ASSET_INSURANCE", status: "ACTIVE", expiryDate: "2027-03-01" },
+    { resourceId: "M1", kind: "REGO", status: "ACTIVE", expiryDate: "2027-04-01" },
+  ];
+  const pub = buildHistory(base({ docs, audience: "public" }));
+  assert.deepEqual(pub.service.dates.map((d) => d.label).sort(), ["Inspection / certificate", "Service due"]);
+  assert.ok(!/Insurance|Rego|2027-03-01|2027-04-01/.test(JSON.stringify(pub)), "no insurance or rego on the QR");
+  assert.ok(pub.checks.length === 1 && !("id" in pub.checks[0]), "no check id on the QR");
+  assert.ok(!/"id"/.test(JSON.stringify(pub)), "no id anywhere in the public reply");
+  const noAudience = buildHistory({ ...base({ docs }), audience: undefined });
+  assert.ok(!noAudience.service.dates.some((d) => d.label === "Insurance") && !("id" in noAudience.checks[0]), "public is the default");
+  const office = buildHistory(base({ docs, audience: "office" }));
+  assert.deepEqual(office.service.dates.map((d) => d.label).sort(), ["Inspection / certificate", "Insurance", "Rego", "Service due"]);
+  assert.equal(office.checks[0].id, "c1");
 });

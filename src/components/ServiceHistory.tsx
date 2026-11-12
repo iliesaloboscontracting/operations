@@ -104,6 +104,8 @@ function RecordForm({
 }
 
 // Service/repair history for one vehicle (or any resource), shown inside its edit modal.
+// PS-060 (Ilies approved 12 Nov 2026): below Manager the route sends no amounts, invoice number or notes - so no
+// money, total spend, invoice # or notes are shown here either (`canEdit` = Manager / Admin).
 export default function ServiceHistory({ resourceId }: { resourceId: string }) {
   const { canEdit } = useAuth();
   const [records, setRecords] = useState<ServiceRecordDTO[]>([]);
@@ -185,7 +187,7 @@ export default function ServiceHistory({ resourceId }: { resourceId: string }) {
           <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Service history</div>
           <div className="text-xs text-gray-500">
             {records.length} record{records.length === 1 ? "" : "s"}
-            {records.length > 0 && <> · {money(totalSpend)} total{lastService && <> · last serviced {fmtDate(lastService.date)}</>}</>}
+            {records.length > 0 && <>{canEdit && <> · {money(totalSpend)} total</>}{lastService && <> · last serviced {fmtDate(lastService.date)}</>}</>}
           </div>
         </div>
         {canEdit && !adding && !editingId && (
@@ -224,25 +226,31 @@ export default function ServiceHistory({ resourceId }: { resourceId: string }) {
                   <span className="w-20 shrink-0 text-gray-400">{fmtDate(r.date)}</span>
                   <span className="w-24 shrink-0 truncate text-gray-300">{r.mechanic ?? "—"}</span>
                   <span className="min-w-0 flex-1 truncate text-gray-400">{r.work ?? "—"}</span>
-                  <span className="w-20 shrink-0 text-right font-medium text-gray-200">{money(r.total)}</span>
+                  {canEdit && <span className="w-20 shrink-0 text-right font-medium text-gray-200">{money(r.total ?? null)}</span>}
                   <span className="text-gray-600">{expanded === r.id ? "▲" : "▼"}</span>
                 </button>
                 {expanded === r.id && (
                   <div className="mt-2 grid gap-1 border-t border-edge/60 pt-2 sm:grid-cols-2">
-                    <div className="text-gray-500">
-                      Invoice #<span className="ml-1 text-gray-300">{r.invoiceNo ?? "—"}</span>
-                    </div>
+                    {canEdit && (
+                      <div className="text-gray-500">
+                        Invoice #<span className="ml-1 text-gray-300">{r.invoiceNo ?? "—"}</span>
+                      </div>
+                    )}
                     <div className="text-gray-500">
                       Odometer<span className="ml-1 text-gray-300">{r.odometer ? `${r.odometer.toLocaleString()} km` : "—"}</span>
                     </div>
-                    <div className="text-gray-500">
-                      Ex GST<span className="ml-1 text-gray-300">{money(r.amountExGst)}</span>
-                    </div>
-                    <div className="text-gray-500">
-                      GST<span className="ml-1 text-gray-300">{money(r.gst)}</span>
-                    </div>
+                    {canEdit && (
+                      <>
+                        <div className="text-gray-500">
+                          Ex GST<span className="ml-1 text-gray-300">{money(r.amountExGst ?? null)}</span>
+                        </div>
+                        <div className="text-gray-500">
+                          GST<span className="ml-1 text-gray-300">{money(r.gst ?? null)}</span>
+                        </div>
+                      </>
+                    )}
                     {r.work && <div className="text-gray-400 sm:col-span-2">{r.work}</div>}
-                    {r.notes && <div className="italic text-gray-500 sm:col-span-2">{r.notes}</div>}
+                    {canEdit && r.notes && <div className="italic text-gray-500 sm:col-span-2">{r.notes}</div>}
                     {canEdit && (
                       <div className="flex gap-3 pt-1 sm:col-span-2">
                         <button type="button" onClick={() => startEdit(r)} className="text-blue-400 hover:text-blue-300">

@@ -5,6 +5,7 @@ import { NextResponse } from "next/server";
 import { linkSafe } from "../receipts/rules";
 import { checksCsv, fileName, parseDays, parseWhat, serviceCsv, type MachineHistory } from "./history";
 import { renderHistoryPdf } from "./historyPdf";
+import { PDF_BUSY, withPdfSlot } from "../pdfSlots";
 
 const REFUSED = { error: "Something went wrong - call the office." };
 const headers = { "Cache-Control": "no-store", "X-Robots-Tag": "noindex" };
@@ -29,7 +30,9 @@ export async function historyFile(h: MachineHistory, what: "checks" | "service",
       headers: { ...headers, "Content-Type": "text/csv; charset=utf-8", "Content-Disposition": `attachment; filename="${name}"` },
     });
   }
-  const pdf = await renderHistoryPdf(h, what);
+  // PS-063: at most two PDFs being made at once across the app (lib/pdfSlots.ts) - beyond that, 503.
+  const pdf = await withPdfSlot(() => renderHistoryPdf(h, what));
+  if (!pdf) return NextResponse.json({ error: PDF_BUSY }, { status: 503, headers: { ...headers, "Retry-After": "5" } });
   return new NextResponse(new Uint8Array(pdf), {
     headers: { ...headers, "Content-Type": "application/pdf", "Content-Disposition": `attachment; filename="${name}"`, "Content-Length": String(pdf.length) },
   });

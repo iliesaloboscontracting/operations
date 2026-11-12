@@ -96,7 +96,7 @@ function Checks({ h, days }: { h: MachineHistory; days: number }) {
   if (!h.checks.length) return <div className="rounded-xl border border-edge bg-panel p-4 text-sm text-gray-400">No pre-start or post-check in the last {days} days.</div>;
   return (
     <div className="space-y-2">
-      {h.checks.map((c) => <CheckCard key={c.id} c={c} />)}
+      {h.checks.map((c, i) => <CheckCard key={i} c={c} />)}
       {h.truncated && <p className="text-xs text-gray-500">Only the newest checks are shown - the office has the rest.</p>}
       <p className="text-xs text-gray-500">{h.photosNote}</p>
     </div>

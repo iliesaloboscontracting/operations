@@ -5,8 +5,11 @@
 //   - the window: the last 7 / 30 / 90 days (default 90), newest first, at most MAX_CHECKS checks;
 //   - only the one machine's rows (filtered again here, whatever the query returned);
 //   - every DTO built field by field - never a spread row. No amount, invoice number or total, rate or price: a service
-//     record's own money fields are never read, and its words (work done, provider) have amounts taken out
-//     (`noAmounts`); `linkSafe` stays the backstop on every reply. No coordinates, phones or device ids.
+//     record's own money fields are never read, and its words (work done, provider, register note, fault words) keep
+//     no figure at all (`publicWords`, PS-059); an invoices-inbox record shows only "Service (mechanic's invoice)";
+//     `linkSafe` stays the backstop on every reply. No coordinates, phones or device ids;
+//   - the QR ("public") gets only the service-due / inspection dates (PS-061) and no check ids (PS-064); the Plant page
+//     ("office") gets all its dates and the ids.
 import { nameWithoutAmounts, linkLabel } from "../dailyLog/money";
 import { dueSummary } from "../assets/rules";
 import { toCsv } from "../payroll/rules";
@@ -50,6 +53,33 @@ export function noAmounts(s: string | null | undefined, max = 200): string | nul
   return t ? t.slice(0, max) : null;
 }
 
+// PS-059 (Ilies approved 12 Nov 2026: "no amounts or figure shown"): free text a person or an invoice wrote - typed
+// service work, the provider, the Plant register's "service due" note, fault words - with NO figure left in it at all.
+// Invoice references go, then every digit sequence (decimals, commas, an attached unit or rate: /hr, /day, each, hrs,
+// km, inc / ex GST), then the money words left behind (AUD, GST, ex, inc, total, cost, price, rate), then the spaces
+// tidied, then noAmounts. A model number ("CAT 320") loses its number - the machine's name is shown on its own. Hour
+// meter and odometer readings are shown only from their own numeric fields, never inside text.
+const UNIT = String.raw`(?:\s?(?:\/\s?|per\s+)(?:hrs?|hours?|h|day|days|wk|week|t|tonne|m|km|ea|each|load)\b|\s?(?:hrs?|hours?|h|kms?|k|ltrs?|litres?|l|mm|t|ea|each)\b)?`;
+export function publicWords(s: string | null | undefined, max = 200): string | null {
+  if (!s) return null;
+  let t = s.replace(/[＄﹩]/g, "$").replace(/\s+/g, " ")
+    // invoice references: "tax invoice no. 1234", "inv # A-77", "invoice number: 99", "INV-10234"
+    .replace(/\b(?:tax\s+)?(?:invoice|inv)\b\.?\s*(?:no\b\.?|number\b|num\b\.?|#)?\s*[:#]?\s*(?:[A-Za-z]{0,4}[-\/]?\d[\w\/-]*)?/gi, " ")
+    .replace(/\bINV-?\d+\b/gi, " ")
+    // every figure, with what hangs off it
+    .replace(new RegExp(String.raw`\$?\s?\d[\d,.]*` + UNIT + String.raw`(?:\s*(?:inc|incl|ex)\.?\s*gst\b)?`, "gi"), " ")
+    .replace(/\d+/g, " ")
+    // the money words left behind
+    .replace(/\b(?:sub\s?total|total|cost|price|labour\s+rate|rate|charge)(?:\s+(?:was|is|of))?\b/gi, " ")
+    .replace(/\b(?:aud|gst|incl|inc|ex)\b\.?/gi, " ")
+    .replace(/\$/g, " ")
+    .replace(/(^|\s)[+=@×*\/x](?=\s|$)/g, " ")
+    .replace(/\(\s*[x×@#+=]?\s*\)|\[\s*[x×@#+=]?\s*\]/gi, " ");
+  t = t.replace(/\s+([,.;:])/g, "$1").replace(/\s+/g, " ").replace(/[\s,;:.\-–+=@\/(]+$/g, "").replace(/^[\s,;:.\-–+=@\/)]+/g, "").trim();
+  const out = noAmounts(t, max);
+  return out && !/\d/.test(out) ? out : out ? out.replace(/\d+/g, "").replace(/\s+/g, " ").trim() || null : null;
+}
+
 // ---------- the rows ----------
 
 export type RawCheck = {
@@ -60,7 +90,8 @@ export type RawCheck = {
 };
 export type FaultLine = { item: string | null; description: string | null; priority: string; priorityLabel: string; status: string; statusLabel: string };
 export type CheckRow = {
-  id: string; date: string; time: string; kind: "PRE" | "POST"; kindLabel: string; operator: string;
+  id?: string; // the office's only (PS-064) - the QR's reply leaves it out
+  date: string; time: string; kind: "PRE" | "POST"; kindLabel: string; operator: string;
   hourMeter: number | null; hourMeterNote: string | null;
   allOk: boolean; failed: string[]; notApplicable: number;
   walkaround: string | null; stillThere: number; faults: FaultLine[];
@@ -75,8 +106,8 @@ const answersOf = (json: string): { label: string; answer: string }[] => {
 const WALKAROUND: Record<string, string> = { DONE: "Walk-around photos taken", LIMIT: "Walk-around photos skipped (day's photo limit)", OPTIONAL: "Walk-around done earlier today" };
 
 export const faultLine = (f: { itemLabel: string | null; description: string; priority: string; status: string }): FaultLine => ({
-  item: noAmounts(f.itemLabel, 80),
-  description: noAmounts(f.description, 300),
+  item: noAmounts(f.itemLabel, 80), // our own checklist labels
+  description: publicWords(f.description, 300), // PS-059: operator-written words, no figures
   priority: f.priority,
   priorityLabel: PRIORITY_LABEL[f.priority as FaultPriority] ?? f.priority,
   status: f.status,
@@ -106,13 +137,17 @@ export function checkRow(c: RawCheck, company: string | null): CheckRow {
   };
 }
 
-export type RawService = { resourceId: string; date: string; work: string | null; mechanic: string | null; odometer: number | null };
-export type ServiceRow = { date: string; work: string | null; provider: string | null; reading: number | null };
-// Field by field: the record's amountExGst / gst / total / invoiceNo / notes are never read.
+export type RawService = { resourceId: string; date: string; work: string | null; mechanic: string | null; odometer: number | null; invoiceDraftId?: string | null };
+export type ServiceRow = { date: string; work: string; provider: string | null; reading: number | null };
+export const INVOICE_SERVICE = "Service (mechanic's invoice)";
+// Field by field: the record's amountExGst / gst / total / invoiceNo / notes are never read. PS-059: a record made from
+// the invoices inbox (invoiceDraftId) never shows the invoice's wording - its work is INVOICE_SERVICE; typed work and
+// the provider go through publicWords (no figure at all); work that cleans to nothing is "Service". The reading comes
+// only from its own field.
 export const serviceRow = (s: RawService): ServiceRow => ({
   date: /^\d{4}-\d{2}-\d{2}$/.test(s.date) ? s.date : String(s.date).slice(0, 10),
-  work: noAmounts(s.work, 300),
-  provider: s.mechanic ? (noAmounts(linkLabel(s.mechanic, ""), 80) ?? null) : null,
+  work: s.invoiceDraftId ? INVOICE_SERVICE : publicWords(s.work, 300) ?? "Service",
+  provider: s.mechanic ? publicWords(linkLabel(s.mechanic, ""), 80) : null,
   reading: typeof s.odometer === "number" ? s.odometer : null,
 });
 
@@ -126,20 +161,28 @@ export type MachineHistory = {
   service: { nextDue: DateLine | null; registerNote: string | null; dates: DateLine[]; records: ServiceRow[]; openFaults: OpenFault[] };
 };
 
+// Who it's for: "public" = the plant QR (anyone holding the sticker), "office" = the Plant page (Managers / Admins).
+export type Audience = "public" | "office";
+// PS-061 (Ilies, 12 Nov 2026: insurance / rego NOT public): the QR shows only these asset dates; the office sees them all.
+export const PUBLIC_DATE_KINDS = ["SERVICE_DUE", "PLANT_INSPECTION"];
+
 // Everything for one machine. `machineId` filters every list again - only this machine, whatever came in.
 export function buildHistory(input: {
   machineId: string; machineName: string; status: string | null; serviceDue: string | null;
   checks: RawCheck[]; companies: Map<string, string | null>; services: RawService[];
   docs: { resourceId: string | null; kind: string; status: string; expiryDate: string | null }[];
-  faults: RawFault[]; days: HistoryDays; now: Date;
+  faults: RawFault[]; days: HistoryDays; now: Date; audience?: Audience;
 }): MachineHistory {
+  const pub = input.audience !== "office"; // public unless the office route says so
   const since = input.now.getTime() - input.days * DAY_MS;
   const mine = input.checks
     .filter((c) => c.resourceId === input.machineId && c.createdAt.getTime() >= since && c.createdAt.getTime() <= input.now.getTime() + 60_000)
     .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
   const today = sydneyDay(input.now);
   const due = dueSummary(input.docs.filter((d) => d.resourceId === input.machineId), today, { vehicle: false });
-  const dates: DateLine[] = due.lines.map((l) => ({ label: l.label, expiryDate: l.expiryDate, state: l.state }));
+  const dates: DateLine[] = due.lines
+    .filter((l) => !pub || PUBLIC_DATE_KINDS.includes(l.kind))
+    .map((l) => ({ label: l.label, expiryDate: l.expiryDate, state: l.state }));
   const open = input.faults
     .filter((f) => f.resourceId === input.machineId && isOpenStatus(f.status))
     .sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority) || b.reportedAt.getTime() - a.reportedAt.getTime())
@@ -151,12 +194,17 @@ export function buildHistory(input: {
     generatedAt: `${today} ${sydneyClock(input.now)}`,
     generatedOn: today,
     days: input.days,
-    checks: mine.slice(0, MAX_CHECKS).map((c) => checkRow(c, c.sessionId ? input.companies.get(c.sessionId) ?? null : null)),
+    checks: mine.slice(0, MAX_CHECKS).map((c) => {
+      const row = checkRow(c, c.sessionId ? input.companies.get(c.sessionId) ?? null : null);
+      if (!pub) return row;
+      const { id: _id, ...rest } = row; // PS-064: no record ids on the QR
+      return rest;
+    }),
     truncated: mine.length > MAX_CHECKS,
     photosNote: "Walk-around and hour-meter photos are kept with the office (Faults page, Checks tab).",
     service: {
       nextDue: dates.find((d) => d.label === "Service due") ?? null,
-      registerNote: noAmounts(input.serviceDue, 60),
+      registerNote: publicWords(input.serviceDue, 60), // PS-059
       dates,
       records: input.services
         .filter((s) => s.resourceId === input.machineId)

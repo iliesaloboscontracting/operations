@@ -144,6 +144,26 @@ async function main() {
     await checkDenied("GET /api/faults/checks (Managers, Admins, coordinator, yard only)", "/api/faults/checks");
     // Plant pre-start QR stickers (stage 2, 10 Nov 2026): printing / listing them is Managers and Admins only.
     await checkDenied("GET /api/plant/qr (Managers and Admins only)", "/api/plant/qr");
+    // PS-060 (12 Nov 2026): a vehicle / plant item's service history reaches a Viewer as date, provider, work and
+    // odometer only - no amount, GST, total, invoice number, notes or who entered it. Read-only here: the machines that
+    // have service records (up to 10), or any vehicle / plant item when none do.
+    const SERVICE_FORBIDDEN = new Set(["total", "invoiceNo", "notes", "createdBy", "invoiceDraftId"]);
+    const withService = await prisma.serviceRecord.findMany({ where: { removedAt: null }, select: { resourceId: true }, distinct: ["resourceId"], take: 10 });
+    const serviceIds = withService.length ? withService.map((r) => r.resourceId)
+      : (await prisma.resource.findMany({ where: { type: { in: ["VEHICLE", "EQUIPMENT"] } }, select: { id: true }, take: 2 })).map((r) => r.id);
+    const serviceLeaks: string[] = [];
+    for (const id of serviceIds) {
+      const { status, body } = await get(`/api/resources/${id}/service`);
+      if (status !== 200) { serviceLeaks.push(`${id}: expected 200, got ${status}`); continue; }
+      serviceLeaks.push(...findForbiddenKeys(body).map((h) => `${id} ${h}`));
+      for (const row of Array.isArray(body) ? body : []) for (const k of Object.keys(row as object)) if (SERVICE_FORBIDDEN.has(k)) serviceLeaks.push(`${id} $.${k}`);
+      if (/\$\s?\d/.test(JSON.stringify(body))) serviceLeaks.push(`${id} a $ figure in the text`);
+    }
+    checks.push({
+      name: `GET /api/resources/:id/service (PS-060, ${serviceIds.length} item(s), ${withService.length ? "with records" : "no records in this data"})`,
+      ok: serviceLeaks.length === 0,
+      detail: serviceLeaks.length ? `leaked: ${serviceLeaks.slice(0, 10).join(", ")}` : undefined,
+    });
 
     // The Project File (brief 11): every project's page data, as a Viewer -
     // no money keys, no internal notes, and only crew-visible contacts.

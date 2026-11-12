@@ -11,6 +11,8 @@ import { noMoney } from "../lib/context.mjs";
 import { makeLink } from "../lib/setup.mjs";
 import { randomBytes } from "node:crypto";
 import { inflateSync } from "node:zlib";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 
 const PNG_BYTES = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64");
 const uniqPng = () => `data:image/png;base64,${Buffer.concat([PNG_BYTES, randomBytes(16)]).toString("base64")}`;
@@ -65,6 +67,7 @@ export default {
     const dl = async (s, q) => { const r = await c.get(`/api/site/plant/${encodeURIComponent(s)}/history/download${q}`, null); const buf = Buffer.from(await r.arrayBuffer()); const out = { status: r.status, type: r.headers.get("content-type") ?? "", disp: r.headers.get("content-disposition") ?? "", buf, text: buf.toString("utf8") }; replies.push(out.type.includes("pdf") ? pdfText(buf) : out.text); return out; };
 
     const M1 = await mkPlant(1), M2 = await mkPlant(2), M3 = await mkPlant(3), M4 = await mkPlant(4);
+    const noName = (x) => x.split(M1.name).join(""); // the machine name carries a random tag that could hold any digits
     const OP1 = await mkPerson(1), OP2 = await mkPerson(2);
     const q1 = await printQr(M1.id), q2 = await printQr(M2.id), q3 = await printQr(M3.id), q4 = await printQr(M4.id);
     let s1 = secretOf(q1.body?.url);
@@ -99,27 +102,41 @@ export default {
     const c95 = await seedCheck(M1, link1, 95, `Rchist old ${tag}`);
     const cOther = await seedCheck(M2, link2, 1, `Rchist other ${tag}`);
     await db.assetFault.create({ data: { resourceId: M2.id, resourceName: M2.name, itemLabel: "Hoses", description: `Other machine fault ${tag}`, priority: "DO_NOT_USE", status: "OPEN", reportedBy: "RC" } });
-    await db.serviceRecord.create({ data: { resourceId: M1.id, date: c.today, mechanic: "$5 Plant Repairs", invoiceNo: `INV-RC87-${tag}`, work: "250 hr service - oil and filters. Parts $412.50, labour 3 hrs @ 120 = 360.00, total 849.75 inc GST", amountExGst: 772.5, gst: 77.25, total: 849.75, odometer: 1190, notes: "Paid $849.75 by card" } });
+    // PS-059: a typed record with prices and an invoice number in its words (no "$"), and one made from the invoices
+    // inbox (invoiceDraftId) - its wording must never show.
+    await db.serviceRecord.create({ data: { resourceId: M1.id, date: c.today, mechanic: "$5 Plant Repairs 2000", invoiceNo: `INV-RC87-${tag}`, work: "Full service 450 inc GST invoice INV-10234 165/hr. Parts $412.50, total 849.75", amountExGst: 772.5, gst: 77.25, total: 849.75, odometer: 1190, notes: "Paid $849.75 by card" } });
+    await db.serviceRecord.create({ data: { resourceId: M1.id, date: "2026-01-05", mechanic: "Kubota Dealer West", invoiceNo: "TAX-5521", invoiceDraftId: `rc87-draft-${tag}`, work: "Kubota 500hr service 1,980.00 ex GST tax invoice no. 5521", amountExGst: 1800, gst: 180, total: 1980, odometer: 950 } });
+    await db.resource.update({ where: { id: M1.id }, data: { serviceDue: "Next at 1,250 hrs - quote 640" } });
+    // PS-061: insurance and rego are office-only.
+    await db.complianceDocument.create({ data: { holderType: "ASSET", holderName: M1.name, kind: "ASSET_INSURANCE", title: "Insurance", expiryDate: "2027-03-31", resourceId: M1.id, createdBy: "release-check" } });
+    await db.complianceDocument.create({ data: { holderType: "ASSET", holderName: M1.name, kind: "REGO", title: "Rego", expiryDate: "2027-04-30", resourceId: M1.id, createdBy: "release-check" } });
     await db.serviceRecord.create({ data: { resourceId: M2.id, date: c.today, mechanic: "Other Mechanic", work: `Theirs ${tag}`, total: 333.33 } });
     await db.complianceDocument.create({ data: { holderType: "ASSET", holderName: M1.name, kind: "SERVICE_DUE", title: "Service due", expiryDate: "2027-01-15", resourceId: M1.id, createdBy: "release-check" } });
 
     // (3) The view with a valid code: this machine's checks, newest first, 90 days; the dates, services, open faults.
     const v = await view(s1);
-    const ids = (v.body?.checks ?? []).map((x) => x.id);
-    t.ok(v.status === 200 && ids.length === 3 && ids.includes(c10.id) && !ids.includes(c95.id) && !ids.includes(cOther.id), "view: machine 1's 3 checks in 90 days (not the 95-day-old one, not machine 2's)", `${v.status} ${ids.length}`);
+    const rows = v.body?.checks ?? [];
+    t.ok(v.status === 200 && rows.length === 3 && rows.some((x) => x.hourMeter === 1100 && /HYPERLINK/.test(x.operator)) && !/Rchist old|Rchist other/.test(v.text), "view: machine 1's 3 checks in 90 days (not the 95-day-old one, not machine 2's)", `${v.status} ${rows.length}`);
+    t.ok(rows.length > 0 && rows.every((x) => !("id" in x)) && !v.text.includes(c10.id) && !v.text.includes(c95.id) && !v.text.includes(cOther.id), "PS-064: no check ids in the QR's reply");
+    t.ok(!/Insurance|Rego|2027-03-31|2027-04-30/.test(v.text), "PS-061: no insurance or rego on the QR");
     const [first] = v.body?.checks ?? [];
     t.ok(first?.kind === "POST" && first.hourMeter === 1207.5 && /Rchist2/.test(first.operator), "newest first: the post-check, its hour meter and operator", JSON.stringify(first));
     const preRow = (v.body?.checks ?? []).find((x) => x.kind === "PRE" && x.hourMeter === 1200);
     t.ok(preRow && preRow.allOk === false && preRow.failed.length === 1 && preRow.faults?.[0]?.priorityLabel === "High" && preRow.faults[0].statusLabel === "Open" && /Weeping hose/.test(preRow.faults[0].description) && /Walk-around/.test(preRow.walkaround ?? ""),
       "the pre-start: items failed (by name), the fault with priority and current status, walk-around taken");
-    t.ok(v.body?.service?.nextDue?.expiryDate === "2027-01-15" && v.body.service.records.length === 1 && /250 hr service/.test(v.body.service.records[0].work) && v.body.service.records[0].reading === 1190,
-      "service: next due (from the asset date), the last service's work and reading");
+    const recs = v.body?.service?.records ?? [];
+    const typed = recs.find((r) => r.reading === 1190), inbox = recs.find((r) => r.reading === 950);
+    t.ok(v.body?.service?.nextDue?.expiryDate === "2027-01-15" && recs.length === 2 && typed?.work === "Full service" && inbox?.work === "Service (mechanic's invoice)",
+      "PS-059: service - next due; typed work cleaned to words ('Full service'); the inbox record reads 'Service (mechanic's invoice)'", JSON.stringify(recs));
+    const words = [...recs.flatMap((r) => [r.work, r.provider ?? ""]), v.body?.service?.registerNote ?? "", ...(v.body?.service?.openFaults ?? []).map((f) => f.description ?? ""), ...rows.flatMap((x) => (x.faults ?? []).map((f) => f.description ?? ""))];
+    t.ok(words.every((w) => !/\d/.test(w)), "PS-059: no digit in any work, provider, register note or fault text", words.join(" | "));
+    t.ok(typed?.reading === 1190 && inbox?.reading === 950, "...while the odometer / hours column keeps its reading");
     t.ok(v.body?.service?.openFaults?.length === 1 && v.body.service.openFaults[0].priority === "HIGH", "open faults: machine 1's only");
     t.ok(v.body?.doNotUse === false, "machine 1 isn't Do-not-use (machine 2's Do-not-use fault doesn't leak)");
     t.ok(!/Rchist other|Theirs|Other machine fault|Other Mechanic/.test(v.text), "nothing of machine 2 in machine 1's view");
     t.ok(!/deviceId|rc87-dev|gps|latitude|longitude|sessionId|personId/i.test(v.text), "no device ids, session / person ids or positions");
-    t.ok(noMoney(v.text) && !/412|849|772|77\.25|360\.00|INV-RC87|Paid|amountExGst|"total"|invoiceNo/.test(v.text), "no $ or amount - the service record's money fields and the amounts in its words are gone");
-    t.ok(v.body?.service?.records?.[0]?.provider === "Plant Repairs", "the provider without its $ figure", JSON.stringify(v.body?.service?.records?.[0]?.provider));
+    t.ok(noMoney(v.text) && !/412|849|772|77\.25|450|10234|165|1,980|5521|640|INV|Kubota 500hr|Paid|amountExGst|"total"|invoiceNo|invoiceDraftId|rc87-draft/.test(noName(v.text)), "no $, amount, invoice number or invoice wording - fields and words");
+    t.ok(typed?.provider === "Plant Repairs", "the provider without its figures", JSON.stringify(typed?.provider));
     t.ok(((await view(s1, "?days=30")).body?.checks ?? []).length === 3 && ((await view(s1, "?days=7")).body?.checks ?? []).length === 2, "30 days: 3 checks; 7 days: 2 (the 10-day-old one drops out)");
     const v2 = await view(s2);
     t.ok(v2.status === 200 && (v2.body?.checks ?? []).length === 1 && v2.body.doNotUse === true && !v2.text.includes("Rchist1"), "machine 2's QR shows machine 2 only - with its Do-not-use fault", v2.status);
@@ -133,13 +150,16 @@ export default {
     const spdf = await dl(s1, "?what=service&format=pdf");
     const stext = pdfText(spdf.buf);
     t.ok(spdf.status === 200 && spdf.buf.subarray(0, 5).toString() === "%PDF-", "service history PDF: 200, a PDF file", spdf.status);
-    if (/RC hist 1/.test(stext)) t.ok(noMoney(stext) && !/412|849|INV-RC87/.test(stext) && /250 hr service/.test(stext), "the service PDF's text: the work done, no amount or invoice number", stext.slice(0, 240));
+    if (/RC hist 1/.test(stext)) t.ok(noMoney(stext) && !/412|849|450|10234|165|1,980|5521|640|INV|Insurance|Rego/.test(noName(stext)) && /Full service/.test(stext) && /Service \(mechanic's invoice\)/.test(stext) && /1190/.test(stext),
+      "the service PDF's text: cleaned work, the inbox record as 'Service (mechanic's invoice)', the reading - no amount, invoice number, insurance or rego", stext.slice(0, 300));
     const csv = await dl(s1, "?what=checks&days=90&format=csv");
     t.ok(csv.status === 200 && /text\/csv/.test(csv.type) && /Lobos Contracting – pre-start records/.test(csv.text) && /RC hist 1/.test(csv.text), "pre-start records CSV: 200, the heading and the machine", `${csv.status} ${csv.type}`);
     t.ok(/"'=HYPERLINK/.test(csv.text) && !csv.text.split(/\r?\n/).some((l) => l.split(",").some((cell) => /^[=+@]/.test(cell))), "CSV: a name that is a formula is escaped (\"'=...\")");
     t.ok(noMoney(csv.text), "CSV: no $");
     const scsv = await dl(s1, "?what=service&format=csv");
-    t.ok(scsv.status === 200 && /250 hr service/.test(scsv.text) && noMoney(scsv.text) && !/412|849|772|INV-RC87|Paid/.test(scsv.text), "service CSV: the work done, no amount, invoice number or note");
+    const svcLines = scsv.text.split(/\r?\n/).filter((l) => /^\d{4}-\d{2}-\d{2},/.test(l));
+    t.ok(scsv.status === 200 && /Full service/.test(scsv.text) && /Service \(mechanic's invoice\)/.test(scsv.text) && noMoney(scsv.text) && !/412|849|772|450|10234|165|5521|640|INV|Paid|Insurance|Rego/.test(noName(scsv.text)), "service CSV: cleaned work, no amount, invoice number, note, insurance or rego");
+    t.ok(svcLines.length >= 2 && svcLines.every((l) => !/\d/.test(l.split(",").slice(1, -1).join(","))) && svcLines.some((l) => /,1190$/.test(l)), "PS-059: CSV service rows - no digit in the work / provider text, the reading in its own column", svcLines.join(" / "));
 
     // (5) Bad, switched-off and reprinted codes: nothing.
     t.status(await view("not-a-real-code-at-all-0000000000"), 404, "view: a made-up code");
@@ -166,6 +186,38 @@ export default {
     t.ok(od.status === 200 && /application\/pdf/.test(od.headers.get("content-type") ?? ""), "office: the service PDF downloads", od.status);
     t.status(await c.get(`/api/plant/${M1.id}/history/download?format=csv`, "VIEWER"), 403, "office download: a Viewer refused");
     t.status(await c.get(`/api/plant/${OP1.id}/history`, "MANAGER"), 404, "office: a person isn't a plant item (404)");
+    t.ok(/Insurance/.test(o.text) && /Rego/.test(o.text) && (o.body?.checks ?? []).every((x) => typeof x.id === "string"), "PS-061 / PS-064: the office keeps insurance, rego and the check ids");
+
+    // PS-060: the vehicle / plant service route - a Viewer gets date, provider, work, odometer only; Managers as before.
+    const vs = await keep(await c.get(`/api/resources/${M1.id}/service`, "VIEWER"));
+    const FORBID = ["amountExGst", "gst", "total", "invoiceNo", "notes", "createdBy", "invoiceDraftId"];
+    t.ok(vs.status === 200 && Array.isArray(vs.body) && vs.body.length === 2 && vs.body.every((r) => FORBID.every((k) => !(k in r)) && !/\d/.test(r.work ?? "") && !/\d/.test(r.mechanic ?? "")) && noMoney(vs.text) && !/849|772|INV|Paid|5521/.test(vs.text),
+      "PS-060: a Viewer's service history - no amount, GST, total, invoice number, notes or creator; words without figures", vs.text.slice(0, 240));
+    const ms = await keep(await c.get(`/api/resources/${M1.id}/service`, "MANAGER"));
+    t.ok(ms.status === 200 && Array.isArray(ms.body) && ms.body.some((r) => r.total === 849.75 && r.invoiceNo), "PS-060: a Manager still sees the full records (unchanged)");
+    t.status(await c.get(`/api/resources/${OP1.id}/service`, "VIEWER"), 404, "PS-060: a person isn't a vehicle / plant item (404)");
+    t.status(await c.post(`/api/resources/${OP1.id}/service`, "MANAGER", { date: c.today }), 404, "PS-060: no service record on a person");
+
+    // PS-062: plant operators are told the builder can read their fault words.
+    t.ok(readFileSync(path.join(c.p.appDir, "src", "components", "site", "PrestartCheck.tsx"), "utf8").includes("The builder can read what you write here."), "PS-062: the plant fault form says the builder can read it");
+
+    // PS-063: at most two PDFs at once (unit-tested exactly in pdfSlots.test.ts). Six at once here: each one is a PDF or
+    // a 503 "Busy" - never anything else.
+    const burst = await Promise.all(Array.from({ length: 6 }, () => c.get(`/api/plant/${M1.id}/history/download?what=checks&days=90&format=pdf`, "MANAGER")
+      .then(async (r) => ({ status: r.status, text: r.status === 503 ? await r.text() : (await r.arrayBuffer(), "") }))));
+    t.ok(burst.every((b) => b.status === 200 || (b.status === 503 && /Busy/.test(b.text))) && burst.some((b) => b.status === 200), "PS-063: six PDFs at once - each a PDF or 503 Busy", burst.map((b) => b.status).join(","));
+    // Timing: a 400-check PDF (a fresh machine, seeded checks).
+    {
+      const M5 = await mkPlant(5);
+      const now = Date.now();
+      await db.prestartCheck.createMany({ data: Array.from({ length: 400 }, (_, i) => ({ resourceId: M5.id, resourceName: M5.name, resourceType: "EQUIPMENT", kind: i % 2 ? "POST" : "PRE", personName: `RC bulk ${i % 7}`, checklist: "plant-pre.v1",
+        answers: JSON.stringify(PRE.map((k) => ({ key: k, label: k, answer: i % 13 === 0 && k === "hoses" ? "FAULT" : "OK" }))), hourMeter: 2000 + i, createdAt: new Date(now - i * 3 * 60 * 60_000) })) });
+      const t0 = Date.now();
+      const big = await c.get(`/api/plant/${M5.id}/history/download?what=checks&days=90&format=pdf`, "MANAGER");
+      const bytes = (await big.arrayBuffer()).byteLength;
+      t.ok(big.status === 200, "a 400-check PDF downloads", big.status);
+      t.note(`PS-063 timing: a 400-check pre-start PDF took ${Date.now() - t0} ms (${Math.round(bytes / 1024)} KB)`);
+    }
 
     // (7) The limits: 60 looks a QR in 10 minutes, 20 downloads an hour (machine 4's QR).
     const looks = [];

@@ -92,7 +92,7 @@ function ChecksDoc({ h }: { h: MachineHistory }) {
           <Text style={{ width: W.when, paddingRight: 6 }}>Date</Text><Text style={{ width: W.kind, paddingRight: 6 }}>Check</Text><Text style={{ width: W.who, paddingRight: 6 }}>Operator</Text>
           <Text style={{ width: W.meter, paddingRight: 6 }}>Hour meter</Text><Text style={{ width: W.result }}>Checklist and faults</Text>
         </View>
-        {h.checks.length ? h.checks.map((c) => <CheckLine key={c.id} c={c} />) : <Text style={styles.empty}>No pre-start or post-check in the last {h.days} days.</Text>}
+        {h.checks.length ? h.checks.map((c, i) => <CheckLine key={i} c={c} />) : <Text style={styles.empty}>No pre-start or post-check in the last {h.days} days.</Text>}
         {h.truncated && <Text style={styles.sub}>Only the newest checks are shown - the office has the rest.</Text>}
         <Text style={[styles.sub, { marginTop: 8 }]}>{h.photosNote}</Text>
         <Footer title={title} />
