@@ -3,7 +3,8 @@
 import { useEffect, useState, use } from "react";
 import SiteBrand from "@/components/site/SiteBrand";
 import PrestartCheck, { type PrestartResult } from "@/components/site/PrestartCheck";
-import { ClipboardCheck, Loader2, Moon, Sun } from "lucide-react";
+import PlantHistoryView from "@/components/plant/PlantHistoryView";
+import { ChevronLeft, ClipboardCheck, History, Loader2, Moon, Sun } from "lucide-react";
 import { serverErrorMessage } from "@/lib/apiFetch";
 import { deviceId, ME_KEY, store } from "@/lib/signinDevice";
 import { looksLikeLobos } from "@/lib/staffMatch";
@@ -12,6 +13,9 @@ import { looksLikeLobos } from "@/lib/staffMatch";
 // in on site as normal. Scan, pick your name (the phone remembers it, as sign-in does), then Start of shift
 // (pre-start) or End of shift (post-check), then the same check screen as the trucks: the checklist, faults with
 // photos, the walk-around on the machine's first pre-start of the day, and the hour meter (photo + hours) every time.
+// Checks & service history (Ilies, 12 Nov 2026): anyone holding the sticker (the builder's site manager) can look at the
+// machine's pre-start / post-check records and its service history, and download them - view only, no name needed
+// (components/plant/PlantHistoryView, api/site/plant/[code]/history). The operators' flow above is unchanged.
 
 type Person = { id: string; name: string };
 type Scan = { ticket: string; machine: string; crew: Person[] };
@@ -30,6 +34,7 @@ export default function PlantPrestartPage({ params: paramsP }: { params: Promise
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<PrestartResult | "skipped" | null>(null);
+  const [history, setHistory] = useState(false);
 
   useEffect(() => {
     setMe(store<Me>(ME_KEY));
@@ -66,6 +71,15 @@ export default function PlantPrestartPage({ params: paramsP }: { params: Promise
         <div className="rounded-xl border border-edge bg-panel p-5 text-center text-sm text-gray-300">{dead}</div>
       ) : !scan ? (
         <div className="py-16 text-center text-gray-500"><Loader2 className="mx-auto animate-spin" /></div>
+      ) : history ? (
+        <div className="space-y-3">
+          <button className="flex items-center gap-1 text-sm text-gray-400" onClick={() => setHistory(false)}><ChevronLeft size={16} /> Back</button>
+          <div>
+            <h1 className="flex items-center gap-2 text-xl font-semibold text-gray-100"><History size={22} /> {scan.machine}</h1>
+            <p className="text-sm text-gray-500">Checks &amp; service history - view only.</p>
+          </div>
+          <PlantHistoryView src={`/api/site/plant/${encodeURIComponent(params.code)}/history`} />
+        </div>
       ) : done ? (
         <div className="space-y-4 text-center">
           <div className="rounded-2xl bg-emerald-500/15 px-4 py-6 text-lg font-semibold text-emerald-300">
@@ -82,7 +96,11 @@ export default function PlantPrestartPage({ params: paramsP }: { params: Promise
       ) : token ? (
         <PrestartCheck token={token} banner={scan.machine} onDone={(r) => setDone(r)} onSkip={() => setDone("skipped")} />
       ) : !me ? (
-        <WhoAreYou scan={scan} onPick={(m) => setMe(store(ME_KEY, m))} />
+        <>
+          <HistoryChoice onOpen={() => setHistory(true)} />
+          <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500">Operators - start or end of shift</div>
+          <WhoAreYou scan={scan} onPick={(m) => setMe(store(ME_KEY, m))} />
+        </>
       ) : (
         <div className="space-y-4">
           <div>
@@ -101,9 +119,23 @@ export default function PlantPrestartPage({ params: paramsP }: { params: Promise
           <button className={`${big} bg-amber-600`} disabled={busy} onClick={() => start("POST")}>
             {busy ? <Loader2 className="animate-spin" /> : <Moon />} End of shift – post-check
           </button>
+          <HistoryChoice onOpen={() => setHistory(true)} />
         </div>
       )}
     </div>
+  );
+}
+
+// The other choice on the sticker: not operating it - look at its checks and service history (no name needed).
+function HistoryChoice({ onOpen }: { onOpen: () => void }) {
+  return (
+    <button onClick={onOpen} className="mb-4 mt-2 flex w-full items-center gap-3 rounded-2xl border border-edge bg-panel px-4 py-3 text-left">
+      <History className="shrink-0 text-brand-300" />
+      <span>
+        <span className="block font-semibold text-gray-100">Checks &amp; service history</span>
+        <span className="block text-sm text-gray-500">Site managers: see the pre-starts and services, download a PDF. No name needed.</span>
+      </span>
+    </button>
   );
 }
 

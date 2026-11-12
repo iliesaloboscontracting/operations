@@ -318,7 +318,7 @@ export default function PrestartCheck({ token, banner, odometerToken, onDone, on
                 </div>
               )}
               {needsDraft(item.key) && (
-                <FaultForm draft={d} busy={uploading > 0} capFull={faultFull} onChange={(p) => setDraft(item.key, p)} onPhoto={(f) => addPhoto(item.key, f)}
+                <FaultForm draft={d} busy={uploading > 0} capFull={faultFull} builderReads={noun === "machine"} onChange={(p) => setDraft(item.key, p)} onPhoto={(f) => addPhoto(item.key, f)}
                   media={view.media ? { api: mediaApi, deviceId: deviceId(), onBusy: busyFor(item.key), onCap: capFrom,
                     fallback: async (f) => { const p = await oldUpload(f); return { mediaId: p.id, kind: "PHOTO", body: { id: p.id } }; },
                     onAdded: (p) => setDrafts((x) => { const cur = x[item.key] ?? emptyDraft(); return { ...x, [item.key]: { ...cur, photos: [...cur.photos, p] } }; }) } : null} />
@@ -368,13 +368,16 @@ function CameraButton({ busy, label, onPhoto }: { busy: boolean; label: string; 
 }
 
 type FaultMedia = { api: MediaEndpoints; deviceId: string; onBusy: (b: boolean) => void; onCap: (j: Record<string, unknown>) => void; onAdded: (p: Photo) => void; fallback: (f: File) => Promise<UploadResult> };
-function FaultForm({ draft, busy, capFull, onChange, onPhoto, media }: { draft: Draft; busy: boolean; capFull: boolean; onChange: (p: Partial<Draft>) => void; onPhoto: (f: File | undefined) => void; media?: FaultMedia | null }) {
+// PS-062 (Ilies, 12 Nov 2026, option a - full names as built): on a plant QR the builder can scan the sticker and read
+// the checks, so the operator is told before writing a fault.
+function FaultForm({ draft, busy, capFull, builderReads = false, onChange, onPhoto, media }: { draft: Draft; busy: boolean; capFull: boolean; builderReads?: boolean; onChange: (p: Partial<Draft>) => void; onPhoto: (f: File | undefined) => void; media?: FaultMedia | null }) {
   const camera = useRef<HTMLInputElement>(null);
   const gallery = useRef<HTMLInputElement>(null);
   return (
     <div className="mt-3 space-y-3 border-t border-edge pt-3">
       <textarea className={input} rows={2} maxLength={LIMITS.description} placeholder="What's wrong?" value={draft.description}
         onChange={(e) => onChange({ description: e.target.value })} />
+      {builderReads && <p className="-mt-2 text-xs text-gray-500">The builder can read what you write here.</p>}
       <div>
         <div className="mb-1 text-sm text-gray-400">How bad?</div>
         <div className="grid grid-cols-2 gap-2">

@@ -4,9 +4,10 @@
 // continuous tile"). Each project is one continuous, labelled bar (lib/calendarTiles.ts does the maths): a month grid
 // of week rows, a single taller week row, a 3-month timeline, and an agenda list for phones. What the board has on a
 // day (crew counts, warnings) sits inside the bar on that day, in words as well as colour. Read-only: clicking a day
-// of a bar opens the existing job details panel for that project and day. The look (Ilies, 12 Nov 2026: "remove the
-// striped lighten the colour inside the bar and darken the boarder line"): a pastel fill per project, a darker outline
-// in the same hue, near-black text - no stripes or hatching anywhere.
+// of a bar opens the existing job details panel for that project and day. The look (Ilies, 12 Nov 2026: "the colour
+// scheme could match the same theme as the tiles in the allocation tab"): the Allocations tile recipe per project - a
+// dark tinted fill, a coloured outline, light text in the same hue; no stripes or hatching anywhere; past the expected
+// finish = the board's amber conflict ring plus the ⚠ chip.
 import type { CSSProperties, ReactNode } from "react";
 import { ShiftIcon } from "@/components/ShiftBadge";
 import type { CalendarSpanDTO } from "@/lib/calendarSpans";
@@ -29,23 +30,22 @@ type OnOpen = (key: string, date: string) => void;
 const longDay = (iso: string) => fmtDay(iso, { weekday: "short", day: "numeric", month: "short" });
 const shortDayYear = (iso: string) => fmtDay(iso, { day: "numeric", month: "short", year: "numeric" });
 
-// The project's identity: its pastel fill and its darker outline in the same hue (lib/calendarTiles.ts TILE_PALETTE).
+// The project's identity: its tinted fill, coloured outline and text colour (lib/calendarTiles.ts TILE_PALETTE).
 export const tileBackground = (c: TileColour) => c.fill;
 
 export function tileBorder(c: TileColour, tentative: boolean): CSSProperties {
-  return { borderWidth: 2, borderStyle: tentative ? "dashed" : "solid", borderColor: c.border };
+  return { borderWidth: tentative ? 1.5 : 1, borderStyle: tentative ? "dashed" : "solid", borderColor: c.border };
 }
 
-// Day-by-day: a bridged weekend and a tentative start's planned days are a lighter wash of the same pastel.
-const LIGHTER = "rgb(255 255 255 / 0.45)";
+// Day-by-day: a bridged weekend is a dimmer wash of the same tile; a tentative start's planned days a little dimmer too.
 function sliceStyle(kind: DayKind, tentative: boolean): CSSProperties | undefined {
-  if (kind === "GAP") return { background: LIGHTER }; // a weekend bridged between booked days
-  if (kind === "PLAN" && tentative) return { background: "rgb(255 255 255 / 0.35)" }; // start tentative: lighter
+  if (kind === "GAP") return { background: "rgb(24 27 32 / 0.55)" }; // a weekend bridged between booked days
+  if (kind === "PLAN" && tentative) return { background: "rgb(24 27 32 / 0.3)" };
   return undefined;
 }
 
-// Past the expected finish: an amber outline round those days of the bar (status amber, with the "⚠ past finish" chip).
-const AMBER = "#f59e0b";
+// Past the expected finish: the board's conflict style (ring-2 ring-amber-400) round those days, plus the ⚠ chip.
+const AMBER = "#fbbf24";
 function OverOutline({ kinds, height }: { kinds: DayKind[]; height?: string }) {
   const i = kinds.indexOf("OVER");
   if (i < 0) return null;
@@ -88,17 +88,16 @@ function sliceTitle(row: TileRow, d: string, kind: DayKind) {
   return `${row.name}${row.jobNo ? ` · ${row.jobNo}` : ""}\n${longDay(d)}: ${what}${extra}\n${planWords(row.span)}\nClick for the day's details`;
 }
 
-// The board's marks for one day, inside the bar: ☀2 ☾3, plus "No sup" / "No crew" in words. On a pastel bar the sun /
-// moon are near-black like the text (the coloured icons don't read on every pastel); on the dark agenda they keep
-// their colours.
-function Marks({ m, wide, onPastel = false }: { m: DayMark; wide: boolean; onPastel?: boolean }) {
-  if (m.notRunning) return <span className={`line-through ${onPastel ? "text-gray-700" : "text-gray-400"}`}>Not running</span>;
+// The board's marks for one day, inside the bar: ☀2 ☾3, plus "No sup" / "No crew" in words. On a bar the sun / moon
+// take the bar's own light text colour (the purple moon doesn't read on a purple tile); on the agenda they keep theirs.
+function Marks({ m, wide, onBar = false }: { m: DayMark; wide: boolean; onBar?: boolean }) {
+  if (m.notRunning) return <span className="text-gray-400 line-through">Not running</span>;
   const parts: ReactNode[] = [];
   for (const [shift, s] of [["DAY", m.day], ["NIGHT", m.night]] as const) {
     if (!s) continue;
     parts.push(
       <span key={shift} className="whitespace-nowrap">
-        {onPastel ? <span aria-hidden>{shift === "NIGHT" ? "☾" : "☀"}</span> : <ShiftIcon shift={shift} />}
+        {onBar ? <span aria-hidden>{shift === "NIGHT" ? "☾" : "☀"}</span> : <ShiftIcon shift={shift} />}
         {s.crew > 0 ? (wide ? ` ${s.crew} crew` : s.crew) : "–"}
         {wide && s.plant > 0 && ` · ${s.plant}p`}
         {wide && s.hire > 0 && ` · ${s.hire}h`}
@@ -123,11 +122,11 @@ function Marks({ m, wide, onPastel = false }: { m: DayMark; wide: boolean; onPas
 function TileLabel({ row, seg, arrowLeft }: { row: TileRow; seg: Segment; arrowLeft: boolean }) {
   const last = seg.to === seg.bar.to;
   return (
-    <span className="pointer-events-none absolute inset-x-0 top-0 z-10 truncate px-1.5 text-[11px] font-semibold leading-[17px] text-gray-950">
+    <span className="pointer-events-none absolute inset-x-0 top-0 z-10 truncate px-1.5 text-[11px] font-semibold leading-[17px]" style={{ color: row.colour.text }}>
       {arrowLeft && <span aria-label="continues from earlier">‹ </span>}
       {row.name}
-      {row.jobNo && <span className="font-normal text-gray-800"> · {row.jobNo}</span>}
-      {last && row.span?.finishTbc && seg.bar.contEnd && <span className="font-normal text-gray-800"> · finish TBC</span>}
+      {row.jobNo && <span className="font-normal" style={{ color: row.colour.sub }}> · {row.jobNo}</span>}
+      {last && row.span?.finishTbc && seg.bar.contEnd && <span className="font-normal" style={{ color: row.colour.sub }}> · finish TBC</span>}
     </span>
   );
 }
@@ -181,18 +180,18 @@ function TileSegment({
             type="button"
             onClick={() => onOpen(row.key, d)}
             title={sliceTitle(row, d, kind)}
-            style={sliceStyle(kind, bar.tentative)}
-            className={`flex min-w-0 flex-wrap content-start items-center gap-x-1 gap-y-px overflow-hidden px-1 text-left text-[10px] leading-[14px] text-gray-950 hover:bg-white/30 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-gray-950 ${
+            style={{ ...sliceStyle(kind, bar.tentative), color: row.colour.sub }}
+            className={`flex min-w-0 flex-wrap content-start items-center gap-x-1 gap-y-px overflow-hidden px-1 text-left text-[10px] leading-[14px] hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white ${
               twoLines ? (tall ? "min-h-[44px] pt-[18px] pb-0.5" : "min-h-[34px] pt-[17px] pb-0.5") : "h-[19px]"
             }`}
           >
             {d === firstOver && <PastFinishChip />}
-            {m && <Marks m={m} wide={tall} onPastel />}
+            {m && <Marks m={m} wide={tall} onBar />}
           </button>
         );
       })}
       {arrowRight && !fade && (
-        <span aria-label="continues later" className="pointer-events-none absolute right-1 top-0 z-10 text-[11px] font-bold leading-[17px] text-gray-950">
+        <span aria-label="continues later" className="pointer-events-none absolute right-1 top-0 z-10 text-[11px] font-bold leading-[17px]" style={{ color: row.colour.text }}>
           ›
         </span>
       )}
@@ -392,10 +391,10 @@ function TimelineTile({ row, seg, onOpen }: { row: TileRow; seg: Segment; onOpen
         ...(fade ? { maskImage: "linear-gradient(to right, black calc(100% - 56px), transparent)" } : {}),
       }}
     >
-      <span className="pointer-events-none absolute inset-x-0 top-0 z-10 truncate px-1 text-[11px] font-semibold leading-[16px] text-gray-950">
+      <span className="pointer-events-none absolute inset-x-0 top-0 z-10 truncate px-1 text-[11px] font-semibold leading-[16px]" style={{ color: row.colour.text }}>
         {arrowLeft && "‹ "}
         {row.name}
-        {row.jobNo && <span className="font-normal text-gray-800"> · {row.jobNo}</span>}
+        {row.jobNo && <span className="font-normal" style={{ color: row.colour.sub }}> · {row.jobNo}</span>}
       </span>
       <OverOutline kinds={Array.from({ length: seg.span }, (_, i) => bar.kinds[daysBetween(bar.from, addDays(seg.from, i))])} />
       {Array.from({ length: seg.span }, (_, i) => {
@@ -408,14 +407,14 @@ function TimelineTile({ row, seg, onOpen }: { row: TileRow; seg: Segment; onOpen
             type="button"
             onClick={() => onOpen(row.key, d)}
             title={sliceTitle(row, d, kind)}
-            style={sliceStyle(kind, bar.tentative)}
-            className="flex h-full items-end justify-center pb-px text-[9px] font-bold leading-none hover:bg-white/30 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-gray-950"
+            style={{ ...sliceStyle(kind, bar.tentative), color: row.colour.sub }}
+            className="flex h-full items-end justify-center pb-px text-[9px] font-bold leading-none hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white"
           >
             {m && <TinyMark m={m} />}
           </button>
         );
       })}
-      {arrowRight && !fade && <span className="pointer-events-none absolute right-0.5 top-0 z-10 text-[11px] font-bold leading-[16px] text-gray-950">›</span>}
+      {arrowRight && !fade && <span className="pointer-events-none absolute right-0.5 top-0 z-10 text-[11px] font-bold leading-[16px]" style={{ color: row.colour.text }}>›</span>}
     </div>
   );
 }
@@ -423,10 +422,10 @@ function TimelineTile({ row, seg, onOpen }: { row: TileRow; seg: Segment; onOpen
 // A day in a 16px column: a glyph, the words on hover (the button's title). "!" red = no supervisor, "–" amber = gear
 // but no crew, "×" grey = not running, "•" = crew booked.
 function TinyMark({ m }: { m: DayMark }) {
-  if (m.notRunning) return <span className="text-gray-700">×</span>;
+  if (m.notRunning) return <span className="text-gray-400">×</span>;
   if (m.warn === "NO_SUPERVISOR") return <span className="rounded-sm bg-red-600 px-[2px] text-white ring-1 ring-gray-950/40">!</span>;
   if (m.warn === "NO_CREW") return <span className="rounded-sm bg-amber-400 px-[2px] text-gray-950 ring-1 ring-gray-950/40">–</span>;
-  return <span className="text-gray-950">•</span>;
+  return <span>•</span>;
 }
 
 function Swatch({ row, tentative, small = false }: { row: TileRow; tentative: boolean; small?: boolean }) {
@@ -538,14 +537,15 @@ export function TileAgenda({
 
 // The legend: each mark drawn as it is on the tiles, then the projects on screen with their colours.
 export function TileLegend({ rows }: { rows: TileRow[] }) {
-  const demo: TileColour = { slot: 2, fill: TILE_PALETTE[2].fill, border: TILE_PALETTE[2].border };
+  const p = TILE_PALETTE[0];
+  const demo: TileColour = { slot: 0, fill: p.fill, border: p.border, text: p.text, sub: p.sub };
   const chip = (style: CSSProperties, extra = "") => <span aria-hidden className={`inline-block h-3 w-7 rounded-[3px] ${extra}`} style={style} />;
   return (
     <div className="mb-3 space-y-1.5 text-[11px] text-gray-400">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
         <span className="flex items-center gap-1.5">{chip({ background: tileBackground(demo), ...tileBorder(demo, false) })} planned / on the board</span>
         <span className="flex items-center gap-1.5">
-          {chip({ background: `linear-gradient(rgb(255 255 255 / 0.35), rgb(255 255 255 / 0.35)), ${tileBackground(demo)}`, ...tileBorder(demo, true) })} start tentative
+          {chip({ background: `linear-gradient(rgb(24 27 32 / 0.3), rgb(24 27 32 / 0.3)), ${tileBackground(demo)}`, ...tileBorder(demo, true) })} start tentative
         </span>
         <span className="flex items-center gap-1.5">
           {chip({ background: tileBackground(demo), ...tileBorder(demo, false), maskImage: "linear-gradient(to right, black 30%, transparent)" })} finish TBC
