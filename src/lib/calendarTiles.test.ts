@@ -1,7 +1,7 @@
 // Calendar tiles (12 Nov 2026). `npm test`.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { agenda, assignColours, assignLanes, buildBars, dayMarks, layoutRows, NEUTRAL_TILE, TILE_PALETTE, TILE_SLOTS, TILE_SURFACES, weekRows, type SpanForBars } from "./calendarTiles";
+import { agenda, assignColours, assignLanes, buildBars, dayMarks, layoutRows, NEUTRAL_TILE, rollingEnd, rollingRows, TILE_PALETTE, TILE_SLOTS, TILE_SURFACES, weekRows, type SpanForBars } from "./calendarTiles";
 import { buildCalendarSpans } from "./calendarSpans";
 
 const FROM = "2026-11-02"; // Monday
@@ -250,4 +250,37 @@ test("tile palette: the Allocations tile style, twelve hues, readable light text
     const h = hue(p.border.slice(0, 7));
     assert.ok(!(h < 70 || h > 345), `${p.name} (${h.toFixed(0)}°) is in the warning / plant / labour-hire band`);
   }
+});
+
+test("rollingRows: weeks of seven from today (mid-week, Monday, Sunday), no day before today, bars wrap the same", () => {
+  // Thursday 12 Nov 2026, the current span runs to Sunday 6 Dec -> four whole rows, to Wednesday 9 Dec.
+  assert.equal(rollingEnd("2026-11-12", "2026-12-06"), "2026-12-09");
+  const thu = rollingRows("2026-11-12", rollingEnd("2026-11-12", "2026-12-06"));
+  assert.equal(thu.length, 4);
+  assert.deepEqual([thu[0][0], thu[0][6], thu[1][0], thu[3][6]], ["2026-11-12", "2026-11-18", "2026-11-19", "2026-12-09"]);
+  assert.ok(thu.flat().every((d) => d >= "2026-11-12"));
+  assert.ok(thu.every((r) => r.length === 7));
+  // Monday: the rows are ordinary Monday-to-Sunday weeks.
+  const mon = rollingRows("2026-11-16", rollingEnd("2026-11-16", "2026-12-06"));
+  assert.deepEqual(mon.map((r) => [r[0], r[6]]), [["2026-11-16", "2026-11-22"], ["2026-11-23", "2026-11-29"], ["2026-11-30", "2026-12-06"]]);
+  assert.deepEqual(mon, weekRows("2026-11-16", "2026-12-06"));
+  // Sunday: a row starts on Sunday and ends on Saturday.
+  const sun = rollingRows("2026-11-15", rollingEnd("2026-11-15", "2026-11-30"));
+  assert.deepEqual(sun.map((r) => [r[0], r[6]]), [["2026-11-15", "2026-11-21"], ["2026-11-22", "2026-11-28"], ["2026-11-29", "2026-12-05"]]);
+  // An end already on a row boundary stays put.
+  assert.equal(rollingEnd("2026-11-12", "2026-11-18"), "2026-11-18");
+
+  // Lanes and wrapping on rolling rows: a bar that started before today shows the continuation from the first row.
+  const from = "2026-11-12", to = rollingEnd(from, "2026-12-06");
+  const long = buildBars("long", span({ from, to: "2026-11-30", finish: "2026-11-30", clippedStart: true }), [], from, to);
+  const yard = buildBars("yard", undefined, ["2026-11-13", "2026-11-16", "2026-11-17"], from, to); // Fri, (weekend), Mon, Tue
+  const rows = layoutRows([...long, ...yard], thu, ["long", "yard"]);
+  const L = rows.flatMap((r, i) => r.segments.filter((s) => s.bar.key === "long").map((s) => ({ row: i, ...s })));
+  assert.deepEqual(L.map((s) => [s.row, s.col, s.span]), [[0, 0, 7], [1, 0, 7], [2, 0, 5]]);
+  assert.deepEqual(L.map((s) => [s.contLeft, s.contRight]), [[true, true], [true, true], [true, false]]); // "‹" on row 1
+  const Y = rows.flatMap((r, i) => r.segments.filter((s) => s.bar.key === "yard").map((s) => ({ row: i, ...s })));
+  // Fri 13 -> Tue 17 is one bar (weekend bridged) inside the first rolling row (Thu 12 - Wed 18): no wrap.
+  assert.deepEqual(Y.map((s) => [s.row, s.col, s.span, s.contLeft, s.contRight]), [[0, 1, 5, false, false]]);
+  assert.equal(rows[0].lanes, 2);
+  assert.notEqual(Y[0].lane, L[0].lane);
 });

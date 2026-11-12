@@ -14,7 +14,7 @@ import { apiFetch } from "@/lib/apiFetch";
 import { useAuth } from "@/components/AuthProvider";
 import { coordinatorHref } from "@/lib/roles";
 import { CalendarSpanDTO, CalendarSpansResponse, NoDatesDTO, spanDays, spanWords } from "@/lib/calendarSpans";
-import { assignColours, buildBars, dayMarks, NEUTRAL_TILE, weekRows } from "@/lib/calendarTiles";
+import { assignColours, buildBars, dayMarks, NEUTRAL_TILE, rollingEnd, rollingRows, weekRows } from "@/lib/calendarTiles";
 import { TileAgenda, TileGrid, TileLegend, TileTimeline, type TileRow } from "@/components/calendar/CalendarTiles";
 import {
   addDays,
@@ -68,9 +68,15 @@ function rangeFor(view: View, anchor: string, today: string, showPast: boolean):
   const month = view === "month";
   if (!showPast && first <= today && today <= last) {
     const end = addDays(today, minDays) > last ? addDays(today, minDays) : last;
-    return [today, month ? endOfWeek(end) : end];
+    // Month, past days hidden (12 Nov 2026): rolling weeks from today - the same span, rounded to whole rows of seven.
+    return [today, month ? rollingEnd(today, endOfWeek(end)) : end];
   }
-  return month ? [startOfWeek(first), endOfWeek(last)] : [first, last];
+  if (month) {
+    const s = startOfWeek(first);
+    // A later month whose first row starts before today: those days are left out (blank boxes).
+    return [!showPast && s < today && first > today ? today : s, endOfWeek(last)];
+  }
+  return [first, last];
 }
 
 function label(view: View, from: string, to: string, anchor: string) {
@@ -331,7 +337,12 @@ export default function CalendarPage() {
     [tiles]
   );
   const order = useMemo(() => orderedTiles.map((t) => t.key), [orderedTiles]);
-  const weeks = useMemo(() => (view === "month" ? weekRows(from, to) : [days]), [view, from, to, days]);
+  // Month: rolling weeks from today while past days are hidden (the columns show each day's own weekday), else Monday
+  // to Sunday. Week: its seven days as one row.
+  const weeks = useMemo(
+    () => (view !== "month" ? [days] : !showPast && from === today ? rollingRows(from, to) : weekRows(from, to)),
+    [view, from, to, days, showPast, today]
+  );
   const openTile = (key: string, date: string) => {
     const r = rows.find((x) => x.key === key);
     if (r) openDetail(r.key, r.name, r.jobNo, r.startDate, date);
