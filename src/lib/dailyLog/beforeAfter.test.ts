@@ -5,16 +5,16 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { BEFORE_AFTER_LIMITS, LINK_DAY_CAP, addRefusal, dataUrlBytes, parsePhase, photoFlags, reminderText } from "./beforeAfter";
 
-test("up to 6 shown in a set; the 7th is refused; a removed one frees its place, up to 20 sent in all", () => {
-  assert.equal(BEFORE_AFTER_LIMITS.perPhase, 6);
-  for (let n = 0; n < 6; n++) assert.equal(addRefusal(n, n), null, `photo ${n + 1}`);
-  assert.match(addRefusal(6, 6) ?? "", /6 photos already - remove one/);
+test("up to 20 shown in a set; the 21st is refused; a removed one frees its place, up to 40 sent in all", () => {
+  assert.equal(BEFORE_AFTER_LIMITS.perPhase, 20);
+  for (let n = 0; n < 20; n++) assert.equal(addRefusal(n, n), null, `photo ${n + 1}`);
+  assert.match(addRefusal(20, 20) ?? "", /20 photos already - remove one/);
   assert.equal(addRefusal(5, 9), null, "4 removed - 5 shown, room for one more");
-  assert.match(addRefusal(3, 20) ?? "", /most photos for this job today/);
+  assert.match(addRefusal(3, 40) ?? "", /most photos for this job today/);
 });
 
-test("SEC-BA-001: 40 a link a Sydney day (removed ones counted), 3 MB a photo, checked before the file is written", () => {
-  assert.equal(BEFORE_AFTER_LIMITS.perLinkPerDay, 40);
+test("SEC-BA-001: 80 a link a Sydney day (removed ones counted), 3 MB a photo, checked before the file is written", () => {
+  assert.equal(BEFORE_AFTER_LIMITS.perLinkPerDay, 80);
   assert.equal(BEFORE_AFTER_LIMITS.maxBytes, 3 * 1024 * 1024);
   assert.equal(LINK_DAY_CAP, "That's the most photos this link can send in a day - call the office.");
   assert.equal(dataUrlBytes("data:image/png;base64," + Buffer.alloc(3000).toString("base64")), 3000);

@@ -9,11 +9,11 @@ import { GUIDE_NOTES, GUIDE_STEPS, GUIDE_TITLE, GUIDE_VERSION } from "./guide";
 test("the approved wording, word for word", () => {
   assert.equal(GUIDE_TITLE, "New: daily log with photos and voice");
   assert.deepEqual(GUIDE_STEPS.map((s) => (s.text ? `${s.lead} ${s.text}` : s.lead)), [
-    "Start of the day - Before photos. Take up to 6 photos of the site before work starts. Each one saves straight away.",
+    "Start of the day - Before photos. Take up to 20 photos of the site before work starts. Each one saves straight away.",
     "End of the day - Talk through your day. Tap the mic and talk for up to 5 minutes: who was on, what you did, machines and how long, hold-ups, tip runs, safety, and the plan for tomorrow. Tap Stop when you're done.",
     "Check it. Read the tidy version, including anything under \"Check this\".",
     "Tap \"Fill my log from this\", then check each step.",
-    "After photos. Take up to 6 photos of the site at the end of the day.",
+    "After photos. Take up to 20 photos of the site at the end of the day.",
     "Send.",
   ]);
   assert.deepEqual(GUIDE_NOTES, [

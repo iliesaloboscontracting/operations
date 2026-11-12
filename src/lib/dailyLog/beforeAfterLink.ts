@@ -1,6 +1,6 @@
 // Before and after photos from a supervisor's (or hand-over) link (30 Oct 2026). Each photo is saved straight away -
 // a Before photo is kept even if the log is never sent. Only for a job the link can log today (the same check as the
-// voice route: loggableJobs), never once the office has closed the day. Up to 6 a set (beforeAfter.addRefusal), 40 a link a day and 3 MB a photo (SEC-BA-001);
+// voice route: loggableJobs), never once the office has closed the day. Up to 20 a set (beforeAfter.addRefusal), 40 a link a day and 3 MB a photo (SEC-BA-001);
 // "remove" hides a photo with who and when - nothing is deleted. Files go through savePhoto (type and size checked,
 // random name, TOOL_PHOTO_DIR - in the nightly and off-site backups). No AI reading, no outside call, no money.
 import { prisma } from "../prisma";

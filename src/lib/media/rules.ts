@@ -52,8 +52,8 @@ export const AREA_RULES: Record<MediaArea, { kinds: readonly MediaKind[]; galler
 export const LOG_MEDIA = {
   logPhotos: 12, logVideos: 3, // the day's photos on the log
   delayPhotos: 6, delayVideos: 2, // each delay
-  setItems: 10, setVideos: 3, // each before / after set (photos + videos shown)
-  setRows: 30, // every item a set has ever had, removed ones too
+  setItems: 20, setVideos: 3, // each before / after set (photos + videos shown) - 20 since 12 Nov 2026 (Ilies; was 10)
+  setRows: 40, // every item a set has ever had, removed ones too
 } as const;
 export const FAULT_MEDIA = { videosPerSignIn: 3 } as const; // fault videos per sign-in / plant session
 

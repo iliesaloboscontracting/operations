@@ -6,7 +6,7 @@ import PageShell from "@/components/PageShell";
 import UpcomingAlerts from "@/components/UpcomingAlerts";
 import JobDetailsModal from "@/components/JobDetailsModal";
 import JobFormModal from "@/components/JobFormModal";
-import { ShiftBadge, ShiftIcon } from "@/components/ShiftBadge";
+import { ShiftBadge } from "@/components/ShiftBadge";
 import { CalendarJobDTO, ProjectDTO } from "@/lib/types";
 import { localISODate } from "@/lib/resource";
 import { useAutoRefresh } from "@/lib/useAutoRefresh";
@@ -14,13 +14,12 @@ import { apiFetch } from "@/lib/apiFetch";
 import { useAuth } from "@/components/AuthProvider";
 import { coordinatorHref } from "@/lib/roles";
 import { CalendarSpanDTO, CalendarSpansResponse, NoDatesDTO, spanDays, spanWords } from "@/lib/calendarSpans";
+import { assignColours, buildBars, dayMarks, NEUTRAL_TILE, weekRows } from "@/lib/calendarTiles";
+import { TileAgenda, TileGrid, TileLegend, TileTimeline, type TileRow } from "@/components/calendar/CalendarTiles";
 import {
   addDays,
-  daysBetween,
   endOfMonth,
   fmtDay,
-  isWeekend,
-  parseISO,
   rangeDays,
   startOfMonth,
   startOfWeek,
@@ -39,6 +38,8 @@ interface Row {
   span?: CalendarSpanDTO; // the project's planned span in this range (lib/calendarSpans.ts)
 }
 
+const endOfWeek = (iso: string) => addDays(startOfWeek(iso), 6);
+
 // The first day of the month `n` months away from `iso`'s month.
 function monthsAhead(iso: string, n: number) {
   let m = startOfMonth(iso);
@@ -52,6 +53,8 @@ function monthsAhead(iso: string, n: number) {
 //  - month: today .. end of month, stretched to at least 3 weeks so late in the month
 //           you still see what's coming next month
 //  - 3 months: today .. the end of the third month, stretched to at least 12 weeks
+// The month view is a calendar grid of whole weeks (Monday to Sunday, 12 Nov 2026), so its range runs out to the
+// Sunday of the last week, and back to the Monday of the first week when past days are shown.
 function rangeFor(view: View, anchor: string, today: string, showPast: boolean): [string, string] {
   if (view === "day") return [anchor, anchor];
   if (view === "week") {
@@ -62,16 +65,19 @@ function rangeFor(view: View, anchor: string, today: string, showPast: boolean):
   const first = startOfMonth(anchor);
   const last = view === "quarter" ? endOfMonth(monthsAhead(first, 2)) : endOfMonth(anchor);
   const minDays = view === "quarter" ? 83 : 20;
+  const month = view === "month";
   if (!showPast && first <= today && today <= last) {
     const end = addDays(today, minDays) > last ? addDays(today, minDays) : last;
-    return [today, end];
+    return [today, month ? endOfWeek(end) : end];
   }
-  return [first, last];
+  return month ? [startOfWeek(first), endOfWeek(last)] : [first, last];
 }
 
-function label(view: View, from: string, to: string) {
+function label(view: View, from: string, to: string, anchor: string) {
   if (view === "day")
     return fmtDay(from, { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  // The month grid: the month's name (its range runs out to whole weeks either side).
+  if (view === "month" && from <= startOfMonth(anchor) && to >= endOfMonth(anchor)) return fmtDay(anchor, { month: "long", year: "numeric" });
   const isFullMonth = from === startOfMonth(from) && to === endOfMonth(from);
   if (view === "month" && isFullMonth) return fmtDay(from, { month: "long", year: "numeric" });
   if (view === "quarter" && from === startOfMonth(from) && to === endOfMonth(to))
@@ -81,102 +87,14 @@ function label(view: View, from: string, to: string) {
 
 type ShiftFilter = "ALL" | "DAY" | "NIGHT";
 
-// A stronger line at the start of each week (Monday) so weeks read as blocks.
-const weekStart = (d: string) => (parseISO(d).getDay() === 1 ? "border-l-2 border-l-gray-400" : "");
-
 // A job only shows on the grid once something has been allocated to it (people, plant,
 // vehicles or hire). Until then its box stays completely empty - showing every job
 // every day regardless of staffing turned out to be more noise than signal on a wide
 // month grid, so this is back to "nothing there yet = nothing shown".
 const hasAllocation = (j: CalendarJobDTO) => j.crew + j.plant + j.hire > 0;
 
-// One shift's block in a grid cell (only rendered for jobs with an allocation).
-function JobPill({ job, compact }: { job: CalendarJobDTO; compact: boolean }) {
-  // The sun/moon keeps its own colour regardless of the pill's status tone, so shift
-  // stays legible at a glance even on an amber/red warning pill.
-  const icon = <ShiftIcon shift={job.shift} />;
-  const noCrew = !job.notRunning && job.crew === 0; // gear allocated, nobody on it
-  const tone = job.notRunning
-    ? "border-gray-600 bg-gray-800 text-gray-500 line-through"
-    : noCrew
-    ? "border-amber-500/70 bg-amber-950/50 text-amber-200"
-    : !job.hasSupervisor
-    ? "border-red-500/70 bg-red-950/40 text-red-200"
-    : job.shift === "NIGHT"
-    ? "border-purple-500/60 bg-purple-950/50 text-purple-200"
-    : "border-blue-500/60 bg-blue-950/50 text-blue-200";
-  const status = job.notRunning
-    ? " · not running"
-    : ` · ${job.crew} crew, ${job.plant} plant, ${job.hire} hire${noCrew ? " · no crew" : !job.hasSupervisor ? " · no supervisor" : ""}`;
-  const title = `${job.title} (${job.shift === "NIGHT" ? "night" : "day"})${status}`;
-  return (
-    <div title={title} className={`rounded border px-1 py-0.5 text-[10px] leading-tight ${tone}`}>
-      {compact ? (
-        <>
-          {icon}
-          {noCrew ? "–" : job.crew}
-        </>
-      ) : (
-        <>
-          {icon} {noCrew ? "No crew" : `${job.crew} crew`}
-          {job.plant > 0 && ` · ${job.plant}p`}
-          {job.hire > 0 && ` · ${job.hire}h`}
-        </>
-      )}
-    </div>
-  );
-}
-
-// The 3-month view's day columns are too narrow for a pill: the same block as a small mark in the same colours, with
-// the same words on hover.
-function JobMark({ job }: { job: CalendarJobDTO }) {
-  const noCrew = !job.notRunning && job.crew === 0;
-  const tone = job.notRunning
-    ? "bg-gray-600"
-    : noCrew
-    ? "bg-amber-500"
-    : !job.hasSupervisor
-    ? "bg-red-500"
-    : job.shift === "NIGHT"
-    ? "bg-purple-500"
-    : "bg-blue-500";
-  const status = job.notRunning
-    ? " · not running"
-    : ` · ${job.crew} crew, ${job.plant} plant, ${job.hire} hire${noCrew ? " · no crew" : !job.hasSupervisor ? " · no supervisor" : ""}`;
-  return <div title={`${job.title} (${job.shift === "NIGHT" ? "night" : "day"})${status}`} className={`relative h-2.5 w-full rounded-sm ${tone}`} />;
-}
-
 const shortDay = (iso: string) => fmtDay(iso, { day: "numeric", month: "short" });
 const shortDayYear = (iso: string) => fmtDay(iso, { day: "numeric", month: "short", year: "numeric" });
-
-// One day's piece of a project's planned span (lib/calendarSpans.ts): a thin bar along the bottom of the cell, behind
-// the booked-day chips. Solid = start confirmed (or not stated), dashed and lighter = start tentative, grey = inactive.
-// A TBC finish fades out at the edge of the view; days past the expected finish are amber with stripes (and the row
-// says "Past expected finish" in words).
-function SpanPiece({ span, day }: { span: CalendarSpanDTO; day: string }) {
-  if (day < span.from || day > span.to) return null;
-  const over = !!span.pastFinish && !!span.finish && day > span.finish;
-  const first = day === span.start;
-  const last = over ? day === span.pastFinish!.until : day === span.finish;
-  const fade = span.finishTbc && day === span.to && span.clippedEnd;
-  const inactive = span.status === "INACTIVE";
-  const base = over
-    ? "bg-[repeating-linear-gradient(135deg,rgb(245_158_11/0.85)_0_3px,rgb(245_158_11/0.35)_3px_6px)]"
-    : span.tentative
-    ? // dashed along the top and bottom only, closed at the span's own ends - not at every day's edge
-      `border-y border-dashed ${first ? "border-l" : ""} ${last ? "border-r" : ""} ${inactive ? "border-gray-400/80 bg-gray-500/20" : "border-brand-400 bg-brand-500/25"}`
-    : inactive
-    ? "bg-gray-500/70"
-    : "bg-brand-500/80";
-  return (
-    <span
-      aria-hidden
-      className={`pointer-events-none absolute bottom-1 h-1.5 ${first ? "left-1 rounded-l-full" : "left-0"} ${
-        last ? "right-1 rounded-r-full" : "right-0"
-      } ${base} ${fade ? "border-r-0 [mask-image:linear-gradient(to_right,black,transparent)]" : ""}`}
-    />
-  );
-}
 
 // The row's words about its span, in the sticky project column - always on screen, whatever the scroll.
 function SpanTags({ span }: { span: CalendarSpanDTO }) {
@@ -272,6 +190,25 @@ export default function CalendarPage() {
     load();
   }, [load]);
 
+  // The colour pool (12 Nov 2026): the projects with a planned span from a month back to four months ahead, fetched for
+  // that fixed window (not the view), so moving between months or filtering never repaints a project. Active first.
+  const [colourTiers, setColourTiers] = useState<string[][] | null>(null); // null = not loaded yet
+  useEffect(() => {
+    let live = true;
+    apiFetch(`/api/calendar/spans?from=${addDays(today, -30)}&to=${addDays(today, 120)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: CalendarSpansResponse | null) => {
+        if (!live) return;
+        if (!d) return setColourTiers([]); // no pool: colours still come, from what is on screen
+        const ids = (st: string) => d.spans.filter((x) => x.status === st).map((x) => x.projectId);
+        setColourTiers([ids("ACTIVE"), ids("INACTIVE")]);
+      })
+      .catch(() => live && setColourTiers([]));
+    return () => {
+      live = false;
+    };
+  }, [today]);
+
   // Keep it current: refresh quietly when you return to the tab and every minute.
   useAutoRefresh(load);
 
@@ -301,13 +238,17 @@ export default function CalendarPage() {
     [ensureDateLoaded]
   );
 
-  // Wide grids (month view) open scrolled so today and the days ahead are visible.
+  // The 3-month timeline opens scrolled so today sits just right of the sticky project column (a week of past days
+  // shows when "Show past days" is on).
   useEffect(() => {
     const box = scroller.current;
-    const el = box?.querySelector<HTMLElement>("[data-today]");
-    if (box && el) box.scrollLeft = Math.max(0, el.offsetLeft - 200);
-    else if (box) box.scrollLeft = 0;
-  }, [loading, view, from]);
+    if (!box) return;
+    const el = box.querySelector<HTMLElement>("[data-today]");
+    const name = box.querySelector<HTMLElement>("[data-name-col]");
+    if (!el) return void (box.scrollLeft = 0);
+    const x = el.getBoundingClientRect().left - box.getBoundingClientRect().left + box.scrollLeft;
+    box.scrollLeft = Math.max(0, x - (name?.offsetWidth ?? 0) - 7 * 16);
+  }, [loading, view, from, colourTiers]);
 
   const rows: Row[] = useMemo(() => {
     const map = new Map<string, Row>();
@@ -361,22 +302,40 @@ export default function CalendarPage() {
     else setAnchor(monthsAhead(anchor, (view === "quarter" ? 3 : 1) * dir));
   }
 
-  // "Within a week" band shown on the day headers.
-  const soon = (d: string) => d >= today && daysBetween(today, d) <= 7;
-
-  const quarter = view === "quarter";
-  const compact = view === "month" || quarter;
-  const colW = quarter ? "min-w-[16px] w-[16px]" : compact ? "min-w-[38px]" : "min-w-[130px]";
-  // The 3-month view's month header: one cell per month, as wide as its days in the range.
-  const monthsInRange = useMemo(() => {
-    const out: { key: string; days: number }[] = [];
-    for (const d of days) {
-      const k = d.slice(0, 7);
-      if (out.length && out[out.length - 1].key === k) out[out.length - 1].days++;
-      else out.push({ key: k, days: 1 });
-    }
-    return out;
-  }, [days]);
+  // Tiles (12 Nov 2026): each project's bars (its planned span joined with its days on the board), the board's marks per
+  // day, and its colour. Colours come from every open project, not the ones on screen, so a filter or another month
+  // never repaints one (lib/calendarTiles.ts assignColours).
+  const colours = useMemo(() => assignColours(colourTiers ?? [], rows.map((r) => r.key)), [colourTiers, rows]);
+  const tiles: TileRow[] = useMemo(
+    () =>
+      rows
+        .map((r) => {
+          const marks = dayMarks(r.jobs);
+          const booked = [...marks].filter(([, m]) => m.booked).map(([d]) => d);
+          return {
+            key: r.key,
+            name: r.name,
+            jobNo: r.jobNo,
+            span: r.span,
+            bars: buildBars(r.key, r.span, booked, from, to),
+            marks,
+            colour: colours.get(r.key) ?? NEUTRAL_TILE,
+          };
+        })
+        .filter((t) => t.bars.length > 0),
+    [rows, from, to, colours]
+  );
+  // Lane and list order: by start (the first bar), then name.
+  const orderedTiles = useMemo(
+    () => [...tiles].sort((a, b) => a.bars[0].from.localeCompare(b.bars[0].from) || a.name.localeCompare(b.name)),
+    [tiles]
+  );
+  const order = useMemo(() => orderedTiles.map((t) => t.key), [orderedTiles]);
+  const weeks = useMemo(() => (view === "month" ? weekRows(from, to) : [days]), [view, from, to, days]);
+  const openTile = (key: string, date: string) => {
+    const r = rows.find((x) => x.key === key);
+    if (r) openDetail(r.key, r.name, r.jobNo, r.startDate, date);
+  };
 
   return (
     <PageShell
@@ -405,7 +364,7 @@ export default function CalendarPage() {
           <button onClick={() => setAnchor(today)} className="rounded-md border border-edge px-2 py-1 text-xs text-gray-300 hover:bg-panel2">Today</button>
           <button onClick={() => step(1)} className="rounded-md border border-edge px-2 py-1 text-sm text-gray-300 hover:bg-panel2">›</button>
         </div>
-        <div className="text-sm font-semibold text-gray-100">{label(view, from, to)}</div>
+        <div className="text-sm font-semibold text-gray-100">{label(view, from, to, anchor)}</div>
       </div>
 
       {/* Filters */}
@@ -444,30 +403,10 @@ export default function CalendarPage() {
             Show past days
           </label>
         )}
-        <div className="ml-auto flex flex-wrap items-center gap-3 text-[11px] text-gray-500">
-          <span><span className="text-amber-500">☀</span> day</span>
-          <span><span className="text-purple-500">☾</span> night</span>
-          <span>Empty box = nothing allocated</span>
-          <span className="text-amber-300">Amber = gear but no crew</span>
-          <span className="text-red-300">Red = no supervisor</span>
-          <span className="text-blue-300">▶ = project starts</span>
-        </div>
       </div>
-      {view !== "day" && (
-        // The planned span's legend (12 Nov 2026) - each mark drawn as it is on the grid.
-        <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-gray-500">
-          <span className="font-semibold uppercase tracking-wide text-gray-600">Planned span</span>
-          <span className="flex items-center gap-1.5"><span className="inline-block h-1.5 w-6 rounded-full bg-brand-500/80" /> start confirmed</span>
-          <span className="flex items-center gap-1.5"><span className="inline-block h-1.5 w-6 rounded-full border border-dashed border-brand-400 bg-brand-500/25" /> start tentative</span>
-          <span className="flex items-center gap-1.5"><span className="inline-block h-1.5 w-6 rounded-full bg-gray-500/70" /> inactive</span>
-          <span className="flex items-center gap-1.5"><span className="inline-block h-1.5 w-6 rounded-l-full bg-brand-500/80 [mask-image:linear-gradient(to_right,black,transparent)]" /> finish TBC</span>
-          <span className="flex items-center gap-1.5 text-amber-600">
-            <span className="inline-block h-1.5 w-6 rounded-full bg-[repeating-linear-gradient(135deg,rgb(245_158_11/0.85)_0_3px,rgb(245_158_11/0.35)_3px_6px)]" /> ⚠ past expected finish
-          </span>
-        </div>
-      )}
+      {view !== "day" && <TileLegend rows={orderedTiles} />}
 
-      {loading ? (
+      {loading || (view !== "day" && !colourTiers) ? (
         <div className="py-10 text-center text-sm text-gray-500">Loading...</div>
       ) : view === "day" ? (
         <DayView
@@ -480,108 +419,35 @@ export default function CalendarPage() {
             openDetail(j.projectId ?? `t:${j.title}`, p?.name ?? j.title, p?.jobNo ?? j.siteCode, p?.startDate ?? null, j.date);
           }}
         />
-      ) : rows.length === 0 ? (
+      ) : orderedTiles.length === 0 ? (
         <div className="py-10 text-center text-sm text-gray-600">Nothing scheduled in this period.</div>
+      ) : view === "quarter" ? (
+        // 3 months: a timeline, one row per project, each a thick labelled tile (it scrolls inside its own box on a
+        // phone, never the page).
+        <TileTimeline
+          days={days}
+          today={today}
+          rows={orderedTiles}
+          onOpen={openTile}
+          scrollerRef={scroller}
+          nameCell={(r) => (
+            <div title={r.span ? spanTitle(r.span) : "No planned dates - drawn over its days on the board"}>
+              <div className="truncate text-sm font-semibold text-gray-100">{r.name}</div>
+              {r.jobNo && <div className="truncate text-[11px] text-gray-500">{r.jobNo}</div>}
+              {r.span && <SpanTags span={r.span} />}
+            </div>
+          )}
+        />
       ) : (
-        <div ref={scroller} className="overflow-x-auto rounded-lg border border-edge">
-          {/* Every day/project pair is its own bordered box. A box stays empty until
-              something has been allocated to that project on that day. */}
-          <table className="w-full border-collapse text-left">
-            <thead>
-              {quarter && (
-                <tr className="bg-panel">
-                  <th
-                    rowSpan={2}
-                    className="sticky left-0 z-20 w-[150px] min-w-[150px] max-w-[150px] border border-edge bg-panel px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-gray-500 sm:w-[190px] sm:min-w-[190px] sm:max-w-[190px]"
-                  >
-                    Project
-                  </th>
-                  {monthsInRange.map((m) => (
-                    <th
-                      key={m.key}
-                      colSpan={m.days}
-                      className="border border-edge px-1 py-1 text-left text-[10px] font-semibold uppercase tracking-wide text-gray-400"
-                    >
-                      <span className="sticky left-[158px] sm:left-[198px]">{fmtDay(`${m.key}-01`, { month: "long", year: "numeric" })}</span>
-                    </th>
-                  ))}
-                </tr>
-              )}
-              <tr className="bg-panel">
-                {!quarter && (
-                  <th className="sticky left-0 z-20 w-[150px] min-w-[150px] max-w-[150px] border border-edge bg-panel px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-gray-500 sm:w-[190px] sm:min-w-[190px] sm:max-w-[190px]">
-                    Project
-                  </th>
-                )}
-                {days.map((d) => (
-                  <th
-                    key={d}
-                    data-today={d === today ? "" : undefined}
-                    title={quarter ? fmtDay(d, { weekday: "short", day: "numeric", month: "short" }) : undefined}
-                    className={`${colW} border border-edge ${quarter ? "px-0" : "px-1"} py-1.5 text-center text-[10px] font-semibold uppercase ${weekStart(d)} ${
-                      d === today ? "bg-blue-900/40 text-blue-200" : soon(d) ? "bg-amber-950/30 text-amber-200/80" : "text-gray-500"
-                    } ${isWeekend(d) ? "opacity-70" : ""}`}
-                  >
-                    {quarter ? (
-                      // Mondays carry the date; the other days are just columns.
-                      <div className="text-[9px] leading-none">{parseISO(d).getDay() === 1 || d === today ? Number(d.slice(8)) : " "}</div>
-                    ) : (
-                      <>
-                        <div>{fmtDay(d, { weekday: "short" })}</div>
-                        <div className="text-xs">{Number(d.slice(8))}</div>
-                      </>
-                    )}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => (
-                <tr key={row.key}>
-                  <td
-                    className="sticky left-0 z-10 w-[150px] min-w-[150px] max-w-[150px] border border-edge bg-canvas px-2 py-1.5 sm:w-[190px] sm:min-w-[190px] sm:max-w-[190px] sm:px-3"
-                    title={row.span ? spanTitle(row.span) : undefined}
-                  >
-                    <div className="truncate text-sm font-semibold text-gray-100">{row.name}</div>
-                    {row.jobNo && <div className="truncate text-[11px] text-gray-500">{row.jobNo}</div>}
-                    {row.span && <SpanTags span={row.span} />}
-                  </td>
-                  {days.map((d) => {
-                    const cell = row.jobs.filter((j) => j.date === d && hasAllocation(j));
-                    const starts = row.startDate === d;
-                    const onSpan = !!row.span && d >= row.span.from && d <= row.span.to;
-                    return (
-                      <td
-                        key={d}
-                        className={`${quarter ? "h-10" : "h-12"} border border-edge p-0 align-top ${weekStart(d)} ${
-                          d === today ? "bg-blue-900/15" : isWeekend(d) ? "bg-panel2/70" : "bg-panel"
-                        }`}
-                      >
-                        <button
-                          type="button"
-                          onClick={() => openDetail(row.key, row.name, row.jobNo, row.startDate, d)}
-                          title={onSpan ? `${spanTitle(row.span!)} - show details` : "Show details"}
-                          className={`relative flex h-full ${quarter ? "min-h-[2.25rem] gap-px p-px pb-3" : "min-h-[2.75rem] gap-0.5 p-0.5 pb-3"} w-full flex-col text-left hover:bg-panel2`}
-                        >
-                          {row.span && <SpanPiece span={row.span} day={d} />}
-                          {starts && !quarter && (
-                            <span className="relative rounded bg-brand-600 px-1 py-0.5 text-center text-[9px] font-bold uppercase text-white">
-                              ▶ {compact ? "" : "start"}
-                            </span>
-                          )}
-                          {starts && quarter && <span className="relative text-center text-[9px] leading-none text-brand-300">▶</span>}
-                          {cell.map((j) =>
-                            quarter ? <JobMark key={j.id} job={j} /> : <JobPill key={j.id} job={j} compact={compact} />
-                          )}
-                        </button>
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <>
+          {/* Phones: a month / week grid is unreadable - a list by day instead. */}
+          <div className="sm:hidden">
+            <TileAgenda days={days} today={today} rows={orderedTiles} order={order} onOpen={openTile} />
+          </div>
+          <div className="hidden sm:block">
+            <TileGrid weeks={weeks} from={from} to={to} today={today} rows={orderedTiles} order={order} tall={view === "week"} onOpen={openTile} />
+          </div>
+        </>
       )}
       {view !== "day" && !loading && noDatesShown.length > 0 && (
         // Projects that can't be drawn (12 Nov 2026): no start date, or paused with no date to come back. Collapsed,
