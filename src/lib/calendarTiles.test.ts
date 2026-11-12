@@ -1,7 +1,7 @@
 // Calendar tiles (12 Nov 2026). `npm test`.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { agenda, assignColours, assignLanes, buildBars, dayMarks, layoutRows, TILE_SLOTS, weekRows, type SpanForBars } from "./calendarTiles";
+import { agenda, assignColours, assignLanes, buildBars, dayMarks, layoutRows, NEUTRAL_TILE, TILE_PALETTE, TILE_SLOTS, TILE_TEXT, weekRows, type SpanForBars } from "./calendarTiles";
 import { buildCalendarSpans } from "./calendarSpans";
 
 const FROM = "2026-11-02"; // Monday
@@ -214,4 +214,27 @@ test("calendarSpans output feeds buildBars directly (TBC, past finish, tentative
   assert.equal(over.to, "2026-11-12");
   assert.equal(over.kinds.filter((k) => k === "OVER").length, 6);
   assert.equal(buildBars("tent", s("tent"), [], FROM, TO)[0].tentative, true);
+});
+
+test("tile palette: twelve distinct pastels, readable near-black text on every fill, darker border in the same hue", () => {
+  const lum = (hex: string) => {
+    const c = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((v) => (v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+  };
+  const contrast = (a: string, b: string) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+  assert.equal(TILE_SLOTS, 12);
+  assert.equal(new Set(TILE_PALETTE.map((p) => p.fill)).size, 12);
+  for (const p of [...TILE_PALETTE, { name: "neutral", ...NEUTRAL_TILE }]) {
+    assert.ok(contrast(TILE_TEXT, p.fill) >= 4.5, `${p.name}: label text ${contrast(TILE_TEXT, p.fill).toFixed(2)}:1`);
+    assert.ok(contrast("#1f2937", p.fill) >= 4.5, `${p.name}: job number (gray-800) ${contrast("#1f2937", p.fill).toFixed(2)}:1`);
+    assert.ok(lum(p.border) < lum(p.fill), `${p.name}: border darker than the fill`);
+  }
+  // Red / amber stay the warnings' colours: no fill in the red-orange-yellow band.
+  const hue = (hex: string) => {
+    const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
+    const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
+    const h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+    return (h * 60 + 360) % 360;
+  };
+  for (const p of TILE_PALETTE) assert.ok(!(hue(p.fill) < 70 || hue(p.fill) > 345), `${p.name} (${hue(p.fill).toFixed(0)}°) is in the warning band`);
 });

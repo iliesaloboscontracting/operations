@@ -12,7 +12,7 @@
 //             lane when it is free), then compacted per week row, so a bar keeps its place across the weeks it crosses;
 //  - marks:   what the board has on each day (day / night crew counts, no supervisor, gear but no crew, not running),
 //             with words, never colour alone;
-//  - colours: one stable colour treatment per project, keyed by project id (never by rank or by what is on screen);
+//  - colours: one stable pastel per project, keyed by project id (never by rank or by what is on screen);
 //  - agenda:  the phone list - each day, the projects running, "continuing" when the bar started earlier.
 // No money: project keys, dates and crew / plant / hire counts only.
 import { addDays, daysBetween, isWeekend, startOfWeek } from "./dates";
@@ -247,20 +247,38 @@ function markWords(day: ShiftMark | null, night: ShiftMark | null, notRunning: b
   return [day && shiftWords("Day", day), night && shiftWords("Night", night)].filter(Boolean).join(" · ");
 }
 
-// One colour treatment per project. Three hues validated all-pairs against the dark panel (dataviz validate_palette.js,
-// 12 Nov 2026: blue / magenta / green - red and amber stay reserved for warnings) x four treatments (filled, outline,
-// 45 degree and 135 degree hatching) = 12 distinct tiles; beyond that, a neutral grey with its label.
-export const TILE_HUES = ["#3987e5", "#d55181", "#008300"] as const;
-export const TILE_TREATMENTS = ["fill", "outline", "hatch45", "hatch135"] as const;
-export type TileTreatment = (typeof TILE_TREATMENTS)[number];
-export const TILE_SLOTS = TILE_HUES.length * TILE_TREATMENTS.length;
+// One pastel per project (Ilies, 12 Nov 2026: "lets remove the striped lighten the colour inside the bar and darken the
+// boarder line" - Keep&Share-style pastel bars, a darker outline in the same hue, near-black text). Twelve hues in a
+// fixed order, red / rose / amber / orange / yellow left out so they stay the warnings' colours. Fill = Tailwind 200-400
+// (the shade per hue chosen to keep the twelve as far apart as possible for normal vision), border = the same hue's 800.
+// Checked with the dataviz validate_palette.js (12 Nov 2026): adjacent slots PASS CVD (worst 10.0) and the
+// normal-vision floor (worst 16.7). All-pairs cannot hold at twelve hues (worst normal 8.0, sky / blue; CVD fails) -
+// every bar carries its name, so identity is never colour alone. Near-black text (#030712) on every fill >= 6.7:1.
+// The fills sit outside the palette's mark lightness band on purpose: they are backgrounds under dark text, not thin
+// marks. Past twelve projects: a labelled neutral (stone).
+export const TILE_PALETTE = [
+  { name: "teal", fill: "#2dd4bf", border: "#115e59" },
+  { name: "purple", fill: "#c084fc", border: "#6b21a8" },
+  { name: "blue", fill: "#93c5fd", border: "#1e40af" },
+  { name: "pink", fill: "#f472b6", border: "#9d174d" },
+  { name: "emerald", fill: "#a7f3d0", border: "#065f46" },
+  { name: "sky", fill: "#38bdf8", border: "#075985" },
+  { name: "violet", fill: "#ddd6fe", border: "#5b21b6" },
+  { name: "lime", fill: "#d9f99d", border: "#3f6212" },
+  { name: "cyan", fill: "#67e8f9", border: "#155e75" },
+  { name: "indigo", fill: "#818cf8", border: "#3730a3" },
+  { name: "fuchsia", fill: "#f0abfc", border: "#86198f" },
+  { name: "green", fill: "#4ade80", border: "#166534" },
+] as const;
+export const TILE_SLOTS = TILE_PALETTE.length;
+export const TILE_TEXT = "#030712"; // near-black, on every fill
 
 export interface TileColour {
   slot: number | null; // null = neutral (more projects than slots)
-  hue: string;
-  treatment: TileTreatment;
+  fill: string;
+  border: string;
 }
-export const NEUTRAL_HUE = "#8b929c";
+export const NEUTRAL_TILE: TileColour = { slot: null, fill: "#e7e5e4", border: "#57534e" };
 
 // FNV-1a, so a project's preferred slot depends on its id alone.
 export function hashKey(s: string) {
@@ -298,10 +316,10 @@ export function assignColours(tiers: string[][], extra: string[] = []): Map<stri
         break;
       }
     }
-    if (slot === null) out.set(id, { slot: null, hue: NEUTRAL_HUE, treatment: "fill" });
+    if (slot === null) out.set(id, NEUTRAL_TILE);
     else {
       taken.add(slot);
-      out.set(id, { slot, hue: TILE_HUES[slot % TILE_HUES.length], treatment: TILE_TREATMENTS[Math.floor(slot / TILE_HUES.length)] });
+      out.set(id, { slot, fill: TILE_PALETTE[slot].fill, border: TILE_PALETTE[slot].border });
     }
   }
   return out;

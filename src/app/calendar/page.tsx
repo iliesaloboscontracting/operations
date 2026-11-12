@@ -14,7 +14,7 @@ import { apiFetch } from "@/lib/apiFetch";
 import { useAuth } from "@/components/AuthProvider";
 import { coordinatorHref } from "@/lib/roles";
 import { CalendarSpanDTO, CalendarSpansResponse, NoDatesDTO, spanDays, spanWords } from "@/lib/calendarSpans";
-import { assignColours, buildBars, dayMarks, NEUTRAL_HUE, weekRows } from "@/lib/calendarTiles";
+import { assignColours, buildBars, dayMarks, NEUTRAL_TILE, weekRows } from "@/lib/calendarTiles";
 import { TileAgenda, TileGrid, TileLegend, TileTimeline, type TileRow } from "@/components/calendar/CalendarTiles";
 import {
   addDays,
@@ -319,7 +319,7 @@ export default function CalendarPage() {
             span: r.span,
             bars: buildBars(r.key, r.span, booked, from, to),
             marks,
-            colour: colours.get(r.key) ?? { slot: null, hue: NEUTRAL_HUE, treatment: "fill" as const },
+            colour: colours.get(r.key) ?? NEUTRAL_TILE,
           };
         })
         .filter((t) => t.bars.length > 0),
