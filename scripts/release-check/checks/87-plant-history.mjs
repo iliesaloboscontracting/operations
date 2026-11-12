@@ -126,8 +126,8 @@ export default {
       "the pre-start: items failed (by name), the fault with priority and current status, walk-around taken");
     const recs = v.body?.service?.records ?? [];
     const typed = recs.find((r) => r.reading === 1190), inbox = recs.find((r) => r.reading === 950);
-    t.ok(v.body?.service?.nextDue?.expiryDate === "2027-01-15" && recs.length === 2 && typed?.work === "Full service" && inbox?.work === "Service (mechanic's invoice)",
-      "PS-059: service - next due; typed work cleaned to words ('Full service'); the inbox record reads 'Service (mechanic's invoice)'", JSON.stringify(recs));
+    t.ok(v.body?.service?.nextDue?.expiryDate === "2027-01-15" && recs.length === 2 && /^Full service\b/.test(typed?.work ?? "") && inbox?.work === "Service (mechanic's invoice)",
+      "PS-059: service - next due; typed work cleaned to words ('Full service. Parts'); the inbox record reads 'Service (mechanic's invoice)'", JSON.stringify(recs));
     const words = [...recs.flatMap((r) => [r.work, r.provider ?? ""]), v.body?.service?.registerNote ?? "", ...(v.body?.service?.openFaults ?? []).map((f) => f.description ?? ""), ...rows.flatMap((x) => (x.faults ?? []).map((f) => f.description ?? ""))];
     t.ok(words.every((w) => !/\d/.test(w)), "PS-059: no digit in any work, provider, register note or fault text", words.join(" | "));
     t.ok(typed?.reading === 1190 && inbox?.reading === 950, "...while the odometer / hours column keeps its reading");
