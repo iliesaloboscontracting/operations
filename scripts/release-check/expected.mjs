@@ -30,8 +30,9 @@ export const MAY_ANSWER = {
   // (type=HIRE only, money-free) with its alerts and site checks, tools / toolboxes / faults, his own purchase
   // requests, office chat, the site & safety documents, his own queries. checks/63-coordinator.mjs looks closer.
   // + the labour hire hours, view and export (Ilies, 11 Nov 2026 - checks/82-labour-hire-timesheet.mjs).
+  // + the calendar's project spans (/api/calendar/spans, 12 Nov 2026 - the same guard as /api/calendar; checks/84-calendar-spans.mjs).
   COORDINATOR: [/^\/api\/auth\//, /^\/api\/timesheets$/, /^\/api\/timesheets\/labour-hire(\/export)?$/, /^\/api\/attendance$/, /^\/api\/day-review$/, /^\/api\/day-review\/dockets$/,
-    /^\/api\/day-review\/site-logs(\/photo|\/before-after)?$/, /^\/api\/calendar$/, /^\/api\/projects$/, /^\/api\/resources$/,
+    /^\/api\/day-review\/site-logs(\/photo|\/before-after)?$/, /^\/api\/calendar(\/spans)?$/, /^\/api\/projects$/, /^\/api\/resources$/,
     /^\/api\/hire-(alerts|checks)$/, /^\/api\/tools$/, /^\/api\/toolboxes$/, /^\/api\/tool-issues$/, /^\/api\/stock-takes$/, /^\/api\/purchases$/,
     /^\/api\/messages(\/|$)/, /^\/api\/documents(\/|$)/, /^\/api\/queries$/, /^\/api\/inventory$/,
     /^\/api\/faults(\/(checks|flags))?$/], // vehicle & plant faults + pre-start checks (8 Nov 2026, guardFaults; checks/74-prestart.mjs)
