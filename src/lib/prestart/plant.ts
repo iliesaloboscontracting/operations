@@ -53,8 +53,9 @@ export async function makePlantQr(resourceId: unknown, off: boolean, by: string 
 
 // ---------- the phone ----------
 
-// The QR (switched on, kind PLANT) -> its machine, still Lobos-owned plant.
-async function resolvePlantQr(secret: unknown) {
+// The QR (switched on, kind PLANT) -> its machine, still Lobos-owned plant. Also the key to the checks & service history
+// (historyStore.ts) - the same lookup, so a switched-off or reprinted QR shows nothing.
+export async function resolvePlantQr(secret: unknown) {
   if (typeof secret !== "string" || !/^[A-Za-z0-9_-]{20,64}$/.test(secret)) return null;
   const link = await prisma.siteLink.findUnique({ where: { tokenHash: hashSecret(secret) }, select: { id: true, kind: true, revokedAt: true, resourceId: true } });
   if (!link || link.kind !== "PLANT" || link.revokedAt || !link.resourceId) return null;

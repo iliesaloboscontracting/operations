@@ -6,6 +6,7 @@ import { effectiveStatus, STATUS_LABEL, whereToday, money } from "@/lib/resource
 import { AssetDatesCell, AssetDatesPanel, AssetDatesProvider } from "@/components/assets/AssetDates";
 import { FaultFlagBadge, FaultFlagsProvider } from "@/components/faults/FaultFlags";
 import PlantQrPanel from "@/components/plant/PlantQrPanel";
+import PlantHistoryPanel from "@/components/plant/PlantHistoryPanel";
 import { useAuth } from "@/components/AuthProvider";
 
 export default function PlantPage() {
@@ -22,7 +23,8 @@ export default function PlantPage() {
         itemNoun: "plant item",
         // D4: insurance / service / inspection dates, read only (accounts edit them on Accounts -> Assets).
         // Stage 2 (10 Nov 2026): owned plant's pre-start QR sticker - print / reprint / off (Managers and Admins).
-        detail: (r) => <><AssetDatesPanel resourceId={r.id} /><PlantQrPanel machine={{ id: r.id, name: r.name, type: r.type, ownership: r.ownership ?? "OWNED" }} /></>,
+        // 12 Nov 2026: its pre-start records + service history (the same view the QR shows), with the download.
+        detail: (r) => <><AssetDatesPanel resourceId={r.id} /><PlantQrPanel machine={{ id: r.id, name: r.name, type: r.type, ownership: r.ownership ?? "OWNED" }} /><PlantHistoryPanel machine={{ id: r.id, type: r.type }} /></>,
         api: "/api/resources",
         historyModel: "Resource", // every change kept, who and when (10 Nov 2026) - pay fields Admin only
         query: "type=EQUIPMENT,ATTACHMENT",
