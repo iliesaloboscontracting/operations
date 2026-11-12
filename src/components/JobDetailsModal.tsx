@@ -104,6 +104,7 @@ export default function JobDetailsModal({
   jobNo,
   date,
   startsThisDay,
+  plan,
   jobs,
   onClose,
   onAddJob,
@@ -112,6 +113,7 @@ export default function JobDetailsModal({
   jobNo: string | null;
   date: string;
   startsThisDay: boolean;
+  plan?: string; // the project's planned span in words (the calendar's bar, 12 Nov 2026)
   jobs: CalendarJobDTO[];
   onClose: () => void;
   onAddJob?: () => void;
@@ -145,6 +147,7 @@ export default function JobDetailsModal({
               {jobNo && `${jobNo} · `}
               {fmtDay(date, { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
             </div>
+            {plan && <div className="mt-0.5 text-xs text-gray-400">{plan}</div>}
             {startsThisDay && (
               <span className="mt-1 inline-block rounded bg-brand-600 px-1.5 py-0.5 text-[10px] font-bold uppercase text-white">
                 ▶ Project starts this day

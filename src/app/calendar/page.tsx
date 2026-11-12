@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import PageShell from "@/components/PageShell";
 import UpcomingAlerts from "@/components/UpcomingAlerts";
 import JobDetailsModal from "@/components/JobDetailsModal";
@@ -10,6 +11,9 @@ import { CalendarJobDTO, ProjectDTO } from "@/lib/types";
 import { localISODate } from "@/lib/resource";
 import { useAutoRefresh } from "@/lib/useAutoRefresh";
 import { apiFetch } from "@/lib/apiFetch";
+import { useAuth } from "@/components/AuthProvider";
+import { coordinatorHref } from "@/lib/roles";
+import { CalendarSpanDTO, CalendarSpansResponse, NoDatesDTO, spanDays, spanWords } from "@/lib/calendarSpans";
 import {
   addDays,
   daysBetween,
@@ -22,7 +26,9 @@ import {
   startOfWeek,
 } from "@/lib/dates";
 
-type View = "day" | "week" | "month";
+// "quarter" = the 3-month view (12 Nov 2026), so long jobs read across months.
+type View = "day" | "week" | "month" | "quarter";
+const VIEW_LABEL: Record<View, string> = { day: "day", week: "week", month: "month", quarter: "3 months" };
 
 interface Row {
   key: string;
@@ -30,6 +36,14 @@ interface Row {
   jobNo: string | null;
   startDate: string | null;
   jobs: CalendarJobDTO[];
+  span?: CalendarSpanDTO; // the project's planned span in this range (lib/calendarSpans.ts)
+}
+
+// The first day of the month `n` months away from `iso`'s month.
+function monthsAhead(iso: string, n: number) {
+  let m = startOfMonth(iso);
+  for (let i = 0; i < Math.abs(n); i++) m = n > 0 ? addDays(endOfMonth(m), 1) : startOfMonth(addDays(m, -1));
+  return m;
 }
 
 // The visible date range. When the period contains today, past days are left out
@@ -37,6 +51,7 @@ interface Row {
 //  - week:  today .. today+6
 //  - month: today .. end of month, stretched to at least 3 weeks so late in the month
 //           you still see what's coming next month
+//  - 3 months: today .. the end of the third month, stretched to at least 12 weeks
 function rangeFor(view: View, anchor: string, today: string, showPast: boolean): [string, string] {
   if (view === "day") return [anchor, anchor];
   if (view === "week") {
@@ -45,9 +60,10 @@ function rangeFor(view: View, anchor: string, today: string, showPast: boolean):
     return [s, addDays(s, 6)];
   }
   const first = startOfMonth(anchor);
-  const last = endOfMonth(anchor);
+  const last = view === "quarter" ? endOfMonth(monthsAhead(first, 2)) : endOfMonth(anchor);
+  const minDays = view === "quarter" ? 83 : 20;
   if (!showPast && first <= today && today <= last) {
-    const end = addDays(today, 20) > last ? addDays(today, 20) : last;
+    const end = addDays(today, minDays) > last ? addDays(today, minDays) : last;
     return [today, end];
   }
   return [first, last];
@@ -58,6 +74,8 @@ function label(view: View, from: string, to: string) {
     return fmtDay(from, { weekday: "long", day: "numeric", month: "long", year: "numeric" });
   const isFullMonth = from === startOfMonth(from) && to === endOfMonth(from);
   if (view === "month" && isFullMonth) return fmtDay(from, { month: "long", year: "numeric" });
+  if (view === "quarter" && from === startOfMonth(from) && to === endOfMonth(to))
+    return `${fmtDay(from, { month: "short", ...(from.slice(0, 4) === to.slice(0, 4) ? {} : { year: "numeric" }) })} – ${fmtDay(to, { month: "short", year: "numeric" })}`;
   return `${fmtDay(from, { day: "numeric", month: "short" })} – ${fmtDay(to, { day: "numeric", month: "short", year: "numeric" })}`;
 }
 
@@ -109,6 +127,83 @@ function JobPill({ job, compact }: { job: CalendarJobDTO; compact: boolean }) {
   );
 }
 
+// The 3-month view's day columns are too narrow for a pill: the same block as a small mark in the same colours, with
+// the same words on hover.
+function JobMark({ job }: { job: CalendarJobDTO }) {
+  const noCrew = !job.notRunning && job.crew === 0;
+  const tone = job.notRunning
+    ? "bg-gray-600"
+    : noCrew
+    ? "bg-amber-500"
+    : !job.hasSupervisor
+    ? "bg-red-500"
+    : job.shift === "NIGHT"
+    ? "bg-purple-500"
+    : "bg-blue-500";
+  const status = job.notRunning
+    ? " · not running"
+    : ` · ${job.crew} crew, ${job.plant} plant, ${job.hire} hire${noCrew ? " · no crew" : !job.hasSupervisor ? " · no supervisor" : ""}`;
+  return <div title={`${job.title} (${job.shift === "NIGHT" ? "night" : "day"})${status}`} className={`relative h-2.5 w-full rounded-sm ${tone}`} />;
+}
+
+const shortDay = (iso: string) => fmtDay(iso, { day: "numeric", month: "short" });
+const shortDayYear = (iso: string) => fmtDay(iso, { day: "numeric", month: "short", year: "numeric" });
+
+// One day's piece of a project's planned span (lib/calendarSpans.ts): a thin bar along the bottom of the cell, behind
+// the booked-day chips. Solid = start confirmed (or not stated), dashed and lighter = start tentative, grey = inactive.
+// A TBC finish fades out at the edge of the view; days past the expected finish are amber with stripes (and the row
+// says "Past expected finish" in words).
+function SpanPiece({ span, day }: { span: CalendarSpanDTO; day: string }) {
+  if (day < span.from || day > span.to) return null;
+  const over = !!span.pastFinish && !!span.finish && day > span.finish;
+  const first = day === span.start;
+  const last = over ? day === span.pastFinish!.until : day === span.finish;
+  const fade = span.finishTbc && day === span.to && span.clippedEnd;
+  const inactive = span.status === "INACTIVE";
+  const base = over
+    ? "bg-[repeating-linear-gradient(135deg,rgb(245_158_11/0.85)_0_3px,rgb(245_158_11/0.35)_3px_6px)]"
+    : span.tentative
+    ? // dashed along the top and bottom only, closed at the span's own ends - not at every day's edge
+      `border-y border-dashed ${first ? "border-l" : ""} ${last ? "border-r" : ""} ${inactive ? "border-gray-400/80 bg-gray-500/20" : "border-brand-400 bg-brand-500/25"}`
+    : inactive
+    ? "bg-gray-500/70"
+    : "bg-brand-500/80";
+  return (
+    <span
+      aria-hidden
+      className={`pointer-events-none absolute bottom-1 h-1.5 ${first ? "left-1 rounded-l-full" : "left-0"} ${
+        last ? "right-1 rounded-r-full" : "right-0"
+      } ${base} ${fade ? "border-r-0 [mask-image:linear-gradient(to_right,black,transparent)]" : ""}`}
+    />
+  );
+}
+
+// The row's words about its span, in the sticky project column - always on screen, whatever the scroll.
+function SpanTags({ span }: { span: CalendarSpanDTO }) {
+  const tags: { text: string; tone: string }[] = [];
+  if (span.upcoming)
+    tags.push({ text: `${span.upcoming.kind === "RECOMMENCES" ? "Recommences" : "Starts"} ${shortDay(span.upcoming.date)}`, tone: "bg-gray-500/20 text-gray-300" });
+  else if (span.status === "INACTIVE") tags.push({ text: "Inactive", tone: "bg-gray-500/20 text-gray-300" });
+  if (span.pastFinish) tags.push({ text: "⚠ Past expected finish", tone: "bg-amber-500/15 text-amber-600" });
+  if (span.finishTbc) tags.push({ text: "Finish TBC", tone: "bg-gray-500/20 text-gray-400" });
+  if (span.tentative) tags.push({ text: "Start tentative", tone: "bg-gray-500/20 text-gray-400" });
+  if (tags.length === 0) return null;
+  return (
+    <div className="mt-0.5 flex flex-wrap gap-1">
+      {tags.map((t) => (
+        <span key={t.text} className={`whitespace-nowrap rounded-full px-1.5 py-px text-[10px] font-semibold ${t.tone}`}>
+          {t.text}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+const spanTitle = (s: CalendarSpanDTO) => {
+  const n = spanDays(s);
+  return `Planned ${spanWords(s, shortDayYear)}${n ? ` (${n} days)` : ""}`;
+};
+
 export default function CalendarPage() {
   // "today" is state so the calendar rolls over by itself at midnight.
   const [today, setToday] = useState(localISODate());
@@ -125,6 +220,9 @@ export default function CalendarPage() {
   const [attentionOnly, setAttentionOnly] = useState(false);
   const [allJobs, setJobs] = useState<CalendarJobDTO[]>([]);
   const [projects, setProjects] = useState<ProjectDTO[]>([]);
+  const [spans, setSpans] = useState<CalendarSpanDTO[]>([]);
+  const [noDates, setNoDates] = useState<NoDatesDTO[]>([]);
+  const { coordinatorOnly } = useAuth();
   const [loading, setLoading] = useState(true);
   // Which project/day's details panel is open (null = closed).
   const [detail, setDetail] = useState<{
@@ -151,15 +249,21 @@ export default function CalendarPage() {
   const req = useRef(0);
   const load = useCallback(async () => {
     const id = ++req.current;
-    const [j, p] = await Promise.all([
+    const [j, p, s] = await Promise.all([
       apiFetch(`/api/calendar?from=${from}&to=${to}`),
       apiFetch(`/api/projects?date=${today}`),
+      apiFetch(`/api/calendar/spans?from=${from}&to=${to}`),
     ]);
     const jobsData = j.ok ? await j.json() : null;
     const projData = p.ok ? await p.json() : null;
+    const spanData: CalendarSpansResponse | null = s.ok ? await s.json() : null;
     if (id !== req.current) return;
     if (jobsData) setJobs(jobsData);
     if (projData) setProjects(projData);
+    if (spanData) {
+      setSpans(spanData.spans);
+      setNoDates(spanData.noDates);
+    }
     setLoading(false);
   }, [from, to, today]);
 
@@ -228,30 +332,51 @@ export default function CalendarPage() {
       if (!map.has(p.id))
         map.set(p.id, { key: p.id, name: p.name, jobNo: p.jobNo, startDate: p.startDate, jobs: [] });
     }
+    // Each project's planned span (12 Nov 2026) - on its row, and a row of its own while nothing is booked yet.
+    for (const s of spans) {
+      const row = map.get(s.projectId);
+      if (row) row.span = s;
+      else if (shift === "ALL") // a shift filter only shows projects with jobs on that shift
+        map.set(s.projectId, { key: s.projectId, name: s.name, jobNo: s.jobNo, startDate: s.status === "ACTIVE" ? s.start : null, jobs: [], span: s });
+    }
     const q = search.trim().toLowerCase();
-    // Only blocks that are actually visible on the grid (i.e. have an allocation) can need attention.
+    // Only blocks that are actually visible on the grid (i.e. have an allocation) can need attention - and a project
+    // past its expected finish.
     const needsAttention = (j: CalendarJobDTO) =>
       !j.notRunning && hasAllocation(j) && (j.crew === 0 || !j.hasSupervisor);
     return Array.from(map.values())
       .filter((r) => !q || `${r.name} ${r.jobNo ?? ""}`.toLowerCase().includes(q))
-      .filter((r) => !attentionOnly || r.jobs.some(needsAttention))
+      .filter((r) => !attentionOnly || r.jobs.some(needsAttention) || !!r.span?.pastFinish)
       .sort((a, b) => a.name.localeCompare(b.name));
-  }, [jobs, projects, from, to, search, attentionOnly, shift]);
+  }, [jobs, projects, spans, from, to, search, attentionOnly, shift]);
+
+  const noDatesShown = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return noDates.filter((p) => !q || `${p.name} ${p.jobNo ?? ""}`.toLowerCase().includes(q));
+  }, [noDates, search]);
 
   function step(dir: 1 | -1) {
     if (view === "day") setAnchor(addDays(anchor, dir));
     else if (view === "week") setAnchor(addDays(anchor, 7 * dir));
-    else {
-      const first = startOfMonth(anchor);
-      setAnchor(dir === 1 ? addDays(endOfMonth(first), 1) : startOfMonth(addDays(first, -1)));
-    }
+    else setAnchor(monthsAhead(anchor, (view === "quarter" ? 3 : 1) * dir));
   }
 
   // "Within a week" band shown on the day headers.
   const soon = (d: string) => d >= today && daysBetween(today, d) <= 7;
 
-  const compact = view === "month";
-  const colW = compact ? "min-w-[38px]" : "min-w-[130px]";
+  const quarter = view === "quarter";
+  const compact = view === "month" || quarter;
+  const colW = quarter ? "min-w-[16px] w-[16px]" : compact ? "min-w-[38px]" : "min-w-[130px]";
+  // The 3-month view's month header: one cell per month, as wide as its days in the range.
+  const monthsInRange = useMemo(() => {
+    const out: { key: string; days: number }[] = [];
+    for (const d of days) {
+      const k = d.slice(0, 7);
+      if (out.length && out[out.length - 1].key === k) out[out.length - 1].days++;
+      else out.push({ key: k, days: 1 });
+    }
+    return out;
+  }, [days]);
 
   return (
     <PageShell
@@ -265,13 +390,13 @@ export default function CalendarPage() {
       {/* Controls */}
       <div className="mb-3 flex flex-wrap items-center gap-3">
         <div className="flex overflow-hidden rounded-md border border-edge text-xs font-semibold uppercase tracking-wide">
-          {(["day", "week", "month"] as View[]).map((v) => (
+          {(["day", "week", "month", "quarter"] as View[]).map((v) => (
             <button
               key={v}
               onClick={() => setView(v)}
-              className={`px-3 py-1.5 ${view === v ? "bg-brand-600 text-white" : "bg-panel text-gray-400 hover:text-gray-200"}`}
+              className={`whitespace-nowrap px-3 py-1.5 ${view === v ? "bg-brand-600 text-white" : "bg-panel text-gray-400 hover:text-gray-200"}`}
             >
-              {v}
+              {VIEW_LABEL[v]}
             </button>
           ))}
         </div>
@@ -289,7 +414,7 @@ export default function CalendarPage() {
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search projects..."
-          className="w-56 rounded-md border border-edge bg-panel px-2 py-1.5 text-sm text-gray-200 placeholder:text-gray-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
+          className="w-full max-w-56 rounded-md sm:w-56 border border-edge bg-panel px-2 py-1.5 text-sm text-gray-200 placeholder:text-gray-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
         />
         <div className="flex overflow-hidden rounded-md border border-edge text-xs font-semibold uppercase tracking-wide">
           {(["ALL", "DAY", "NIGHT"] as ShiftFilter[]).map((v) => (
@@ -328,6 +453,19 @@ export default function CalendarPage() {
           <span className="text-blue-300">▶ = project starts</span>
         </div>
       </div>
+      {view !== "day" && (
+        // The planned span's legend (12 Nov 2026) - each mark drawn as it is on the grid.
+        <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-gray-500">
+          <span className="font-semibold uppercase tracking-wide text-gray-600">Planned span</span>
+          <span className="flex items-center gap-1.5"><span className="inline-block h-1.5 w-6 rounded-full bg-brand-500/80" /> start confirmed</span>
+          <span className="flex items-center gap-1.5"><span className="inline-block h-1.5 w-6 rounded-full border border-dashed border-brand-400 bg-brand-500/25" /> start tentative</span>
+          <span className="flex items-center gap-1.5"><span className="inline-block h-1.5 w-6 rounded-full bg-gray-500/70" /> inactive</span>
+          <span className="flex items-center gap-1.5"><span className="inline-block h-1.5 w-6 rounded-l-full bg-brand-500/80 [mask-image:linear-gradient(to_right,black,transparent)]" /> finish TBC</span>
+          <span className="flex items-center gap-1.5 text-amber-600">
+            <span className="inline-block h-1.5 w-6 rounded-full bg-[repeating-linear-gradient(135deg,rgb(245_158_11/0.85)_0_3px,rgb(245_158_11/0.35)_3px_6px)]" /> ⚠ past expected finish
+          </span>
+        </div>
+      )}
 
       {loading ? (
         <div className="py-10 text-center text-sm text-gray-500">Loading...</div>
@@ -350,20 +488,49 @@ export default function CalendarPage() {
               something has been allocated to that project on that day. */}
           <table className="w-full border-collapse text-left">
             <thead>
+              {quarter && (
+                <tr className="bg-panel">
+                  <th
+                    rowSpan={2}
+                    className="sticky left-0 z-20 w-[150px] min-w-[150px] max-w-[150px] border border-edge bg-panel px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-gray-500 sm:w-[190px] sm:min-w-[190px] sm:max-w-[190px]"
+                  >
+                    Project
+                  </th>
+                  {monthsInRange.map((m) => (
+                    <th
+                      key={m.key}
+                      colSpan={m.days}
+                      className="border border-edge px-1 py-1 text-left text-[10px] font-semibold uppercase tracking-wide text-gray-400"
+                    >
+                      <span className="sticky left-[158px] sm:left-[198px]">{fmtDay(`${m.key}-01`, { month: "long", year: "numeric" })}</span>
+                    </th>
+                  ))}
+                </tr>
+              )}
               <tr className="bg-panel">
-                <th className="sticky left-0 z-10 min-w-[190px] border border-edge bg-panel px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-                  Project
-                </th>
+                {!quarter && (
+                  <th className="sticky left-0 z-20 w-[150px] min-w-[150px] max-w-[150px] border border-edge bg-panel px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-gray-500 sm:w-[190px] sm:min-w-[190px] sm:max-w-[190px]">
+                    Project
+                  </th>
+                )}
                 {days.map((d) => (
                   <th
                     key={d}
                     data-today={d === today ? "" : undefined}
-                    className={`${colW} border border-edge px-1 py-1.5 text-center text-[10px] font-semibold uppercase ${weekStart(d)} ${
+                    title={quarter ? fmtDay(d, { weekday: "short", day: "numeric", month: "short" }) : undefined}
+                    className={`${colW} border border-edge ${quarter ? "px-0" : "px-1"} py-1.5 text-center text-[10px] font-semibold uppercase ${weekStart(d)} ${
                       d === today ? "bg-blue-900/40 text-blue-200" : soon(d) ? "bg-amber-950/30 text-amber-200/80" : "text-gray-500"
                     } ${isWeekend(d) ? "opacity-70" : ""}`}
                   >
-                    <div>{fmtDay(d, { weekday: "short" })}</div>
-                    <div className="text-xs">{Number(d.slice(8))}</div>
+                    {quarter ? (
+                      // Mondays carry the date; the other days are just columns.
+                      <div className="text-[9px] leading-none">{parseISO(d).getDay() === 1 || d === today ? Number(d.slice(8)) : " "}</div>
+                    ) : (
+                      <>
+                        <div>{fmtDay(d, { weekday: "short" })}</div>
+                        <div className="text-xs">{Number(d.slice(8))}</div>
+                      </>
+                    )}
                   </th>
                 ))}
               </tr>
@@ -371,34 +538,41 @@ export default function CalendarPage() {
             <tbody>
               {rows.map((row) => (
                 <tr key={row.key}>
-                  <td className="sticky left-0 z-10 border border-edge bg-canvas px-3 py-2">
+                  <td
+                    className="sticky left-0 z-10 w-[150px] min-w-[150px] max-w-[150px] border border-edge bg-canvas px-2 py-1.5 sm:w-[190px] sm:min-w-[190px] sm:max-w-[190px] sm:px-3"
+                    title={row.span ? spanTitle(row.span) : undefined}
+                  >
                     <div className="truncate text-sm font-semibold text-gray-100">{row.name}</div>
-                    {row.jobNo && <div className="text-[11px] text-gray-500">{row.jobNo}</div>}
+                    {row.jobNo && <div className="truncate text-[11px] text-gray-500">{row.jobNo}</div>}
+                    {row.span && <SpanTags span={row.span} />}
                   </td>
                   {days.map((d) => {
                     const cell = row.jobs.filter((j) => j.date === d && hasAllocation(j));
                     const starts = row.startDate === d;
+                    const onSpan = !!row.span && d >= row.span.from && d <= row.span.to;
                     return (
                       <td
                         key={d}
-                        className={`h-12 border border-edge p-0 align-top ${weekStart(d)} ${
+                        className={`${quarter ? "h-10" : "h-12"} border border-edge p-0 align-top ${weekStart(d)} ${
                           d === today ? "bg-blue-900/15" : isWeekend(d) ? "bg-panel2/70" : "bg-panel"
                         }`}
                       >
                         <button
                           type="button"
                           onClick={() => openDetail(row.key, row.name, row.jobNo, row.startDate, d)}
-                          title="Show details"
-                          className="flex h-full min-h-[2.75rem] w-full flex-col gap-0.5 p-0.5 text-left hover:bg-panel2"
+                          title={onSpan ? `${spanTitle(row.span!)} - show details` : "Show details"}
+                          className={`relative flex h-full ${quarter ? "min-h-[2.25rem] gap-px p-px pb-3" : "min-h-[2.75rem] gap-0.5 p-0.5 pb-3"} w-full flex-col text-left hover:bg-panel2`}
                         >
-                          {starts && (
-                            <span className="rounded bg-brand-600 px-1 py-0.5 text-center text-[9px] font-bold uppercase text-white">
+                          {row.span && <SpanPiece span={row.span} day={d} />}
+                          {starts && !quarter && (
+                            <span className="relative rounded bg-brand-600 px-1 py-0.5 text-center text-[9px] font-bold uppercase text-white">
                               ▶ {compact ? "" : "start"}
                             </span>
                           )}
-                          {cell.map((j) => (
-                            <JobPill key={j.id} job={j} compact={compact} />
-                          ))}
+                          {starts && quarter && <span className="relative text-center text-[9px] leading-none text-brand-300">▶</span>}
+                          {cell.map((j) =>
+                            quarter ? <JobMark key={j.id} job={j} /> : <JobPill key={j.id} job={j} compact={compact} />
+                          )}
                         </button>
                       </td>
                     );
@@ -408,6 +582,39 @@ export default function CalendarPage() {
             </tbody>
           </table>
         </div>
+      )}
+      {view !== "day" && !loading && noDatesShown.length > 0 && (
+        // Projects that can't be drawn (12 Nov 2026): no start date, or paused with no date to come back. Collapsed,
+        // so the gap is visible without taking over the page.
+        <details className="mt-3 rounded-lg border border-edge bg-panel px-3 py-2 text-sm">
+          <summary className="cursor-pointer select-none text-xs font-semibold uppercase tracking-wide text-gray-400">
+            No dates yet ({noDatesShown.length})
+          </summary>
+          <p className="mt-1 text-[11px] text-gray-500">
+            Not drawn on the calendar: set a start date (and expected completion) on the project page to show its span.
+          </p>
+          <ul className="mt-2 grid gap-1 sm:grid-cols-2 lg:grid-cols-3">
+            {noDatesShown.map((p) => {
+              const href = coordinatorHref(`/projects/${p.projectId}`, coordinatorOnly);
+              const name = (
+                <>
+                  <span className="font-medium text-gray-200">{p.name}</span>
+                  {p.jobNo && <span className="text-gray-500"> · {p.jobNo}</span>}
+                </>
+              );
+              return (
+                <li key={p.projectId} className="min-w-0 truncate text-xs">
+                  {href ? <Link href={href} className="hover:underline">{name}</Link> : name}
+                  <span className="text-gray-500">
+                    {" "}
+                    · {p.status === "ACTIVE" ? "active" : "inactive"},{" "}
+                    {p.reason === "NO_RESTART" ? "paused, finish TBC, no restart date" : "no start date"}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        </details>
       )}
       {detail && (
         <JobDetailsModal
@@ -424,6 +631,10 @@ export default function CalendarPage() {
             setDetail(null);
           }}
           startsThisDay={detail.startDate === detail.date}
+          plan={(() => {
+            const s = spans.find((x) => x.projectId === detail.key);
+            return s ? spanTitle(s) : undefined;
+          })()}
           // Read from the live data (not a snapshot) so it stays current on auto-refresh.
           jobs={allJobs.filter(
             (j) => (j.projectId ?? `t:${j.title}`) === detail.key && j.date === detail.date

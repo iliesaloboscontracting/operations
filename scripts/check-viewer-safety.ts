@@ -112,6 +112,7 @@ async function main() {
     await checkClean("GET /api/jobs", `/api/jobs?date=${today}`);
     await checkClean("GET /api/jobs/completed", "/api/jobs/completed");
     await checkClean("GET /api/calendar", `/api/calendar?from=${today}&to=${today}`);
+    await checkClean("GET /api/calendar/spans", `/api/calendar/spans?from=${today}&to=${today}`); // project spans (12 Nov 2026)
     await checkClean("GET /api/resources", "/api/resources");
     await checkClean("GET /api/projects", "/api/projects");
     await checkClean("GET /api/day-review", `/api/day-review?date=${today}`);
