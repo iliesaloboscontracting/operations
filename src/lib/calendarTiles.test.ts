@@ -1,7 +1,7 @@
 // Calendar tiles (12 Nov 2026). `npm test`.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { agenda, assignColours, assignLanes, buildBars, dayMarks, layoutRows, NEUTRAL_TILE, TILE_PALETTE, TILE_SLOTS, TILE_TEXT, weekRows, type SpanForBars } from "./calendarTiles";
+import { agenda, assignColours, assignLanes, buildBars, dayMarks, layoutRows, NEUTRAL_TILE, TILE_PALETTE, TILE_SLOTS, TILE_SURFACES, weekRows, type SpanForBars } from "./calendarTiles";
 import { buildCalendarSpans } from "./calendarSpans";
 
 const FROM = "2026-11-02"; // Monday
@@ -216,25 +216,38 @@ test("calendarSpans output feeds buildBars directly (TBC, past finish, tentative
   assert.equal(buildBars("tent", s("tent"), [], FROM, TO)[0].tentative, true);
 });
 
-test("tile palette: twelve distinct pastels, readable near-black text on every fill, darker border in the same hue", () => {
+test("tile palette: the Allocations tile style, twelve hues, readable light text on every fill, no warning hues", () => {
+  const rgb = (hex: string) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  const alpha = (hex: string) => (hex.length === 9 ? parseInt(hex.slice(7, 9), 16) / 255 : 1);
+  // The fill / outline as they look on a surface (8-digit hex = with alpha).
+  const over = (fg: string, bg: string) => {
+    const a = alpha(fg), f = rgb(fg), b = rgb(bg);
+    return "#" + f.map((c, i) => Math.round(c * a + b[i] * (1 - a)).toString(16).padStart(2, "0")).join("");
+  };
   const lum = (hex: string) => {
-    const c = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((v) => (v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+    const c = rgb(hex).map((v) => v / 255).map((v) => (v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
     return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
   };
   const contrast = (a: string, b: string) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
-  assert.equal(TILE_SLOTS, 12);
-  assert.equal(new Set(TILE_PALETTE.map((p) => p.fill)).size, 12);
-  for (const p of [...TILE_PALETTE, { name: "neutral", ...NEUTRAL_TILE }]) {
-    assert.ok(contrast(TILE_TEXT, p.fill) >= 4.5, `${p.name}: label text ${contrast(TILE_TEXT, p.fill).toFixed(2)}:1`);
-    assert.ok(contrast("#1f2937", p.fill) >= 4.5, `${p.name}: job number (gray-800) ${contrast("#1f2937", p.fill).toFixed(2)}:1`);
-    assert.ok(lum(p.border) < lum(p.fill), `${p.name}: border darker than the fill`);
-  }
-  // Red / amber stay the warnings' colours: no fill in the red-orange-yellow band.
   const hue = (hex: string) => {
-    const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
+    const [r, g, b] = rgb(hex).map((v) => v / 255);
     const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
     const h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
     return (h * 60 + 360) % 360;
   };
-  for (const p of TILE_PALETTE) assert.ok(!(hue(p.fill) < 70 || hue(p.fill) > 345), `${p.name} (${hue(p.fill).toFixed(0)}°) is in the warning band`);
+  assert.equal(TILE_SLOTS, 12);
+  assert.equal(new Set(TILE_PALETTE.map((p) => p.border)).size, 12);
+  for (const p of [...TILE_PALETTE, { name: "neutral", ...NEUTRAL_TILE }])
+    for (const surface of TILE_SURFACES) {
+      const fill = over(p.fill, surface);
+      assert.ok(contrast(p.text, fill) >= 4.5, `${p.name} on ${surface}: name ${contrast(p.text, fill).toFixed(2)}:1`);
+      assert.ok(contrast(p.sub, fill) >= 4.5, `${p.name} on ${surface}: job number / counts ${contrast(p.sub, fill).toFixed(2)}:1`);
+      assert.ok(contrast("#e5e7eb", fill) >= 4.5, `${p.name} on ${surface}: "Not running" / chips text`);
+      assert.ok(lum(over(p.border, fill)) > lum(fill), `${p.name}: the outline stands out from the fill`);
+    }
+  // Red / rose, amber, orange and yellow stay the warnings' and the board's colours: no project hue in 0-70 or 345-360.
+  for (const p of TILE_PALETTE) {
+    const h = hue(p.border.slice(0, 7));
+    assert.ok(!(h < 70 || h > 345), `${p.name} (${h.toFixed(0)}°) is in the warning / plant / labour-hire band`);
+  }
 });
