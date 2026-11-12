@@ -22,6 +22,7 @@ export function toPublicResource<T extends Record<string, unknown>>(resource: T,
     delete resource.hireRateUnit;
     delete resource.hireDeliveryCost;
     delete resource.hireCollectionCost;
+    delete resource.maxDaysPerWeek; // days-a-week limit (12 Nov 2026): Managers+ see it, an Admin sets it
   }
   return resource;
 }

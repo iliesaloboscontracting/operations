@@ -9,6 +9,8 @@ import { isISODate } from "@/lib/dateRules";
 import { QUICK_LABOUR_HIRE_NAME, nextQuickLabourHireNumber } from "@/lib/resource";
 import { offHiredBefore } from "@/lib/hireEstimate";
 import { cancelledJobAt, reviveJob } from "@/lib/jobCancel";
+import { copyPeople } from "@/lib/dayLimit/store";
+import { copySkips } from "@/lib/dayLimit/rules";
 
 // POST /api/jobs/copy { from: "YYYY-MM-DD", to: "YYYY-MM-DD" }
 // Copies every running job from one day to another so the target day ends up
@@ -27,6 +29,10 @@ import { cancelledJobAt, reviveJob } from "@/lib/jobCancel";
 // each day. A tile already carrying that number moves across as it is;
 // otherwise a spare tile with that number (one not on the target day) is
 // reused, or a new one made.
+//
+// Days-a-week limit (12 Nov 2026, lib/dayLimit): someone the copy would take over their limit that week is left off
+// the target day (every job on it) and reported in dayLimit - "Darnell not copied to Fri 13 – 3-day limit". The rest
+// of the copy goes ahead.
 export const POST = withErrorHandling(async (req: NextRequest) => {
   const denied = await guard("MANAGER");
   if (denied) return denied;
@@ -73,6 +79,9 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
       return !gone;
     });
   }
+  // People with a days-a-week limit the copy would take over it on the target day stay behind (12 Nov 2026).
+  const limits = copySkips(await copyPeople(source.flatMap((j) => j.assignments.map((a) => a.resourceId)), to), to);
+  if (limits.skip.size) for (const j of source) j.assignments = j.assignments.filter((a) => !limits.skip.has(a.resourceId));
   const existing = await prisma.job.findMany({
     where: { date: { gte: toStart, lt: toEnd }, cancelledAt: null },
     include: { assignments: { include: { resource: { select: { name: true, type: true, category: true } } } }, project: { select: { name: true } } },
@@ -184,5 +193,5 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
     copied++;
   }
   if (copied || merged) await logBoardEdit(user, to, "COPY", `from ${from}: ${copied} job${copied === 1 ? "" : "s"} copied, ${merged} filled in`);
-  return NextResponse.json({ copied, merged, skipped, offHired: [...offHired] });
+  return NextResponse.json({ copied, merged, skipped, offHired: [...offHired], dayLimit: limits.notes });
 });

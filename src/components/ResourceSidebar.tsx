@@ -270,6 +270,7 @@ export default function ResourceSidebar({
                     <ResourceCard
                       key={r.id}
                       resource={r}
+                      day={selectedDate}
                       onRoleChange={g.key === "crew" && canEdit ? updateRole : undefined}
                     />
                   ))}

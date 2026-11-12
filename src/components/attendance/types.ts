@@ -80,6 +80,7 @@ export const FLAG_LABEL: Record<string, string> = {
   BULK_OUT: "Signed out together",
   NO_LOCATION: "No location shared",
   FAR_FROM_SITE: "Far from site",
+  OVER_DAY_LIMIT: "Over days-a-week limit", // 12 Nov 2026 - the words: "Over 3-day limit (4th day this week)"
 };
 export const METHOD_LABEL: Record<string, string> = {
   SUPERVISOR_QR: "Supervisor QR",

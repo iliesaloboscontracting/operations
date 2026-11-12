@@ -13,6 +13,7 @@ import { staffSuggestions, type StaffMatch } from "./staffMatch";
 import { flagsForJobRows, flagSummary, signedInEarlierIds, type SigninFlagSummary } from "./signinFlags";
 import { posterGpsFlags } from "./posterGuard/store";
 import { locationLabel, signInHow, signOutHow } from "./signinHow";
+import { overLimitNotes } from "./dayLimit/store";
 
 export type AttendanceFlag =
   | "NO_SIGN_IN" // allocated, never signed in
@@ -34,7 +35,9 @@ export type AttendanceFlag =
   | "BULK_OUT" // ...and signed out with 2+ others in the same minute by the supervisor / office
   // 11 Nov 2026 (Ilies: "do 1 and 2") - site poster sign-ins only, information only (lib/posterGuard).
   | "NO_LOCATION" // the phone shared no position
-  | "FAR_FROM_SITE"; // further than 500 m (+ the fix's accuracy) from where the site's crew sign in
+  | "FAR_FROM_SITE" // further than 500 m (+ the fix's accuracy) from where the site's crew sign in
+  // 12 Nov 2026 (Ilies, lib/dayLimit) - information only: a sign-in date past the person's days-a-week limit.
+  | "OVER_DAY_LIMIT"; // "Over 3-day limit (4th day this week)" - never blocks approval, hours unchanged
 
 type AttendanceWithEdits = Prisma.SiteAttendanceGetPayload<{ include: { edits: true } }>;
 
@@ -245,6 +248,16 @@ export async function attendanceForDate(date: string) {
     pointGroup("YARD", null, "Yard"),
     ...[...trucks].sort((a, b) => a[1].localeCompare(b[1])).map(([id, name]) => pointGroup("VEHICLE", id, name)),
   ]);
+  // Days-a-week limit (12 Nov 2026): a non-rejected line on a date past the person's limit for that Mon-Sun week.
+  const overLimit = await overLimitNotes(dayRows.filter((a) => a.status !== "REJECTED").map((a) => a.resourceId!).filter(Boolean), [date]);
+  if (overLimit.size) {
+    for (const g of [...jobGroups, ...points]) {
+      for (const r of g.rows) {
+        const note = r.resourceId && r.status !== "REJECTED" ? overLimit.get(r.resourceId)?.get(date) : undefined;
+        if (note) { r.flags.push("OVER_DAY_LIMIT"); r.notes.OVER_DAY_LIMIT = note; }
+      }
+    }
+  }
   // The Sign-ins page's strip (10 Nov 2026): "N to confirm · N late · N long day · N no sign-in".
   return { jobs: jobGroups, points, summary: flagSummary([...points, ...jobGroups]) };
 }

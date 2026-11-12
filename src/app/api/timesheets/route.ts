@@ -28,7 +28,8 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
   const user = await getCurrentUser();
   const today = todaySydney();
   const signInFlags = user && coordinatorOr(user.role, "MANAGER") ? await flagSummaryForDays(weekDates(weekStart).filter((d) => d <= today)) : undefined;
-  return viewJson({ ...(await timesheetWeek(weekStart)), ...(signInFlags ? { signInFlags } : {}) });
+  // Over a days-a-week limit (12 Nov 2026): the same office allow-list - information on the lines, approval unchanged.
+  return viewJson({ ...(await timesheetWeek(weekStart, { dayLimit: !!signInFlags })), ...(signInFlags ? { signInFlags } : {}) });
 });
 
 // POST /api/timesheets { week, action: "approve" | "reopen", reason? }

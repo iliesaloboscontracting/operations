@@ -9,12 +9,15 @@ import { ASSIGNMENT_FOR_SNAPSHOT, allocationSnapshot } from "@/lib/boardGuard/sn
 import { writeLock } from "@/lib/history/store";
 import { offHiredBefore, offHireStop } from "@/lib/hireEstimate";
 import { fmtDay } from "@/lib/dates";
+import { checkBoardDay, recordOverride } from "@/lib/dayLimit/store";
 
 const JOB = { select: { date: true, title: true, shift: true } } as const;
 
 // PATCH /api/assignments/:id
 //  - { role }  -> change the role for this job assignment
 //  - { jobId } -> move the resource to another job (drag chip between rows)
+//    Days-a-week limit (12 Nov 2026, lib/dayLimit): a move onto a new date over the person's limit is refused (409);
+//    an Admin may go over it with { overrideReason } (kept in the board history). Same date, or a date already counted: fine.
 export const PATCH = withErrorHandling(async (
   req: NextRequest,
   { params: paramsP }: { params: Promise<{ id: string }> }
@@ -28,7 +31,7 @@ export const PATCH = withErrorHandling(async (
   if (body.jobId) {
     const current = await prisma.assignment.findUnique({
       where: { id: params.id },
-      include: { job: JOB, resource: { select: { name: true, type: true, category: true, hireStatus: true, offHiredOn: true, offHireDate: true } } },
+      include: { job: JOB, resource: { select: { id: true, name: true, type: true, category: true, hireStatus: true, offHiredOn: true, offHireDate: true, maxDaysPerWeek: true } } },
     });
     if (!current) return NextResponse.json({ error: "not found" }, { status: 404 });
     if (current.jobId === body.jobId) return NextResponse.json(current);
@@ -48,6 +51,8 @@ export const PATCH = withErrorHandling(async (
         { status: 400 },
       );
     }
+    const limit = await checkBoardDay([r], isoDay(targetJob.date), user?.role, body, { assignmentIds: [params.id] });
+    if (!limit.ok) return NextResponse.json(limit.body, { status: limit.status });
     // Noted once the move has gone through (BG-006), on both days when it crosses days.
     const logMove = async () => {
       const note = `${current.resource.name}: ${siteName(current.job)} -> ${siteName(targetJob)}`;
@@ -72,11 +77,15 @@ export const PATCH = withErrorHandling(async (
       if (isoDay(current.job.date) !== isoDay(targetJob.date)) await logBoardEdit(user, isoDay(targetJob.date), "MOVE", `${current.resource.name}: ${siteName(current.job)} -> ${siteName(targetJob)}`);
       return NextResponse.json(existing);
     }
-    const moved = await prisma.assignment.update({
-      where: { id: params.id },
-      data: { jobId: body.jobId },
-      include: { resource: true },
-    });
+    const move = { where: { id: params.id }, data: { jobId: body.jobId as string }, include: { resource: true as const } };
+    // An Admin's override is kept with the move, in one go.
+    const moved = limit.override && user
+      ? await prisma.$transaction(async (tx) => {
+          const m = await tx.assignment.update(move);
+          await recordOverride(tx, user, isoDay(targetJob.date), limit.override!);
+          return m;
+        })
+      : await prisma.assignment.update(move);
     await logMove();
     sanitizeAssignment(moved, user?.role ?? null);
     return NextResponse.json(moved);

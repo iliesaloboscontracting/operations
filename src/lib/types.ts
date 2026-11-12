@@ -68,6 +68,7 @@ export interface ResourceDTO {
   payRateConfirmed?: boolean;
   payRateNotes?: string | null;
   engagement?: string | null; // Accounts stage 2: EMPLOYEE | ABN (Admin only, like pay rates)
+  maxDaysPerWeek?: number | null; // 12 Nov 2026: most days a Mon-Sun week on the board (null = no limit); Admin sets it, Managers+ see it
   active: boolean;
   assignments?: { id: string; job: AssignmentJobRef }[];
 }

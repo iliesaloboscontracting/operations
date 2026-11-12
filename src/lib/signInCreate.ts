@@ -12,6 +12,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "./prisma";
 import { TX } from "./prestart/queue";
+import { afterSignIn } from "./dayLimit/store";
 
 const BUSY_CODES = new Set(["P2024", "P2028", "P2034"]);
 export const isBusyError = (e: unknown) =>
@@ -22,7 +23,15 @@ export const JOB_CANCELLED_SIGN_IN = "That job has been cancelled - ask the offi
 export const FALLBACK_CANCELLED_NOTE = "saved on a cancelled job during fallback – fix by hand on Sign-ins";
 class JobCancelled extends Error {}
 
+// Days-a-week limit (12 Nov 2026): after the sign-in is saved, a day over the person's limit alerts the Admins once
+// (lib/dayLimit/store.ts afterSignIn - never throws, never refuses or changes the sign-in).
 export async function createSignIn(data: Prisma.SiteAttendanceUncheckedCreateInput) {
+  const row = await createSignInRow(data);
+  if (row) await afterSignIn(row);
+  return row;
+}
+
+async function createSignInRow(data: Prisma.SiteAttendanceUncheckedCreateInput) {
   if (!data.jobId) return prisma.siteAttendance.create({ data });
   const jobId = data.jobId;
   try {

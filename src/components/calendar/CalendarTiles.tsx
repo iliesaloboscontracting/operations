@@ -260,6 +260,8 @@ export function TileGrid({
             {w.days.map((d, i) => {
               const inRange = d >= from && d <= to;
               const first = d.slice(8) === "01" || i === 0;
+              // Days before the range (past days, when they're hidden) are blank boxes: no number at all.
+              if (d < from) return null;
               return (
                 <div key={`n${d}`} className="flex items-center gap-1 px-2 text-[11px]" style={{ gridColumn: i + 1, gridRow: 1 }}>
                   {d === today ? (

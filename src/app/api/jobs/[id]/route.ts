@@ -9,6 +9,7 @@ import { checkJobDate } from "@/lib/dateRulesServer";
 import { isoDay, logBoardEdit, siteName } from "@/lib/boardGuard/store";
 import { updateTracked } from "@/lib/history/store";
 import { cancelJob } from "@/lib/jobCancel";
+import { checkBoardDay, recordOverride } from "@/lib/dayLimit/store";
 
 const JOB_INCLUDE = {
   project: { select: { name: true, client: true, jobNo: true, address: true } },
@@ -71,6 +72,16 @@ export const PATCH = withErrorHandling(async (
     }
   }
 
+  // Days-a-week limit (12 Nov 2026, lib/dayLimit): moving a job to another day moves its crew - anyone it would take over
+  // their limit that week is refused (409) unless an Admin goes over it with { overrideReason } (kept in the history).
+  let limitOverride: string | null = null;
+  if ("date" in body && body.date !== isoDay(current.date)) {
+    const crew = await prisma.assignment.findMany({ where: { jobId: params.id, resource: { type: "PERSONNEL", maxDaysPerWeek: { not: null } } }, select: { resource: { select: { id: true, name: true, type: true, maxDaysPerWeek: true } } } });
+    const limit = await checkBoardDay(crew.map((c) => c.resource), body.date, user?.role, body, { jobId: params.id });
+    if (!limit.ok) return NextResponse.json(limit.body, { status: limit.status });
+    limitOverride = limit.override;
+  }
+
   const data: Record<string, unknown> = {};
   for (const key of [
     "title",
@@ -101,6 +112,7 @@ export const PATCH = withErrorHandling(async (
   const fields = Object.keys(data).filter((k) => k !== "dateCheckNote");
   const note = `${siteName(job)}: ${fields.join(", ") || "saved"}`;
   for (const d of new Set([isoDay(current.date), isoDay(job.date)])) await logBoardEdit(user, d, "JOB_EDIT", note);
+  if (limitOverride && user) await recordOverride(prisma, user, isoDay(job.date), limitOverride);
   const { project, ...rest } = job;
   sanitizeJobs([rest], user?.role ?? null);
 

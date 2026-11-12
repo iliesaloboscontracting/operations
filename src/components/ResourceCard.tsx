@@ -5,6 +5,7 @@ import { columnFor, CREW_ROLE_OPTIONS, isLabourHire } from "@/lib/resource";
 import HireTag from "./HireTag";
 import { TicketFlagBadge } from "./compliance/TicketFlags";
 import { FaultFlagBadge } from "./faults/FaultFlags";
+import DayLimitTag from "./board/DayLimitTag";
 
 // Tiles for these two roles stand out from the rest of the crew list at a
 // glance, same idea as a supervisor/lead being flagged on an assigned job chip.
@@ -16,8 +17,11 @@ const HIGHLIGHT_ROLES = new Set(["Supervisor", "Lead"]);
 export default function ResourceCard({
   resource,
   onRoleChange,
+  day,
 }: {
   resource: ResourceDTO;
+  // The board's day - the days-a-week tag counts that Mon-Sun week (12 Nov 2026).
+  day?: string;
   // Present (and the role becomes an editable dropdown right on the card) only
   // for crew-type resources when the viewer can edit; other resource kinds keep
   // the plain read-only sub-label since their `role` means something else
@@ -60,6 +64,7 @@ export default function ResourceCard({
       </span>
       <div className="flex shrink-0 items-center gap-1">
         {isCrew && <TicketFlagBadge resourceId={resource.id} />}
+        {isCrew && <DayLimitTag limit={resource.maxDaysPerWeek} dates={(resource.assignments ?? []).map((a) => a.job.date.slice(0, 10))} day={day} />}
         {!isCrew && <FaultFlagBadge resourceId={resource.id} />}
         {down && (
           <span className="shrink-0 rounded-full bg-red-900/70 px-1.5 py-0.5 text-[10px] uppercase text-red-200">

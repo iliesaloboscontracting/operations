@@ -5,7 +5,7 @@
 // set of rules. The routes keep their guards and responses exactly as before.
 import type { Project, Resource } from "@prisma/client";
 import { prisma } from "./prisma";
-import { pickResourceData, PAY_RATE_FIELDS } from "./resourceFields";
+import { dayLimitInputError, pickResourceData, PAY_RATE_FIELDS } from "./resourceFields";
 import { hireRegisterError } from "./hireServer";
 import { hireDateError } from "./dateRules";
 import { formOffHireDay, hireStatusChangeError, offHiresByStatus } from "./offHire/rules";
@@ -27,6 +27,21 @@ export async function applyResourcePatch(id: string, body: Record<string, unknow
   if (PAY_RATE_FIELDS.some((f) => f in body)) {
     if (actor.role !== "ADMIN") {
       return { error: "Only an admin can change pay rate details", status: 403 };
+    }
+  }
+  // Days-a-week limit (12 Nov 2026): Admin only, like engagement. The edit form sends the whole record back, so a
+  // Manager saving someone with a limit unchanged is fine - only a different value is refused. Labour register only.
+  if ("maxDaysPerWeek" in body) {
+    const bad = dayLimitInputError(body);
+    if (bad) return { error: bad, status: 400 };
+    const next = (pickResourceData({ maxDaysPerWeek: body.maxDaysPerWeek }).maxDaysPerWeek ?? null) as number | null;
+    const existing = await prisma.resource.findUnique({ where: { id }, select: { type: true, maxDaysPerWeek: true } });
+    if (existing && (existing.maxDaysPerWeek ?? null) === next) {
+      body = { ...body };
+      delete body.maxDaysPerWeek;
+    } else {
+      if (actor.role !== "ADMIN") return { error: "Only an admin can set or change a days-a-week limit", status: 403 };
+      if (next != null && existing && String(body.type ?? existing.type) !== "PERSONNEL") return { error: "A days-a-week limit is for people on the Labour register only.", status: 400 };
     }
   }
 

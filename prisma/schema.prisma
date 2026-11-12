@@ -384,6 +384,7 @@ model Resource {
   payClass    String?
   engagement  String? // Accounts stage 2: EMPLOYEE | ABN - who goes in the pay run (blank = not set yet; Admin sets it)
   gstRegistered Boolean? // Accounts stage 4: GST-registered ABN worker (null = not recorded); set on Accounts, Admin-only elsewhere
+  maxDaysPerWeek Int? // 12 Nov 2026 (Ilies): most days a Labour-register person may be on the board in a Mon-Sun week (Sydney dates); null = no limit. Admin sets it; Managers+ see it (lib/dayLimit)
   phone       String?
   email       String?
   tickets     String?

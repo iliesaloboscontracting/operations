@@ -37,7 +37,7 @@ const fmt = (iso: string | null) =>
 
 // The 10 Nov 2026 flags (late sign-in, long day, signed out together) stand out a little more - they're where hours
 // went missing that week. Information only.
-const HOURS_FLAGS = new Set(["LATE_IN", "LONG_SHIFT", "BULK_OUT"]);
+const HOURS_FLAGS = new Set(["LATE_IN", "LONG_SHIFT", "BULK_OUT", "OVER_DAY_LIMIT"]); // + over the days-a-week limit (12 Nov 2026)
 // 11 Nov 2026: a site poster sign-in with no location, or far from the site - the most serious, so red.
 const SERIOUS_FLAGS = new Set(["NO_LOCATION", "FAR_FROM_SITE"]);
 const flagTone = (f: string) =>
