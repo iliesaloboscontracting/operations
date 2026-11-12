@@ -17,30 +17,29 @@ function printSticker(title: string, subtitle: string | null, url: string) {
   if (!w) return alert("Allow pop-ups for Operations to print the QR.");
   w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Pre-start QR - ${esc(title)}</title>
 <style>
-  @page { size: A4; margin: 14mm; }
+  /* Playing-card size (Ilies, 12 Nov 2026: "about the same size as a card from a deck of cards") - 63 x 88 mm,
+     dashed edge to cut along. */
+  @page { size: A4; margin: 12mm; }
   body { font-family: Arial, Helvetica, sans-serif; text-align: center; color: #111; margin: 0; }
-  .cut { border: 1px dashed #999; display: inline-block; padding: 4mm 8mm; }
-  img.logo { height: 40px; margin-top: 4mm; }
-  h1 { font-size: 26px; margin: 4mm 0 1mm; }
-  .not { font-size: 15px; font-weight: bold; color: #b00; margin: 0 0 3mm; }
-  .site { font-size: 22px; font-weight: bold; margin: 0; }
-  .addr { font-size: 14px; color: #444; margin: 1mm 0 4mm; }
-  .qr { width: 75mm; height: 75mm; margin: 0 auto; }
+  .cut { border: 1px dashed #999; box-sizing: border-box; width: 63mm; height: 88mm; padding: 3mm 3mm 2mm;
+         display: flex; flex-direction: column; align-items: center; overflow: hidden; }
+  img.logo { height: 6mm; }
+  h1 { font-size: 12pt; margin: 1.5mm 0 0.5mm; letter-spacing: 0.3px; }
+  .site { font-size: 10pt; font-weight: bold; margin: 0; line-height: 1.15; max-height: 9mm; overflow: hidden; }
+  .addr { font-size: 7pt; color: #444; margin: 0.5mm 0 0; }
+  .qr { width: 44mm; height: 44mm; margin: 1.5mm auto 1mm; }
   .qr svg { width: 100%; height: 100%; }
-  ol { text-align: left; display: inline-block; font-size: 15px; line-height: 1.6; margin-top: 4mm; }
+  .not { font-size: 7.5pt; font-weight: bold; color: #b00; margin: 0 0 1mm; }
+  .how { font-size: 6.5pt; line-height: 1.3; margin: 0; color: #222; }
 </style></head><body>
   <div class="cut">
   <img class="logo" src="${location.origin}/logo.png" alt="Lobos">
   <h1>PRE-START CHECK</h1>
-  <p class="not">This is NOT a sign-in - sign in on site as usual.</p>
   <p class="site">${esc(title)}</p>
-  <p class="addr">${subtitle ? esc(subtitle) : ""}</p>
+  ${subtitle ? `<p class="addr">${esc(subtitle)}</p>` : ""}
   <div class="qr">${qrSvg(url)}</div>
-  <ol>
-    <li>Scan with your phone camera, pick your name (first time only).</li>
-    <li><b>Start of shift</b>: the pre-start. <b>End of shift</b>: the post-check.</li>
-    <li>Photos and the hour meter as it asks. Report any fault.</li>
-  </ol>
+  <p class="not">NOT a sign-in - sign in on site as usual.</p>
+  <p class="how">Scan with your phone camera at the <b>start</b> and <b>end</b> of each shift. Photos, hour meter, report any fault.</p>
   </div>
   <script>window.onload = () => setTimeout(() => window.print(), 300);</script>
 </body></html>`);
