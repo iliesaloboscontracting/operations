@@ -38,7 +38,8 @@ function pdfText(buf) {
     }
     re.lastIndex = end;
   }
-  return out;
+  // Words can come in separate runs ("250" + " hr service") - one space between them, as on the page.
+  return out.replace(/\s+/g, " ");
 }
 
 export default {
@@ -132,7 +133,7 @@ export default {
     const spdf = await dl(s1, "?what=service&format=pdf");
     const stext = pdfText(spdf.buf);
     t.ok(spdf.status === 200 && spdf.buf.subarray(0, 5).toString() === "%PDF-", "service history PDF: 200, a PDF file", spdf.status);
-    if (/RC hist 1/.test(stext)) t.ok(noMoney(stext) && !/412|849|INV-RC87/.test(stext) && /250 hr service/.test(stext), "the service PDF's text: the work done, no amount or invoice number");
+    if (/RC hist 1/.test(stext)) t.ok(noMoney(stext) && !/412|849|INV-RC87/.test(stext) && /250 hr service/.test(stext), "the service PDF's text: the work done, no amount or invoice number", stext.slice(0, 240));
     const csv = await dl(s1, "?what=checks&days=90&format=csv");
     t.ok(csv.status === 200 && /text\/csv/.test(csv.type) && /Lobos Contracting – pre-start records/.test(csv.text) && /RC hist 1/.test(csv.text), "pre-start records CSV: 200, the heading and the machine", `${csv.status} ${csv.type}`);
     t.ok(/"'=HYPERLINK/.test(csv.text) && !csv.text.split(/\r?\n/).some((l) => l.split(",").some((cell) => /^[=+@]/.test(cell))), "CSV: a name that is a formula is escaped (\"'=...\")");
