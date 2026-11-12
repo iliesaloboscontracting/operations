@@ -187,7 +187,9 @@ export const weekHasEnded = (weekStart: string) => todaySydney() > weekEnd(weekS
 // GET /api/accounts/timesheets, 2 Nov 2026): the people's lines, the week's approval (if any), what changed since
 // it was approved, its approval history and accounts' decision per person. An approved week shows exactly what was
 // approved; anything that differs in the live sign-ins since then is counted so nothing slips by unseen.
-export async function timesheetWeek(weekStart: string) {
+// opts.dayLimit (12 Nov 2026, lib/dayLimit): a line on a day past the person's days-a-week limit carries the words
+// "Over 3-day limit (4th day this week)" - information only (the office's screens; never the approval or the export).
+export async function timesheetWeek(weekStart: string, opts: { dayLimit?: boolean } = {}) {
   const [lines, approval, history, accounts, travelNow] = await Promise.all([
     timesheetLines(weekStart),
     activeApproval(weekStart),
@@ -203,7 +205,11 @@ export async function timesheetWeek(weekStart: string) {
   ]);
   const snap = approval ? (JSON.parse(approval.snapshot) as TimesheetSnapshot) : null;
   const approvedLines = snap ? snap.lines : null;
-  const shown = approvedLines ?? lines;
+  let shown = approvedLines ?? lines;
+  if (opts.dayLimit) {
+    const notes = await import("./dayLimit/store").then((m) => m.overLimitNotes(shown.map((l) => l.resourceId), [weekStart]));
+    if (notes.size) shown = shown.map((l) => { const n = notes.get(l.resourceId)?.get(l.date); return n ? { ...l, flagNotes: [...(l.flagNotes ?? []), n] } : l; });
+  }
   const shownTravel = snap ? snap.travel ?? [] : travelNow;
   const tkey = (t: TravelLine) => `${t.legId}|${t.start}|${t.end}|${t.hours}`;
   const key = (l: { attendanceId: string; in: string; out: string | null; hours: number | null; status: string }) =>

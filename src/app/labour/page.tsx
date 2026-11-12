@@ -60,6 +60,15 @@ const PAY_RATE_FIELDS: FieldDef[] = [
   { key: "payRateNotes", label: "Pay rate notes", type: "textarea", full: true },
 ];
 
+// Days-a-week limit (12 Nov 2026, lib/dayLimit): set by an Admin only; the board refuses a day over it and Sign-ins flags it.
+const DAY_LIMIT_FIELD: FieldDef = {
+  key: "maxDaysPerWeek",
+  label: "Days a week (most)",
+  type: "select",
+  section: "Days-a-week limit (Admin only)",
+  options: [{ value: "", label: "No limit" }, ...[1, 2, 3, 4, 5, 6].map((n) => ({ value: String(n), label: `${n} day${n === 1 ? "" : "s"} a week (Mon–Sun)` }))],
+};
+
 export default function LabourPage() {
   const { isAdmin } = useAuth();
 
@@ -70,6 +79,8 @@ export default function LabourPage() {
     { label: "Phone", render: (r) => r.phone },
     { label: "Email", render: (r) => r.email },
     { label: "Where today", render: (r) => whereToday(r) },
+    // Managers and Admins see the limit (it isn't sent to anyone else).
+    { label: "Days/wk", render: (r) => (r.maxDaysPerWeek ? <span className="rounded-full bg-sky-500/20 px-1.5 py-0.5 text-[10px] font-semibold text-sky-200">{r.maxDaysPerWeek} d/wk</span> : null) },
     {
       label: "Status",
       render: (r) => {
@@ -121,7 +132,7 @@ export default function LabourPage() {
           { key: "tickets", label: "Tickets / licences", full: true },
           { key: "status", label: "Status", type: "select", options: [{ value: "AVAILABLE", label: "Available (auto)" }, { value: "LEAVE", label: "On leave" }, { value: "DOWN", label: "Unavailable" }] },
           { key: "notes", label: "Notes", type: "textarea" },
-          ...(isAdmin ? PAY_RATE_FIELDS : []),
+          ...(isAdmin ? [...PAY_RATE_FIELDS, DAY_LIMIT_FIELD] : []),
         ],
       }}
     />

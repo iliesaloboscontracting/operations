@@ -225,17 +225,31 @@ export default function Board() {
         resourceId = (await created.json()).id;
       }
     }
-    const res = payload.assignmentId
-      ? await fetch(`/api/assignments/${payload.assignmentId}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ jobId: realJobId }),
-        })
-      : await fetch("/api/assignments", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ jobId: realJobId, resourceId }),
-        });
+    const send = (extra: Record<string, string> = {}) =>
+      payload.assignmentId
+        ? fetch(`/api/assignments/${payload.assignmentId}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ jobId: realJobId, ...extra }),
+          })
+        : fetch("/api/assignments", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ jobId: realJobId, resourceId, ...extra }),
+          });
+    let res = await send();
+    // Days-a-week limit (12 Nov 2026): refused with the reason in red; an Admin may go over it with a reason (kept).
+    if (res.status === 409) {
+      const j = (await res.clone().json().catch(() => null)) as { error?: string; code?: string; canOverride?: boolean } | null;
+      if (j?.code === "DAY_LIMIT") {
+        if (!j.canOverride) return fail(j.error ?? "Over this person's days-a-week limit.");
+        const reason = window.prompt(`${j.error}
+
+As an Admin you can go over the limit. Why? (kept on record) - or Cancel to leave it.`);
+        if (!reason || !reason.trim()) return fail(j.error ?? "Over this person's days-a-week limit.");
+        res = await send({ overrideReason: reason.trim() });
+      }
+    }
     if (!res.ok) return fail(await serverErrorMessage(res, "Couldn't assign that resource. Try again."));
     await refresh();
   }
@@ -276,15 +290,18 @@ export default function Board() {
       body: JSON.stringify({ from: addDays(selectedDate, -1), to: selectedDate }),
     });
     if (!res.ok) return fail(await serverErrorMessage(res, "Couldn't copy yesterday's plan."));
-    const { copied, merged, skipped = [], offHired = [] } = (await res.json()) as { copied: number; merged: number; skipped?: { name: string; on: string }[]; offHired?: string[] };
+    const { copied, merged, skipped = [], offHired = [], dayLimit = [] } = (await res.json()) as { copied: number; merged: number; skipped?: { name: string; on: string }[]; offHired?: string[]; dayLimit?: string[] };
     const parts = [];
     if (copied) parts.push(`copied ${copied} job${copied > 1 ? "s" : ""}`);
     if (merged) parts.push(`filled in crew on ${merged} existing job${merged > 1 ? "s" : ""}`);
     // Already booked on another job that day - left where they are, not doubled.
     if (skipped.length) parts.push(`skipped ${skipped.map((s) => `${s.name} (already on ${s.on})`).join(", ")}`);
     if (offHired.length) parts.push(`left off ${offHired.join(", ")} (off-hired)`);
+    // Days-a-week limit (12 Nov 2026): "Darnell not copied to Fri 13 – 3-day limit" - shown in red so it's seen.
+    if (dayLimit.length) parts.push(dayLimit.join(", "));
     setMessage({
       text: parts.length ? `Yesterday: ${parts.join(", ")}.` : "Nothing new to copy from yesterday.",
+      error: dayLimit.length > 0 || undefined,
     });
     await refresh();
   }

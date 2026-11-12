@@ -7,9 +7,12 @@ import { assertDateOpen } from "@/lib/dayLock";
 import { isoDay, logBoardEdit, siteName } from "@/lib/boardGuard/store";
 import { offHiredBefore, offHireStop } from "@/lib/hireEstimate";
 import { fmtDay } from "@/lib/dates";
+import { checkBoardDay, recordOverride } from "@/lib/dayLimit/store";
 
 // POST /api/assignments -> drag a resource onto a job
-// body: { jobId, resourceId, role? }
+// body: { jobId, resourceId, role?, overrideReason? }
+// Days-a-week limit (12 Nov 2026, lib/dayLimit): a new date over the person's limit is refused (409) - an Admin may
+// go over it with overrideReason (kept in the board history). A second job on a date they're already on is fine.
 export const POST = withErrorHandling(async (req: NextRequest) => {
   const denied = await guard("MANAGER");
   if (denied) return denied;
@@ -40,7 +43,11 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
     );
   }
 
-  const assignment = await prisma.assignment.upsert({
+  const day = isoDay(job.date);
+  const limit = resource ? await checkBoardDay([resource], day, user?.role, body) : ({ ok: true, override: null } as const);
+  if (!limit.ok) return NextResponse.json(limit.body, { status: limit.status });
+
+  const upsert = {
     where: {
       jobId_resourceId: { jobId: body.jobId, resourceId: body.resourceId },
     },
@@ -52,8 +59,16 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
     update: {
       role: body.role ?? resource?.role ?? null,
     },
-    include: { resource: true },
-  });
+    include: { resource: true as const },
+  };
+  // An Admin's override is kept with the allocation, in one go.
+  const assignment = limit.override && user
+    ? await prisma.$transaction(async (tx) => {
+        const a = await tx.assignment.upsert(upsert);
+        await recordOverride(tx, user, day, limit.override!);
+        return a;
+      })
+    : await prisma.assignment.upsert(upsert);
 
   await logBoardEdit(user, isoDay(job.date), "ASSIGN", `${assignment.resource.name} -> ${siteName(job)}`);
   sanitizeAssignment(assignment, user?.role ?? null);

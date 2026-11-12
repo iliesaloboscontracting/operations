@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { guardOrCoordinator, getCurrentUser } from "@/lib/auth";
-import { pickResourceData, PAY_RATE_FIELDS } from "@/lib/resourceFields";
+import { dayLimitInputError, pickResourceData, PAY_RATE_FIELDS } from "@/lib/resourceFields";
 import { hireRegisterError } from "@/lib/hireServer";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { toPublicResource } from "@/lib/serializeResource";
@@ -71,6 +71,13 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
     if (user?.role !== "ADMIN") {
       return NextResponse.json({ error: "Only an admin can set pay rate details" }, { status: 403 });
     }
+  }
+  // Days-a-week limit (12 Nov 2026): Admin only, Labour register only; blank = no limit.
+  const limitError = dayLimitInputError(body);
+  if (limitError) return NextResponse.json({ error: limitError }, { status: 400 });
+  if (body.maxDaysPerWeek != null && body.maxDaysPerWeek !== "") {
+    if (user?.role !== "ADMIN") return NextResponse.json({ error: "Only an admin can set a days-a-week limit" }, { status: 403 });
+    if (body.type !== "PERSONNEL") return NextResponse.json({ error: "A days-a-week limit is for people on the Labour register only." }, { status: 400 });
   }
 
   const data = pickResourceData(body) as Record<string, unknown>;
