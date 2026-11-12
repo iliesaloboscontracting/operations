@@ -4,11 +4,11 @@
 export const PHASES = ["BEFORE", "AFTER"] as const;
 export type Phase = (typeof PHASES)[number];
 
-// Up to 6 shown per job per day for each set. A removed photo is hidden (never deleted) and frees its place; at most
-// 20 rows a set in all, so add-remove-add can't go on for ever. SEC-BA-001: at most 40 photos a link a Sydney day,
+// Up to 20 shown per job per day for each set (was 6; Ilies 12 Nov 2026, "20 per set"). A removed photo is hidden (never deleted) and frees its place; at most
+// 40 rows a set in all, so add-remove-add can't go on for ever. SEC-BA-001: at most 80 photos a link a Sydney day,
 // removed ones counted too, and 3 MB a photo (a phone photo is shrunk to a few hundred KB before it's sent).
 // SEC-BA-002: a request over 9 MB is refused before it's read.
-export const BEFORE_AFTER_LIMITS = { perPhase: 6, rowsPerPhase: 20, perLinkPerDay: 40, maxBytes: 3 * 1024 * 1024, maxRequestBytes: 9 * 1024 * 1024 } as const;
+export const BEFORE_AFTER_LIMITS = { perPhase: 20, rowsPerPhase: 40, perLinkPerDay: 80, maxBytes: 3 * 1024 * 1024, maxRequestBytes: 9 * 1024 * 1024 } as const;
 export const LINK_DAY_CAP = "That's the most photos this link can send in a day - call the office.";
 export const PHOTO_TOO_BIG = "That photo is too large - try again (it should shrink automatically).";
 

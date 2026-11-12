@@ -5,7 +5,7 @@
 //                  (store.ts submitLog checks it's this link's, this job's, READY).
 //   DELAY        - a delay's photos / videos: the same.
 //   BEFORE_AFTER - a before / after photo or video: READY makes the SiteLogPhoto row straight away (like the old route),
-//                  up to 10 shown a set with at most 3 videos (LOG_MEDIA).
+//                  up to 20 shown a set with at most 3 videos (LOG_MEDIA).
 // A link only ever completes or reads its own uploads. Names and times only - no money.
 import { prisma } from "../prisma";
 import type { ResolvedLink } from "../siteLinks";

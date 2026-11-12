@@ -11,7 +11,7 @@ import MediaUpload from "./MediaUpload";
 // Before / after site photos on the daily log (30 Oct 2026, Ilies). Each photo is sent the moment it's taken - not
 // held for the log - so a Before photo is safe even if the log is never sent. Big buttons for the camera or the
 // gallery (iPhone Safari and Android Chrome), a progress bar while it sends, and a photo that didn't get through on
-// bad signal waits with Retry (and goes again by itself when the phone is back online). Up to 6 a set; remove hides
+// bad signal waits with Retry (and goes again by itself when the phone is back online). Up to 20 a set; remove hides
 // one (the office keeps who and when). Never blocks the log.
 // Large uploads (10 Nov 2026, media on): full-quality photos and videos (up to 2 minutes) straight to the bucket through
 // MediaUpload - up to 10 a set with at most 3 videos; a video plays here (this link's own only).

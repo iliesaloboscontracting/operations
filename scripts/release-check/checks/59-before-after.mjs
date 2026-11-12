@@ -1,9 +1,9 @@
 // Before and after site photos on the daily log (30 Oct 2026). A supervisor link sends Before and After photos for a
-// job it can log today (saved straight away); the 7th in a set is refused; another job's id gets 403; office and
+// job it can log today (saved straight away); the 21st in a set is refused (20 a set since 12 Nov 2026); another job's id gets 403; office and
 // driver links get 404; a removed photo is hidden (not served). The office's photo route is Manager+ and the
 // directors' copy guardDirector - both only for a shown photo of that job. Day Review (Manager+ only - never on a
 // Viewer's reply) and the daily site report show both sets. No dollar figure anywhere; no outside call.
-// Security fixes (30 Oct 2026): SEC-BA-001 40 a link a day (removed count) and 3 MB a photo; SEC-BA-002 413 over 9 MB
+// Security fixes (30 Oct 2026): SEC-BA-001 80 a link a day (was 40) (removed count) and 3 MB a photo; SEC-BA-002 413 over 9 MB
 // before reading; SEC-BA-003 magic bytes (also tool photos and the log's own photos); SEC-BA-004 removed photos for
 // Managers only. The supervisor guide: only on links with the daily log.
 // WRITES a job for today on the copy (the supervisor on it), links and photo rows (files go to the run's temp folder).
@@ -15,7 +15,7 @@ const noMoney = (x) => !/\$\s?\d/.test(JSON.stringify(x ?? ""));
 const PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
 
 export default {
-  id: "before-after", title: "Before and after site photos: link upload, 6 a set, job check, office / directors' routes, no money",
+  id: "before-after", title: "Before and after site photos: link upload, 20 a set, job check, office / directors' routes, no money",
   writes: true,
   applies: (c) => c.hasPath("src/app/api/site/[token]/log/photos/route.ts") || "needs the before / after photos route",
   async run(t, c) {
@@ -39,18 +39,18 @@ export default {
     t.status(await post(link, { jobId: job.id, phase: "DURING", photo: PNG }), 400, "only BEFORE or AFTER");
     t.status(await post(link, { jobId: job.id, phase: "BEFORE", photo: "data:text/html;base64,PGI+" }), 400, "not an image: refused");
 
-    // Before: 6, then the 7th refused.
+    // Before: 20, then the 21st refused (20 a set since 12 Nov 2026).
     let last = null;
-    for (let i = 1; i <= 6; i++) {
+    for (let i = 1; i <= 20; i++) {
       const r = await post(link, { jobId: job.id, phase: "BEFORE", photo: PNG });
       last = await r.json().catch(() => ({}));
       if (r.status !== 201) { t.status(r, 201, `before photo ${i} saved`); break; }
     }
-    t.ok(last?.photos?.before?.length === 6 && noMoney(last), "6 before photos saved straight away, names and times only", JSON.stringify(last?.photos?.before?.map((p) => p.atLabel)));
+    t.ok(last?.photos?.before?.length === 20 && noMoney(last), "20 before photos saved straight away, names and times only", JSON.stringify(last?.photos?.before?.map((p) => p.atLabel)));
     t.ok(last?.photos?.before?.every((p) => !("fileName" in p)), "...no file name goes back to the phone");
-    const seventh = await post(link, { jobId: job.id, phase: "BEFORE", photo: PNG });
-    t.status(seventh, 409, "the 7th before photo is refused");
-    t.ok(/6 photos already/.test((await seventh.json().catch(() => ({}))).error ?? ""), "...saying to remove one first");
+    const extra = await post(link, { jobId: job.id, phase: "BEFORE", photo: PNG });
+    t.status(extra, 409, "the 21st before photo is refused");
+    t.ok(/20 photos already/.test((await extra.json().catch(() => ({}))).error ?? ""), "...saying to remove one first");
 
     // After: one, with no log sent (saved without it).
     const after = await post(link, { jobId: job.id, phase: "AFTER", photo: PNG });
@@ -64,22 +64,22 @@ export default {
     t.ok(img.status === 200 && /image\//.test(img.headers.get("content-type") ?? ""), "the link fetches its own photo", img.status);
     const hid = await post(link, { hide: b1?.id });
     const hidBody = await hid.json().catch(() => ({}));
-    t.ok(hid.status === 200 && hidBody.photos?.before?.length === 5, "remove hides it (5 left)", hid.status);
+    t.ok(hid.status === 200 && hidBody.photos?.before?.length === 19, "remove hides it (19 left)", hid.status);
     const row = await c.db.siteLogPhoto.findUnique({ where: { id: b1?.id } });
     t.ok(row && row.hiddenAt && row.hiddenBy, "...the row is kept, with who and when");
     t.status(await c.get(c.site(link, `/log/photos?id=${b1?.id}`), null), 404, "...and a removed photo isn't served");
-    t.status(await post(link, { jobId: job.id, phase: "BEFORE", photo: PNG }), 201, "...its place is free again (6)");
+    t.status(await post(link, { jobId: job.id, phase: "BEFORE", photo: PNG }), 201, "...its place is free again (20)");
 
     // The log screen carries the sets.
     const view = await c.json(c.site(link, "/log"), null);
     const vj = (view.body?.jobs ?? []).find((j) => j.jobId === job.id);
-    t.ok(vj?.beforeAfter?.before?.length === 6 && vj.beforeAfter.after.length === 1 && noMoney(view.body), "the link's log shows 6 before and 1 after", JSON.stringify(vj?.beforeAfter ? { b: vj.beforeAfter.before.length, a: vj.beforeAfter.after.length } : null));
+    t.ok(vj?.beforeAfter?.before?.length === 20 && vj.beforeAfter.after.length === 1 && noMoney(view.body), "the link's log shows 20 before and 1 after", JSON.stringify(vj?.beforeAfter ? { b: vj.beforeAfter.before.length, a: vj.beforeAfter.after.length } : null));
 
     // Day Review: Managers and Admins see both sets; a Viewer sees neither.
     for (const who of ["MANAGER", "ADMIN"]) {
       const r = await c.json(`/api/day-review/site-logs?date=${day}`, who);
       const j = (r.body?.jobs ?? []).find((x) => x.jobId === job.id);
-      t.ok(j?.beforeAfter?.before?.length === 6 && j.beforeAfter.after.length === 1 && !j.beforeAfter.noBefore && !j.beforeAfter.noAfter, `${who}: Day Review shows both sets`, JSON.stringify(j?.beforeAfter ? { b: j.beforeAfter.before.length, a: j.beforeAfter.after.length } : null));
+      t.ok(j?.beforeAfter?.before?.length === 20 && j.beforeAfter.after.length === 1 && !j.beforeAfter.noBefore && !j.beforeAfter.noAfter, `${who}: Day Review shows both sets`, JSON.stringify(j?.beforeAfter ? { b: j.beforeAfter.before.length, a: j.beforeAfter.after.length } : null));
       const s = (r.body?.summary ?? []).find((x) => x.jobId === job.id);
       t.ok(s && s.noBefore === false && s.noAfter === false, `${who}: the summary has the photo flags`);
       t.ok(noMoney(r.body), `${who}: no dollar figure`);
@@ -108,7 +108,7 @@ export default {
 
     // The daily site report shows both sets (office and directors).
     const rep = await c.json(`/api/daily-report/${job.id}`, "MANAGER");
-    t.ok(rep.status === 200 && rep.body?.report?.beforeAfter?.before?.length === 6 && rep.body.report.beforeAfter.after.length === 1 && noMoney(rep.body), "the daily site report shows both sets, no dollar figure", rep.status);
+    t.ok(rep.status === 200 && rep.body?.report?.beforeAfter?.before?.length === 20 && rep.body.report.beforeAfter.after.length === 1 && noMoney(rep.body), "the daily site report shows both sets, no dollar figure", rep.status);
     const drep = await c.json(`/api/directors/daily-report/${job.id}`, "DIRECTOR");
     t.ok(drep.status === 200 && drep.body?.report?.beforeAfter?.after?.length === 1 && noMoney(drep.body), "...and the directors' copy", drep.status);
 
@@ -156,11 +156,11 @@ export default {
     const big = "data:image/png;base64," + Buffer.concat([Buffer.from(PNG.split(",")[1], "base64"), Buffer.alloc(3 * 1024 * 1024 + 10)]).toString("base64");
     t.status(await post(link, { jobId: job.id, phase: "AFTER", photo: big }), 413, "a photo over 3 MB: 413");
 
-    // SEC-BA-001: 40 photos a link a Sydney day - removed ones count too.
+    // SEC-BA-001: 80 photos a link a Sydney day (40 before 12 Nov 2026) - removed ones count too.
     const capLink = await makeLink(c.db, "SUPERVISOR", L.sup.resourceId);
-    await c.db.siteLogPhoto.createMany({ data: Array.from({ length: 40 }, () => ({ jobId: job.id, day, phase: "AFTER", fileName: "0-0000000000000000.png", siteLinkId: capLink.id, takenBy: "release check", hiddenAt: new Date(), hiddenBy: "release check" })) });
+    await c.db.siteLogPhoto.createMany({ data: Array.from({ length: 80 }, () => ({ jobId: job.id, day, phase: "AFTER", fileName: "0-0000000000000000.png", siteLinkId: capLink.id, takenBy: "release check", hiddenAt: new Date(), hiddenBy: "release check" })) });
     const capped = await post(capLink, { jobId: job.id, phase: "AFTER", photo: PNG });
-    t.status(capped, 429, "the 41st photo from a link today is refused (40 sent, all removed)");
+    t.status(capped, 429, "the 81st photo from a link today is refused (80 sent, all removed)");
     const capMsg = (await capped.json().catch(() => ({}))).error;
     t.ok(capMsg === "That's the most photos this link can send in a day - call the office.", "...with the exact message", capMsg);
 
