@@ -12,7 +12,8 @@
 //             lane when it is free), then compacted per week row, so a bar keeps its place across the weeks it crosses;
 //  - marks:   what the board has on each day (day / night crew counts, no supervisor, gear but no crew, not running),
 //             with words, never colour alone;
-//  - colours: one stable pastel per project, keyed by project id (never by rank or by what is on screen);
+//  - colours: one stable colour per project (the Allocations tile style), keyed by project id (never by rank or by what
+//             is on screen);
 //  - agenda:  the phone list - each day, the projects running, "continuing" when the bar started earlier.
 // No money: project keys, dates and crew / plant / hire counts only.
 import { addDays, daysBetween, isWeekend, startOfWeek } from "./dates";
@@ -247,38 +248,49 @@ function markWords(day: ShiftMark | null, night: ShiftMark | null, notRunning: b
   return [day && shiftWords("Day", day), night && shiftWords("Night", night)].filter(Boolean).join(" · ");
 }
 
-// One pastel per project (Ilies, 12 Nov 2026: "lets remove the striped lighten the colour inside the bar and darken the
-// boarder line" - Keep&Share-style pastel bars, a darker outline in the same hue, near-black text). Twelve hues in a
-// fixed order, red / rose / amber / orange / yellow left out so they stay the warnings' colours. Fill = Tailwind 200-400
-// (the shade per hue chosen to keep the twelve as far apart as possible for normal vision), border = the same hue's 800.
-// Checked with the dataviz validate_palette.js (12 Nov 2026): adjacent slots PASS CVD (worst 10.0) and the
-// normal-vision floor (worst 16.7). All-pairs cannot hold at twelve hues (worst normal 8.0, sky / blue; CVD fails) -
-// every bar carries its name, so identity is never colour alone. Near-black text (#030712) on every fill >= 6.7:1.
-// The fills sit outside the palette's mark lightness band on purpose: they are backgrounds under dark text, not thin
-// marks. Past twelve projects: a labelled neutral (stone).
+// One colour per project in the Allocations board's tile style (Ilies, 12 Nov 2026: "the colour scheme could match the
+// same theme as the tiles in the allocation tab" - components/AssignedChip.tsx): a dark tinted fill (<hue>-950 at 60%),
+// a coloured outline (<hue>-500 at 80%), light text in the same hue (<hue>-200, secondary <hue>-300).
+// Twelve hues in a fixed order. Red, rose, amber, orange and yellow are left out: amber is the board's warning ring,
+// orange = plant and yellow = labour hire on the board. Teal (hire on the board) and blue / sky (near the brand blue
+// of crew chips) are kept only because no other non-warning hues are left for twelve; a calendar bar never stands for
+// a resource, and every bar carries its name.
+// Checked with the dataviz validate_palette.js on the outlines composited over the panel (#181B20, 12 Nov 2026):
+// adjacent slots PASS CVD (worst 11.7) and the normal-vision floor (worst 20.8). All-pairs cannot hold at twelve hues
+// (worst normal 4.4, violet / purple; CVD fails all-pairs) - identity is never colour alone (the name is on the bar).
+// Text >= 8:1 on every composited fill (calendarTiles.test.ts). Past twelve projects: a labelled neutral (gray).
+const TW = (name: string, c950: string, c500: string, c200: string, c300: string) => ({
+  name,
+  fill: `${c950}99`, // 60%
+  border: `${c500}cc`, // 80%
+  text: c200,
+  sub: c300,
+});
 export const TILE_PALETTE = [
-  { name: "teal", fill: "#2dd4bf", border: "#115e59" },
-  { name: "purple", fill: "#c084fc", border: "#6b21a8" },
-  { name: "blue", fill: "#93c5fd", border: "#1e40af" },
-  { name: "pink", fill: "#f472b6", border: "#9d174d" },
-  { name: "emerald", fill: "#a7f3d0", border: "#065f46" },
-  { name: "sky", fill: "#38bdf8", border: "#075985" },
-  { name: "violet", fill: "#ddd6fe", border: "#5b21b6" },
-  { name: "lime", fill: "#d9f99d", border: "#3f6212" },
-  { name: "cyan", fill: "#67e8f9", border: "#155e75" },
-  { name: "indigo", fill: "#818cf8", border: "#3730a3" },
-  { name: "fuchsia", fill: "#f0abfc", border: "#86198f" },
-  { name: "green", fill: "#4ade80", border: "#166534" },
-] as const;
+  TW("violet", "#2e1065", "#8b5cf6", "#ddd6fe", "#c4b5fd"),
+  TW("cyan", "#083344", "#06b6d4", "#a5f3fc", "#67e8f9"),
+  TW("purple", "#3b0764", "#a855f7", "#e9d5ff", "#d8b4fe"),
+  TW("teal", "#042f2e", "#14b8a6", "#99f6e4", "#5eead4"),
+  TW("fuchsia", "#4a044e", "#d946ef", "#f5d0fe", "#f0abfc"),
+  TW("lime", "#1a2e05", "#84cc16", "#d9f99d", "#bef264"),
+  TW("indigo", "#1e1b4b", "#6366f1", "#c7d2fe", "#a5b4fc"),
+  TW("green", "#052e16", "#22c55e", "#bbf7d0", "#86efac"),
+  TW("sky", "#082f49", "#0ea5e9", "#bae6fd", "#7dd3fc"),
+  TW("pink", "#500724", "#ec4899", "#fbcfe8", "#f9a8d4"),
+  TW("blue", "#172554", "#3b82f6", "#bfdbfe", "#93c5fd"),
+  TW("emerald", "#022c22", "#10b981", "#a7f3d0", "#6ee7b7"),
+];
 export const TILE_SLOTS = TILE_PALETTE.length;
-export const TILE_TEXT = "#030712"; // near-black, on every fill
+export const TILE_SURFACES = ["#181B20", "#20242A"]; // tailwind panel, panel2 (weekends) - what the fills sit on
 
 export interface TileColour {
   slot: number | null; // null = neutral (more projects than slots)
-  fill: string;
-  border: string;
+  fill: string; // #rrggbbaa
+  border: string; // #rrggbbaa
+  text: string; // the name
+  sub: string; // job number, counts
 }
-export const NEUTRAL_TILE: TileColour = { slot: null, fill: "#e7e5e4", border: "#57534e" };
+export const NEUTRAL_TILE: TileColour = { slot: null, fill: "#1f293799", border: "#6b7280cc", text: "#e5e7eb", sub: "#d1d5db" };
 
 // FNV-1a, so a project's preferred slot depends on its id alone.
 export function hashKey(s: string) {
@@ -319,7 +331,8 @@ export function assignColours(tiers: string[][], extra: string[] = []): Map<stri
     if (slot === null) out.set(id, NEUTRAL_TILE);
     else {
       taken.add(slot);
-      out.set(id, { slot, fill: TILE_PALETTE[slot].fill, border: TILE_PALETTE[slot].border });
+      const p = TILE_PALETTE[slot];
+      out.set(id, { slot, fill: p.fill, border: p.border, text: p.text, sub: p.sub });
     }
   }
   return out;
