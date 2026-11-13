@@ -9,7 +9,9 @@ import { officeChangesText, weekEnd } from "../timesheets";
 import { recordChanges, writeChanges, writeLock, type Who } from "../history/store";
 import { assertNoMoney } from "../moneyGuard";
 import { looksLikeLobos } from "../staffMatch";
-import { BUILT_IN_COMPANIES, companyKey, lineFlags, signInList, tidyText, type CompanyAlias } from "./rules";
+import {
+  BUILT_IN_COMPANIES, companyKey, lineFlags, MAX_SIGN_IN_COMPANIES, NO_COMPANY_KEY, OTHER_COMPANY, signInList, tidyText, type CompanyAlias,
+} from "./rules";
 import type { HireLine } from "./week";
 
 
@@ -162,22 +164,32 @@ export const signInCompanies = async () => signInList(await companyRows());
 // Add a company to the sign-in list (or switch a switched-off one back on). Refused: a built-in company (already
 // listed), "Lobos" (staff pick their own name), an amount. Every change is in RecordChange.
 export async function addCompany(nameIn: unknown, by: Who) {
-  const name = tidyText(typeof nameIn === "string" ? nameIn : "");
+  // PS-069 (Ilies approved 13 Nov 2026): invisible / control characters are stripped, and the name needs at least two
+  // letters or digits - it can't be blank once tidied, or read as "no company" / the "Other" choice.
+  const name = tidyText((typeof nameIn === "string" ? nameIn : "").replace(/[\p{Cc}\p{Cf}]/gu, " "));
   if (name.length < 2 || name.length > MAX) throw new AliasError("Enter the company's name (2 to 80 letters).");
+  if ((name.match(/[\p{L}\p{N}]/gu) ?? []).length < 2) throw new AliasError("Enter the company's name");
   if (!assertNoMoney(name)) throw new AliasError("Names only - no amounts.");
   if (looksLikeLobos(name)) throw new AliasError("Lobos staff pick their own name at sign-in - Lobos isn't a hire company.");
   const key = companyKey(name);
+  if (key === NO_COMPANY_KEY || key === companyKey(OTHER_COMPANY)) throw new AliasError("Enter the company's name");
   if (BUILT_IN_COMPANIES.some((c) => c.key === key)) throw new AliasError(`${name} is already on the list.`, 409);
+  // PS-068: the list a worker picks from stays short - a full list refuses another until one is taken off.
+  const full = async (tx: Pick<typeof prisma, "labourHireCompany">) =>
+    BUILT_IN_COMPANIES.length + (await tx.labourHireCompany.count({ where: { retiredAt: null, key: { notIn: BUILT_IN_COMPANIES.map((c) => c.key) } } })) >= MAX_SIGN_IN_COMPANIES;
+  const fullError = () => new AliasError(`The sign-in list is full (${MAX_SIGN_IN_COMPANIES}) - take one off first.`, 409);
   const ctx = { by, source: "Labour hire timesheet - sign-in company list" };
   return prisma.$transaction(async (tx) => {
     await writeLock(tx);
     const existing = await tx.labourHireCompany.findUnique({ where: { key } });
     if (!existing) {
+      if (await full(tx)) throw fullError();
       const row = await tx.labourHireCompany.create({ data: { key, name, createdBy: (by?.name ?? "Operations").slice(0, 120), createdById: by?.id ?? null } });
       await writeChanges(tx, "LabourHireCompany", row.id, [{ field: "name", before: null, after: name }], ctx);
       return { row, changed: true };
     }
     if (!existing.retiredAt && existing.name === name) throw new AliasError(`${name} is already on the list.`, 409);
+    if (existing.retiredAt && (await full(tx))) throw fullError();
     const data = { name, retiredAt: null, retiredBy: null, retireReason: null };
     const row = await tx.labourHireCompany.update({ where: { id: existing.id }, data });
     await recordChanges(tx, "LabourHireCompany", existing.id, existing, row, ctx, Object.keys(data));

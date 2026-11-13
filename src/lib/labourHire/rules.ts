@@ -120,6 +120,9 @@ export const exportFileName = (companyName: string | null, weekStart: string) =>
 
 export const OTHER_COMPANY = "Other – subcontractor / another company";
 
+// PS-068 (Ilies approved 13 Nov 2026): the sign-in screen lists at most this many companies, built-in ones included.
+export const MAX_SIGN_IN_COMPANIES = 25;
+
 export type ListedCompany = { key: string; name: string; builtIn: boolean; id?: string };
 export type CompanyRow = { id: string; key: string; name: string; retiredAt?: Date | string | null };
 

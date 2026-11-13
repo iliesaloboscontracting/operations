@@ -83,6 +83,39 @@ export default {
     t.ok(((await scan()).body?.hireCompanies ?? []).includes(name) && (await db.labourHireCompany.count({ where: { key: row?.key ?? "-" } })) === 1, "back on the list, the same row");
     t.ok((await hist()).length >= 3, "add, take off and put back are all in the history", (await hist()).length);
 
+    // (6b) PS-069: hidden characters stripped; a name with no real letters or digits, or the Other choice, is refused.
+    const ZW = String.fromCharCode(0x200b), BEL = String.fromCharCode(7);
+    const zwName = `RC Zero width${tag} Co`;
+    t.status(await c.post(LIST, "MANAGER", { action: "list-add", name: `RC Zero${ZW}width${tag}${BEL} Co` }), 200, "a name with hidden characters is taken...");
+    const zwRow = await db.labourHireCompany.findFirst({ where: { name: zwName } });
+    t.ok(!!zwRow && !zwRow.name.includes(ZW) && !zwRow.name.includes(BEL), "...and stored without them", JSON.stringify(zwRow?.name));
+    const OTHER_NAME = "Other – subcontractor / another company";
+    for (const bad of ["--", " . ", ZW + ZW + ZW, BEL + BEL, `a${ZW}`, `-${ZW}-`, OTHER_NAME, "other subcontractor another company"])
+      t.status(await c.post(LIST, "MANAGER", { action: "list-add", name: bad }), 400, `refused: ${JSON.stringify(bad)}`);
+    t.status(await c.post(LIST, "MANAGER", { action: "list-retire", id: zwRow?.id, reason: "test - off before filling" }), 200, "the hidden-character one is taken off again");
+
+    // (6c) PS-068: the sign-in list stops at 25 companies (built-in ones included); taking one off makes room.
+    const room = 25 - ((await scan()).body?.hireCompanies ?? []).length;
+    const filler = [];
+    for (let i = 0; i < room; i++) {
+      const n = `RC Fill${tag} ${String.fromCharCode(65 + Math.floor(i / 26))}${String.fromCharCode(65 + (i % 26))}`;
+      const r = await c.post(LIST, "MANAGER", { action: "list-add", name: n });
+      if (r.status !== 200) { t.ok(false, `filling the list: ${n} -> ${r.status}`); break; }
+      filler.push(n);
+    }
+    t.ok(((await scan()).body?.hireCompanies ?? []).length === 25, "the list fills to 25", room);
+    const over = await c.post(LIST, "MANAGER", { action: "list-add", name: `RC Overflow${tag} Pty` });
+    t.status(over, 409, "a 26th company is refused");
+    t.ok(/full \(25\)/.test(JSON.stringify(over.body ?? {})), "...saying the list is full", JSON.stringify(over.body));
+    t.status(await c.post(LIST, "ADMIN", { action: "list-add", name: zwName }), 409, "putting a switched-off company back is refused too while the list is full");
+    const firstFill = await db.labourHireCompany.findFirst({ where: { name: filler[0] ?? "-" } });
+    t.status(await c.post(LIST, "MANAGER", { action: "list-retire", id: firstFill?.id, reason: "make room" }), 200, "taking one off...");
+    t.status(await c.post(LIST, "MANAGER", { action: "list-add", name: `RC Overflow${tag} Pty` }), 200, "...makes room for another");
+    t.ok(((await scan()).body?.hireCompanies ?? []).length === 25, "the scan never lists more than 25");
+    // Tidy: switch off what this check added so later checks see the usual short list.
+    for (const r of await db.labourHireCompany.findMany({ where: { retiredAt: null, name: { contains: tag } } }))
+      await c.post(LIST, "MANAGER", { action: "list-retire", id: r.id, reason: "release check tidy-up" });
+
     // (7) The sign-in page: the list, plus Other with a box; the sign route still takes any company (never stopped).
     let page = "", sign = "";
     try {
