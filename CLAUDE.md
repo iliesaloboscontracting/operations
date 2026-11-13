@@ -685,6 +685,14 @@ business, without becoming unnecessarily complicated.
   is OFF (`MEDIA_ABORT_STALE`) – Ilies hasn't approved it. Caps: ≤ 3 uploads in progress per source, a
   company daily byte ceiling (fresh pending + stored). **New packages need `npm ci` at deploy** (the 11 Nov
   deploy skipped it and was down ~4.5 min). Release check `80-large-uploads` (local fake store).
+- **Hire sign-in company list** (live 13 Nov 2026 18:09, Ilies: "only put a list ... Advanced labour hire shows
+  only ... with the potential to add more"; `src/lib/labourHire/`): a hire worker picks their company at sign-in
+  from the list (Advanced Labour Hire built in, `BUILT_IN_COMPANIES`) or "Other – subcontractor / another company"
+  and types it - never stopped from signing in; typed ones show "Not on the sign-in list" on /timesheets/labour-hire.
+  Managers / Admins add or take off companies there ("Sign-in company list", `LabourHireCompany`, a reason to take
+  off, nothing deleted, history in RecordChange). Max 25 on the list incl. built-ins (PS-068), names tidied and
+  "Other"/blank refused (PS-069). `hireCompanies` (names only) on GET /api/site/in/[code]. Release check
+  `89-hire-company-list`.
 - **Money-guard principle:** crew-facing/operational views (day sheets, Day
   Review, the Yard) never carry dollar figures — enforced at both the
   TypeScript type level (narrow DTOs with no money fields) and via a runtime
