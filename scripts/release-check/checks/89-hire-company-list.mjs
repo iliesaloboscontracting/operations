@@ -106,7 +106,8 @@ export default {
     t.ok(((await scan()).body?.hireCompanies ?? []).length === 25, "the list fills to 25", room);
     const over = await c.post(LIST, "MANAGER", { action: "list-add", name: `RC Overflow${tag} Pty` });
     t.status(over, 409, "a 26th company is refused");
-    t.ok(/full \(25\)/.test(JSON.stringify(over.body ?? {})), "...saying the list is full", JSON.stringify(over.body));
+    const overBody = await over.json().catch(() => ({}));
+    t.ok(/full \(25\)/.test(JSON.stringify(overBody)), "...saying the list is full", JSON.stringify(overBody));
     t.status(await c.post(LIST, "ADMIN", { action: "list-add", name: zwName }), 409, "putting a switched-off company back is refused too while the list is full");
     const firstFill = await db.labourHireCompany.findFirst({ where: { name: filler[0] ?? "-" } });
     t.status(await c.post(LIST, "MANAGER", { action: "list-retire", id: firstFill?.id, reason: "make room" }), 200, "taking one off...");
