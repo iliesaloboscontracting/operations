@@ -4,6 +4,8 @@ import { withErrorHandling } from "@/lib/apiHandler";
 import { jobLabel, makeTicket, openJob, openJobsAtProject, pointCrew, readRotatingCode, resolvePoster, takesSignIns, type Method } from "@/lib/signin";
 import { outsideWindow } from "@/lib/posterGuard/rules";
 import { posterWindowOn, projectHours, windowForJob } from "@/lib/posterGuard/store";
+import { signInCompanies } from "@/lib/labourHire/store";
+import { MAX_SIGN_IN_COMPANIES } from "@/lib/labourHire/rules";
 
 // GET /api/site/in/:code - a phone has scanned a sign-in QR: the supervisor's
 // changing code, a site poster, or a fixed office / yard / truck QR. Public,
@@ -59,6 +61,9 @@ export const GET = withErrorHandling(async (_req: NextRequest, { params: paramsP
     method,
     ticket: makeTicket({ jobIds: jobs.map((j) => j.id), method, linkId }),
     jobs,
+    // The labour hire companies a hire worker picks from (13 Nov 2026, Ilies) - company names only.
+    // At most MAX_SIGN_IN_COMPANIES (PS-068).
+    hireCompanies: (await signInCompanies()).slice(0, MAX_SIGN_IN_COMPANIES).map((c) => c.name),
   });
 });
 

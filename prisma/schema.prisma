@@ -1073,6 +1073,26 @@ model LabourHireCompanyAlias {
   retireReason String?
 }
 
+// Labour hire companies on the sign-in list (13 Nov 2026, Ilies: "lets only put a list for when the guys are asked..
+// Advanced labour hire shows only.. with the potential to add more if we find another labour hire company"). A hire
+// worker picks their company from this list at sign-in; anyone else taps "Other - subcontractor / another company" and
+// types it (never stopped from signing in; marked "Not on the list" on the Labour hire timesheet). Advanced Labour Hire
+// is built in (lib/labourHire/rules.ts BUILT_IN_COMPANIES). Managers and Admins add a company; it is never deleted - it
+// is switched off (retiredAt / By / Reason) and adding the same name again brings it back. Every change is in
+// RecordChange (model "LabourHireCompany"). Names only - never a rate or amount.
+model LabourHireCompany {
+  id           String    @id @default(cuid())
+  key          String    @unique // the name's key (lib/labourHire/rules.ts companyKey)
+  name         String // as shown on the sign-in list ("Advanced Labour Hire")
+  createdBy    String
+  createdById  String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  retiredAt    DateTime?
+  retiredBy    String?
+  retireReason String?
+}
+
 // Site requests (21 Oct 2026, Ilies): supervisors ask for labour, trucks,
 // hire, tools and so on from their private link instead of a call or a
 // WhatsApp. Only Ilies (ADMIN) decides; approved ones go on the to-do list of

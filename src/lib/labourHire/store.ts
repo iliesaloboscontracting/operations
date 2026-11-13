@@ -8,7 +8,10 @@ import { flagsForJobRows, signedInEarlierIds } from "../signinFlags";
 import { officeChangesText, weekEnd } from "../timesheets";
 import { recordChanges, writeChanges, writeLock, type Who } from "../history/store";
 import { assertNoMoney } from "../moneyGuard";
-import { companyKey, lineFlags, tidyText, type CompanyAlias } from "./rules";
+import { looksLikeLobos } from "../staffMatch";
+import {
+  BUILT_IN_COMPANIES, companyKey, lineFlags, MAX_SIGN_IN_COMPANIES, NO_COMPANY_KEY, OTHER_COMPANY, signInList, tidyText, type CompanyAlias,
+} from "./rules";
 import type { HireLine } from "./week";
 
 
@@ -141,6 +144,74 @@ export async function retireCompanyAlias(id: unknown, reasonIn: unknown, by: Who
     const data = { retiredAt: new Date(), retiredBy: (by?.name ?? "Operations").slice(0, 120), retireReason: reason };
     const row = await tx.labourHireCompanyAlias.update({ where: { id }, data });
     await recordChanges(tx, "LabourHireCompanyAlias", id, existing, row, ctx, Object.keys(data));
+    return row;
+  });
+}
+
+// ---------- the sign-in list (13 Nov 2026) ----------
+
+export type CompanyListRow = {
+  id: string; key: string; name: string; createdBy: string; createdAt: Date; updatedAt: Date;
+  retiredAt: Date | null; retiredBy: string | null; retireReason: string | null;
+};
+
+// Every company the office added, on or switched off, A-Z.
+export const companyRows = (): Promise<CompanyListRow[]> => prisma.labourHireCompany.findMany({ orderBy: [{ name: "asc" }, { id: "asc" }] });
+
+// The list a hire worker picks from at sign-in (the built-in companies plus the office's own that are on).
+export const signInCompanies = async () => signInList(await companyRows());
+
+// Add a company to the sign-in list (or switch a switched-off one back on). Refused: a built-in company (already
+// listed), "Lobos" (staff pick their own name), an amount. Every change is in RecordChange.
+export async function addCompany(nameIn: unknown, by: Who) {
+  // PS-069 (Ilies approved 13 Nov 2026): invisible / control characters are stripped, and the name needs at least two
+  // letters or digits - it can't be blank once tidied, or read as "no company" / the "Other" choice.
+  const name = tidyText((typeof nameIn === "string" ? nameIn : "").replace(/[\p{Cc}\p{Cf}]/gu, " "));
+  if (name.length < 2 || name.length > MAX) throw new AliasError("Enter the company's name (2 to 80 letters).");
+  if ((name.match(/[\p{L}\p{N}]/gu) ?? []).length < 2) throw new AliasError("Enter the company's name");
+  if (!assertNoMoney(name)) throw new AliasError("Names only - no amounts.");
+  if (looksLikeLobos(name)) throw new AliasError("Lobos staff pick their own name at sign-in - Lobos isn't a hire company.");
+  const key = companyKey(name);
+  if (key === NO_COMPANY_KEY || key === companyKey(OTHER_COMPANY)) throw new AliasError("Enter the company's name");
+  if (BUILT_IN_COMPANIES.some((c) => c.key === key)) throw new AliasError(`${name} is already on the list.`, 409);
+  // PS-068: the list a worker picks from stays short - a full list refuses another until one is taken off.
+  const full = async (tx: Pick<typeof prisma, "labourHireCompany">) =>
+    BUILT_IN_COMPANIES.length + (await tx.labourHireCompany.count({ where: { retiredAt: null, key: { notIn: BUILT_IN_COMPANIES.map((c) => c.key) } } })) >= MAX_SIGN_IN_COMPANIES;
+  const fullError = () => new AliasError(`The sign-in list is full (${MAX_SIGN_IN_COMPANIES}) - take one off first.`, 409);
+  const ctx = { by, source: "Labour hire timesheet - sign-in company list" };
+  return prisma.$transaction(async (tx) => {
+    await writeLock(tx);
+    const existing = await tx.labourHireCompany.findUnique({ where: { key } });
+    if (!existing) {
+      if (await full(tx)) throw fullError();
+      const row = await tx.labourHireCompany.create({ data: { key, name, createdBy: (by?.name ?? "Operations").slice(0, 120), createdById: by?.id ?? null } });
+      await writeChanges(tx, "LabourHireCompany", row.id, [{ field: "name", before: null, after: name }], ctx);
+      return { row, changed: true };
+    }
+    if (!existing.retiredAt && existing.name === name) throw new AliasError(`${name} is already on the list.`, 409);
+    if (existing.retiredAt && (await full(tx))) throw fullError();
+    const data = { name, retiredAt: null, retiredBy: null, retireReason: null };
+    const row = await tx.labourHireCompany.update({ where: { id: existing.id }, data });
+    await recordChanges(tx, "LabourHireCompany", existing.id, existing, row, ctx, Object.keys(data));
+    return { row, changed: true };
+  });
+}
+
+// Take a company off the sign-in list (never deleted - adding the same name again brings it back). Its workers'
+// remembered phones still sign in with it; their lines are then marked "Not on the list".
+export async function retireCompany(id: unknown, reasonIn: unknown, by: Who) {
+  if (typeof id !== "string" || !id || id.length > 64) throw new AliasError("Unknown company.", 404);
+  const reason = tidyText(typeof reasonIn === "string" ? reasonIn : "").slice(0, 300);
+  if (reason.length < 3) throw new AliasError("Say why it's coming off the list.");
+  const ctx = { by, source: "Labour hire timesheet - sign-in company list", reason };
+  return prisma.$transaction(async (tx) => {
+    await writeLock(tx);
+    const existing = await tx.labourHireCompany.findUnique({ where: { id } });
+    if (!existing) throw new AliasError("Unknown company.", 404);
+    if (existing.retiredAt) throw new AliasError("That company is already off the list.", 409);
+    const data = { retiredAt: new Date(), retiredBy: (by?.name ?? "Operations").slice(0, 120), retireReason: reason };
+    const row = await tx.labourHireCompany.update({ where: { id }, data });
+    await recordChanges(tx, "LabourHireCompany", id, existing, row, ctx, Object.keys(data));
     return row;
   });
 }

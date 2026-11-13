@@ -3,8 +3,8 @@
 // the database side is ./store.ts. Hours come in already worked out (lib/dayHours.ts, the staff rule); this only groups.
 import { peopleOf, type TimesheetLine, type TimesheetPerson } from "../timesheets";
 import {
-  aliasMap, companyName, groupedFromText, isFlaggedInfo, isUnfinished, mostCommon, resolvePath, tidyText, workerKey,
-  type CompanyAlias, type HireFlag,
+  aliasMap, companyName, groupedFromText, isFlaggedInfo, isUnfinished, listedGroupKeys, mostCommon, resolvePath, signInList,
+  tidyText, workerKey, type CompanyAlias, type HireFlag, type ListedCompany,
 } from "./rules";
 
 // One hire sign-in as loaded: the staff line's fields, plus what was typed and its flags.
@@ -22,6 +22,7 @@ export type HireCompany = {
   unfinished: number; // lines with no sign-out yet or waiting for the supervisor
   flagged: number; // late / long day (information only)
   looksLikeLobos: boolean; // typed "Lobos" - probably staff signed in as hire (fix on the Sign-ins page)
+  listed: boolean; // on the sign-in list (13 Nov 2026) - false = typed under "Other" (a subcontractor or a new company)
 };
 
 export type HireWeek = {
@@ -41,8 +42,14 @@ const bump = (m: Map<string, Map<string, number>>, k: string, text: string) => {
   m.set(k, inner);
 };
 
-export function hireWeek(weekStart: string, raw: HireLine[], aliasRows: CompanyAlias[], selected: string | null | undefined): HireWeek {
+// `list`: the sign-in list (rules.ts signInList) - left out, the built-in companies only.
+export function hireWeek(
+  weekStart: string, raw: HireLine[], aliasRows: CompanyAlias[], selected: string | null | undefined, list: readonly ListedCompany[] = signInList([]),
+): HireWeek {
   const amap = aliasMap(aliasRows);
+  const listedKeys = listedGroupKeys(list, amap);
+  // A group on the list with no office / built-in name is shown by its listed name, not the spelling typed most.
+  const listedName = new Map(list.map((c) => [resolvePath(c.name, amap).at(-1)!, c.name]));
   const keyed = raw.map((l) => {
     const path = resolvePath(l.company, amap);
     const ck = path[path.length - 1];
@@ -54,7 +61,10 @@ export function hireWeek(weekStart: string, raw: HireLine[], aliasRows: CompanyA
     bump(typedCo, ck, tidyText(l.company) || "(blank)");
     bump(typedWorker, wk, tidyText(l.workerName));
   }
-  const names = new Map([...typedCo.keys()].map((k) => [k, companyName(k, aliasRows, typedCo.get(k)!)]));
+  const names = new Map([...typedCo.keys()].map((k) => {
+    const n = companyName(k, aliasRows, typedCo.get(k)!);
+    return [k, n === mostCommon(typedCo.get(k)!) ? listedName.get(k) ?? n : n] as const;
+  }));
   const workerName = (wk: string) => mostCommon(typedWorker.get(wk) ?? new Map()) ?? "";
 
   const toLine = ({ l, ck, wk }: (typeof keyed)[number]): TimesheetLine => ({
@@ -84,6 +94,7 @@ export function hireWeek(weekStart: string, raw: HireLine[], aliasRows: CompanyA
       unfinished: mine.filter((x) => isUnfinished(x.l.flags)).length,
       flagged: mine.filter((x) => isFlaggedInfo(x.l.flags)).length,
       looksLikeLobos: key.split(" ").includes("lobos"),
+      listed: listedKeys.has(key),
     };
   }).sort((a, b) => a.name.localeCompare(b.name));
 

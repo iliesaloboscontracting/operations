@@ -16,12 +16,13 @@ import type { TimesheetPerson } from "@/lib/timesheets";
 // and the same spreadsheet. View and export only - no approval or lock. Managers, Admins and the coordinator; the
 // company-name mappings are Managers / Admins only. Hours only - never a rate.
 
-type Company = { key: string; name: string; typed: { text: string; lines: number }[]; mappings: { typed: string; company: string; by: string }[]; groupedFrom: string; workers: number; lines: number; hours: number; unfinished: number; flagged: number; looksLikeLobos: boolean };
+type Company = { key: string; name: string; typed: { text: string; lines: number }[]; mappings: { typed: string; company: string; by: string }[]; groupedFrom: string; workers: number; lines: number; hours: number; unfinished: number; flagged: number; looksLikeLobos: boolean; listed: boolean };
+type Listed = { id: string | null; name: string; builtIn: boolean; createdBy: string | null; createdAt: string | null; retiredAt: string | null; retiredBy: string | null; retireReason: string | null };
 type Alias = { id: string; aliasText: string; alias: string; company: string; createdBy: string; createdAt: string; retiredAt: string | null; retiredBy: string | null; retireReason: string | null };
 type Data = {
   weekStart: string; weekEnd: string; days: string[]; today: string; weekEnded: boolean;
   company: string; companies: Company[]; people: TimesheetPerson[]; totalHours: number; lines: number; unfinished: number; flagged: number;
-  banner: string | null; aliases: Alias[]; canMap: boolean;
+  banner: string | null; aliases: Alias[]; canMap: boolean; signInList: Listed[];
 };
 
 const shiftDate = (iso: string, days: number) => {
@@ -139,6 +140,7 @@ export default function LabourHireHoursPage() {
             ? <SiteView data={grid} search={search} emptyText="No labour hire sign-ins this week." />
             : <PersonView data={grid} search={search} emptyText="No labour hire sign-ins this week." />}
 
+          <SignInCompanies data={data} reload={load} />
           <CompanyNames data={data} reload={load} />
 
           <p className="mt-4 text-[11px] text-gray-500">
@@ -168,6 +170,7 @@ function CompanyTotals({ companies, onPick }: { companies: Company[]; onPick: (k
             <tr key={c.key}>
               <td className="px-3 py-2">
                 <button className="font-medium text-brand-300 hover:underline" onClick={() => onPick(c.key)}>{c.name}</button>
+                {!c.listed && <div className="mt-0.5 text-[11px] text-amber-300">Not on the sign-in list (typed under Other)</div>}
               </td>
               <td className="px-3 py-2 text-xs text-gray-400">
                 {c.typed.map((t) => `${t.text} (${t.lines})`).join(", ")}
@@ -185,6 +188,77 @@ function CompanyTotals({ companies, onPick }: { companies: Company[]; onPick: (k
         </tbody>
       </table>
     </div>
+  );
+}
+
+// The sign-in list (13 Nov 2026, Ilies: "lets only put a list for when the guys are asked.. Advanced labour hire shows
+// only.. with the potential to add more"): the companies a hire worker picks from at sign-in. Managers / Admins add one or
+// take it off (with a reason); nothing is deleted. Anyone else signs in under "Other" and is marked on the table above.
+function SignInCompanies({ data, reload }: { data: Data; reload: () => void }) {
+  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const on = data.signInList.filter((c) => !c.retiredAt);
+  const off = data.signInList.filter((c) => c.retiredAt);
+  const offList = data.companies.filter((c) => !c.listed && c.key !== "(none)");
+
+  const post = async (body: Record<string, unknown>) => {
+    setBusy(true);
+    setMsg(null);
+    const res = await apiFetch("/api/timesheets/labour-hire/aliases", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    setBusy(false);
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) { setMsg(j.error ?? "That didn't work."); return false; }
+    reload();
+    return true;
+  };
+  const add = async (n: string) => {
+    if (await post({ action: "list-add", name: n })) { setName(""); setMsg(`${n} is on the sign-in list.`); }
+  };
+  const remove = async (c: Listed) => {
+    const reason = window.prompt(`Take ${c.name} off the sign-in list? Workers can still pick "Other" and type it. Say why (kept on record).`);
+    if (reason) await post({ action: "list-retire", id: c.id, reason });
+  };
+
+  return (
+    <section className="mt-6 rounded-xl border border-edge bg-panel p-4">
+      <h3 className="mb-1 flex items-center gap-1.5 text-sm font-semibold text-gray-100"><Info size={14} /> Sign-in company list</h3>
+      <p className="mb-3 text-xs text-gray-400">
+        Hire workers pick their company from this list when they sign in. Anyone else (a subcontractor, or a company not listed yet) taps &quot;Other&quot; and types it - they can always sign in, and they show as &quot;Not on the sign-in list&quot; above.
+        {data.canMap ? " Add a labour hire company here when you start using a new one." : " The office (Managers and Admins) adds companies."}
+      </p>
+      <ul className="mb-3 space-y-1 text-sm">
+        {on.map((c) => (
+          <li key={c.id ?? c.name} className="flex flex-wrap items-center gap-x-2 text-gray-200">
+            <b>{c.name}</b>
+            <span className="text-xs text-gray-500">{c.builtIn ? "- always on the list" : `- added by ${c.createdBy}, ${when(c.createdAt!)}`}</span>
+            {data.canMap && !c.builtIn && <button disabled={busy} onClick={() => remove(c)} className="text-xs text-gray-400 underline hover:text-gray-200">Take off</button>}
+            {data.canMap && c.id && <HistoryButton model="LabourHireCompany" id={c.id} />}
+          </li>
+        ))}
+        {off.map((c) => (
+          <li key={c.id!} className="flex flex-wrap items-center gap-x-2 text-gray-500">
+            <span className="line-through">{c.name}</span>
+            <span className="text-xs">taken off by {c.retiredBy} on {when(c.retiredAt!)}: {c.retireReason}</span>
+            {data.canMap && <button disabled={busy} onClick={() => add(c.name)} className="text-xs text-gray-400 underline hover:text-gray-200">Put back</button>}
+            {data.canMap && c.id && <HistoryButton model="LabourHireCompany" id={c.id} />}
+          </li>
+        ))}
+      </ul>
+      {data.canMap && (
+        <div className="flex flex-wrap items-end gap-2">
+          <label className="text-xs text-gray-400">
+            Add a labour hire company
+            <input list="lh-not-listed" value={name} onChange={(e) => setName(e.target.value)} placeholder="Company name" className={`${input} mt-1 block w-64`} />
+            <datalist id="lh-not-listed">{offList.map((c) => <option key={c.key} value={c.name} />)}</datalist>
+          </label>
+          <button disabled={busy || name.trim().length < 2} onClick={() => add(name.trim())} className="rounded-lg bg-brand-600 px-3.5 py-2 text-sm font-medium text-white hover:bg-brand-500 disabled:cursor-not-allowed disabled:opacity-40">
+            Add to list
+          </button>
+          {msg && <span className="self-center text-xs text-gray-300">{msg}</span>}
+        </div>
+      )}
+    </section>
   );
 }
 
