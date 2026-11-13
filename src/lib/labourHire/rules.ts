@@ -113,6 +113,31 @@ export function mostCommon(counts: Map<string, number>): string | null {
 export const fileNamePart = (name: string) => name.replace(/[^A-Za-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "Company";
 export const exportFileName = (companyName: string | null, weekStart: string) => `${companyName ? fileNamePart(companyName) : "All-companies"}_week-${weekStart}.csv`;
 
+// ---------- the sign-in list (13 Nov 2026) ----------
+// Ilies: "lets only put a list for when the guys are asked.. Advanced labour hire shows only.. with the potential to
+// add more if we find another labour hire company". A hire worker picks their company from this list; anyone else
+// picks OTHER_COMPANY and types it - never stopped from signing in, marked "Not on the list" on the timesheet.
+
+export const OTHER_COMPANY = "Other – subcontractor / another company";
+
+export type ListedCompany = { key: string; name: string; builtIn: boolean; id?: string };
+export type CompanyRow = { id: string; key: string; name: string; retiredAt?: Date | string | null };
+
+// The companies a hire worker can pick: the built-in ones first (Advanced Labour Hire), then the office's own, A-Z.
+// A switched-off company isn't listed; one that repeats a built-in (same key) is listed once.
+export function signInList(rows: readonly CompanyRow[]): ListedCompany[] {
+  const built = BUILT_IN_COMPANIES.map((c) => ({ key: c.key, name: c.name, builtIn: true }));
+  const office = rows
+    .filter((r) => !r.retiredAt && !built.some((b) => b.key === r.key))
+    .map((r) => ({ key: r.key, name: tidyText(r.name), builtIn: false, id: r.id }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  return [...built, ...office];
+}
+
+// The timesheet groups on the list: each listed name followed through the office's mappings, as a typed name is.
+export const listedGroupKeys = (list: readonly ListedCompany[], aliases: Map<string, string>) =>
+  new Set(list.map((c) => resolveCompany(c.name, aliases)));
+
 // ---------- the flags on a line ----------
 
 export type HireFlag = "NO_SIGN_OUT" | "ON_SITE" | "TO_CONFIRM" | "LATE_IN" | "LONG_SHIFT" | "BULK_OUT" | "OVERLAP";

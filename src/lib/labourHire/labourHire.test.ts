@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  aliasMap, bannerText, companyKey, companyName, exportFileName, lineFlags, NO_COMPANY_KEY, resolveCompany, workerKey,
+  aliasMap, bannerText, companyKey, companyName, exportFileName, lineFlags, NO_COMPANY_KEY, OTHER_COMPANY, resolveCompany, signInList, workerKey,
 } from "./rules";
 import { hireWeek, type HireLine } from "./week";
 import { labourHireCsv } from "./export";
@@ -172,4 +172,29 @@ test("the staff export is unchanged when no options are given", () => {
   assert.equal(csv.split("\r\n")[0], '"Lobos Contracting - staff timesheet, week 2026-11-09 to 2026-11-15"');
   assert.equal(csv.split("\r\n")[1], "DRAFT - not approved yet");
   assert.equal(csv.split("\r\n").filter(Boolean).length, 5, "title, status, header, the line, the week total");
+});
+
+// The sign-in list (Ilies, 13 Nov 2026: "lets only put a list for when the guys are asked.. Advanced labour hire shows
+// only.. with the potential to add more").
+test("sign-in list: Advanced Labour Hire built in, office companies after it, switched-off ones left out", () => {
+  assert.deepEqual(signInList([]).map((c) => c.name), ["Advanced Labour Hire"]);
+  const rows = [
+    { id: "b", key: "zed staff", name: "Zed Staff", retiredAt: null },
+    { id: "a", key: "acme", name: "Acme Labour", retiredAt: null },
+    { id: "c", key: "gone", name: "Gone Co", retiredAt: new Date() },
+    { id: "d", key: "advanced", name: "Advanced Labour Hire Pty Ltd", retiredAt: null },
+  ];
+  assert.deepEqual(signInList(rows).map((c) => c.name), ["Advanced Labour Hire", "Acme Labour", "Zed Staff"], "built-in first, then A-Z; a repeat of a built-in once");
+  assert.ok(OTHER_COMPANY.startsWith("Other"));
+});
+
+test("sign-in list: groups typed under Other are marked not listed", () => {
+  const week = hireWeek(WEEK, lines(), [{ alias: "alh", company: "Advanced Labour Hire" }], "all");
+  assert.equal(week.companies.find((c) => c.key === "advanced")!.listed, true);
+  assert.equal(week.companies.find((c) => c.key === "labogo")!.listed, false);
+  const added = hireWeek(WEEK, lines(), [], "all", signInList([{ id: "x", key: "labogo", name: "Labogo Pty Ltd", retiredAt: null }]));
+  const lab = added.companies.find((c) => c.key === "labogo")!;
+  assert.equal(lab.listed, true, "the office added it");
+  assert.equal(lab.name, "Labogo Pty Ltd", "shown by its listed name");
+  assert.equal(added.companies.find((c) => c.key === "alh")!.listed, false, "ALH isn't listed until mapped to Advanced");
 });

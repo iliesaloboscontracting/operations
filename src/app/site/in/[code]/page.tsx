@@ -8,6 +8,7 @@ import { serverErrorMessage } from "@/lib/apiFetch";
 import { resizePhoto } from "@/lib/imageResize";
 import { deviceId, ME_KEY, PASS_KEY, store, useQuietGps } from "@/lib/signinDevice";
 import { looksLikeLobos } from "@/lib/staffMatch";
+import { OTHER_COMPANY } from "@/lib/labourHire/rules";
 
 // Crew sign-in: the page a worker's phone opens after scanning the
 // supervisor's QR or the site poster. First time they pick their name (or
@@ -18,7 +19,8 @@ import { looksLikeLobos } from "@/lib/staffMatch";
 type Person = { id: string; name: string };
 // signInClosed: a site poster outside its sign-in window (11 Nov 2026) - the words to show; signing out still works.
 type Job = { id: string; label: string; times: string | null; crew: Person[]; signInClosed?: string };
-type Scan = { method: "SUPERVISOR_QR" | "POSTER" | "POINT"; ticket: string; jobs: Job[] };
+// hireCompanies (13 Nov 2026): the labour hire companies a hire worker picks from.
+type Scan = { method: "SUPERVISOR_QR" | "POSTER" | "POINT"; ticket: string; jobs: Job[]; hireCompanies?: string[] };
 type Me = { resourceId: string; name: string } | { hire: { name: string; company: string } };
 
 const input =
@@ -159,7 +161,7 @@ export default function CrewSignInPage({ params: paramsP }: { params: Promise<{ 
       ) : !me ? (
         <>
           {job?.signInClosed && <Closed text={job.signInClosed} out />}
-          <WhoAreYou job={job!} ticket={scan.ticket} onPick={(m) => setMe(store(ME_KEY, m))} />
+          <WhoAreYou job={job!} ticket={scan.ticket} companies={scan.hireCompanies ?? []} onPick={(m) => setMe(store(ME_KEY, m))} />
         </>
       ) : (
         <div className="space-y-4">
@@ -297,12 +299,18 @@ function Box({ children }: { children: React.ReactNode }) {
 
 // First time on this phone: pick your name from the job's crew, find it in
 // the register, or say you're from a hire company / subcontractor.
-function WhoAreYou({ job, ticket, onPick }: { job: Job; ticket: string; onPick: (m: Me) => void }) {
+// Hire: the company is picked from the list (13 Nov 2026, Ilies: "lets only put a list for when the guys are asked..
+// Advanced labour hire shows only.. with the potential to add more"); "Other" types it - nobody is stopped from signing in.
+function WhoAreYou({ job, ticket, companies, onPick }: { job: Job; ticket: string; companies: string[]; onPick: (m: Me) => void }) {
   // No list (the yard): straight to typing their name.
   const [mode, setMode] = useState<"crew" | "search" | "hire">(job.crew.length ? "crew" : "search");
   const [q, setQ] = useState("");
   const [found, setFound] = useState<Person[]>([]);
   const [hire, setHire] = useState({ name: "", company: "" });
+  // The company picked from the list; OTHER_COMPANY = typed in the box. No list (an old server) = the box straight away.
+  const [picked, setPicked] = useState<string | null>(null);
+  const other = picked === OTHER_COMPANY || companies.length === 0;
+  const company = other ? hire.company : picked ?? "";
   // Fix 4 (2 Nov 2026): Lobos staff must pick their own name - a "hire" sign-in never reaches the staff timesheet.
   const [staffNote, setStaffNote] = useState(false);
 
@@ -345,13 +353,31 @@ function WhoAreYou({ job, ticket, onPick }: { job: Job; ticket: string; onPick: 
       {mode === "hire" && (
         <>
           <input className={input} placeholder="Your full name" value={hire.name} onChange={(e) => setHire({ ...hire, name: e.target.value })} />
-          <input className={input} placeholder="Company you're from" value={hire.company} onChange={(e) => setHire({ ...hire, company: e.target.value })} />
+          {companies.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-left text-sm text-gray-400">Company you&apos;re from</p>
+              {[...companies, OTHER_COMPANY].map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  aria-pressed={picked === c}
+                  onClick={() => setPicked(c)}
+                  className={`w-full rounded-xl border px-4 py-3 text-left text-base ${picked === c ? "border-brand-400 bg-brand-600/20 text-gray-100" : "border-edge bg-panel text-gray-200"}`}
+                >
+                  {c}
+                </button>
+              ))}
+            </div>
+          )}
+          {other && (
+            <input className={input} autoFocus={companies.length > 0} placeholder={companies.length ? "Type your company's name" : "Company you're from"} value={hire.company} onChange={(e) => setHire({ ...hire, company: e.target.value })} />
+          )}
           <button
             className={`${big} bg-brand-600`}
-            disabled={hire.name.trim().length < 2 || hire.company.trim().length < 2}
+            disabled={hire.name.trim().length < 2 || company.trim().length < 2}
             onClick={() => {
-              if (looksLikeLobos(hire.company)) { setStaffNote(true); setQ(hire.name.trim()); setMode("search"); return; }
-              onPick({ hire: { name: hire.name.replace(/\s+/g, " ").trim(), company: hire.company.replace(/\s+/g, " ").trim() } });
+              if (looksLikeLobos(company)) { setStaffNote(true); setQ(hire.name.trim()); setMode("search"); return; }
+              onPick({ hire: { name: hire.name.replace(/\s+/g, " ").trim(), company: company.replace(/\s+/g, " ").trim() } });
             }}
           >
             Continue

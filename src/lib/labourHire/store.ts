@@ -8,7 +8,8 @@ import { flagsForJobRows, signedInEarlierIds } from "../signinFlags";
 import { officeChangesText, weekEnd } from "../timesheets";
 import { recordChanges, writeChanges, writeLock, type Who } from "../history/store";
 import { assertNoMoney } from "../moneyGuard";
-import { companyKey, lineFlags, tidyText, type CompanyAlias } from "./rules";
+import { looksLikeLobos } from "../staffMatch";
+import { BUILT_IN_COMPANIES, companyKey, lineFlags, signInList, tidyText, type CompanyAlias } from "./rules";
 import type { HireLine } from "./week";
 
 
@@ -141,6 +142,64 @@ export async function retireCompanyAlias(id: unknown, reasonIn: unknown, by: Who
     const data = { retiredAt: new Date(), retiredBy: (by?.name ?? "Operations").slice(0, 120), retireReason: reason };
     const row = await tx.labourHireCompanyAlias.update({ where: { id }, data });
     await recordChanges(tx, "LabourHireCompanyAlias", id, existing, row, ctx, Object.keys(data));
+    return row;
+  });
+}
+
+// ---------- the sign-in list (13 Nov 2026) ----------
+
+export type CompanyListRow = {
+  id: string; key: string; name: string; createdBy: string; createdAt: Date; updatedAt: Date;
+  retiredAt: Date | null; retiredBy: string | null; retireReason: string | null;
+};
+
+// Every company the office added, on or switched off, A-Z.
+export const companyRows = (): Promise<CompanyListRow[]> => prisma.labourHireCompany.findMany({ orderBy: [{ name: "asc" }, { id: "asc" }] });
+
+// The list a hire worker picks from at sign-in (the built-in companies plus the office's own that are on).
+export const signInCompanies = async () => signInList(await companyRows());
+
+// Add a company to the sign-in list (or switch a switched-off one back on). Refused: a built-in company (already
+// listed), "Lobos" (staff pick their own name), an amount. Every change is in RecordChange.
+export async function addCompany(nameIn: unknown, by: Who) {
+  const name = tidyText(typeof nameIn === "string" ? nameIn : "");
+  if (name.length < 2 || name.length > MAX) throw new AliasError("Enter the company's name (2 to 80 letters).");
+  if (!assertNoMoney(name)) throw new AliasError("Names only - no amounts.");
+  if (looksLikeLobos(name)) throw new AliasError("Lobos staff pick their own name at sign-in - Lobos isn't a hire company.");
+  const key = companyKey(name);
+  if (BUILT_IN_COMPANIES.some((c) => c.key === key)) throw new AliasError(`${name} is already on the list.`, 409);
+  const ctx = { by, source: "Labour hire timesheet - sign-in company list" };
+  return prisma.$transaction(async (tx) => {
+    await writeLock(tx);
+    const existing = await tx.labourHireCompany.findUnique({ where: { key } });
+    if (!existing) {
+      const row = await tx.labourHireCompany.create({ data: { key, name, createdBy: (by?.name ?? "Operations").slice(0, 120), createdById: by?.id ?? null } });
+      await writeChanges(tx, "LabourHireCompany", row.id, [{ field: "name", before: null, after: name }], ctx);
+      return { row, changed: true };
+    }
+    if (!existing.retiredAt && existing.name === name) throw new AliasError(`${name} is already on the list.`, 409);
+    const data = { name, retiredAt: null, retiredBy: null, retireReason: null };
+    const row = await tx.labourHireCompany.update({ where: { id: existing.id }, data });
+    await recordChanges(tx, "LabourHireCompany", existing.id, existing, row, ctx, Object.keys(data));
+    return { row, changed: true };
+  });
+}
+
+// Take a company off the sign-in list (never deleted - adding the same name again brings it back). Its workers'
+// remembered phones still sign in with it; their lines are then marked "Not on the list".
+export async function retireCompany(id: unknown, reasonIn: unknown, by: Who) {
+  if (typeof id !== "string" || !id || id.length > 64) throw new AliasError("Unknown company.", 404);
+  const reason = tidyText(typeof reasonIn === "string" ? reasonIn : "").slice(0, 300);
+  if (reason.length < 3) throw new AliasError("Say why it's coming off the list.");
+  const ctx = { by, source: "Labour hire timesheet - sign-in company list", reason };
+  return prisma.$transaction(async (tx) => {
+    await writeLock(tx);
+    const existing = await tx.labourHireCompany.findUnique({ where: { id } });
+    if (!existing) throw new AliasError("Unknown company.", 404);
+    if (existing.retiredAt) throw new AliasError("That company is already off the list.", 409);
+    const data = { retiredAt: new Date(), retiredBy: (by?.name ?? "Operations").slice(0, 120), retireReason: reason };
+    const row = await tx.labourHireCompany.update({ where: { id }, data });
+    await recordChanges(tx, "LabourHireCompany", id, existing, row, ctx, Object.keys(data));
     return row;
   });
 }
