@@ -29,11 +29,31 @@ export const GET = withErrorHandling(async () => {
     project: r.hireProject?.name ?? null, offHireDate: r.offHireDate, onHireDate: r.onHireDate,
   });
   const order = { OVERDUE: 0, TODAY: 1, SOON: 2 } as const;
-  const alerts = items
+  const due = items
     .filter((r) => r.hireStatus !== "OFF_HIRE_REQUESTED")
     .map((r) => ({ r, a: offHireAlert(r, today) }))
-    .filter((x): x is { r: (typeof items)[number]; a: NonNullable<ReturnType<typeof offHireAlert>> } => !!x.a)
-    .map(({ r, a }) => ({ ...base(r), level: a.level, daysLeft: a.daysLeft }))
+    .filter((x): x is { r: (typeof items)[number]; a: NonNullable<ReturnType<typeof offHireAlert>> } => !!x.a);
+  // A new finish date already proposed and waiting for approval (16 Nov 2026, Ilies: proposing didn't seem to do
+  // anything) - the alert says so instead of offering "Propose new date" again. The date itself only changes once
+  // another Admin approves it on Changes.
+  const open = due.length
+    ? await prisma.changeProposal.findMany({
+        where: { kind: "HIRE_OFF_HIRE_DATE", status: "PROPOSED", recordType: "Resource", recordId: { in: due.map((x) => x.r.id) } },
+        select: { recordId: true, number: true, after: true },
+      })
+    : [];
+  const proposedFor = (id: string) => {
+    const p = open.find((x) => x.recordId === id);
+    if (!p) return null;
+    let date: string | null = null;
+    try {
+      const v = JSON.parse(p.after)?.offHireDate;
+      date = typeof v === "string" ? v : null;
+    } catch { /* unreadable - show the number only */ }
+    return { number: p.number, offHireDate: date };
+  };
+  const alerts = due
+    .map(({ r, a }) => ({ ...base(r), level: a.level, daysLeft: a.daysLeft, proposed: proposedFor(r.id) }))
     .sort((x, y) => order[x.level] - order[y.level] || x.daysLeft - y.daysLeft);
 
   // When the supervisor said "Finished" (the latest such hire check), if they did.
