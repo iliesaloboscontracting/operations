@@ -99,7 +99,10 @@ function SiteCheckCell({ c, r }: { c?: SiteCheck; r: ResourceDTO }) {
 }
 
 type HireAlertItem = { id: string; name: string; category: string | null; supplier: string | null; project: string | null; offHireDate: string | null };
-type OffHireAlertRow = HireAlertItem & { offHireDate: string; level: "OVERDUE" | "TODAY" | "SOON"; daysLeft: number };
+type OffHireAlertRow = HireAlertItem & {
+  offHireDate: string; level: "OVERDUE" | "TODAY" | "SOON"; daysLeft: number;
+  proposed?: { number: number; offHireDate: string | null; by: string } | null; // waiting for approval on Changes
+};
 type CallOffRow = HireAlertItem & { finishedAt: string | null; finishedBy: string | null };
 type HireAlerts = { alerts: OffHireAlertRow[]; callOff: CallOffRow[]; noDate: HireAlertItem[] };
 const NO_ALERTS: HireAlerts = { alerts: [], callOff: [], noDate: [] };
@@ -187,7 +190,14 @@ function ComingOffHire({ onChanged }: { onChanged?: () => void }) {
                 <span className="text-gray-500">
                   {where(a)} · expected finish {short(a.offHireDate)}
                 </span>
-                {canEdit && <button onClick={() => setProposing(a)} className="text-brand-400 underline hover:text-brand-300">Propose new date</button>}
+                {a.proposed ? (
+                  <span className="rounded bg-sky-500/15 px-1.5 py-0.5 text-[11px] text-sky-300">
+                    New date{a.proposed.offHireDate ? ` ${short(a.proposed.offHireDate)}` : ""} proposed (P-{String(a.proposed.number).padStart(4, "0")}) - waiting for approval
+                    {canEdit && <> · <a href="/changes" className="underline hover:text-sky-200">Changes</a></>}
+                  </span>
+                ) : (
+                  canEdit && <button onClick={() => setProposing(a)} className="text-brand-400 underline hover:text-brand-300">Propose new date</button>
+                )}
                 {a.category !== "LABOUR" && offHireButton(a)}
               </li>
             ))}
@@ -198,7 +208,7 @@ function ComingOffHire({ onChanged }: { onChanged?: () => void }) {
       {flash && <p className="text-xs text-emerald-300">{flash}</p>}
       {proposing && (
         <ProposeChange kinds={["HIRE_OFF_HIRE_DATE"]} recordId={proposing.id} recordName={`${proposing.name}${proposing.supplier ? ` (${proposing.supplier})` : ""}`}
-          current={proposing.offHireDate} onClose={() => setProposing(null)} onDone={(m) => { setFlash(m); setProposing(null); }} />
+          current={proposing.offHireDate} onClose={() => setProposing(null)} onDone={(m) => { setFlash(m); setProposing(null); load(); }} />
       )}
       {offHiring && (
         <OffHireDialog
