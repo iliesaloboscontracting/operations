@@ -101,7 +101,7 @@ function SiteCheckCell({ c, r }: { c?: SiteCheck; r: ResourceDTO }) {
 type HireAlertItem = { id: string; name: string; category: string | null; supplier: string | null; project: string | null; offHireDate: string | null };
 type OffHireAlertRow = HireAlertItem & {
   offHireDate: string; level: "OVERDUE" | "TODAY" | "SOON"; daysLeft: number;
-  proposed?: { number: number; offHireDate: string | null; by: string } | null; // waiting for approval on Changes
+  proposed?: { number: number; offHireDate: string | null } | null; // waiting for approval on Changes
 };
 type CallOffRow = HireAlertItem & { finishedAt: string | null; finishedBy: string | null };
 type HireAlerts = { alerts: OffHireAlertRow[]; callOff: CallOffRow[]; noDate: HireAlertItem[] };

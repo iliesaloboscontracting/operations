@@ -39,7 +39,7 @@ export const GET = withErrorHandling(async () => {
   const open = due.length
     ? await prisma.changeProposal.findMany({
         where: { kind: "HIRE_OFF_HIRE_DATE", status: "PROPOSED", recordType: "Resource", recordId: { in: due.map((x) => x.r.id) } },
-        select: { recordId: true, number: true, after: true, requestedBy: true },
+        select: { recordId: true, number: true, after: true },
       })
     : [];
   const proposedFor = (id: string) => {
@@ -50,7 +50,7 @@ export const GET = withErrorHandling(async () => {
       const v = JSON.parse(p.after)?.offHireDate;
       date = typeof v === "string" ? v : null;
     } catch { /* unreadable - show the number only */ }
-    return { number: p.number, offHireDate: date, by: p.requestedBy };
+    return { number: p.number, offHireDate: date };
   };
   const alerts = due
     .map(({ r, a }) => ({ ...base(r), level: a.level, daysLeft: a.daysLeft, proposed: proposedFor(r.id) }))
