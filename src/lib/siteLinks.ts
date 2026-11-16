@@ -9,8 +9,8 @@ export const hashSecret = (secret: string) => createHash("sha256").update(secret
 
 // Most tool photos one link can send in 24 hours - a cap on what a leaked link could do before it's switched off.
 // 17 Nov 2026, Ilies: "should be able to continuely scan" - Jonetani hit 80 registering yard tools (2 photos a tool),
-// so raised to 600 (about 300 tools a day): never in the way of a real stock-up, still a ceiling.
-export const DAILY_PHOTO_LIMIT = 600;
+// so raised - Ilies set 160 (about 80 tools a day).
+export const DAILY_PHOTO_LIMIT = 160;
 
 export type ResolvedLink = {
   id: string;
