@@ -289,7 +289,7 @@ function LogSteps({ api, job, voice, media, onBack, onSaved }: { api: string; jo
                 <input className="w-16 rounded-lg border border-edge bg-panel2 px-2 py-2 text-center text-base text-gray-100" inputMode="decimal" value={r.hours} onChange={(e) => set(r.code, Number(e.target.value) || 0)} />
                 <button className="rounded-lg bg-panel2 p-2" aria-label="More" onClick={() => set(r.code, r.hours + 0.5)}><Plus size={16} /></button>
                 {/* One tap puts what's left (or takes what's over) on this code - no sums on a big crew (Villi, 9 Nov 2026). */}
-                {!fits && placed > 0 && r.hours + left >= 0 && (
+                {!fits && r.hours + left >= 0 && (
                   <button className="rounded-lg border border-brand-500/60 px-2 py-2 text-xs font-medium text-brand-300" onClick={() => set(r.code, r.hours + left)}>
                     {left > 0 ? `+${h(left)}` : `−${h(-left)}`}
                   </button>
@@ -323,6 +323,11 @@ function LogSteps({ api, job, voice, media, onBack, onSaved }: { api: string; jo
               })}
               <p className="text-xs text-gray-500">0 h = didn&apos;t work today.</p>
             </div>
+          )}
+          {!fits && (
+            <p className="text-center text-sm text-amber-200">
+              {rows.length === 0 ? "Tap a code above for the work you did - the hours go on it, then Next unlocks." : left > 0 ? `Put the last ${h(left)} on a code to go on.` : `Take ${h(-left)} off to go on.`}
+            </p>
           )}
           <button className={primary} disabled={!fits} onClick={() => setStep(2)}>Next →</button>
           <button className="w-full text-sm text-gray-400" onClick={() => setStep(0)}>← Back</button>
@@ -385,15 +390,21 @@ function LogSteps({ api, job, voice, media, onBack, onSaved }: { api: string; jo
   );
 }
 
+const COMMON_CODES = ["STR-01", "STR-02", "STR-03", "STR-04", "STR-07", "STR-11", "GEN-12"];
+
 function CodePicker({ suggested, taken, onPick }: { suggested: LogJobDTO["suggested"]; taken: string[]; onPick: (code: string) => void }) {
   const [search, setSearch] = useState<string | null>(null);
   const found = useMemo(() => {
     const t = (search ?? "").trim().toLowerCase();
     return t ? CODES.filter((c) => c.code.toLowerCase().includes(t) || c.name.toLowerCase().includes(t)).slice(0, 12) : [];
   }, [search]);
-  const free = suggested.filter((s) => !taken.includes(s.code));
+  // A job with no approved budget and no earlier logs has no suggestions - offer the everyday strip-out codes so there's
+  // always something to tap (16 Nov 2026, Ilies: "the guys cant press next" on Rivkin House).
+  const offer = suggested.length > 0 ? suggested : COMMON_CODES.filter((c) => BY_CODE[c]).map((c) => ({ code: c, name: BY_CODE[c].name }));
+  const free = offer.filter((s) => !taken.includes(s.code));
   return (
     <div>
+      {suggested.length === 0 && free.length > 0 && <div className="mb-1 text-xs text-gray-500">Common codes - tap what you worked on, or search for another:</div>}
       {free.length > 0 && <div className="mb-2 flex flex-wrap gap-2">{free.map((s) => <button key={s.code} className={chip(false)} onClick={() => onPick(s.code)}>{s.code} {s.name.split(" (")[0].slice(0, 28)}</button>)}</div>}
       {search == null ? (
         <button className="text-sm text-brand-300 underline" onClick={() => setSearch("")}>+ another code</button>
