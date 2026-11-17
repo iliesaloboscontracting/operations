@@ -10,10 +10,17 @@ export default {
   applies: (c) => c.hasPath("src/app/api/directors/tenders/route.ts") || "needs the Tenders tab",
   async run(t, c) {
     const API = "/api/directors/tenders";
-    for (const who of ["MANAGER", "VIEWER", "COORDINATOR", "ACCOUNTS", "TIMESHEETS", "YARD"]) {
+    // TND-003 (17 Nov 2026): a plain Admin (no director tick) and the Operations AI login are refused too, and so is a
+    // quote file (it shows prices).
+    for (const who of ["MANAGER", "VIEWER", "COORDINATOR", "ACCOUNTS", "TIMESHEETS", "YARD", "ADMIN_PLAIN", "OPS_AI"]) {
       t.status(await c.json(API, who), 403, `the Tenders list is refused for ${who}`);
       t.status(await c.post(`${API}/abc/assign`, who, { version: 1, assignee: "", reason: "test" }), 403, `assign refused for ${who}`);
       t.status(await c.post(`${API}/log-quote`, who, {}), 403, `log-quote refused for ${who}`);
+      t.status(await c.json(`${API}/abc/quote-files/abcdef`, who), 403, `a quote file is refused for ${who}`);
+    }
+    for (const who of ["OWNER", "MANAGER_DIRECTOR"]) {
+      const r = await c.json(API, who);
+      t.ok(r.status === 200 && ["OFF", "UNREACHABLE", "REFUSED"].includes(r.body?.state), `${who} gets the tab (director access)`, JSON.stringify(r.body));
     }
     t.status(await c.json(API, null), 401, "no login: refused");
     const d = await c.json(API, "DIRECTOR");

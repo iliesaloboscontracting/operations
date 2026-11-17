@@ -4,7 +4,7 @@ import { withErrorHandling } from "@/lib/apiHandler";
 import { readJsonBody } from "@/lib/jsonBody";
 import { UPLOAD_FILE_MAX, UPLOAD_TOO_LARGE } from "@/lib/uploadLimits";
 import { logQuote } from "@/lib/tenders/board";
-import { bytesMatch, cleanFileName, estimatingWords, quoteFileKind, quoteMeta, safeId } from "@/lib/tenders/rules";
+import { bytesMatch, cleanFileName, estimatingWords, quoteFileKind, quoteMeta, tenderId as isTenderId } from "@/lib/tenders/rules";
 
 // POST /api/directors/tenders/log-quote { tenderId?, fileName, dataUrl, quoteNo?, builder, valueExGst, revision?,
 // submittedDate?, version? } -> "Log my quote" (17 Nov 2026): a director's issued quote goes on the tender in
@@ -19,7 +19,7 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   if ("denied" in read) return read.denied;
   const b = read.b;
   const tenderId = b.tenderId == null || b.tenderId === "" ? null : b.tenderId;
-  if (tenderId !== null && !safeId(tenderId)) return NextResponse.json({ error: "Unknown tender." }, { status: 404 });
+  if (tenderId !== null && !isTenderId(tenderId)) return NextResponse.json({ error: "Unknown tender." }, { status: 404 });
   const m = quoteMeta(b, tenderId === null);
   if ("error" in m) return NextResponse.json({ error: m.error }, { status: 400 });
   const fileName = cleanFileName(typeof b.fileName === "string" ? b.fileName : "");

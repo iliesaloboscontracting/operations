@@ -3,7 +3,7 @@
 // nowhere else - a browser never reaches these Estimating routes. Who may see prices is decided by the API route
 // (guardDirector), not by Estimating.
 import { estimatingCall, estimatingRaw } from "../estimatingClient";
-import { BOARD_SCHEMA, boardSecret, type QuoteMeta } from "./rules";
+import { BOARD_SCHEMA, boardSecret, toBoardDto, type QuoteMeta } from "./rules";
 
 export type TenderRow = {
   id: string; version: number; quoteNo: string | null; name: string; client: string | null; siteAddress: string | null;
@@ -43,7 +43,7 @@ export async function loadBoard(period: { from?: string; to?: string }): Promise
   if (r.status === 0) return { state: "UNREACHABLE" };
   if (r.status !== 200 || !r.body) return { state: "REFUSED", status: r.status, code: r.body?.code, error: r.body?.error };
   if (r.body.schema_version !== BOARD_SCHEMA || !Array.isArray(r.body.tenders)) return { state: "BAD_FORMAT" };
-  return { state: "OK", board: r.body };
+  return { state: "OK", board: toBoardDto(r.body) }; // TND-002: the agreed fields only
 }
 
 const keyOrOff = () => boardSecret();

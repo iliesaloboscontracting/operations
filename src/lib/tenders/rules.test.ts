@@ -1,6 +1,43 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { boardSecret, bytesMatch, cleanFileName, estimatingWords, isIsoDate, quoteFileKind, quoteMeta, safeId } from "./rules";
+import { boardSecret, bytesMatch, cleanFileName, estimatingWords, fileId, isIsoDate, quoteFileKind, quoteMeta, safeId, tenderId, toBoardDto } from "./rules";
+
+test("TND-004: tender and quote-file ids match what Estimating's board routes accept", () => {
+  assert.ok(tenderId("t_abc-1"));
+  assert.ok(!tenderId("x".repeat(41)));
+  assert.ok(fileId("abc123"));
+  for (const bad of ["ABC123", "abc", "a".repeat(21), "abc-12", "../abc"]) assert.ok(!fileId(bad), bad);
+});
+
+test("TND-002: only the agreed fields reach the browser; links https only", () => {
+  const raw = {
+    schema_version: "tenders-board.v1", generated_at: "2026-11-17T00:00:00Z", as_at: "2026-11-17", period: { from: "2026-08-19", to: "2026-11-17" },
+    rates: [{ item: "made up", rate: 1 }], secretNotes: "x",
+    routing: { configured: true, people: [{ key: "nick", name: "Nick", scope: "s", extra: 1 }, { key: "BAD KEY", name: "z" }] },
+    counts: { received: 3, "bad key": 9 }, byPerson: { nick: { received: 2, open: "x", hitRate: 0.5, rate: 99 } },
+    bySource: { manual: 1 }, byWeek: [{ weekStart: "2026-11-16", received: 1, submitted: 0, won: 0, cost: 5 }],
+    values_ex_gst: { submitted: 100, won: null, openPipeline: "lots", margin: 0.3 },
+    tenders: [
+      { id: "t1", version: 2, quoteNo: "26_001", name: "A", builders: ["B1", 7], status: "received", overdue: true,
+        folderUrl: "http://insecure.example", portalUrl: "javascript:alert(1)", rate: 123, notes: "internal",
+        quoteFile: { id: "abc123", name: "q.pdf", url: "/internal/path/q.pdf" } },
+      { id: "../t2", name: "dropped" },
+    ],
+  };
+  const d = toBoardDto(raw);
+  const s = JSON.stringify(d);
+  assert.ok(!/rates|secretNotes|internal|"rate"|"cost"|"margin"|"notes"/.test(s), s);
+  assert.equal(d.tenders.length, 1);
+  assert.equal(d.tenders[0].folderUrl, null);
+  assert.equal(d.tenders[0].portalUrl, null);
+  assert.deepEqual(d.tenders[0].builders, ["B1"]);
+  assert.equal(d.tenders[0].quoteFile?.url, "");
+  assert.deepEqual(d.routing.people.map((p) => p.key), ["nick"]);
+  assert.equal(d.byPerson.nick.open, 0);
+  assert.equal(d.values_ex_gst.openPipeline, null);
+  assert.deepEqual(Object.keys(d.counts), ["received"]);
+  assert.equal(toBoardDto({ ...raw, tenders: [{ id: "t9", portalUrl: "https://portal.example/x" }] }).tenders[0].portalUrl, "https://portal.example/x");
+});
 
 test("the board key needs 16+ characters", () => {
   assert.equal(boardSecret({}), null);
