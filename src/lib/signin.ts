@@ -192,6 +192,14 @@ export const jobSelect = {
 export const jobLabel = (j: { title: string; shift: string; project: { name: string } | null }) =>
   `${j.project?.name ?? j.title}${j.shift === "NIGHT" ? " (night)" : ""}`;
 
+// A supervisor's job list with the day on night shifts (17 Nov 2026, Mt Hutton): in the morning last night's shift
+// and tonight's are both open, and "(night)" alone made them look the same - "(night, Mon 16)" / "(night, Tue 17)".
+export const shiftLabel = (j: { title: string; shift: string; date: Date; project: { name: string } | null }) => {
+  if (j.shift !== "NIGHT") return jobLabel(j);
+  const day = new Date(j.date.toISOString().slice(0, 10) + "T12:00:00.000Z").toLocaleDateString("en-AU", { timeZone: "UTC", weekday: "short", day: "numeric" });
+  return `${j.project?.name ?? j.title} (night, ${day})`;
+};
+
 // Jobs a person (supervisor link) runs sign-in for: the open jobs they're
 // allocated to.
 export function openJobsFor(resourceId: string) {

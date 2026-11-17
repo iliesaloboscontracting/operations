@@ -7,7 +7,7 @@ import { syncPersonDayQuietly, syncSignInActualsQuietly } from "@/lib/signInActu
 import { endOpenElsewhere } from "@/lib/signinOverlap";
 import { fromSydneyLocal } from "@/lib/shiftTimes";
 import { todaySydney } from "@/lib/today";
-import { createHandover, jobLabel, openJob, openJobsFor, ROTATE_SECONDS, rotatingCode, STILL_ON_HOURS, sydneyTime, takesSignIns } from "@/lib/signin";
+import { createHandover, jobLabel, openJob, openJobsFor, ROTATE_SECONDS, rotatingCode, shiftLabel, signinDates, STILL_ON_HOURS, sydneyTime, takesSignIns } from "@/lib/signin";
 import { lockedWeekFor } from "@/lib/timesheets";
 import { posterGpsFlags } from "@/lib/posterGuard/store";
 
@@ -51,6 +51,15 @@ export const GET = withErrorHandling(async (req: NextRequest, { params: paramsP 
   });
   // 11 Nov 2026: a poster sign-in with no location, or far from the site - words and a distance only on the link.
   const warnings = await warningsFor(jobs, attendances);
+  // Which shift the page opens on (17 Nov 2026): one with crew still signed in first (in the morning that's last
+  // night's - they sign out there); then, before noon, last night's night shift (a driver back after a rest for the tip
+  // run carries on last night's shift); then the rest in date order.
+  const onSite = (id: string) => attendances.some((a) => a.jobId === id && !a.signOutAt && a.status !== "REJECTED");
+  const { yesterday } = signinDates();
+  const morning = Number(new Date().toLocaleString("en-AU", { timeZone: "Australia/Sydney", hour: "2-digit", hour12: false })) < 12;
+  const lastNight = (j: (typeof jobs)[number]) => j.shift === "NIGHT" && j.date.toISOString().slice(0, 10) === yesterday;
+  const rank = (j: (typeof jobs)[number]) => (onSite(j.id) ? 0 : morning && lastNight(j) ? 1 : 2);
+  jobs.sort((a, b) => rank(a) - rank(b) || a.date.getTime() - b.date.getTime());
   return NextResponse.json({
     person: link.person.name,
     handover: link.kind === "HANDOVER",
@@ -76,7 +85,7 @@ export const GET = withErrorHandling(async (req: NextRequest, { params: paramsP 
         .map((a) => ({ resourceId: a.resourceId, name: a.workerName, company: a.company, allocated: false, attendance: row(a) }));
       return {
         id: j.id,
-        label: jobLabel(j),
+        label: shiftLabel(j),
         times: j.startTime && j.endTime ? `${j.startTime}-${j.endTime}` : null,
         qrUrl: siteUrl(`in/${rotatingCode(j.id, link.id)}`, req.nextUrl.origin),
         crew: [...crew, ...others],
@@ -149,8 +158,13 @@ export const POST = withErrorHandling(async (req: NextRequest, { params: paramsP
       const allocated = job.assignments.some((a) => a.resource.id === person.id);
       const elsewhere = await prisma.siteAttendance.findFirst({
         where: { resourceId: person.id, signOutAt: null, status: { not: "REJECTED" }, removedAt: null, signInAt: { gte: new Date(now.getTime() - STILL_ON_HOURS * 3_600_000) }, OR: [{ jobId: null }, { jobId: { not: job.id } }] },
-        select: { placeLabel: true, job: { select: { title: true, shift: true, project: { select: { name: true } } } } },
+        select: { signInAt: true, placeLabel: true, job: { select: { id: true, date: true, title: true, shift: true, project: { select: { id: true, name: true } } } } },
       });
+      // Night shifts (17 Nov 2026, Mt Hutton): still signed in on another shift at this same site (last night's) -
+      // ticking them in here would end that one NOW and count the hours in between. Sign them out there first.
+      if (elsewhere?.job && job.project?.id && elsewhere.job.project?.id === job.project.id) {
+        return bad(`${person.name} is still signed in on ${shiftLabel(elsewhere.job)} (since ${sydneyTime(elsewhere.signInAt)}). Sign them out there first - pick that shift at the top.`);
+      }
       if (elsewhere && !allocated) return bad(`${person.name} is signed in at ${elsewhere.job ? jobLabel(elsewhere.job) : elsewhere.placeLabel ?? "another place"}. They can scan your QR, or ask the office.`);
       const made = await createSignIn({
         jobId: job.id,
