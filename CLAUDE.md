@@ -579,6 +579,12 @@ business, without becoming unnecessarily complicated.
       - Ilies's rule, made exact on 1 Nov 2026: estimating, tender and
         supplier **rates** never go to an AI. Job cost totals and contract
         values in the Assistant's Tracking tool stay as before.
+      - **Exception, Lobos Estimating only (Ilies to the lead, 17 Nov 2026: "an estimating system that works hand
+        in hand with claude without hiding neccessary information from claude"):** inside Estimating, Claude
+        (api.anthropic.com, server-side key) may see rates, costs, tip fees, supplier quotes, margins and prices.
+        Pricing arithmetic stays in Estimating's own engine (lib/boq.js). The figures never leave Estimating to
+        Operations pages, links or the Operations Assistant, and never go in git. Everywhere else the 1 Nov rule
+        stands.
     - **RT-002:** reading runs in a separate process (`extract.ts`). Security
       retest due 1 Nov 2026. It has:
       - `prlimit --data` 1 GB, a 1 GB RSS watchdog, a 512 MB heap cap
