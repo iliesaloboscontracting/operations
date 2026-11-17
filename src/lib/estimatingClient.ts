@@ -14,7 +14,7 @@ export type EstimatingReply<T> = { status: number; body: (T & { error?: string; 
 
 export async function estimatingCall<T>(
   path: string,
-  init: { method?: string; headers?: Record<string, string>; body?: string; timeoutMs?: number } = {},
+  init: { method?: string; headers?: Record<string, string>; body?: BodyInit; timeoutMs?: number } = {},
   who?: string,
 ): Promise<EstimatingReply<T>> {
   const headers: Record<string, string> = { host: "127.0.0.1", ...(who ? { "x-lobos-user": who } : {}), ...init.headers };
@@ -30,4 +30,13 @@ export async function estimatingCall<T>(
   let body: EstimatingReply<T>["body"] = null;
   try { body = await res.json(); } catch { /* not JSON */ }
   return { status: res.status, body };
+}
+
+// A file from Estimating, passed back as it comes (the Tenders tab's quote files, 17 Nov 2026). null = not reachable.
+export async function estimatingRaw(path: string, headers: Record<string, string>, timeoutMs = 20_000): Promise<Response | null> {
+  try {
+    return await fetch(TARGET() + path, { headers: { host: "127.0.0.1", ...headers }, cache: "no-store", redirect: "manual", signal: AbortSignal.timeout(timeoutMs) });
+  } catch {
+    return null;
+  }
 }
