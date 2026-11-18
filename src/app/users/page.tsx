@@ -7,6 +7,7 @@ import { useAuth } from "@/components/AuthProvider";
 import { isOwner } from "@/lib/owner";
 import { apiFetch } from "@/lib/apiFetch";
 import { OWNER_ONLY_ROLES, ownerGuardsAccount, type Role } from "@/lib/roles";
+import { isPairedLogin } from "@/lib/samePerson";
 
 interface UserRow {
   id: string;
@@ -81,7 +82,8 @@ export default function UsersPage() {
   const canSetDirector = isOwner(me?.email) && !isNew && !isOwner((editing as UserRow | null)?.email);
   // YD-009 (Ilies approved 4 Nov 2026): on a login only the owner looks after (a Director, Coordinator or Yard login, or
   // one with director access), another Admin sees the name and on/off switch but can't change them or reset the password.
-  const guarded = !isNew && !!editing && !isOwner(me?.email) && ownerGuardsAccount(editing as UserRow);
+  // IND-015 (18 Nov 2026): either of a person's two logins too.
+  const guarded = !isNew && !!editing && !isOwner(me?.email) && (ownerGuardsAccount(editing as UserRow) || isPairedLogin((editing as UserRow).id));
   const fields: FieldDef[] = [
     guarded
       ? { key: "name", label: "Name", type: "static", staticText: (editing as UserRow).name, full: true }

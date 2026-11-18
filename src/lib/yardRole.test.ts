@@ -215,9 +215,10 @@ test("YD-009: password, name and on/off of every owner-only login (and director 
   assert.equal(ownerGuardedName({ role: "YARD", directorAccess: false }), "Yard login");
   assert.equal(ownerGuardedName({ role: "MANAGER", directorAccess: true }), "director's login");
   const route = src("../app/api/users/[id]/route.ts");
-  assert.match(route, /if \(ownerGuardsAccount\(target\) && !isOwner\(me\?\.email\) && changesProtected\)/);
+  // IND-015 (18 Nov 2026): either of a person's two logins is guarded the same way.
+  assert.match(route, /if \(\(ownerGuardsAccount\(target\) \|\| isPairedLogin\(target\.id\)\) && !isOwner\(me\?\.email\) && changesProtected\)/);
   const page = src("../app/users/page.tsx");
-  assert.match(page, /const guarded = !isNew && !!editing && !isOwner\(me\?\.email\) && ownerGuardsAccount\(editing as UserRow\);/);
+  assert.match(page, /const guarded = !isNew && !!editing && !isOwner\(me\?\.email\) && \(ownerGuardsAccount\(editing as UserRow\) \|\| isPairedLogin\(\(editing as UserRow\)\.id\)\);/);
 });
 
 test("CO-001-R1: the yard never has director access, whatever its tick says", async () => {

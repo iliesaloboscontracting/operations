@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser, guard, hashPassword, MIN_PASSWORD, normaliseEmail, ROLES } from "@/lib/auth";
-import { normName, userNameProblem } from "@/lib/samePerson";
+import { normName, plainEmail, userNameProblem } from "@/lib/samePerson";
 import { saveUserCreate } from "@/lib/userEdit";
 import { BUILDING_AGENT_EMAIL } from "@/lib/session";
 import { isOwner } from "@/lib/owner";
@@ -36,8 +36,6 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
     return NextResponse.json({ error: "Enter a name and a valid email" }, { status: 400 });
   }
   if (isReservedUserName(name)) return NextResponse.json({ error: RESERVED_NAME_ERROR }, { status: 400 }); // CH-023
-  const badName = userNameProblem(name); // IND-002 (18 Nov 2026): plain names only
-  if (badName) return NextResponse.json({ error: badName }, { status: 400 });
   if (!ROLES.includes(role as (typeof ROLES)[number])) {
     return NextResponse.json({ error: "Invalid role" }, { status: 400 });
   }
@@ -59,6 +57,11 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   if (await prisma.user.findUnique({ where: { email } })) {
     return NextResponse.json({ error: "A user with that email already exists" }, { status: 409 });
   }
+  // IND-002 (18 Nov 2026): plain names only - after the who-may checks, so a refused role still answers 403.
+  const badName = userNameProblem(name);
+  if (badName) return NextResponse.json({ error: badName }, { status: 400 });
+  // IND-016 (18 Nov 2026): plain characters in the login email too.
+  if (!plainEmail(email)) return NextResponse.json({ error: "Use a plain email address (no accents or special letters)." }, { status: 400 });
   // SEC-002 (b): a new login can't share an active login's name (the second login of one person is set up by the
   // owner in code - lib/samePerson.ts - after it's created under a distinct name).
   if ((await prisma.user.findMany({ where: { active: true }, select: { name: true } })).some((u) => normName(u.name) === normName(name))) {

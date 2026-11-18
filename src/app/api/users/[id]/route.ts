@@ -5,7 +5,7 @@ import { NO_DIRECTOR_ACCESS_ROLES, ownerGuardedName, ownerGuardsAccount, ownerOn
 import { withErrorHandling } from "@/lib/apiHandler";
 import { isOwner } from "@/lib/owner";
 import { BUILDING_AGENT_EMAIL } from "@/lib/session";
-import { normName, sameUser, userNameProblem } from "@/lib/samePerson";
+import { isPairedLogin, normName, sameUser, userNameProblem } from "@/lib/samePerson";
 import { saveUserEdit } from "@/lib/userEdit";
 import { RESERVED_NAME_ERROR, isReservedUserName } from "@/lib/infoRequests/rules";
 
@@ -34,19 +34,21 @@ export const PATCH = withErrorHandling(async (
   // the owner's to change, so another Admin can't take it over and approve as them.
   // (The Users page sends name and active on every save, so only a real change counts.)
   const changesProtected = body.password !== undefined
-    || (typeof body.name === "string" && body.name.trim() !== target.name) // IND-002: any change to the name as typed
+    // IND-002: any change to the name as typed (IND-017: a stored name's stray spaces don't count as a change)
+    || (typeof body.name === "string" && body.name.trim() !== target.name.trim())
     || (body.active !== undefined && Boolean(body.active) !== target.active);
   // YD-009 (Ilies approved 4 Nov 2026): the same for every owner-only login (lib/roles.ts OWNER_ONLY_ROLES - Director,
   // Coordinator, Yard): another Admin can't reset its password, rename it or switch it off and so take it over.
-  if (ownerGuardsAccount(target) && !isOwner(me?.email) && changesProtected) {
+  // IND-015 (Ilies approved 18 Nov 2026): also either login of a person with two (lib/samePerson.ts SAME_PERSON).
+  if ((ownerGuardsAccount(target) || isPairedLogin(target.id)) && !isOwner(me?.email) && changesProtected) {
     return NextResponse.json({ error: `Only Iliesa can change the password, name or on/off switch of a ${ownerGuardedName(target)}.` }, { status: 403 });
   }
 
   const data: Record<string, unknown> = {};
   if (isReservedUserName(body.name)) return NextResponse.json({ error: RESERVED_NAME_ERROR }, { status: 400 }); // CH-023
-  if (typeof body.name === "string" && body.name.trim()) data.name = body.name.trim();
-  // IND-002 (18 Nov 2026): a changed name must be plain - no invisible or look-alike characters.
-  if (data.name !== undefined && data.name !== target.name) {
+  if (typeof body.name === "string" && body.name.trim() && body.name.trim() !== target.name.trim()) data.name = body.name.trim();
+  // IND-002 / IND-014 (18 Nov 2026): a changed name must be plain (A-Z, numbers, ' - .).
+  if (data.name !== undefined) {
     const bad = userNameProblem(data.name as string);
     if (bad) return NextResponse.json({ error: bad }, { status: 400 });
   }
@@ -57,6 +59,14 @@ export const PATCH = withErrorHandling(async (
   const NAME_TAKEN = "Another login already has that name - use a different one.";
   if (data.name !== undefined && normName(data.name as string) !== normName(target.name) && (await nameTaken(data.name as string))) {
     return NextResponse.json({ error: NAME_TAKEN }, { status: 400 });
+  }
+  // IND-017: switching a login back on re-checks its name like a new one (it may predate these rules, or another
+  // login may have taken the name while it was off).
+  if (body.active !== undefined && Boolean(body.active) && !target.active) {
+    const finalName = (data.name as string | undefined) ?? target.name.trim();
+    const bad = userNameProblem(finalName);
+    if (bad) return NextResponse.json({ error: `Rename this login before switching it back on. ${bad}` }, { status: 400 });
+    if (await nameTaken(finalName)) return NextResponse.json({ error: NAME_TAKEN }, { status: 400 });
   }
 
   if (body.role !== undefined) {

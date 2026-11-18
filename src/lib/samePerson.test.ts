@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { SAME_PERSON, normName, sameUser, userNameProblem } from "./samePerson";
+import { SAME_PERSON, isPairedLogin, normName, plainEmail, sameUser, userNameProblem } from "./samePerson";
 import { check } from "./purchases/rules";
 import { cannotApprove } from "./changes/rules";
 
@@ -22,10 +22,16 @@ test("IND-002: look-alike names count as the same name, and odd characters are r
     assert.equal(normName(v), normName(owner), JSON.stringify(v));
   }
   assert.notEqual(normName("Iliesa Tubakibau"), normName(owner));
-  for (const bad of [`${owner}!`, `${owner}​`, `Iliesа Weldon`.normalize("NFD"), `ＩＬＩＥＳＡ`, "Nick  Giannopoulos", "X", "<b>Nick</b>", "a".repeat(81)]) {
+  for (const bad of [`${owner}!`, `${owner}​`, `Iliesа Weldon`, `ＩＬＩＥＳＡ`, "Nick  Giannopoulos", "X", "<b>Nick</b>", "a".repeat(81),
+    // IND-014: one accented letter that Estimating would drop must be refused here
+    `${owner}é`, `é${owner}`, "Yoel Silvestreß", "Nick Giannopoulosø", "José Núñez", "Łukasz"]) {
     assert.ok(userNameProblem(bad), JSON.stringify(bad));
   }
-  for (const ok of [owner, "Nick Giannopoulos", "O'Brien-Smith", "Omar E", "Jr. Tom 2", "José Núñez"]) assert.equal(userNameProblem(ok), null, ok);
+  for (const ok of [owner, "Nick Giannopoulos", "O'Brien-Smith", "Omar E", "Jr. Tom 2", "Jose Nunez"]) assert.equal(userNameProblem(ok), null, ok);
+  // IND-016: plain emails only; IND-015: either of a person's two logins
+  assert.ok(plainEmail("iliesa@loboscontracting.com.au"));
+  for (const e of ["iliesa@loboscontracting.com.aü", "ilíesa@x.com", "a b@x.com", "nope"]) assert.ok(!plainEmail(e), e);
+  assert.ok(isPairedLogin(nickAdmin) && isPairedLogin(nickDirector) && !isPairedLogin("someone-else"));
 });
 
 test("SEC-002 (c): a director can't approve a purchase they asked for, even under a different name", () => {

@@ -23,13 +23,20 @@ export function sameUser(a: string | null | undefined, b: string | null | undefi
 export const normName = (s: string | null | undefined) =>
   (s ?? "").normalize("NFKC").replace(/[\p{Cf}\p{Cc}]/gu, "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
 
-// IND-002: what a login's name may contain - letters, numbers, spaces, apostrophes, hyphens and full stops, as typed
-// (no invisible or look-alike characters). Estimating and the Tenders board tell people apart by this name.
+// IND-002 / IND-014 (Ilies approved 18 Nov 2026): what a login's name may contain - plain letters A-Z, numbers, single
+// spaces, apostrophes, hyphens and full stops. Exactly the set Lobos Estimating accepts (it refuses anything else), so
+// nothing it would drop or change - an accent, an invisible or look-alike character - can make a name pass as someone
+// else's there. Estimating and the Tenders board tell quote issuers apart by this name (and by login email).
+export const PLAIN_NAME = /^[A-Za-z0-9 .'-]{2,80}$/;
 export function userNameProblem(raw: string): string | null {
   const name = raw.trim();
   if (name.length < 2 || name.length > 80) return "A name needs 2 to 80 characters.";
-  if (name.normalize("NFKC") !== name || /[\p{Cf}\p{Cc}\p{Co}\p{Cn}]/u.test(name) || !/^[\p{Script=Latin}\p{M}0-9 .'-]+$/u.test(name) /* Latin letters only: no look-alike Cyrillic / Greek letters */ || /\s{2,}/.test(name)) {
-    return "Names can only have letters, numbers, single spaces, apostrophes, hyphens and full stops.";
+  if (!PLAIN_NAME.test(name) || / {2,}/.test(name)) {
+    return "Names can only have plain letters (A-Z, no accents), numbers, single spaces, apostrophes, hyphens and full stops.";
   }
   return null;
 }
+// IND-016: login emails in plain characters only (no accents or look-alike letters).
+export const plainEmail = (email: string) => /^[a-z0-9._%+'-]+@[a-z0-9.-]+\.[a-z]{2,}$/.test(email);
+// IND-015: a login listed above as one of a person's two logins.
+export const isPairedLogin = (id: string) => SAME_PERSON.some(([a, b]) => a === id || b === id);
