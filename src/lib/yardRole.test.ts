@@ -206,6 +206,17 @@ test("only the owner gives, takes away or creates YARD; never director access; n
   assert.doesNotMatch(page.slice(page.indexOf("const ROLE_OPTIONS"), page.indexOf("];", page.indexOf("const ROLE_OPTIONS"))), /YARD/, "not on the list other Admins see");
 });
 
+test("IND-024: a login that was ever an Admin is recognised from its change log", async () => {
+  const { wasEverAdmin } = await import("./roles");
+  assert.equal(wasEverAdmin([JSON.stringify({ name: "A", email: "a@x.com", role: "ADMIN" })]), true, "created as Admin");
+  assert.equal(wasEverAdmin([JSON.stringify({ role: ["ADMIN", "MANAGER"] })]), true, "demoted from Admin");
+  assert.equal(wasEverAdmin([JSON.stringify({ role: ["MANAGER", "ADMIN"] })]), true, "promoted to Admin once");
+  assert.equal(wasEverAdmin([JSON.stringify({ name: "B", role: "VIEWER" }), JSON.stringify({ role: ["VIEWER", "MANAGER"] }), JSON.stringify({ password: "reset" })]), false);
+  assert.equal(wasEverAdmin(["not json", ""]), false);
+  const route = src("../app/api/users/[id]/route.ts");
+  assert.match(route, /wasEverAdmin\(history\.map/);
+});
+
 test("YD-009: password, name and on/off of every owner-only login (and director access) are the owner's", async () => {
   const { ownerGuardsAccount, ownerGuardedName } = await import("./roles");
   // IND-021 (18 Nov 2026): every Admin login is owner-guarded too.

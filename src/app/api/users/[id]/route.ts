@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser, guard, hashPassword, MIN_PASSWORD, ROLES } from "@/lib/auth";
-import { NO_DIRECTOR_ACCESS_ROLES, ownerGuardedName, ownerGuardsAccount, ownerOnlyRoleName, touchesOwnerOnlyRole } from "@/lib/roles";
+import { NO_DIRECTOR_ACCESS_ROLES, ownerGuardedName, ownerGuardsAccount, ownerOnlyRoleName, touchesOwnerOnlyRole, wasEverAdmin } from "@/lib/roles";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { isOwner } from "@/lib/owner";
 import { BUILDING_AGENT_EMAIL } from "@/lib/session";
@@ -42,6 +42,13 @@ export const PATCH = withErrorHandling(async (
   // IND-015 (Ilies approved 18 Nov 2026): also either login of a person with two (lib/samePerson.ts SAME_PERSON).
   if ((ownerGuardsAccount(target) || isPairedLogin(target.id)) && !isOwner(me?.email) && changesProtected) {
     return NextResponse.json({ error: `Only Iliesa can change the password, name or on/off switch of a ${ownerGuardedName(target)}.` }, { status: 403 });
+  }
+  // IND-024 (Ilies approved 18 Nov 2026, option b): a login that was ever an Admin stays owner-guarded after a demotion.
+  if (!isOwner(me?.email) && changesProtected) {
+    const history = await prisma.userEvent.findMany({ where: { userId: target.id }, select: { changes: true } });
+    if (wasEverAdmin(history.map((h) => h.changes))) {
+      return NextResponse.json({ error: "Only Iliesa can change the password, name or on/off switch of a former Admin login." }, { status: 403 });
+    }
   }
 
   const data: Record<string, unknown> = {};

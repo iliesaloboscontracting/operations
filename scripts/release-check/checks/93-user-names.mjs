@@ -88,6 +88,21 @@ export default {
     const mgrEdit = await c.patch(`/api/users/${u.id}`, "ADMIN_PLAIN", { name: `RC Viewer Edit ${tag}` });
     t.ok(mgrEdit.status === 200, "another Admin still edits a Viewer login", mgrEdit.status);
 
-    await db.user.updateMany({ where: { id: { in: [u.id, old.id, plainAdm.id] } }, data: { active: false } });
+    // IND-024 (Ilies approved 18 Nov 2026, option b): another Admin may demote an Admin (to lock it out), but a login
+    // that was ever an Admin stays the owner's to reset, rename or switch on.
+    const demote = await c.patch(`/api/users/${plainAdm.id}`, "ADMIN_PLAIN", { role: "MANAGER" });
+    t.ok(demote.status === 200, "another Admin can still demote an Admin login (to lock it out)", demote.status);
+    const resetAfter = await c.patch(`/api/users/${plainAdm.id}`, "ADMIN_PLAIN", { password: "Release-check-0123456789" });
+    t.ok(resetAfter.status === 403, "...but can't then reset its password (IND-024)", resetAfter.status);
+    const renameAfter = await c.patch(`/api/users/${plainAdm.id}`, "ADMIN_PLAIN", { name: `RC Taken Over ${tag}` });
+    t.ok(renameAfter.status === 403, "...or rename it (IND-024)", renameAfter.status);
+    const demoteOff = await c.patch(`/api/users/${offAdm.id}`, "ADMIN_PLAIN", { role: "MANAGER" });
+    t.ok(demoteOff.status === 200, "a switched-off Admin login can be demoted", demoteOff.status);
+    const onAfter = await c.patch(`/api/users/${offAdm.id}`, "ADMIN_PLAIN", { active: true });
+    t.ok(onAfter.status === 403, "...but another Admin can't then switch it back on (IND-024)", onAfter.status);
+    const ownerReset = await c.patch(`/api/users/${plainAdm.id}`, "OWNER", { password: "Release-check-0123456789" });
+    t.ok(ownerReset.status === 200, "the owner can still reset a former Admin login", ownerReset.status);
+
+    await db.user.updateMany({ where: { id: { in: [u.id, old.id, plainAdm.id, offAdm.id] } }, data: { active: false } });
   },
 };

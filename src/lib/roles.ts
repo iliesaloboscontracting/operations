@@ -54,6 +54,19 @@ export const ownerOnlyRoleName = (from: string | null, to: string) =>
 // IND-021 (Ilies approved 18 Nov 2026): and every Admin login - so another Admin can't rename, reset or switch one back
 // on and so hold a second Admin login (IND-019). Own password changes (/api/auth/password) are unaffected.
 export const ownerGuardsAccount = (t: { role: string; directorAccess: boolean }) => OWNER_ONLY_ROLES.includes(t.role) || t.directorAccess || t.role === "ADMIN";
+// IND-024 (Ilies approved 18 Nov 2026, option b): a login that has EVER been an Admin stays owner-guarded after it's
+// moved to another role - another Admin may still demote it (to lock it out while the owner is away), but can't then
+// reset, rename or switch it on and sign in as that person. Read from the login's UserEvent log ({ role: [before,
+// after] } on an edit, { role } on creation).
+export function wasEverAdmin(changes: string[]): boolean {
+  for (const c of changes) {
+    try {
+      const role = (JSON.parse(c) as { role?: unknown }).role;
+      if (role === "ADMIN" || (Array.isArray(role) && role.includes("ADMIN"))) return true;
+    } catch { /* not JSON - ignore */ }
+  }
+  return false;
+}
 export const ownerGuardedName = (t: { role: string; directorAccess: boolean }) =>
   ROLE_NAME[t.role] ? `${ROLE_NAME[t.role]} login` : t.directorAccess ? "director's login" : t.role === "ADMIN" ? "Admin login" : "login";
 
