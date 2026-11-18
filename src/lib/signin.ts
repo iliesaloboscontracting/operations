@@ -166,12 +166,37 @@ const stillOnWhere = () => ({
 });
 const openWhere = () => ({ cancelledAt: null, OR: [jobDateWhere(), stillOnWhere()] });
 
-// True for today's jobs (and last night's night shift) - the only ones new
+// Sydney date and hour of a moment.
+export function sydneyNow(now = new Date()) {
+  const p = Object.fromEntries(new Intl.DateTimeFormat("en-CA", { timeZone: "Australia/Sydney", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", hourCycle: "h23" }).formatToParts(now).map((x) => [x.type, x.value]));
+  return { date: `${p.year}-${p.month}-${p.day}`, hour: Number(p.hour) };
+}
+// 18 Nov 2026 (Mt Hutton): last night's night shift takes new sign-ins only until 2pm - a driver back after a rest for
+// the morning tip run carries on last night's shift; from 2pm the next night's crew can't land on it by mistake.
+export const LAST_NIGHT_UNTIL_HOUR = 14;
+
+// True for today's jobs (and last night's night shift until 2pm) - the only ones new
 // sign-ins go to. False for an earlier job kept open just for signing out.
-export function takesSignIns(job: { date: Date; shift: string }) {
-  const { today, yesterday } = signinDates();
+export function takesSignIns(job: { date: Date; shift: string }, now = new Date()) {
+  const { date: todayS, hour } = sydneyNow(now);
+  const { today, yesterday } = signinDates(todayS);
   const d = job.date.toISOString().slice(0, 10);
-  return d === today || (d === yesterday && job.shift === "NIGHT");
+  return d === today || (d === yesterday && job.shift === "NIGHT" && hour < LAST_NIGHT_UNTIL_HOUR);
+}
+
+// Which shift a supervisor's page opens on (18 Nov 2026 - replaces the 17 Nov order, which in the evening put LAST
+// night's shift first and sent Tuesday night's Mt Hutton sign-ins to Monday's job).
+//  - Before noon: a shift with crew still signed in (they sign out there), then last night's night shift (the tip-run
+//    driver carries it on), then the rest, newest first.
+//  - From noon: today's shifts first, newest first; last night's never comes first.
+export function shiftOrder<J extends { id: string; date: Date; shift: string }>(jobs: J[], onSite: (id: string) => boolean, now = new Date()): J[] {
+  const { date: todayS, hour } = sydneyNow(now);
+  const { today, yesterday } = signinDates(todayS);
+  const day = (j: J) => j.date.toISOString().slice(0, 10);
+  const rank = (j: J) => hour < 12
+    ? (onSite(j.id) ? 0 : j.shift === "NIGHT" && day(j) === yesterday ? 1 : 2)
+    : (day(j) === today ? 0 : 1);
+  return [...jobs].sort((a, b) => rank(a) - rank(b) || b.date.getTime() - a.date.getTime());
 }
 
 export const jobSelect = {

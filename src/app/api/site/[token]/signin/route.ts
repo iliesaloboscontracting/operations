@@ -7,7 +7,7 @@ import { syncPersonDayQuietly, syncSignInActualsQuietly } from "@/lib/signInActu
 import { endOpenElsewhere } from "@/lib/signinOverlap";
 import { fromSydneyLocal } from "@/lib/shiftTimes";
 import { todaySydney } from "@/lib/today";
-import { createHandover, jobLabel, openJob, openJobsFor, ROTATE_SECONDS, rotatingCode, shiftLabel, signinDates, STILL_ON_HOURS, sydneyTime, takesSignIns } from "@/lib/signin";
+import { createHandover, jobLabel, openJob, openJobsFor, ROTATE_SECONDS, rotatingCode, shiftLabel, shiftOrder, STILL_ON_HOURS, sydneyTime, takesSignIns } from "@/lib/signin";
 import { lockedWeekFor } from "@/lib/timesheets";
 import { posterGpsFlags } from "@/lib/posterGuard/store";
 
@@ -51,20 +51,14 @@ export const GET = withErrorHandling(async (req: NextRequest, { params: paramsP 
   });
   // 11 Nov 2026: a poster sign-in with no location, or far from the site - words and a distance only on the link.
   const warnings = await warningsFor(jobs, attendances);
-  // Which shift the page opens on (17 Nov 2026): one with crew still signed in first (in the morning that's last
-  // night's - they sign out there); then, before noon, last night's night shift (a driver back after a rest for the tip
-  // run carries on last night's shift); then the rest in date order.
+  // Which shift the page opens on: lib/signin.ts shiftOrder (18 Nov 2026 - from noon, today's shift first).
   const onSite = (id: string) => attendances.some((a) => a.jobId === id && !a.signOutAt && a.status !== "REJECTED");
-  const { yesterday } = signinDates();
-  const morning = Number(new Date().toLocaleString("en-AU", { timeZone: "Australia/Sydney", hour: "2-digit", hour12: false })) < 12;
-  const lastNight = (j: (typeof jobs)[number]) => j.shift === "NIGHT" && j.date.toISOString().slice(0, 10) === yesterday;
-  const rank = (j: (typeof jobs)[number]) => (onSite(j.id) ? 0 : morning && lastNight(j) ? 1 : 2);
-  jobs.sort((a, b) => rank(a) - rank(b) || a.date.getTime() - b.date.getTime());
+  const ordered = shiftOrder(jobs, onSite);
   return NextResponse.json({
     person: link.person.name,
     handover: link.kind === "HANDOVER",
     rotateSeconds: ROTATE_SECONDS,
-    jobs: jobs.map((j) => {
+    jobs: ordered.map((j) => {
       const mine = attendances.filter((a) => a.jobId === j.id);
       const row = (a: (typeof mine)[number]) => ({
         id: a.id,
