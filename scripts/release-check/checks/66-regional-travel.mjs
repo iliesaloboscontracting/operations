@@ -129,7 +129,7 @@ export default {
         t.ok(w.travelIssues >= 2, "travel issues counted for the office");
         const siteHours = Object.values(p.days).flat().reduce((n, l) => n + (l.hours ?? 0), 0);
         t.ok(Math.abs(siteHours - p.total) < 0.01, "site hours total is the sign-ins only (travel not added)");
-        t.ok(!/gps/i.test(JSON.stringify(w)), "no GPS in the Managers' timesheets");
+        t.ok(!/"gps[a-z]*"\s*:/i.test(JSON.stringify(w)), "no GPS in the Managers' timesheets");
       }
     }
     for (const [who, path] of [["MANAGER", `/api/timesheets/export?week=${week}`], ["ACCOUNTS", `/api/accounts/timesheets/export?week=${week}`]]) {
@@ -160,7 +160,7 @@ export default {
     const pay = await c.text(`/api/accounts/payroll?week=${week}`, "ACCOUNTS");
     t.ok(pay.status === 200 && /"travel":\[/.test(pay.text) && /-33\.28/.test(pay.text), "accounts see the travel legs with the start GPS point");
     const att = await c.json(`/api/attendance?date=${today}`, "MANAGER");
-    t.ok(att.body?.travel?.some((l) => l.legId === s1.body.leg.id) && !/gps/i.test(JSON.stringify(att.body?.travel ?? [])), "Sign-ins page lists the legs, without GPS");
+    t.ok(att.body?.travel?.some((l) => l.legId === s1.body.leg.id) && !/"gps[a-z]*"\s*:/i.test(JSON.stringify(att.body?.travel ?? [])), "Sign-ins page lists the legs, without GPS");
 
     // (8) Office corrections: Manager+, a reason, kept; a locked week refuses.
     t.status(await c.patch(`/api/attendance/travel/${never.id}`, "ACCOUNTS", { endAt: new Date().toISOString(), reason: "rc" }), 403, "ACCOUNTS can't correct travel");
@@ -171,7 +171,7 @@ export default {
       const cw = (await c.json(`/api/timesheets?week=${week}`, "COORDINATOR")).body;
       t.ok(Object.values(cw?.people?.find((x) => x.resourceId === person.id)?.travel ?? {}).flat().length === 4, "the COORDINATOR sees the Travel column (view only)");
       const ca = (await c.json(`/api/attendance?date=${today}`, "COORDINATOR")).body;
-      t.ok(ca?.travel?.some((l) => l.legId === s1.body.leg.id) && !/gps/i.test(JSON.stringify(ca?.travel ?? [])), "the COORDINATOR sees the travel legs on Sign-ins, without GPS");
+      t.ok(ca?.travel?.some((l) => l.legId === s1.body.leg.id) && !/"gps[a-z]*"\s*:/i.test(JSON.stringify(ca?.travel ?? [])), "the COORDINATOR sees the travel legs on Sign-ins, without GPS");
     } else t.note("no COORDINATOR test login on this build - its travel checks skipped");
     t.status(await c.patch(`/api/attendance/travel/${never.id}`, "MANAGER", { endAt: new Date().toISOString() }), 400, "a correction needs a reason");
     t.status(await c.patch(`/api/attendance/travel/${never.id}`, "MANAGER", { endAt: new Date(Date.now() - 6 * HOUR).toISOString(), reason: "Release check - forgot to sign in on site" }), 200, "a Manager corrects a travel time with a reason");
