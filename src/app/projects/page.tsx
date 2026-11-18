@@ -11,6 +11,7 @@ import { daysBetween } from "@/lib/dates";
 import UpcomingAlerts from "@/components/UpcomingAlerts";
 import { useAuth } from "@/components/AuthProvider";
 import { apiFetch, serverErrorMessage } from "@/lib/apiFetch";
+import { LIST_LABEL, listOf, statusLabel, type ProjectList } from "@/lib/projectLists";
 import {
   ClipboardList,
   Handshake,
@@ -21,12 +22,6 @@ import {
   Users,
   Wrench,
 } from "lucide-react";
-
-const STATUS_LABEL: Record<string, string> = {
-  ACTIVE: "Active",
-  INACTIVE: "Inactive",
-  COMPLETED: "Completed",
-};
 
 // "Starts in 3 days" for a project whose start date is today or in the future.
 function startsIn(p: ProjectDTO) {
@@ -76,7 +71,10 @@ function CountStat({ icon: Icon, n, label }: { icon: LucideIcon; n: number; labe
 }
 
 
-type Tab = "current" | "inactive" | "archived";
+// One list per project (18 Nov 2026, lib/projectLists.ts): Current, Stand down and Archived here; Completed on its own
+// page. Archived holds every archived project, Completed ones too, each with its status badge.
+type Tab = "current" | "standDown" | "archived";
+const TAB_LIST: Record<Tab, ProjectList> = { current: "CURRENT", standDown: "STAND_DOWN", archived: "ARCHIVED" };
 
 export default function ProjectsPage() {
   const { canEdit } = useAuth();
@@ -125,23 +123,15 @@ export default function ProjectsPage() {
     router.push(`/projects/${created.id}`);
   }
 
-  // A project marked Completed leaves this page entirely - same idea as a completed
-  // job leaving the Command Centre board - and lives on the Completed page instead.
-  const notCompleted = useMemo(() => projects.filter((p) => p.status !== "COMPLETED"), [projects]);
-
-  // The dashboard (Current tab) is Active sites only now - Inactive ones get their
-  // own tab so they're still reachable (to reactivate, or just to check on), rather
-  // than cluttering the main view or becoming a dead end with nowhere to find them.
-  const byTab = useMemo(() => {
-    if (tab === "archived") return notCompleted;
-    if (tab === "inactive") return notCompleted.filter((p) => p.status === "INACTIVE");
-    return notCompleted.filter((p) => p.status === "ACTIVE");
-  }, [notCompleted, tab]);
+  // A project marked Completed leaves this page (it lives on the Completed page) unless it's archived - same idea as a
+  // completed job leaving the board. The Current tab is Active sites only; stood-down ones have their own tab so
+  // they're still reachable (to reactivate, or just to check on).
+  const byTab = useMemo(() => projects.filter((p) => listOf(p) === TAB_LIST[tab]), [projects, tab]);
 
   // The daily figures bar now lives on Allocations (Ilies, 18 Oct 2026); only
   // the "Needs attention" count is still used here.
-  // "Needs attention" is one list: active sites with any reason, plus an
-  // Inactive or Completed project that still has jobs booked (a date
+  // "Needs attention" is one list: active sites with any reason, plus a
+  // stood-down or Completed project that still has jobs booked (a date
   // exception, brief 12) - otherwise those would hide on another tab.
   const attentionList = useMemo(
     () =>
@@ -178,11 +168,7 @@ export default function ProjectsPage() {
 
       <div className="mb-5 flex flex-wrap items-center gap-2">
         <div className="inline-flex gap-1 rounded-full bg-panel2 p-1 text-xs">
-          {([
-            ["current", "Current"],
-            ["inactive", "Inactive"],
-            ["archived", "Archived"],
-          ] as [Tab, string][]).map(([t, label]) => (
+          {(Object.keys(TAB_LIST) as Tab[]).map((t) => [t, LIST_LABEL[TAB_LIST[t]]] as const).map(([t, label]) => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -234,9 +220,9 @@ export default function ProjectsPage() {
                     {p.jobNo && <span className="text-gray-400"> · {p.jobNo}</span>}
                   </div>
                 </div>
-                {p.status !== "ACTIVE" && (
+                {(p.status !== "ACTIVE" || p.archived) && (
                   <span className="shrink-0 rounded-full bg-gray-700 px-2 py-0.5 text-[10px] font-semibold uppercase text-gray-300">
-                    {STATUS_LABEL[p.status]}
+                    {statusLabel(p.status)}
                   </span>
                 )}
               </div>

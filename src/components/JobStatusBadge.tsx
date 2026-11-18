@@ -1,13 +1,15 @@
 import { JobStatus } from "@/lib/types";
+import { PROJECT_STATUS_LABEL } from "@/lib/projectLists";
 
+// The words are the project status words (18 Nov 2026: Inactive is shown as "Stand down"; stored value unchanged).
 const META: Record<JobStatus, { label: string; dot: string; text: string }> = {
-  ACTIVE: { label: "Active", dot: "bg-emerald-500", text: "text-emerald-600" },
-  INACTIVE: { label: "Inactive", dot: "bg-gray-400", text: "text-gray-500" },
-  COMPLETED: { label: "Completed", dot: "bg-blue-500", text: "text-blue-600" },
+  ACTIVE: { label: PROJECT_STATUS_LABEL.ACTIVE, dot: "bg-emerald-500", text: "text-emerald-600" },
+  INACTIVE: { label: PROJECT_STATUS_LABEL.INACTIVE, dot: "bg-gray-400", text: "text-gray-500" },
+  COMPLETED: { label: PROJECT_STATUS_LABEL.COMPLETED, dot: "bg-blue-500", text: "text-blue-600" },
 };
 
 // Active is the expected, common state - a plain green light, no text needed.
-// The exceptions (Inactive / Completed) get a label too, since those are the
+// The exceptions (Stand down / Completed) get a label too, since those are the
 // ones that need explaining.
 export default function JobStatusBadge({
   status,

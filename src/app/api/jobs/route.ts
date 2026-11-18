@@ -30,7 +30,7 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
     where: { date: { gte: date, lt: nextDay }, status: { not: "COMPLETED" }, cancelledAt: null }, // never a cancelled job (10 Nov 2026)
     orderBy: [{ notRunning: "asc" }, { sortOrder: "asc" }, { createdAt: "asc" }],
     include: {
-      project: { select: { name: true, client: true, jobNo: true, address: true, regional: true } },
+      project: { select: { name: true, client: true, jobNo: true, address: true, regional: true, status: true } },
       assignments: {
         include: { resource: true },
         orderBy: { createdAt: "asc" },
@@ -69,6 +69,7 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
     assignments: j.assignments.map((a) => ({ ...a, signedInAs: filledBy.get(a.id) ?? null })),
     ...liveJobFields({ title: j.title, client: j.client, siteCode: j.siteCode, siteAddress: j.siteAddress, project }),
     regional: !!project?.regional, // the Regional badge on the board (2 Nov 2026)
+    projectStatus: project?.status ?? null, // the board's "Project completed" flag (18 Nov 2026)
     ...(noWay.has(j.id) ? { noSignInWay: true } : {}),
     date: j.date.toISOString().slice(0, 10),
   }));

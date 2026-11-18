@@ -104,9 +104,12 @@ export interface JobDTO {
   assignments: AssignmentDTO[];
   regional?: boolean; // the project is regional (travel sign-in) - from /api/jobs, 2 Nov 2026
   noSignInWay?: boolean; // fix 3: crew on it but no supervisor link, hand-over or poster to sign in with
-  // Client-only: a placeholder row for an active/inactive project that has no
+  // The job's project status (18 Nov 2026): the board flags "Project completed"; the Completed page groups by it.
+  projectStatus?: string | null;
+  // Client-only: a placeholder row for an active / stood-down project that has no
   // job created yet for the selected date - see Board.tsx. Never sent to the API.
   virtual?: boolean;
+  startsOn?: string | null; // client-only, placeholder rows: a stood-down project's start date still to come
 }
 
 export interface ProjectDTO {

@@ -66,9 +66,11 @@ export const PATCH = withErrorHandling(async (
   const user = await getCurrentUser();
   // The checks and the update live in lib/recordPatch.ts (shared with approved changes, LCI phase 4); every field that
   // changed is kept in the project's history (keep forever, 10 Nov 2026).
+  // Completing a project with bookings ahead: 409 { code: "has-bookings", bookings } until body.bookings is
+  // "STAND_DOWN" or "CANCEL_BOOKINGS" (lib/projectComplete.ts); the outcome of a cancel comes back as `bookings`.
   const out = await applyProjectPatch(params.id, body, { by: user, source: "Project edit" });
-  if ("error" in out) return NextResponse.json({ error: out.error }, { status: out.status });
-  return NextResponse.json(out.project);
+  if ("error" in out) return NextResponse.json({ error: out.error, ...(out.code ? { code: out.code, bookings: out.bookings } : {}) }, { status: out.status });
+  return NextResponse.json(out.bookings ? { ...out.project, bookings: out.bookings } : out.project);
 });
 
 // DELETE /api/projects/:id -> refused (keep forever, Ilies 10 Nov 2026): projects are archived, never deleted. No

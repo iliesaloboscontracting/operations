@@ -108,7 +108,7 @@ export function dateExceptionList(p: ProjectDates, b: ProjectBoardDates | undefi
 
   if (p.status !== "ACTIVE") {
     if (board.nextJobDate && p.status !== "COMPLETED") {
-      add("DATE_INACTIVE_HAS_JOBS", `Marked Inactive but has jobs from ${short(board.nextJobDate)}`);
+      add("DATE_INACTIVE_HAS_JOBS", `Marked Stand down but has jobs from ${short(board.nextJobDate)}`);
     } else if (board.nextJobDate) {
       add("DATE_COMPLETED_HAS_JOBS", `Marked Completed but has jobs from ${short(board.nextJobDate)}`);
     }

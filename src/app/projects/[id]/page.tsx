@@ -23,6 +23,8 @@ import {
 } from "@/lib/projectFile";
 import type { ProjectContactDTO, ProjectFileDTO, ResourceDTO } from "@/lib/types";
 import { DATE_CONFIDENCE, DATE_CONFIDENCE_LABEL } from "@/lib/dateRules";
+import { statusLabel } from "@/lib/projectLists";
+import { bookingsOutcomeText, useProjectPatch } from "@/components/ProjectBookingsPrompt";
 
 // The Project File (Operations Analyst brief 11, Phase 1): everything about a
 // site in one place, in four tabs. Blank always reads "Not known yet" - nothing
@@ -475,6 +477,9 @@ export default function ProjectFilePage({ params: paramsP }: { params: Promise<{
   const [tab, setTab] = useState<Tab>("overview");
   const [editingDetails, setEditingDetails] = useState(false);
   const [officeStaff, setOfficeStaff] = useState<ResourceDTO[]>([]);
+  // Completed with bookings ahead asks first (18 Nov 2026, components/ProjectBookingsPrompt.tsx).
+  const { patchProject, modal: bookingsModal } = useProjectPatch();
+  const [notice, setNotice] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const res = await apiFetch(`/api/projects/${params.id}`);
@@ -514,12 +519,10 @@ export default function ProjectFilePage({ params: paramsP }: { params: Promise<{
   async function saveDetails(values: Record<string, any>) {
     if (!project) return;
     const body = Object.fromEntries(PROJECT_FORM_FIELDS.map((f) => [f.key, values[f.key]]));
-    const res = await apiFetch(`/api/projects/${project.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
+    const res = await patchProject(project.id, body);
     if (!res.ok) throw new Error(await serverErrorMessage(res, "Save failed"));
+    const saved = await res.json().catch(() => null);
+    setNotice(bookingsOutcomeText(saved) ?? (body.status === "COMPLETED" && saved?.status === "INACTIVE" ? "Stood down for now - the bookings are kept." : null));
     await load();
   }
 
@@ -600,6 +603,7 @@ export default function ProjectFilePage({ params: paramsP }: { params: Promise<{
           </span>
         )}
       </div>
+      {notice && <div className="mb-4 max-w-3xl rounded-md bg-emerald-900/30 px-3 py-1.5 text-xs text-emerald-300" role="status">{notice}</div>}
 
       <div className="max-w-3xl space-y-4">
         {tab === "overview" && (
@@ -618,7 +622,7 @@ export default function ProjectFilePage({ params: paramsP }: { params: Promise<{
               <Row label="Job number">{project.jobNo || <Unknown />}</Row>
               <Row label="Quote number">{project.quoteNo || <Unknown />}</Row>
               <Row label="Address">{project.address || <Unknown />}</Row>
-              <Row label="Status">{project.status === "ACTIVE" ? "Active" : project.status === "INACTIVE" ? "Inactive" : "Completed"}</Row>
+              <Row label="Status">{statusLabel(project.status)}</Row>
               <Row label="Regional">
                 {/* Regional (2 Nov 2026): crew get travel sign-in on every day of this project. */}
                 <span className="inline-flex flex-wrap items-center gap-2"><RegionalToggle projectId={project.id} projectName={project.name} regional={!!project.regional} size="md" onChanged={() => load()} />{!project.regional && <span className="text-xs text-gray-500">Local</span>}</span>
@@ -699,6 +703,7 @@ export default function ProjectFilePage({ params: paramsP }: { params: Promise<{
           deleteLabel={project.archived ? "Unarchive" : "Archive"}
         />
       )}
+      {bookingsModal}
     </PageShell>
   );
 }

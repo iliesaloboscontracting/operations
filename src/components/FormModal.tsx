@@ -10,7 +10,7 @@ export interface FieldDef {
   label: string;
   type?: "text" | "select" | "textarea" | "date" | "password" | "number" | "static" | "project";
   options?: (string | { value: string; label: string })[];
-  // For type "project" (2 Nov 2026): the shared project dropdown (components/ProjectSelect.tsx) - Active, Inactive,
+  // For type "project" (2 Nov 2026): the shared project dropdown (components/ProjectSelect.tsx) - Active, Stand down,
   // Completed groups, and the "active again or still completed?" question when a Completed project is picked.
   projects?: PickerProject[];
   noneLabel?: string; // the first "no project" choice, value ""

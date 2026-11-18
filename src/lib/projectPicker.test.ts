@@ -8,9 +8,9 @@ const LIST = [
   P("a1", "Alexandria", "ACTIVE"), P("c2", "Annandale", "COMPLETED"), P("i2", "Bondi", "INACTIVE"),
 ];
 
-test("groups: Active, then Inactive, then Completed - by name inside each, case ignored", () => {
+test("groups: Active, then Stand down (INACTIVE), then Completed - by name inside each, case ignored", () => {
   const g = groupProjects(LIST);
-  assert.deepEqual(g.map((x) => x.label), ["Active", "Inactive", "Completed"]);
+  assert.deepEqual(g.map((x) => x.label), ["Active", "Stand down", "Completed"]);
   assert.deepEqual(g.map((x) => x.projects.map((p) => p.id)), [["a1", "a2"], ["i2", "i1"], ["c2", "c1"]]);
 });
 
@@ -30,7 +30,7 @@ test("status: missing = Active (names-only lists); an unknown status reads as In
 
 test("labels carry the status for inactive and completed projects", () => {
   assert.equal(projectOptionLabel(P("c1", "Bronte", "COMPLETED")), "Bronte (completed)");
-  assert.equal(projectOptionLabel(P("i1", "Myers", "INACTIVE")), "Myers (inactive)");
+  assert.equal(projectOptionLabel(P("i1", "Myers", "INACTIVE")), "Myers (stand down)");
   assert.equal(projectOptionLabel(P("a1", "Coogee", "ACTIVE")), "Coogee");
   assert.equal(projectOptionLabel(P("c1", "Bronte", "COMPLETED"), "Bronte — Lendlease"), "Bronte — Lendlease (completed)");
 });

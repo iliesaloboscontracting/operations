@@ -10,11 +10,14 @@
 // and leaves the project as it is, "Cancel" puts the picker back. Site-link pickers are not these - they stay
 // active-only.
 
+import { PROJECT_STATUS_LABEL } from "./projectLists";
+
 export type ProjectStatus = "ACTIVE" | "INACTIVE" | "COMPLETED";
 export type PickerProject = { id: string; name: string; status?: string | null };
 
 export const STATUS_ORDER: readonly ProjectStatus[] = ["ACTIVE", "INACTIVE", "COMPLETED"];
-export const GROUP_LABEL: Record<ProjectStatus, string> = { ACTIVE: "Active", INACTIVE: "Inactive", COMPLETED: "Completed" };
+// INACTIVE is shown as "Stand down" (18 Nov 2026, lib/projectLists.ts - the one place the words live).
+export const GROUP_LABEL: Record<ProjectStatus, string> = PROJECT_STATUS_LABEL;
 
 // A missing status is treated as Active (the purchases picker on a link sends names only, all active); anything
 // else that isn't ACTIVE or COMPLETED reads as Inactive - never hidden.
@@ -23,11 +26,11 @@ export function pickerStatus(p: PickerProject): ProjectStatus {
   return s === "ACTIVE" || s === "COMPLETED" ? s : "INACTIVE";
 }
 
-// "Bronte (completed)", "Myers (inactive)", "Coogee" - `base` lets a picker show more than the name (job number,
+// "Bronte (completed)", "Myers (stand down)", "Coogee" - `base` lets a picker show more than the name (job number,
 // client) while the status words stay the same everywhere.
 export function projectOptionLabel(p: PickerProject, base: string = p.name): string {
   const s = pickerStatus(p);
-  return s === "ACTIVE" ? base : `${base} (${s.toLowerCase()})`;
+  return s === "ACTIVE" ? base : `${base} (${PROJECT_STATUS_LABEL[s].toLowerCase()})`;
 }
 
 export type ProjectGroup<T extends PickerProject> = { status: ProjectStatus; label: string; projects: T[] };

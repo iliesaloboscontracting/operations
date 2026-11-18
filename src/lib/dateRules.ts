@@ -4,6 +4,7 @@
 // All dates here are calendar days as "YYYY-MM-DD" strings.
 
 import { fmtDay, parseISO } from "./dates";
+import { statusLabel } from "./projectLists";
 
 export const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -61,7 +62,7 @@ export function jobDateWarnings(
   const out: string[] = [];
   if (project) {
     if (project.status !== "ACTIVE") {
-      out.push(`${project.name} is marked ${project.status === "COMPLETED" ? "Completed" : "Inactive"}.`);
+      out.push(`${project.name} is marked ${statusLabel(project.status)}.`);
     }
     if (project.startDate && isISODate(project.startDate) && date < project.startDate) {
       out.push(`${short(date)} is before ${project.name}'s start date (${short(project.startDate)}).`);

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { guard, getCurrentUser, guardOrCoordinator } from "@/lib/auth";
 import { viewJson } from "@/lib/coordinatorView"; // the coordinator gets no dollar figure (2 Nov 2026)
-import { pickProject } from "@/lib/pickProject";
+import { pickProject, projectStatusError } from "@/lib/pickProject";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { addDays } from "@/lib/dates";
 import { todaySydney } from "@/lib/today";
@@ -105,6 +105,8 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
     return NextResponse.json({ error: "name is required" }, { status: 400 });
   }
   const data = pickProject(body);
+  const badStatus = projectStatusError(data);
+  if (badStatus) return NextResponse.json({ error: badStatus }, { status: 400 });
   const invalid = await validateProjectFile(data);
   if (invalid) return invalid;
   const project = await prisma.project.create({ data: data as any });

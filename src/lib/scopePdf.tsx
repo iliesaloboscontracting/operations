@@ -1,4 +1,5 @@
 import { Document, Page, Text, View, StyleSheet, renderToBuffer } from "@react-pdf/renderer";
+import { statusLabel } from "./projectLists";
 
 // Generates the per-project "Scope of Works" PDF - one per site, covering the
 // durable facts (client, address, shift windows, the scope text itself), never
@@ -96,7 +97,7 @@ export function ScopeDocument({ project, generatedAt }: { project: ScopePdfProje
           <Meta label="Client" value={project.client} />
           <Meta label="Job number" value={project.jobNo} />
           <Meta label="Address" value={project.address} />
-          <Meta label="Status" value={project.status} />
+          <Meta label="Status" value={statusLabel(project.status)} />
           <Meta label="Shift" value={[day, night].filter(Boolean).join("   ") || null} />
         </View>
 

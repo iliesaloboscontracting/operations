@@ -11,11 +11,13 @@ import { hireDateError } from "./dateRules";
 import { formOffHireDay, hireStatusChangeError, offHiresByStatus } from "./offHire/rules";
 import { closeOffHireRequests, recordOffHire } from "./offHire/store";
 import { todaySydney } from "./today";
-import { pickProject } from "./pickProject";
+import { pickProject, projectStatusError } from "./pickProject";
 import { projectFileError } from "./projectFileServer";
 import { recordChanges, updateTracked, type Who } from "./history/store";
+import { bookingsAhead, cancelBookings, type BookingsOutcome } from "./projectComplete";
+import { HAS_BOOKINGS, type Booking, type BookingsDecision } from "./projectLists";
 
-export type PatchProblem = { error: string; status: number };
+export type PatchProblem = { error: string; status: number; code?: string; bookings?: Booking[] };
 
 // The fields a body may change (pickResourceData), pay rates for an Admin
 // only, the hire dates and the hire register's own rules. A record that
@@ -94,15 +96,39 @@ export async function applyResourcePatch(id: string, body: Record<string, unknow
 
 // The fields a body may change (pickProject) and the Project File rules
 // (dates, no dollar figures in crew-facing text, the office contact).
-export async function applyProjectPatch(id: string, body: Record<string, unknown>, ctx: { by?: Who; source?: string; reason?: string | null } = {}): Promise<{ project: Project } | PatchProblem> {
+// Status (18 Nov 2026): only ACTIVE | INACTIVE | COMPLETED is saved; setting COMPLETED while jobs are still booked from
+// today on is answered 409 "has-bookings" until body.bookings says what to do (lib/projectComplete.ts).
+export async function applyProjectPatch(id: string, body: Record<string, unknown>, ctx: { by?: Who; source?: string; reason?: string | null } = {}): Promise<{ project: Project; bookings?: BookingsOutcome } | PatchProblem> {
   const data = pickProject(body);
+  const badStatus = projectStatusError(data);
+  if (badStatus) return { error: badStatus, status: 400 };
   const existing = await prisma.project.findUnique({
     where: { id },
-    select: { startDate: true, expectedCompletion: true, completionReviewBy: true },
+    select: { name: true, status: true, startDate: true, expectedCompletion: true, completionReviewBy: true },
   });
   if (!existing) return { error: "That project doesn't exist anymore.", status: 404 };
   const invalid = await projectFileError(data, existing);
   if (invalid) return invalid;
+
+  let outcome: BookingsOutcome | undefined;
+  if (data.status === "COMPLETED" && existing.status !== "COMPLETED") {
+    const ahead = await bookingsAhead(id);
+    if (ahead.length) {
+      const decision = body.bookings as BookingsDecision | undefined;
+      if (decision === "STAND_DOWN") {
+        data.status = "INACTIVE";
+      } else if (decision === "CANCEL_BOOKINGS") {
+        const who = { id: ctx.by?.id ?? "", name: (ctx.by?.name && ctx.by.name.trim()) || "Operations" };
+        outcome = await cancelBookings(ahead, who);
+      } else {
+        const n = ahead.length;
+        return {
+          error: `${existing.name} still has ${n} booked day${n === 1 ? "" : "s"} from ${ahead[0].date}. Stand it down for now, or complete it and cancel the bookings.`,
+          status: 409, code: HAS_BOOKINGS, bookings: ahead,
+        };
+      }
+    }
+  }
   const project = await updateTracked<Project>("Project", id, data as Record<string, unknown>, { by: ctx.by, source: ctx.source ?? "Project edit", reason: ctx.reason ?? null });
-  return { project };
+  return outcome ? { project, bookings: outcome } : { project };
 }

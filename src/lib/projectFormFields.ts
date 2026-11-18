@@ -1,4 +1,5 @@
 import type { FieldDef } from "@/components/FormModal";
+import { PROJECT_STATUS_LABEL } from "./projectLists";
 
 // The basic project form (name, client, address, hours, notes...) - shared by
 // the Projects page's "Add project" and the project page's "Edit details", so
@@ -15,9 +16,9 @@ export const PROJECT_FORM_FIELDS: FieldDef[] = [
     label: "Status",
     type: "select",
     options: [
-      { value: "ACTIVE", label: "Active" },
-      { value: "INACTIVE", label: "Inactive" },
-      { value: "COMPLETED", label: "Completed (moves to the Completed page)" },
+      { value: "ACTIVE", label: PROJECT_STATUS_LABEL.ACTIVE },
+      { value: "INACTIVE", label: PROJECT_STATUS_LABEL.INACTIVE },
+      { value: "COMPLETED", label: `${PROJECT_STATUS_LABEL.COMPLETED} (moves to the Completed page)` },
     ],
   },
   { key: "startDate", label: "Start date", type: "date" },

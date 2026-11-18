@@ -415,6 +415,6 @@ export const purchasesWaiting = () => prisma.purchaseRequest.count({ where: { st
 // every project that isn't archived, grouped and asked about by components/ProjectSelect.tsx.
 export const projectChoices = (opts: { allStatuses?: boolean } = {}) =>
   prisma.project.findMany({
-    where: opts.allStatuses ? { archived: false } : { status: "ACTIVE" },
+    where: opts.allStatuses ? { archived: false } : { status: "ACTIVE", archived: false }, // an archived project is never offered (18 Nov 2026)
     select: { id: true, name: true, jobNo: true, status: true }, orderBy: { name: "asc" }, take: opts.allStatuses ? 1000 : 300,
   });

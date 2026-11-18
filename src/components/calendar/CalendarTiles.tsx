@@ -74,9 +74,9 @@ function planWords(span: CalendarSpanDTO | undefined) {
   if (!span) return "No planned dates";
   const n = spanDays(span);
   const up = span.upcoming
-    ? ` · inactive - ${span.upcoming.kind === "RECOMMENCES" ? "recommences" : "starts"} ${shortDayYear(span.upcoming.date)}`
+    ? ` · stand down - ${span.upcoming.kind === "RECOMMENCES" ? "recommences" : "starts"} ${shortDayYear(span.upcoming.date)}`
     : span.status === "INACTIVE"
-    ? " · inactive"
+    ? " · stand down"
     : "";
   return `Planned ${spanWords(span, shortDayYear)}${n ? ` (${n} days)` : ""}${up}`;
 }

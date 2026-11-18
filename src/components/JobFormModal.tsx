@@ -6,6 +6,8 @@ import { saveWithDateCheck } from "@/lib/dateCheckPrompt";
 import FormModal, { FieldDef } from "./FormModal";
 import { CANCEL_REASONS } from "@/lib/jobs";
 import HistoryButton from "./HistoryButton";
+import { useProjectPatch } from "./ProjectBookingsPrompt";
+import { PROJECT_STATUS_LABEL } from "@/lib/projectLists";
 
 export interface SavedJobInfo {
   isNew: boolean;
@@ -47,6 +49,7 @@ export default function JobFormModal({
   onProjectReactivated?: (projectId: string) => void;
 }) {
   const isNew = editing === "new";
+  const { patchProject, modal: bookingsModal } = useProjectPatch();
   // Job / site name, Client, Job number and Address are site identity, not a
   // per-job detail - once a job is linked to a project they're the project's
   // own fields (same as the Projects page edits), so editing them here saves
@@ -102,9 +105,9 @@ export default function JobFormModal({
       type: "select",
       full: true,
       options: [
-        { value: "ACTIVE", label: "Active" },
-        { value: "INACTIVE", label: "Inactive" },
-        { value: "COMPLETED", label: "Completed (moves to the Completed page)" },
+        { value: "ACTIVE", label: PROJECT_STATUS_LABEL.ACTIVE },
+        { value: "INACTIVE", label: PROJECT_STATUS_LABEL.INACTIVE },
+        { value: "COMPLETED", label: `${PROJECT_STATUS_LABEL.COMPLETED} (moves to the Completed page)` },
       ],
     },
     {
@@ -127,19 +130,17 @@ export default function JobFormModal({
     const date = v.date || defaultDate;
 
     if (isNew && fromInactiveProject && project && status === "COMPLETED") {
-      const siteRes = await fetch(`/api/projects/${project.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: title,
-          client: v.client || null,
-          jobNo: v.siteCode || null,
-          address: v.siteAddress || null,
-          status: "COMPLETED",
-        }),
+      // Bookings still ahead ask "stand down for now?" first (18 Nov 2026, components/ProjectBookingsPrompt.tsx).
+      const siteRes = await patchProject(project.id, {
+        name: title,
+        client: v.client || null,
+        jobNo: v.siteCode || null,
+        address: v.siteAddress || null,
+        status: "COMPLETED",
       });
-      if (!siteRes.ok) throw new Error("Couldn't mark the project complete");
-      await onSaved(null, { isNew: true, moved: false, completed: true });
+      if (!siteRes.ok) throw new Error(await serverErrorMessage(siteRes, "Couldn't mark the project complete"));
+      const saved = await siteRes.json().catch(() => null);
+      await onSaved(null, { isNew: true, moved: false, completed: saved?.status === "COMPLETED" });
       return;
     }
 
@@ -188,6 +189,7 @@ export default function JobFormModal({
   }
 
   return (
+    <>
     <FormModal
       title={isNew ? "New job" : "Edit job"}
       fields={jobFields}
@@ -216,5 +218,7 @@ export default function JobFormModal({
       extra={!isNew && onDelete ? <div className="mt-3 flex justify-end"><HistoryButton model="Job" id={(editing as JobDTO).id} /></div> : undefined}
       submitLabel="Save Job"
     />
+    {bookingsModal}
+    </>
   );
 }

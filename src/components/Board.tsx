@@ -37,6 +37,8 @@ import StatTile from "./StatTile";
 import { saveWithDateCheck } from "@/lib/dateCheckPrompt";
 import { nightOnly } from "@/lib/shiftTimes";
 import { SentBanner, useBoardGuard } from "./board/BoardGuard";
+import { boardPlaceholder, PROJECT_STATUS_LABEL } from "@/lib/projectLists";
+import AttachToProject from "./board/AttachToProject";
 
 const BOARD_DATE_KEY = "board.selectedDate";
 
@@ -339,23 +341,21 @@ As an Admin you can go over the limit. Why? (kept on record) - or Cancel to leav
     await refresh();
   }
 
-  // ---- derived: every active/inactive project gets a row, even before its
+  // ---- derived: every active / stood-down project gets a row, even before its
   // job for the day exists - a placeholder ("virtual") row stands in until
-  // then, so a project never just vanishes off the board (from its start
-  // date on). ---------------------------------------------------------------
+  // then, so a project never just vanishes off the board. The rule is
+  // boardPlaceholder() (lib/projectLists.ts): an Active project from its start
+  // date on (Ilies, 18 Oct 2026); a stood-down one always, in the Stand down
+  // list, with "Starts <date>" while its start is still ahead (18 Nov 2026).
+  // A real job entered for any day still shows as normal. ----------------------
   const boardRows = useMemo(() => {
     const hasJobToday = new Set(jobs.map((j) => j.projectId).filter((id): id is string => !!id));
     const placeholders: JobDTO[] = projects
-      // A project with a start date doesn't get a placeholder row on days before
-      // it starts (Ilies, 18 Oct 2026). A real job entered for one of those days
-      // still shows as normal.
-      .filter(
-        (p) =>
-          p.status !== "COMPLETED" &&
-          !hasJobToday.has(p.id) &&
-          !(p.startDate && selectedDate < p.startDate)
-      )
-      .map((p) => ({
+      .flatMap((p) => {
+        const row = hasJobToday.has(p.id) ? null : boardPlaceholder(p, selectedDate);
+        return row ? [{ p, startsOn: row.startsOn }] : [];
+      })
+      .map(({ p, startsOn }) => ({
         id: `virtual:${p.id}`,
         projectId: p.id,
         title: p.name,
@@ -373,7 +373,9 @@ As an Admin you can go over the limit. Why? (kept on record) - or Cancel to leav
         sortOrder: 999,
         assignments: [],
         regional: !!p.regional,
+        projectStatus: p.status,
         virtual: true,
+        startsOn,
       }));
     return [...jobs, ...placeholders];
   }, [jobs, projects, selectedDate]);
@@ -490,10 +492,19 @@ As an Admin you can go over the limit. Why? (kept on record) - or Cancel to leav
     await refresh();
   }
 
+  // A job with no project (18 Nov 2026): "Attach to project" - and a merge when that project already has its job.
+  const [attaching, setAttaching] = useState<JobDTO | null>(null);
+
   const rowProps = {
     onAssign: handleAssign,
     onRoleChange: handleRoleChange,
     onRemove: handleRemove,
+    onAttach: canEdit
+      ? async (j: JobDTO) => {
+          if (!(await boardGuard.confirmEdit())) return;
+          setAttaching(j);
+        }
+      : undefined,
     onEdit: async (j: JobDTO) => {
       if (!canEdit || !(await boardGuard.confirmEdit())) return;
       if (j.virtual) {
@@ -628,7 +639,7 @@ As an Admin you can go over the limit. Why? (kept on record) - or Cancel to leav
               {notRunning.length > 0 && (
                 <div className="mt-6">
                   <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
-                    Inactive / stood down &middot; {notRunning.length}
+                    {PROJECT_STATUS_LABEL.INACTIVE} &middot; {notRunning.length}
                   </div>
                   <div className="overflow-hidden rounded-xl border border-edge shadow-soft">
                     {notRunning.map((job) => (
@@ -662,6 +673,19 @@ As an Admin you can go over the limit. Why? (kept on record) - or Cancel to leav
           }}
           onDelete={editing === "new" ? undefined : cancelJob}
           onProjectReactivated={() => { refresh(); }}
+        />
+      )}
+
+      {attaching && (
+        <AttachToProject
+          job={attaching}
+          projects={projects}
+          onDone={async (text) => {
+            setAttaching(null);
+            setMessage({ text });
+            await refresh();
+          }}
+          onClose={() => setAttaching(null)}
         />
       )}
 

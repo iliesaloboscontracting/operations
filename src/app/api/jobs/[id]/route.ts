@@ -45,6 +45,35 @@ export const PATCH = withErrorHandling(async (
     }
   }
 
+  // Attach a job with no project to one (18 Nov 2026, Ilies "approve all"): only a job that has NO project - a job is
+  // never moved from one project to another here. If the project already has its job for that day and shift, the
+  // answer is 409 "job-clash" with that job's id, and the board offers to merge (POST /api/jobs/:id/merge-into); a
+  // cancelled one there refuses (a merge never brings a cancelled job back - see lib/jobMerge.ts).
+  let attachTo: { id: string; name: string } | null = null;
+  if ("projectId" in body && (body.projectId || null) !== current.projectId) {
+    if (current.projectId) {
+      return NextResponse.json({ error: "This job is already on a project - a job can't be moved from one project to another." }, { status: 400 });
+    }
+    const p = typeof body.projectId === "string" ? await prisma.project.findUnique({ where: { id: body.projectId }, select: { id: true, name: true } }) : null;
+    if (!p) return NextResponse.json({ error: "Pick a project." }, { status: 400 });
+    attachTo = p;
+    const targetDate = "date" in body ? new Date(body.date) : current.date;
+    const targetShift = "shift" in body ? body.shift : current.shift;
+    const there = await prisma.job.findFirst({
+      where: { projectId: p.id, date: targetDate, shift: targetShift, id: { not: params.id } },
+      select: { id: true, cancelledAt: true },
+    });
+    if (there) {
+      const when = `${targetShift === "NIGHT" ? "night" : "day"} job on ${isoDay(targetDate)}`;
+      return NextResponse.json(
+        there.cancelledAt
+          ? { code: "job-clash-cancelled", error: `${p.name} has a cancelled ${when}, kept on record - this job can't be attached to it. Add ${p.name}'s job again from the board first, then attach this one and merge.` }
+          : { code: "job-clash", targetJobId: there.id, error: `This project already has a ${when} - merge into it?` },
+        { status: 409 }
+      );
+    }
+  }
+
   // Moving a job's date/shift can collide with an existing job for the same
   // project the same way creating a brand new one can (see POST /api/jobs
   // and the @@unique on Job in schema.prisma) - checked explicitly here too,
@@ -103,14 +132,15 @@ export const PATCH = withErrorHandling(async (
   if (data.status === "CANCELLED") return NextResponse.json({ error: "Use Cancel job to cancel it." }, { status: 400 });
   if ("date" in body) data.date = new Date(body.date);
   if (typeof body.dateCheckNote === "string" && body.dateCheckNote.trim()) data.dateCheckNote = body.dateCheckNote.trim();
+  if (attachTo) data.projectId = attachTo.id;
 
   // Every field that changed is kept in the job's history (keep forever, 10 Nov 2026), in the same transaction.
-  const job = await updateTracked<Awaited<ReturnType<typeof loadJob>> & object>("Job", params.id, data, { by: user, source: "Job edit (board)" }, {
+  const job = await updateTracked<Awaited<ReturnType<typeof loadJob>> & object>("Job", params.id, data, { by: user, source: attachTo ? "Attach to project (board)" : "Job edit (board)" }, {
     include: JOB_INCLUDE,
   });
   // Field names only (a day brief's words stay out of the history); a job moved to another day is noted on both days.
-  const fields = Object.keys(data).filter((k) => k !== "dateCheckNote");
-  const note = `${siteName(job)}: ${fields.join(", ") || "saved"}`;
+  const fields = Object.keys(data).filter((k) => k !== "dateCheckNote" && k !== "projectId");
+  const note = attachTo ? `${siteName(job)}: attached to ${attachTo.name}${fields.length ? `; ${fields.join(", ")}` : ""}` : `${siteName(job)}: ${fields.join(", ") || "saved"}`;
   for (const d of new Set([isoDay(current.date), isoDay(job.date)])) await logBoardEdit(user, d, "JOB_EDIT", note);
   if (limitOverride && user) await recordOverride(prisma, user, isoDay(job.date), limitOverride);
   const { project, ...rest } = job;

@@ -8,6 +8,7 @@ import { GRID_COLS } from "./JobGridHeader";
 import { ShiftBadge } from "./ShiftBadge";
 import JobStatusBadge from "./JobStatusBadge";
 import RegionalToggle from "./RegionalToggle";
+import { fmtDay } from "@/lib/dates";
 
 export default function JobRow({
   job,
@@ -16,6 +17,7 @@ export default function JobRow({
   onRoleChange,
   onRemove,
   onEdit,
+  onAttach,
 }: {
   job: JobDTO;
   conflicts: Record<string, number>;
@@ -23,6 +25,7 @@ export default function JobRow({
   onRoleChange: (assignmentId: string, role: string) => void;
   onRemove: (assignmentId: string) => void;
   onEdit: (job: JobDTO) => void;
+  onAttach?: (job: JobDTO) => void; // Managers / Admins: a job with no project (18 Nov 2026)
 }) {
   const by = (c: "crew" | "plant" | "hire") =>
     job.assignments.filter((a) => columnFor(a.resource) === c);
@@ -75,7 +78,33 @@ export default function JobRow({
             )}
           </div>
           {job.virtual && (
-            <div className="mt-1 text-[11px] italic text-gray-500">Not scheduled yet</div>
+            <div className="mt-1 text-[11px] italic text-gray-500">
+              {job.startsOn ? `Starts ${fmtDay(job.startsOn, { day: "numeric", month: "short" })}` : "Not scheduled yet"}
+            </div>
+          )}
+          {/* 18 Nov 2026: a job whose project is Completed, or with no project at all, says so. */}
+          {!job.virtual && job.projectStatus === "COMPLETED" && (
+            <div className="mt-1 flex items-center gap-1 text-[11px] font-medium text-blue-500" title="This job's project is marked Completed - stand the project down or set it Active again if work is still going.">
+              <TriangleAlert size={11} className="shrink-0" />
+              Project completed
+            </div>
+          )}
+          {!job.virtual && !job.projectId && (
+            <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] font-medium text-amber-500">
+              <TriangleAlert size={11} className="shrink-0" />
+              Not linked to a project
+              {onAttach && (
+                <span
+                  role="button"
+                  tabIndex={0}
+                  onClick={(e) => { e.stopPropagation(); onAttach(job); }}
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); onAttach(job); } }}
+                  className="rounded border border-amber-500/40 px-1.5 py-0.5 text-amber-400 hover:bg-amber-500/10"
+                >
+                  Attach to project
+                </span>
+              )}
+            </div>
           )}
           {job.noSignInWay && (
             <div className="mt-1 flex items-center gap-1 text-[11px] font-medium text-amber-400" title="Crew are on this job but nobody on it has a supervisor link, there is no hand-over and no site poster - nobody can sign in.">

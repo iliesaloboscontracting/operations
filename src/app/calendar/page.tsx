@@ -13,6 +13,7 @@ import { useAutoRefresh } from "@/lib/useAutoRefresh";
 import { apiFetch } from "@/lib/apiFetch";
 import { useAuth } from "@/components/AuthProvider";
 import { coordinatorHref } from "@/lib/roles";
+import { PROJECT_STATUS_LABEL, statusLabel } from "@/lib/projectLists";
 import { CalendarSpanDTO, CalendarSpansResponse, NoDatesDTO, spanDays, spanWords } from "@/lib/calendarSpans";
 import { assignColours, buildBars, dayMarks, NEUTRAL_TILE, rollingEnd, rollingRows, weekRows } from "@/lib/calendarTiles";
 import { TileAgenda, TileGrid, TileLegend, TileTimeline, type TileRow } from "@/components/calendar/CalendarTiles";
@@ -107,7 +108,7 @@ function SpanTags({ span }: { span: CalendarSpanDTO }) {
   const tags: { text: string; tone: string }[] = [];
   if (span.upcoming)
     tags.push({ text: `${span.upcoming.kind === "RECOMMENCES" ? "Recommences" : "Starts"} ${shortDay(span.upcoming.date)}`, tone: "bg-gray-500/20 text-gray-300" });
-  else if (span.status === "INACTIVE") tags.push({ text: "Inactive", tone: "bg-gray-500/20 text-gray-300" });
+  else if (span.status === "INACTIVE") tags.push({ text: PROJECT_STATUS_LABEL.INACTIVE, tone: "bg-gray-500/20 text-gray-300" });
   if (span.pastFinish) tags.push({ text: "⚠ Past expected finish", tone: "bg-amber-500/15 text-amber-600" });
   if (span.finishTbc) tags.push({ text: "Finish TBC", tone: "bg-gray-500/20 text-gray-400" });
   if (span.tentative) tags.push({ text: "Start tentative", tone: "bg-gray-500/20 text-gray-400" });
@@ -484,7 +485,7 @@ export default function CalendarPage() {
                   {href ? <Link href={href} className="hover:underline">{name}</Link> : name}
                   <span className="text-gray-500">
                     {" "}
-                    · {p.status === "ACTIVE" ? "active" : "inactive"},{" "}
+                    · {statusLabel(p.status).toLowerCase()},{" "}
                     {p.reason === "NO_RESTART" ? "paused, finish TBC, no restart date" : "no start date"}
                   </span>
                 </li>

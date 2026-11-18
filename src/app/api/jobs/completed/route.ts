@@ -18,7 +18,7 @@ export const GET = withErrorHandling(async () => {
     where: { status: "COMPLETED", cancelledAt: null },
     orderBy: { date: "desc" },
     include: {
-      project: { select: { name: true, client: true, jobNo: true, address: true } },
+      project: { select: { name: true, client: true, jobNo: true, address: true, status: true } },
       assignments: { include: { resource: true }, orderBy: { createdAt: "asc" } },
     },
   });
@@ -28,6 +28,9 @@ export const GET = withErrorHandling(async () => {
   const out = jobs.map(({ project, ...j }) => ({
     ...j,
     ...liveJobFields({ title: j.title, client: j.client, siteCode: j.siteCode, siteAddress: j.siteAddress, project }),
+    // The Completed page lists a completed project once; its job-days only show separately when the project isn't
+    // Completed (lib/projectLists.ts completedPageRows, 18 Nov 2026).
+    projectStatus: project?.status ?? null,
     date: j.date.toISOString().slice(0, 10),
   }));
   return NextResponse.json(out);
