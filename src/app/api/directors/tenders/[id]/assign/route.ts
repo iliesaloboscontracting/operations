@@ -20,7 +20,7 @@ export const POST = withErrorHandling(async (req: NextRequest, { params: paramsP
   if (!Number.isInteger(version)) return NextResponse.json({ error: "Refresh and try again." }, { status: 400 });
   if (assignee && !/^[a-z0-9_-]{1,40}$/.test(assignee)) return NextResponse.json({ error: "Unknown person." }, { status: 400 });
   if (reason.length < 3) return NextResponse.json({ error: "Say why (a few words)." }, { status: 400 });
-  const r = await assignTender(id, { version, assignee, reason }, user.name);
+  const r = await assignTender(id, { version, assignee, reason }, { name: user.name, email: user.email });
   if (r.status !== 200) return NextResponse.json({ error: estimatingWords(r.status, r.body?.code, r.body?.error) }, { status: r.status === 0 ? 502 : r.status });
   return NextResponse.json({ ok: true });
 });

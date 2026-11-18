@@ -2,7 +2,7 @@
 // The key (BOARD_SECRET) and the acting person (x-lobos-user, from Operations' own session) are added here and
 // nowhere else - a browser never reaches these Estimating routes. Who may see prices is decided by the API route
 // (guardDirector), not by Estimating.
-import { estimatingCall, estimatingRaw } from "../estimatingClient";
+import { estimatingCall, estimatingRaw, type Who } from "../estimatingClient";
 import { BOARD_SCHEMA, boardSecret, toBoardDto, type QuoteMeta } from "./rules";
 
 export type TenderRow = {
@@ -48,7 +48,7 @@ export async function loadBoard(period: { from?: string; to?: string }): Promise
 
 const keyOrOff = () => boardSecret();
 
-export async function assignTender(id: string, body: { version: number; assignee: string; reason: string }, who: string) {
+export async function assignTender(id: string, body: { version: number; assignee: string; reason: string }, who: Who) {
   const key = keyOrOff();
   if (!key) return { status: 503, body: { error: "The Tenders link isn't switched on yet.", code: "board-key" } };
   return estimatingCall<{ tender: TenderRow }>(`/api/tenders/${encodeURIComponent(id)}/assign`, {
@@ -56,7 +56,7 @@ export async function assignTender(id: string, body: { version: number; assignee
   }, who);
 }
 
-export async function logQuote(tenderId: string | null, file: ArrayBuffer, fileName: string, meta: QuoteMeta, who: string) {
+export async function logQuote(tenderId: string | null, file: ArrayBuffer, fileName: string, meta: QuoteMeta, who: Who) {
   const key = keyOrOff();
   if (!key) return { status: 503, body: { error: "The Tenders link isn't switched on yet.", code: "board-key" } };
   const path = tenderId ? `/api/tenders/${encodeURIComponent(tenderId)}/log-quote` : "/api/tenders/log-quote";

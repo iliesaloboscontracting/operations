@@ -6,8 +6,11 @@
 // x-lobos-board (17 Nov 2026): the Directors Tenders tab's key (tenders-board.v1) - server to server only.
 export const SERVER_ONLY_HEADERS = ["x-lobos-actuals", "x-lobos-approval", "x-lobos-board"] as const;
 
-export function proxyHeaders(incoming: Headers, userName: string): Record<string, string> {
+// IND-002 (18 Nov 2026): the login's email too (x-lobos-user-email) - Estimating can match quote issuers by email, which
+// no other login can share, rather than by display name. Always from the session, never from the browser.
+export function proxyHeaders(incoming: Headers, userName: string, userEmail?: string | null): Record<string, string> {
   const headers: Record<string, string> = { host: "127.0.0.1", "x-lobos-user": userName };
+  if (userEmail) headers["x-lobos-user-email"] = userEmail.trim().toLowerCase();
   const ct = incoming.get("content-type");
   if (ct) headers["content-type"] = ct;
   // EST2-006 (Ilies approved 17 Nov 2026): Estimating's Jobs uploads carry the file's name in x-file-name (raw body).

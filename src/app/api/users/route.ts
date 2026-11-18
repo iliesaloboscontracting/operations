@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser, guard, hashPassword, MIN_PASSWORD, normaliseEmail, ROLES } from "@/lib/auth";
-import { normName } from "@/lib/samePerson";
+import { normName, userNameProblem } from "@/lib/samePerson";
 import { saveUserCreate } from "@/lib/userEdit";
 import { BUILDING_AGENT_EMAIL } from "@/lib/session";
 import { isOwner } from "@/lib/owner";
@@ -36,6 +36,8 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
     return NextResponse.json({ error: "Enter a name and a valid email" }, { status: 400 });
   }
   if (isReservedUserName(name)) return NextResponse.json({ error: RESERVED_NAME_ERROR }, { status: 400 }); // CH-023
+  const badName = userNameProblem(name); // IND-002 (18 Nov 2026): plain names only
+  if (badName) return NextResponse.json({ error: badName }, { status: 400 });
   if (!ROLES.includes(role as (typeof ROLES)[number])) {
     return NextResponse.json({ error: "Invalid role" }, { status: 400 });
   }

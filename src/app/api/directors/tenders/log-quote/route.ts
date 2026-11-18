@@ -30,7 +30,7 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   if (bytes.length > UPLOAD_FILE_MAX) return NextResponse.json({ error: UPLOAD_TOO_LARGE }, { status: 413 });
   if (!bytesMatch(kind, bytes)) return NextResponse.json({ error: "That file isn't a real PDF / Word file." }, { status: 400 });
   const buf = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.length) as ArrayBuffer;
-  const r = await logQuote(tenderId, buf, fileName, m.meta, user.name);
+  const r = await logQuote(tenderId, buf, fileName, m.meta, { name: user.name, email: user.email });
   if (r.status !== 200 && r.status !== 201) return NextResponse.json({ error: estimatingWords(r.status, r.body?.code, r.body?.error) }, { status: r.status === 0 ? 502 : r.status });
   return NextResponse.json({ ok: true, created: !!(r.body as { created?: boolean } | null)?.created });
 });

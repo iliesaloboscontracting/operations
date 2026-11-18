@@ -5,7 +5,7 @@ import { NO_DIRECTOR_ACCESS_ROLES, ownerGuardedName, ownerGuardsAccount, ownerOn
 import { withErrorHandling } from "@/lib/apiHandler";
 import { isOwner } from "@/lib/owner";
 import { BUILDING_AGENT_EMAIL } from "@/lib/session";
-import { normName, sameUser } from "@/lib/samePerson";
+import { normName, sameUser, userNameProblem } from "@/lib/samePerson";
 import { saveUserEdit } from "@/lib/userEdit";
 import { RESERVED_NAME_ERROR, isReservedUserName } from "@/lib/infoRequests/rules";
 
@@ -34,7 +34,7 @@ export const PATCH = withErrorHandling(async (
   // the owner's to change, so another Admin can't take it over and approve as them.
   // (The Users page sends name and active on every save, so only a real change counts.)
   const changesProtected = body.password !== undefined
-    || (typeof body.name === "string" && normName(body.name) !== normName(target.name))
+    || (typeof body.name === "string" && body.name.trim() !== target.name) // IND-002: any change to the name as typed
     || (body.active !== undefined && Boolean(body.active) !== target.active);
   // YD-009 (Ilies approved 4 Nov 2026): the same for every owner-only login (lib/roles.ts OWNER_ONLY_ROLES - Director,
   // Coordinator, Yard): another Admin can't reset its password, rename it or switch it off and so take it over.
@@ -45,6 +45,11 @@ export const PATCH = withErrorHandling(async (
   const data: Record<string, unknown> = {};
   if (isReservedUserName(body.name)) return NextResponse.json({ error: RESERVED_NAME_ERROR }, { status: 400 }); // CH-023
   if (typeof body.name === "string" && body.name.trim()) data.name = body.name.trim();
+  // IND-002 (18 Nov 2026): a changed name must be plain - no invisible or look-alike characters.
+  if (data.name !== undefined && data.name !== target.name) {
+    const bad = userNameProblem(data.name as string);
+    if (bad) return NextResponse.json({ error: bad }, { status: 400 });
+  }
   // SEC-002 (b): no new name that matches another active login - names are how approvals tell people apart.
   const nameTaken = async (name: string) =>
     (await prisma.user.findMany({ where: { active: true, id: { not: target.id } }, select: { id: true, name: true } }))

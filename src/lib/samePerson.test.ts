@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { SAME_PERSON, normName, sameUser } from "./samePerson";
+import { SAME_PERSON, normName, sameUser, userNameProblem } from "./samePerson";
 import { check } from "./purchases/rules";
 import { cannotApprove } from "./changes/rules";
 
@@ -14,6 +14,18 @@ test("sameUser: the same id, or a listed pair; never blanks", () => {
   assert.equal(sameUser(null, null), false);
   assert.equal(sameUser("", ""), false);
   assert.equal(normName("  Nick   GIANNOPOULOS "), "nick giannopoulos");
+});
+
+test("IND-002: look-alike names count as the same name, and odd characters are refused", () => {
+  const owner = "Iliesa Tubakibau Weldon";
+  for (const v of [`${owner}!`, `${owner}.`, `${owner}​`, `Iliesa Tubakibau Weldon`, `ＩＬＩＥＳＡ Tubakibau Weldon`, ` iliesa  tubakibau-weldon `]) {
+    assert.equal(normName(v), normName(owner), JSON.stringify(v));
+  }
+  assert.notEqual(normName("Iliesa Tubakibau"), normName(owner));
+  for (const bad of [`${owner}!`, `${owner}​`, `Iliesа Weldon`.normalize("NFD"), `ＩＬＩＥＳＡ`, "Nick  Giannopoulos", "X", "<b>Nick</b>", "a".repeat(81)]) {
+    assert.ok(userNameProblem(bad), JSON.stringify(bad));
+  }
+  for (const ok of [owner, "Nick Giannopoulos", "O'Brien-Smith", "Omar E", "Jr. Tom 2", "José Núñez"]) assert.equal(userNameProblem(ok), null, ok);
 });
 
 test("SEC-002 (c): a director can't approve a purchase they asked for, even under a different name", () => {

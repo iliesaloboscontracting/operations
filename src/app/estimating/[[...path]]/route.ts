@@ -23,7 +23,7 @@ async function proxy(req: NextRequest, { params: paramsP }: { params: Promise<{ 
   const url = TARGET + sub + req.nextUrl.search;
 
   // An allowlist - a browser's x-lobos-actuals / x-lobos-approval is never passed on (lib/estimatingProxy.ts).
-  const headers = proxyHeaders(req.headers, user.name);
+  const headers = proxyHeaders(req.headers, user.name, user.email);
   const hasBody = req.method !== "GET" && req.method !== "HEAD";
 
   let res: Response;

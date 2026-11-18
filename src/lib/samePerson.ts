@@ -18,5 +18,18 @@ export function sameUser(a: string | null | undefined, b: string | null | undefi
   return SAME_PERSON.some(([x, y]) => (x === a && y === b) || (x === b && y === a));
 }
 
-// Names compared without case or extra spaces.
-export const normName = (s: string | null | undefined) => (s ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+// Names compared without case, extra spaces, punctuation or look-alike characters (IND-002, 18 Nov 2026: "Iliesa
+// Tubakibau Weldon!" or the name with an invisible character must count as the SAME name, so another login can't take it).
+export const normName = (s: string | null | undefined) =>
+  (s ?? "").normalize("NFKC").replace(/[\p{Cf}\p{Cc}]/gu, "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+
+// IND-002: what a login's name may contain - letters, numbers, spaces, apostrophes, hyphens and full stops, as typed
+// (no invisible or look-alike characters). Estimating and the Tenders board tell people apart by this name.
+export function userNameProblem(raw: string): string | null {
+  const name = raw.trim();
+  if (name.length < 2 || name.length > 80) return "A name needs 2 to 80 characters.";
+  if (name.normalize("NFKC") !== name || /[\p{Cf}\p{Cc}\p{Co}\p{Cn}]/u.test(name) || !/^[\p{Script=Latin}\p{M}0-9 .'-]+$/u.test(name) /* Latin letters only: no look-alike Cyrillic / Greek letters */ || /\s{2,}/.test(name)) {
+    return "Names can only have letters, numbers, single spaces, apostrophes, hyphens and full stops.";
+  }
+  return null;
+}

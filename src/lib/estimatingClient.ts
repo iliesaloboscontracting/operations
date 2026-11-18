@@ -12,12 +12,21 @@ export type Answer<T> = { ok: true; data: T } | { ok: false; status: number; err
 
 export type EstimatingReply<T> = { status: number; body: (T & { error?: string; code?: string }) | null };
 
+// The acting person: their name (x-lobos-user) and, IND-002 (18 Nov 2026), their login email (x-lobos-user-email) -
+// Estimating can match issuers by email, which no other login can share. Always from Operations' own session.
+export type Who = string | { name: string; email?: string | null };
+export function whoHeaders(who?: Who): Record<string, string> {
+  if (!who) return {};
+  if (typeof who === "string") return { "x-lobos-user": who };
+  return { "x-lobos-user": who.name, ...(who.email ? { "x-lobos-user-email": who.email.trim().toLowerCase() } : {}) };
+}
+
 export async function estimatingCall<T>(
   path: string,
   init: { method?: string; headers?: Record<string, string>; body?: BodyInit; timeoutMs?: number } = {},
-  who?: string,
+  who?: Who,
 ): Promise<EstimatingReply<T>> {
-  const headers: Record<string, string> = { host: "127.0.0.1", ...(who ? { "x-lobos-user": who } : {}), ...init.headers };
+  const headers: Record<string, string> = { host: "127.0.0.1", ...whoHeaders(who), ...init.headers };
   let res: Response;
   try {
     res = await fetch(TARGET() + path, {
