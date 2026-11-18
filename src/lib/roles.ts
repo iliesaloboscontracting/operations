@@ -67,6 +67,13 @@ export function wasEverAdmin(changes: string[]): boolean {
   }
   return false;
 }
+// IND-025 (Ilies 18 Nov 2026: "Yoel and Nick were Admins"): logins that were Admins before the change log began
+// (27 Oct 2026), so wasEverAdmin can't see it - code only, like SAME_PERSON.
+export const FORMER_ADMIN_IDS: readonly string[] = [
+  "cmvko44f30000se8qash01kjp", // Yoel Silvestre - DIRECTOR login (was Admin 23-25 Oct 2026)
+  "cmvko5k240001se8qoimhzk4w", // Nick Giannopoulos - DIRECTOR login (was Admin 23-25 Oct 2026)
+];
+export const isFormerAdmin = (id: string, changes: string[]) => FORMER_ADMIN_IDS.includes(id) || wasEverAdmin(changes);
 export const ownerGuardedName = (t: { role: string; directorAccess: boolean }) =>
   ROLE_NAME[t.role] ? `${ROLE_NAME[t.role]} login` : t.directorAccess ? "director's login" : t.role === "ADMIN" ? "Admin login" : "login";
 

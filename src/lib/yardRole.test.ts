@@ -207,14 +207,18 @@ test("only the owner gives, takes away or creates YARD; never director access; n
 });
 
 test("IND-024: a login that was ever an Admin is recognised from its change log", async () => {
-  const { wasEverAdmin } = await import("./roles");
+  const { wasEverAdmin, isFormerAdmin, FORMER_ADMIN_IDS } = await import("./roles");
+  // IND-025: Yoel's and Nick's DIRECTOR logins were Admins before the change log began
+  assert.deepEqual([...FORMER_ADMIN_IDS].sort(), ["cmvko44f30000se8qash01kjp", "cmvko5k240001se8qoimhzk4w"]);
+  assert.equal(isFormerAdmin("cmvko44f30000se8qash01kjp", []), true);
+  assert.equal(isFormerAdmin("someone-else", []), false);
   assert.equal(wasEverAdmin([JSON.stringify({ name: "A", email: "a@x.com", role: "ADMIN" })]), true, "created as Admin");
   assert.equal(wasEverAdmin([JSON.stringify({ role: ["ADMIN", "MANAGER"] })]), true, "demoted from Admin");
   assert.equal(wasEverAdmin([JSON.stringify({ role: ["MANAGER", "ADMIN"] })]), true, "promoted to Admin once");
   assert.equal(wasEverAdmin([JSON.stringify({ name: "B", role: "VIEWER" }), JSON.stringify({ role: ["VIEWER", "MANAGER"] }), JSON.stringify({ password: "reset" })]), false);
   assert.equal(wasEverAdmin(["not json", ""]), false);
   const route = src("../app/api/users/[id]/route.ts");
-  assert.match(route, /wasEverAdmin\(history\.map/);
+  assert.match(route, /isFormerAdmin\(target\.id, history\.map/);
 });
 
 test("YD-009: password, name and on/off of every owner-only login (and director access) are the owner's", async () => {
