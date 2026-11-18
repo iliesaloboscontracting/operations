@@ -3,12 +3,17 @@
 // browser. Above all the server-to-server keys Estimating trusts - x-lobos-actuals (production
 // suggestions, LCI 5b) and x-lobos-approval (budget decisions) - never pass through from a browser:
 // only Operations' own server-side calls (lib/estimatingClient.ts) may carry them.
-export const SERVER_ONLY_HEADERS = ["x-lobos-actuals", "x-lobos-approval"] as const;
+// x-lobos-board (17 Nov 2026): the Directors Tenders tab's key (tenders-board.v1) - server to server only.
+export const SERVER_ONLY_HEADERS = ["x-lobos-actuals", "x-lobos-approval", "x-lobos-board"] as const;
 
 export function proxyHeaders(incoming: Headers, userName: string): Record<string, string> {
   const headers: Record<string, string> = { host: "127.0.0.1", "x-lobos-user": userName };
   const ct = incoming.get("content-type");
   if (ct) headers["content-type"] = ct;
+  // EST2-006 (Ilies approved 17 Nov 2026): Estimating's Jobs uploads carry the file's name in x-file-name (raw body).
+  // Passed on as text only, capped - never x-quote-meta or any other header.
+  const fileName = incoming.get("x-file-name");
+  if (fileName) headers["x-file-name"] = fileName.slice(0, 400);
   for (const h of SERVER_ONLY_HEADERS) delete headers[h]; // belt and braces: never forwarded, whatever changes above
   return headers;
 }
