@@ -51,9 +51,11 @@ export const ownerOnlyRoleName = (from: string | null, to: string) =>
   ROLE_NAME[OWNER_ONLY_ROLES.find((r) => (from === r) !== (to === r)) ?? ""] ?? "protected";
 // YD-009 (Ilies approved 4 Nov 2026): a login whose password, name and on/off switch only the owner changes - every
 // role in OWNER_ONLY_ROLES (today Director, Coordinator and Yard) and any login with director access (SEC-002).
-export const ownerGuardsAccount = (t: { role: string; directorAccess: boolean }) => OWNER_ONLY_ROLES.includes(t.role) || t.directorAccess;
+// IND-021 (Ilies approved 18 Nov 2026): and every Admin login - so another Admin can't rename, reset or switch one back
+// on and so hold a second Admin login (IND-019). Own password changes (/api/auth/password) are unaffected.
+export const ownerGuardsAccount = (t: { role: string; directorAccess: boolean }) => OWNER_ONLY_ROLES.includes(t.role) || t.directorAccess || t.role === "ADMIN";
 export const ownerGuardedName = (t: { role: string; directorAccess: boolean }) =>
-  ROLE_NAME[t.role] ? `${ROLE_NAME[t.role]} login` : t.directorAccess ? "director's login" : "login";
+  ROLE_NAME[t.role] ? `${ROLE_NAME[t.role]} login` : t.directorAccess ? "director's login" : t.role === "ADMIN" ? "Admin login" : "login";
 
 // The one-page logins that never have director access, even if the tick was set by mistake.
 export const NO_DIRECTOR_ACCESS_ROLES: readonly string[] = ["TIMESHEETS", "ACCOUNTS", "COORDINATOR", "YARD"];

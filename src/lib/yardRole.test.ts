@@ -208,8 +208,10 @@ test("only the owner gives, takes away or creates YARD; never director access; n
 
 test("YD-009: password, name and on/off of every owner-only login (and director access) are the owner's", async () => {
   const { ownerGuardsAccount, ownerGuardedName } = await import("./roles");
-  for (const role of ["DIRECTOR", "COORDINATOR", "YARD"]) assert.equal(ownerGuardsAccount({ role, directorAccess: false }), true, role);
-  for (const role of ["ADMIN", "MANAGER", "VIEWER", "TIMESHEETS", "ACCOUNTS"]) assert.equal(ownerGuardsAccount({ role, directorAccess: false }), false, role);
+  // IND-021 (18 Nov 2026): every Admin login is owner-guarded too.
+  for (const role of ["DIRECTOR", "COORDINATOR", "YARD", "ADMIN"]) assert.equal(ownerGuardsAccount({ role, directorAccess: false }), true, role);
+  for (const role of ["MANAGER", "VIEWER", "TIMESHEETS", "ACCOUNTS"]) assert.equal(ownerGuardsAccount({ role, directorAccess: false }), false, role);
+  assert.equal(ownerGuardedName({ role: "ADMIN", directorAccess: false }), "Admin login");
   assert.equal(ownerGuardsAccount({ role: "MANAGER", directorAccess: true }), true);
   for (const role of OWNER_ONLY_ROLES) assert.equal(ownerGuardsAccount({ role, directorAccess: false }), true, `every OWNER_ONLY_ROLES entry: ${role}`);
   assert.equal(ownerGuardedName({ role: "YARD", directorAccess: false }), "Yard login");

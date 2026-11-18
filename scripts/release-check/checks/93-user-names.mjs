@@ -69,6 +69,25 @@ export default {
       t.ok(r.status === 403, "another Admin can't rename a person's second login (IND-015)", r.status);
     } else t.ok(true, "Nick's ADMIN login isn't on this snapshot - IND-015 covered by unit tests");
 
-    await db.user.updateMany({ where: { id: { in: [u.id, old.id] } }, data: { active: false } });
+    // IND-021 (Ilies approved 18 Nov 2026): only the owner renames, resets or switches on / off ANY Admin login.
+    const plainAdm = await db.user.create({ data: { email: `rc-padmin-${tag}@release-check.test`, name: `RC Plain Admin ${tag}`, passwordHash: "x", role: "ADMIN", active: true } });
+    const offAdm = await db.user.create({ data: { email: `rc-offadmin-${tag}@release-check.test`, name: `RC Off Admin ${tag}`, passwordHash: "x", role: "ADMIN", active: false } });
+    for (const [why, id, body] of [
+      ["rename", plainAdm.id, { name: `RC Renamed ${tag}` }],
+      ["reset the password of", plainAdm.id, { password: "Release-check-0123456789" }],
+      ["switch off", plainAdm.id, { active: false }],
+      ["switch back on", offAdm.id, { active: true }],
+    ]) {
+      const r = await c.patch(`/api/users/${id}`, "ADMIN_PLAIN", body);
+      t.ok(r.status === 403, `another Admin can't ${why} an Admin login (IND-021)`, r.status);
+    }
+    const same = await c.patch(`/api/users/${plainAdm.id}`, "ADMIN_PLAIN", { name: plainAdm.name, active: true, role: "ADMIN" });
+    t.ok(same.status === 200, "an unchanged save of an Admin login by another Admin still works", same.status);
+    const own = await c.patch(`/api/users/${plainAdm.id}`, "OWNER", { name: `RC Renamed ${tag}` });
+    t.ok(own.status === 200, "the owner can rename an Admin login", own.status);
+    const mgrEdit = await c.patch(`/api/users/${u.id}`, "ADMIN_PLAIN", { name: `RC Viewer Edit ${tag}` });
+    t.ok(mgrEdit.status === 200, "another Admin still edits a Viewer login", mgrEdit.status);
+
+    await db.user.updateMany({ where: { id: { in: [u.id, old.id, plainAdm.id] } }, data: { active: false } });
   },
 };
