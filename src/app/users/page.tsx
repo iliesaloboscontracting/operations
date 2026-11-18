@@ -83,6 +83,7 @@ export default function UsersPage() {
   // YD-009 (Ilies approved 4 Nov 2026): on a login only the owner looks after (a Director, Coordinator or Yard login, or
   // one with director access), another Admin sees the name and on/off switch but can't change them or reset the password.
   // IND-015 (18 Nov 2026): either of a person's two logins too.
+  const nonOwnerRoles = (editing as UserRow | null)?.role === "ADMIN" ? ROLE_OPTIONS : ROLE_OPTIONS.filter((o) => o.value !== "ADMIN");
   const guarded = !isNew && !!editing && !isOwner(me?.email) && (ownerGuardsAccount(editing as UserRow) || isPairedLogin((editing as UserRow).id));
   const fields: FieldDef[] = [
     guarded
@@ -94,10 +95,11 @@ export default function UsersPage() {
       label: "Role",
       type: "select",
       // The owner can pick Director, Coordinator and Yard; anyone else only sees one on someone who already has it (and can't change it).
+      // IND-019 (18 Nov 2026): only the owner makes someone an Admin - others see Admin only on a login that already is one.
       options: isOwner(me?.email) ? [...ROLE_OPTIONS, COORDINATOR_OPTION, YARD_OPTION, DIRECTOR_OPTION]
-        : (editing as UserRow | null)?.role === "DIRECTOR" ? [...ROLE_OPTIONS, DIRECTOR_OPTION]
-        : (editing as UserRow | null)?.role === "COORDINATOR" ? [...ROLE_OPTIONS, COORDINATOR_OPTION]
-        : (editing as UserRow | null)?.role === "YARD" ? [...ROLE_OPTIONS, YARD_OPTION] : ROLE_OPTIONS,
+        : (editing as UserRow | null)?.role === "DIRECTOR" ? [...nonOwnerRoles, DIRECTOR_OPTION]
+        : (editing as UserRow | null)?.role === "COORDINATOR" ? [...nonOwnerRoles, COORDINATOR_OPTION]
+        : (editing as UserRow | null)?.role === "YARD" ? [...nonOwnerRoles, YARD_OPTION] : nonOwnerRoles,
       full: true,
     },
     ...(!isNew

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { hashPassword, MIN_PASSWORD, normaliseEmail, startSession } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
+import { plainEmail, userNameProblem } from "@/lib/samePerson";
 
 // GET  /api/auth/setup -> { needsSetup: boolean }  (true until the first admin exists)
 export const GET = withErrorHandling(async () => {
@@ -22,6 +23,10 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   if (!name || !/^\S+@\S+\.\S+$/.test(email)) {
     return NextResponse.json({ error: "Enter your name and a valid email" }, { status: 400 });
   }
+  // IND-020 (18 Nov 2026): the same plain-name and plain-email rules as every other login.
+  const badName = userNameProblem(name);
+  if (badName) return NextResponse.json({ error: badName }, { status: 400 });
+  if (!plainEmail(email)) return NextResponse.json({ error: "Use a plain email address (no accents or special letters)." }, { status: 400 });
   if (password.length < MIN_PASSWORD) {
     return NextResponse.json({ error: `Password must be at least ${MIN_PASSWORD} characters` }, { status: 400 });
   }

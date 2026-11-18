@@ -75,6 +75,10 @@ export const PATCH = withErrorHandling(async (
     if ((body.role === "DIRECTOR") !== (target.role === "DIRECTOR") && !isOwner(me?.email)) {
       return NextResponse.json({ error: "Only Iliesa can change a Director login." }, { status: 403 });
     }
+    // IND-019 (Ilies approved 18 Nov 2026, option a): only the owner makes a login an Admin.
+    if (body.role === "ADMIN" && target.role !== "ADMIN" && !isOwner(me?.email)) {
+      return NextResponse.json({ error: "Only Iliesa can make a login an Admin." }, { status: 403 });
+    }
     // Coordinator logins (2 Nov 2026, Ilies: "Only you (the owner)") and the Yard login (4 Nov 2026): the same - only
     // the owner gives or takes them away.
     if (touchesOwnerOnlyRole(target.role, body.role) && !isOwner(me?.email)) {

@@ -36,10 +36,23 @@ export default {
       ["a new login with an invisible character", { name: `${owner.name}​`, email: `rc-names2-${tag}@release-check.test` }],
       ["a new login with an accented letter (IND-014)", { name: `${owner.name}é`, email: `rc-names3-${tag}@release-check.test` }],
       ["a new login with an accented email (IND-016)", { name: `RC Plain ${tag}`, email: `rc-nämes-${tag}@release-check.test` }],
+      ["a new login with an apostrophe in the email (IND-018)", { name: `RC Plain ${tag}`, email: `rc-o'names-${tag}@release-check.test` }],
+      ["a new login named 'local' (IND-020)", { name: "Local", email: `rc-names4-${tag}@release-check.test` }],
+      ["a new login with no letters (IND-020)", { name: "..", email: `rc-names5-${tag}@release-check.test` }],
     ]) {
       const r = await c.post("/api/users", "OWNER", { ...body, role: "VIEWER", password: "Release-check-0123456789" });
       t.ok(r.status === 400, `refused: ${why}`, r.status);
     }
+    // IND-019 (option a): only the owner creates an Admin login or makes a login an Admin.
+    const adm = await c.post("/api/users", "ADMIN_PLAIN", { name: `RC Admin ${tag}`, email: `rc-admin-${tag}@release-check.test`, role: "ADMIN", password: "Release-check-0123456789" });
+    t.ok(adm.status === 403, "another Admin can't create an Admin login (IND-019)", adm.status);
+    const promote = await c.patch(`/api/users/${u.id}`, "ADMIN_PLAIN", { role: "ADMIN" });
+    t.ok(promote.status === 403, "another Admin can't make a login an Admin (IND-019)", promote.status);
+    const mgr = await c.post("/api/users", "ADMIN_PLAIN", { name: `RC Manager ${tag}`, email: `rc-mgr-${tag}@release-check.test`, role: "MANAGER", password: "Release-check-0123456789" });
+    t.ok(mgr.status === 200 || mgr.status === 201, "another Admin can still create a Manager login", mgr.status);
+    const ownerAdm = await c.post("/api/users", "OWNER", { name: `RC Owner Admin ${tag}`, email: `rc-oadmin-${tag}@release-check.test`, role: "ADMIN", password: "Release-check-0123456789" });
+    t.ok(ownerAdm.status === 200 || ownerAdm.status === 201, "the owner can create an Admin login", ownerAdm.status);
+    await db.user.updateMany({ where: { email: { in: [`rc-mgr-${tag}@release-check.test`, `rc-oadmin-${tag}@release-check.test`] } }, data: { active: false } });
 
     // IND-017: a switched-off login with an old-style name must be renamed before it's switched back on.
     const old = await db.user.create({ data: { email: `rc-names-old-${tag}@release-check.test`, name: `RC Olé ${tag}`, passwordHash: "x", role: "VIEWER", active: false } });

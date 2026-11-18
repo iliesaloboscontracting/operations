@@ -34,9 +34,13 @@ export function userNameProblem(raw: string): string | null {
   if (!PLAIN_NAME.test(name) || / {2,}/.test(name)) {
     return "Names can only have plain letters (A-Z, no accents), numbers, single spaces, apostrophes, hyphens and full stops.";
   }
+  // IND-020 (18 Nov 2026): a real name has a letter in it; "local" is the name Estimating uses when no one is signed in.
+  if (!/[A-Za-z]/.test(name)) return "A name needs at least one letter.";
+  if (name.toLowerCase() === "local") return "That name is reserved - use the person's name.";
   return null;
 }
-// IND-016: login emails in plain characters only (no accents or look-alike letters).
-export const plainEmail = (email: string) => /^[a-z0-9._%+'-]+@[a-z0-9.-]+\.[a-z]{2,}$/.test(email);
+// IND-016 / IND-018 (Ilies approved 18 Nov 2026): login emails in plain characters only - exactly Lobos Estimating's
+// rule (no apostrophe, at most 120 characters), so every login can use Estimating.
+export const plainEmail = (email: string) => email.length <= 120 && /^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/.test(email);
 // IND-015: a login listed above as one of a person's two logins.
 export const isPairedLogin = (id: string) => SAME_PERSON.some(([a, b]) => a === id || b === id);

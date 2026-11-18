@@ -31,6 +31,11 @@ test("IND-002: look-alike names count as the same name, and odd characters are r
   // IND-016: plain emails only; IND-015: either of a person's two logins
   assert.ok(plainEmail("iliesa@loboscontracting.com.au"));
   for (const e of ["iliesa@loboscontracting.com.aü", "ilíesa@x.com", "a b@x.com", "nope"]) assert.ok(!plainEmail(e), e);
+  // IND-018: exactly Estimating's email rule - no apostrophe, at most 120 characters
+  assert.ok(!plainEmail("o'brien@x.com") && !plainEmail(`${"a".repeat(115)}@x.com`) && plainEmail("pat.o-brien+ops@x.com"));
+  // IND-020: a letter needed; "local" reserved
+  for (const bad of ["..", "--", "''", "12", "local", "LOCAL", "Local"]) assert.ok(userNameProblem(bad), bad);
+  assert.equal(userNameProblem("Localstar"), null);
   assert.ok(isPairedLogin(nickAdmin) && isPairedLogin(nickDirector) && !isPairedLogin("someone-else"));
 });
 
