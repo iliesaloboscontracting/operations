@@ -5,7 +5,7 @@ import { Building2, ChevronDown, ChevronRight, Plus, Truck, Warehouse } from "lu
 import { ShiftBadge } from "@/components/ShiftBadge";
 import { apiFetch, serverErrorMessage } from "@/lib/apiFetch";
 import type { ResourceDTO } from "@/lib/types";
-import { FLAG_LABEL, METHOD_LABEL, type AttendanceJob, type AttendanceRow } from "./types";
+import { FLAG_LABEL, METHOD_LABEL, type AttendanceData, type AttendanceJob, type AttendanceRow } from "./types";
 import { jobFinish, parseClock } from "@/lib/shiftTimes";
 import { LOCATION_LABEL, locationKind, type LocationKind } from "@/lib/signinHow";
 import { breakRuleFor } from "@/lib/dayHours";
@@ -73,7 +73,9 @@ export default function AttendanceJobCard({
   handover,
   onChanged,
   filtered = false,
+  supervisor,
 }: {
+  supervisor?: AttendanceData["supervisor"]; // Managers / Admins: the supervisor's "Approve hours" (18 Nov 2026)
   job: AttendanceJob;
   date: string;
   filtered?: boolean; // the page's summary strip is filtering - only the matching lines are passed in
@@ -157,6 +159,8 @@ export default function AttendanceJobCard({
           </div>
         )}
       </div>
+
+      {!point && supervisor && <SupervisorStrip job={job} date={date} supervisor={supervisor} />}
 
       {error && <div className="bg-red-900/30 px-3.5 py-1.5 text-xs text-red-300">{error}</div>}
 
@@ -296,6 +300,7 @@ export default function AttendanceJobCard({
                     {r.flags.map((f) => (
                       <span key={f} className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${flagTone(f)}`} title={r.notes?.[f] ? FLAG_LABEL[f] : undefined}>{r.notes?.[f] ?? FLAG_LABEL[f] ?? f}</span>
                     ))}
+                    {supRowChip(r, supervisor?.byLine[r.id], !!supervisor?.byJobDay[`${job.id}|${date}`])}
                     {r.edits.length > 0 && (
                       <button className="flex items-center text-[11px] text-gray-400" onClick={() => setHistory(history === r.id ? null : r.id)}>
                         {history === r.id ? <ChevronDown size={12} /> : <ChevronRight size={12} />} {r.edits.length} office change{r.edits.length === 1 ? "" : "s"}
@@ -351,6 +356,42 @@ export default function AttendanceJobCard({
       ))}
     </div>
   );
+}
+
+// The supervisor's "Approve hours" for this job and day (18 Nov 2026, Ilies: Managers and Admins see it). Information
+// only - nothing here blocks or changes anything. The same comparison accounts' Payroll uses (lib/payroll/rules.ts).
+function SupervisorStrip({ job, date, supervisor }: { job: AttendanceJob; date: string; supervisor: NonNullable<AttendanceData["supervisor"]> }) {
+  const a = supervisor.byJobDay[`${job.id}|${date}`];
+  const live = job.rows.filter((r) => r.status !== "REJECTED");
+  if (!a) {
+    if (!live.length) return null;
+    return (
+      <div className="border-b border-edge/70 bg-amber-500/5 px-3.5 py-1.5 text-xs text-amber-300" data-testid="supervisor-strip">
+        Hours not approved by the supervisor yet
+      </div>
+    );
+  }
+  const extra = [
+    a.changed > 0 && `${a.changed} changed since`,
+    a.notIn > 0 && `${a.notIn} not in the approval (added or signed in after)`,
+    a.flagged > 0 && `${a.flagged} flagged by the supervisor`,
+  ].filter(Boolean) as string[];
+  return (
+    <div className={`border-b border-edge/70 px-3.5 py-1.5 text-xs ${extra.length ? "bg-orange-500/5 text-orange-300" : "bg-emerald-500/5 text-emerald-400"}`} data-testid="supervisor-strip">
+      <span className="font-semibold">✓ Hours approved by {a.by}</span> · {fmt(a.at)}
+      {extra.length > 0 && <span> · {extra.join(" · ")}</span>}
+      {a.note && <div className="text-[11px] text-gray-400">Supervisor&apos;s note: &ldquo;{a.note}&rdquo;</div>}
+    </div>
+  );
+}
+// One line against the approval: only what needs a look (approved lines are covered by the strip above).
+function supRowChip(r: AttendanceRow, s: { state: string; flag: string | null } | undefined, dayApproved: boolean) {
+  if (!s || r.status === "REJECTED") return null;
+  const chip = (text: string, tone: string, title?: string) => <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${tone}`} title={title}>{text}</span>;
+  if (s.state === "CHANGED") return chip("Changed since supervisor approved", "bg-orange-500/20 text-orange-300");
+  if (s.state === "FLAGGED") return chip(`Supervisor flagged${s.flag ? `: ${s.flag}` : ""}`, "bg-orange-500/20 text-orange-300");
+  if (s.state === "NOT_APPROVED" && dayApproved) return chip("Not in supervisor's approval", "bg-amber-500/15 text-amber-400");
+  return null;
 }
 
 // The office changing a sign-in: times and/or status, always with a reason.

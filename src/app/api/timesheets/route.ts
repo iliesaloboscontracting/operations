@@ -11,7 +11,8 @@ import {
   type TimesheetSnapshot,
 } from "@/lib/timesheets";
 import { flagSummaryForDays } from "@/lib/attendanceView";
-import { coordinatorOr } from "@/lib/roles";
+import { coordinatorOr, rankAtLeast } from "@/lib/roles";
+import { supervisorApprovals } from "@/lib/payroll/store";
 
 // GET /api/timesheets?week=YYYY-MM-DD (any date in the week) -> Lobos staff
 // hours for that Monday-Sunday week from site sign-ins, the week's approval
@@ -29,7 +30,10 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
   const today = todaySydney();
   const signInFlags = user && coordinatorOr(user.role, "MANAGER") ? await flagSummaryForDays(weekDates(weekStart).filter((d) => d <= today)) : undefined;
   // Over a days-a-week limit (12 Nov 2026): the same office allow-list - information on the lines, approval unchanged.
-  return viewJson({ ...(await timesheetWeek(weekStart, { dayLimit: !!signInFlags })), ...(signInFlags ? { signInFlags } : {}) });
+  // Supervisors' "Approve hours" per line (18 Nov 2026, Ilies: Managers and Admins only - not the coordinator or the
+  // review-only logins). Information only: the week's approval rule is unchanged.
+  const supervisor = user && rankAtLeast(user.role, "MANAGER") ? (await supervisorApprovals(weekStart)).byLine : undefined;
+  return viewJson({ ...(await timesheetWeek(weekStart, { dayLimit: !!signInFlags })), ...(signInFlags ? { signInFlags } : {}), ...(supervisor ? { supervisor } : {}) });
 });
 
 // POST /api/timesheets { week, action: "approve" | "reopen", reason? }

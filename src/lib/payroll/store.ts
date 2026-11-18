@@ -99,6 +99,32 @@ async function latestApprovals(pairs: { jobId: string; date: string }[]) {
   return out;
 }
 
+// The supervisors' approvals for the office's Sign-ins and Timesheets pages (18 Nov 2026, Ilies: "B" - Managers and
+// Admins). The same comparison accounts' Payroll uses (rules.ts dayState): each sign-in line's state against the
+// supervisor's latest approval of that job and day, and per job and day who approved and when. Hours and names only.
+export type SupervisorLine = { state: DayState; by: string | null; at: string | null; flag: string | null };
+export type SupervisorJobDay = { by: string; at: string; note: string | null; lines: number; changed: number; notIn: number; flagged: number };
+export async function supervisorApprovals(weekStart: string, onlyDate?: string) {
+  const lines = (await payLines(weekStart)).filter((l) => !onlyDate || l.date === onlyDate);
+  const approvals = await latestApprovals(lines.filter((l) => l.jobId).map((l) => ({ jobId: l.jobId!, date: l.date })));
+  const byLine: Record<string, SupervisorLine> = {};
+  const byJobDay: Record<string, SupervisorJobDay> = {};
+  for (const l of lines) {
+    const k = l.jobId ? `${l.jobId}|${l.date}` : null;
+    const a = k ? approvals.get(k) ?? null : null;
+    const state = dayState(l, a?.snapshot ?? null);
+    byLine[l.attendanceId] = { state, by: a?.by ?? null, at: a?.at.toISOString() ?? null, flag: a?.snapshot.find((x) => x.attendanceId === l.attendanceId)?.flag ?? null };
+    if (a && k) {
+      const j = (byJobDay[k] ??= { by: a.by, at: a.at.toISOString(), note: a.note ? noAmounts(a.note, "") || null : null, lines: 0, changed: 0, notIn: 0, flagged: 0 });
+      j.lines++;
+      if (state === "CHANGED") j.changed++;
+      if (state === "NOT_APPROVED") j.notIn++;
+      if (state === "FLAGGED") j.flagged++;
+    }
+  }
+  return { byLine, byJobDay };
+}
+
 async function latestReviews(weekStart: string) {
   const rows = await prisma.payWeekReview.findMany({ where: { weekStart }, orderBy: { at: "desc" } });
   const out = new Map<string, (typeof rows)[number]>();

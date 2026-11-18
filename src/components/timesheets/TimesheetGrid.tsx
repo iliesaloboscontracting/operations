@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { TimesheetLine, TimesheetPerson, TravelLine } from "@/lib/timesheets";
+import type { SupervisorLine } from "@/lib/payroll/store";
 import { allPlaces, mondayOf } from "@/lib/timesheetView";
 
 // The weekly timesheet grids (21 Oct 2026), shared by the Operations Timesheets page (/timesheets) and the
@@ -24,7 +25,38 @@ export type TimesheetData = {
   accounts?: Record<string, { status: string; note: string | null; by: string }>; // Accounts stage 2: Victoria's decision per person
   // The Sign-ins page's flag counts for the week so far (10 Nov 2026) - the office only, information only.
   signInFlags?: { toConfirm: number; late: number; longDay: number; noSignIn: number; location?: number };
+  // The supervisors' "Approve hours" per sign-in line (18 Nov 2026) - Managers and Admins only, information only.
+  supervisor?: Record<string, SupervisorLine>;
 };
+
+// The supervisor's approval of one line, in words (lib/payroll/rules.ts dayState - the same rule accounts' Payroll uses).
+export const SUPERVISOR_WORDS: Record<string, { text: string; tone: string }> = {
+  APPROVED: { text: "✓ supervisor approved", tone: "text-emerald-400" },
+  FLAGGED: { text: "⚑ supervisor flagged", tone: "text-orange-300" },
+  CHANGED: { text: "changed since supervisor approved", tone: "text-orange-300" },
+  NOT_APPROVED: { text: "not approved by supervisor", tone: "text-amber-400" },
+};
+// A person's week: days with site sign-ins, and how many of them the supervisor approved in full.
+export function supervisorDays(p: TimesheetPerson, sup?: Record<string, SupervisorLine>) {
+  if (!sup) return null;
+  let days = 0, approved = 0;
+  for (const ls of Object.values(p.days)) {
+    const site = ls.filter((l) => !l.point && sup[l.attendanceId] && sup[l.attendanceId].state !== "NO_SUPERVISOR");
+    if (!site.length) continue;
+    days++;
+    if (site.every((l) => sup[l.attendanceId].state === "APPROVED")) approved++;
+  }
+  return days ? { days, approved } : null;
+}
+function SupervisorWeek({ p, sup }: { p: TimesheetPerson; sup?: Record<string, SupervisorLine> }) {
+  const d = supervisorDays(p, sup);
+  if (!d) return null;
+  return (
+    <div className={`text-[11px] ${d.approved === d.days ? "text-emerald-400" : "text-amber-400"}`} data-testid="supervisor-days">
+      Supervisor approved {d.approved} of {d.days} day{d.days === 1 ? "" : "s"}
+    </div>
+  );
+}
 
 export const dayHead = (iso: string) => new Date(iso + "T12:00:00").toLocaleDateString("en-AU", { weekday: "short", day: "numeric", month: "short" });
 export const longDate = (iso: string) => new Date(iso + "T12:00:00").toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" });
@@ -40,7 +72,8 @@ export function Tile({ label, value, tone = "" }: { label: string; value: string
   );
 }
 
-function Entry({ l, today, showSite = true }: { l: TimesheetLine; today: string; showSite?: boolean }) {
+function Entry({ l, today, showSite = true, sup }: { l: TimesheetLine; today: string; showSite?: boolean; sup?: SupervisorLine }) {
+  const sw = sup && !l.point ? SUPERVISOR_WORDS[sup.state] : undefined;
   const onNow = !l.out && (l.onSite ?? l.date >= today); // still on site, not a missing sign-out
   const noOut = !l.out && !onNow;
   const pending = l.status === "TO_CONFIRM";
@@ -61,6 +94,11 @@ function Entry({ l, today, showSite = true }: { l: TimesheetLine; today: string;
       {(onNow || noOut || pending || zero || l.overlap || l.changedByOffice || !l.allocated || !!l.flagNotes?.length) && (
         <div className="text-[10px] leading-tight text-amber-400">
           {[onNow && "on site now", noOut && "no sign-out", pending && "to confirm", zero && !l.overlap && "check: 0h", l.overlap && "overlap - counted once", l.breakMinutes > 0 && `less ${l.breakMinutes} min break`, l.changedByOffice && "office changed", !l.allocated && "not allocated", ...(l.flagNotes ?? [])].filter(Boolean).join(" · ")}
+        </div>
+      )}
+      {sw && (
+        <div className={`text-[10px] leading-tight ${sw.tone}`} title={sup?.by ? `${sup.state === "NOT_APPROVED" ? "Day approved" : "Approved"} by ${sup.by}${sup.at ? ` on ${when(sup.at)}` : ""}${sup.flag ? ` - "${sup.flag}"` : ""}` : "The supervisor hasn't approved this day's hours"}>
+          {sw.text}{sup?.by && sup.state !== "NOT_APPROVED" ? ` (${sup.by.split(" ")[0]})` : ""}
         </div>
       )}
     </div>
@@ -195,7 +233,7 @@ export function SiteView({ data, search, emptyText = "No staff sign-ins this wee
                     {data.days.map((d) => (
                       <td key={d} className="w-32 space-y-1 px-1.5 py-1.5">
                         {p.lines.filter((l) => l.date === d).map((l) => (
-                          <Entry key={l.attendanceId} l={l} today={data.today} showSite={false} />
+                          <Entry key={l.attendanceId} l={l} today={data.today} showSite={false} sup={data.supervisor?.[l.attendanceId]} />
                         ))}
                         {p.travel.filter((t) => t.date === d).map((t) => <TravelChip key={t.legId} t={t} />)}
                       </td>
@@ -237,12 +275,13 @@ export function PersonView({ data, search, emptyText = "No staff sign-ins this w
               <td className="sticky left-0 z-10 bg-panel px-3 py-2">
                 <div className="font-medium text-gray-100">{p.name}</div>
                 <div className="text-[11px] text-gray-500">{p.role ?? ""}</div>
+                <SupervisorWeek p={p} sup={data.supervisor} />
                 <AccountsNote a={data.accounts?.[p.resourceId]} />
               </td>
               {data.days.map((d) => (
                 <td key={d} className="w-32 space-y-1 px-1.5 py-1.5">
                   {(p.days[d] ?? []).map((l) => (
-                    <Entry key={l.attendanceId} l={l} today={data.today} />
+                    <Entry key={l.attendanceId} l={l} today={data.today} sup={data.supervisor?.[l.attendanceId]} />
                   ))}
                   {(p.travel?.[d] ?? []).map((t) => <TravelChip key={t.legId} t={t} />)}
                 </td>

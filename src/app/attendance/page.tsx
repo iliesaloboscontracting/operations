@@ -169,6 +169,7 @@ export default function AttendancePage() {
                     people={people}
                     handover={h ? { name: h.resource?.name ?? "someone", expiresAt: h.expiresAt } : null}
                     onChanged={load}
+                    supervisor={data.supervisor}
                   />
                   {/* Regional travel legs for this job (2 Nov 2026) */}
                   {!filter && <TravelLegs legs={(data.travel ?? []).filter((t) => t.jobId === j.id)} canEdit={canEdit} onChanged={load} />}

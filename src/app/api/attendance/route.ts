@@ -8,7 +8,9 @@ import { isISODate } from "@/lib/dateRules";
 import { attendanceForDate } from "@/lib/attendanceView";
 import { todaySydney } from "@/lib/today";
 import { parseTime } from "@/lib/signin";
-import { lockedWeekFor } from "@/lib/timesheets";
+import { lockedWeekFor, weekStartOf } from "@/lib/timesheets";
+import { rankAtLeast } from "@/lib/roles";
+import { supervisorApprovals } from "@/lib/payroll/store";
 import { syncPersonDayQuietly, syncSignInActualsQuietly } from "@/lib/signInActuals";
 import { endOpenElsewhere } from "@/lib/signinOverlap";
 import { travelLinesForDate } from "@/lib/travel/store";
@@ -38,7 +40,10 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
   const gaps = date === todaySydney()
     ? { noSignOutYesterday: await openFromYesterday(date), notSignedIn: (await notSignedInToday()).map((j) => ({ jobId: j.jobId, site: j.site, names: j.missing.map((m) => m.name) })) }
     : null;
-  return viewJson({ date, today: todaySydney(), jobs: view.jobs, points: view.points, summary: view.summary, posters, handovers, travel, gaps });
+  // Supervisors' "Approve hours" per job and line (18 Nov 2026, Ilies: Managers and Admins - not the coordinator).
+  const user = await getCurrentUser();
+  const supervisor = user && rankAtLeast(user.role, "MANAGER") ? await supervisorApprovals(weekStartOf(date), date) : undefined;
+  return viewJson({ date, today: todaySydney(), jobs: view.jobs, points: view.points, summary: view.summary, posters, handovers, travel, gaps, ...(supervisor ? { supervisor } : {}) });
 });
 
 // POST /api/attendance - the office adds a sign-in that was missed.

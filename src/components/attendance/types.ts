@@ -1,6 +1,7 @@
 // Shapes of /api/attendance (lib/attendanceView.ts) used by the Sign-ins page.
 import type { TravelLine } from "@/lib/travel/store";
 import type { SigninFlagSummary } from "@/lib/signinFlags";
+import type { SupervisorJobDay, SupervisorLine } from "@/lib/payroll/store";
 export type AttendanceEditRow = { field: string; before: string | null; after: string | null; reason: string; editedBy: string; editedAt: string };
 export type AttendanceRow = {
   id: string;
@@ -60,6 +61,9 @@ export type AttendanceData = {
   summary?: SigninFlagSummary; // the strip at the top (10 Nov 2026)
   // Today's page only (fixes 2c / 5a): yesterday's open sign-ins, crew not signed in an hour after the start.
   gaps?: { noSignOutYesterday: { id: string; name: string; company: string | null; site: string }[]; notSignedIn: { jobId: string; site: string; names: string[] }[] } | null;
+  // The supervisors' "Approve hours" (18 Nov 2026) - Managers and Admins only: per job and day ("<jobId>|<date>") and
+  // per sign-in line (lib/payroll/store.ts supervisorApprovals).
+  supervisor?: { byLine: Record<string, SupervisorLine>; byJobDay: Record<string, SupervisorJobDay> };
 };
 
 export const FLAG_LABEL: Record<string, string> = {
