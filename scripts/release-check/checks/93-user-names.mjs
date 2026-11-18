@@ -81,8 +81,8 @@ export default {
       const r = await c.patch(`/api/users/${id}`, "ADMIN_PLAIN", body);
       t.ok(r.status === 403, `another Admin can't ${why} an Admin login (IND-021)`, r.status);
     }
-    const same = await c.patch(`/api/users/${plainAdm.id}`, "ADMIN_PLAIN", { name: plainAdm.name, active: true, role: "ADMIN" });
-    t.ok(same.status === 200, "an unchanged save of an Admin login by another Admin still works", same.status);
+    const sameAdm = await c.patch(`/api/users/${plainAdm.id}`, "ADMIN_PLAIN", { name: plainAdm.name, active: true, role: "ADMIN" });
+    t.ok(sameAdm.status === 200, "an unchanged save of an Admin login by another Admin still works", sameAdm.status);
     const own = await c.patch(`/api/users/${plainAdm.id}`, "OWNER", { name: `RC Renamed ${tag}` });
     t.ok(own.status === 200, "the owner can rename an Admin login", own.status);
     const mgrEdit = await c.patch(`/api/users/${u.id}`, "ADMIN_PLAIN", { name: `RC Viewer Edit ${tag}` });
