@@ -172,6 +172,9 @@ test("SR-003 (c): a run overlapping a sign-in (e.g. one the office added) counts
   assert.equal(p.tipRunTotal, 0);
   assert.equal(p.total, 7.5, "no hours from it");
   assert.equal(TIP_FLAG_LABEL.OVERLAPS_SIGN_IN, "overlaps a sign-in - not counted");
+  // A run never finished long ago is NOT_ENDED - only its 6 h window is checked for an overlap, not up to today.
+  assert.deepEqual(tipVerdict({ startAt: at(1), endAt: null }, shift, [{ in: at(8), out: at(16) }], at(20)), { hours: null, flag: "NOT_ENDED" });
+  assert.deepEqual(tipVerdict({ startAt: at(1), endAt: null }, shift, [{ in: at(6), out: at(16) }], at(20)), { hours: null, flag: "OVERLAPS_SIGN_IN" }, "inside its window");
   assert.equal(tipNeedsOffice("OVERLAPS_SIGN_IN"), true);
   // Every place hours are read uses the check: Sign-ins / Timesheets, Day Review and the payroll files.
   assert.match(store, /const verdicts = await tipRunVerdicts\(runs\);\n  return runs\.map\(\(r\) => lineOf\(r, roles, verdicts\.get\(r\.id\)!\)\)/);

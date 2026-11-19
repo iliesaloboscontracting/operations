@@ -59,7 +59,9 @@ export function tipVerdict(
   now = new Date(),
 ): { hours: number | null; flag: TipFlag | null } {
   if (!shift || shift.status === "REJECTED" || shift.removedAt) return { hours: null, flag: "SHIFT_REMOVED" };
-  if (overlapsSignIn(run.startAt, run.endAt, signIns, now)) return { hours: null, flag: "OVERLAPS_SIGN_IN" };
+  // A run never finished is only looked at over the time it could still have run (the 6 h window), not up to today.
+  const end = run.endAt ?? new Date(Math.min(now.getTime(), run.startAt.getTime() + TIP_CAP_HOURS * HOUR));
+  if (overlapsSignIn(run.startAt, end, signIns, now)) return { hours: null, flag: "OVERLAPS_SIGN_IN" };
   return tipHours(run.startAt, run.endAt, now);
 }
 
