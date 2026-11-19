@@ -13,6 +13,7 @@ export type PayLine = {
   group: Group; engagementSet: boolean; jobId: string | null; shift: "DAY" | "NIGHT"; site: string; point: boolean;
   in: string; out: string | null; hours: number | null; overlap?: boolean; toCheck?: string[]; status: string; tile: string | null; // labour hire: the board tile it fills
   gps: { lat: number; lng: number; accuracyM: number | null } | null; gpsStatus: string | null;
+  tipRun?: boolean; // a regional tip run (19 Nov 2026) - worked hours, shown again in its own "Tip run hours" column
 };
 export type ApprovalSnapshotLine = { attendanceId: string; name: string; company: string | null; in: string; out: string | null; hours: number | null; flag?: string };
 
@@ -56,7 +57,9 @@ export const inPayRun = (group: Group, reviewStatus: string | null) => group ===
 export const TRAVEL_HOOK = "rule to be agreed"; // how travel is PAID (driver / passenger, regional) - waits on a session with Victoria
 // Draft: match Xero's import template. "Travel hours" (2 Nov 2026): regional travel legs (lib/travel/), hours only - not
 // a pay item; whether and how travel is paid is still to be agreed (TRAVEL_HOOK).
-export const EXPORT_COLUMNS = ["Employee", "Email", "Earnings Rate", "Date", "Hours", "Site", "Travel hours"] as const;
+// "Tip run hours" (19 Nov 2026): the part of Hours that is regional tip runs (lib/tipRun/) - they are worked hours on the
+// shift's pay item, shown again here so accounts can see them.
+export const EXPORT_COLUMNS = ["Employee", "Email", "Earnings Rate", "Date", "Hours", "Site", "Travel hours", "Tip run hours"] as const;
 export const csvCell = (v: string | number | null | undefined) => {
   const s = v == null ? "" : String(v);
   // No spreadsheet formulas: a cell starting with = + - @ (or a tab / CR, SEC-012) is quoted and prefixed with '.
@@ -71,13 +74,14 @@ const q4 = (n: number) => Math.round(n * 4) / 4;
 // (no earnings rate, 0 hours).
 export const travelKey = (personKey: string, date: string) => `${personKey}|${date}`;
 export function payRunRows(lines: PayLine[], approved: Set<string>, emails: Map<string, string | null>, travel: Map<string, { hours: number; site: string; name: string }> = new Map()): (string | number | null)[][] {
-  const acc = new Map<string, { key: string; name: string; email: string | null; item: string; date: string; hours: number; sites: Set<string> }>();
+  const acc = new Map<string, { key: string; name: string; email: string | null; item: string; date: string; hours: number; tip: number; sites: Set<string> }>();
   for (const l of lines) {
     if (!approved.has(l.personKey) || l.hours == null || l.hours <= 0) continue;
     const item = PAY_ITEMS[payTierOf(l)];
     const k = `${l.personKey}|${item}|${l.date}`;
-    const v = acc.get(k) ?? { key: l.personKey, name: l.personName, email: emails.get(l.personKey) ?? null, item, date: l.date, hours: 0, sites: new Set<string>() };
+    const v = acc.get(k) ?? { key: l.personKey, name: l.personName, email: emails.get(l.personKey) ?? null, item, date: l.date, hours: 0, tip: 0, sites: new Set<string>() };
     v.hours += l.hours; v.sites.add(l.site);
+    if (l.tipRun) v.tip += l.hours;
     acc.set(k, v);
   }
   const rows = [...acc.values()].sort((a, b) => a.name.localeCompare(b.name) || a.date.localeCompare(b.date) || a.item.localeCompare(b.item));
@@ -87,18 +91,18 @@ export function payRunRows(lines: PayLine[], approved: Set<string>, emails: Map<
     const k = travelKey(v.key, v.date);
     const t = !used.has(k) ? travel.get(k) : undefined;
     used.add(k);
-    out.push([v.name, v.email, v.item, v.date, q4(v.hours), [...v.sites].join(" / "), t && t.hours > 0 ? q4(t.hours) : ""]);
+    out.push([v.name, v.email, v.item, v.date, q4(v.hours), [...v.sites].join(" / "), t && t.hours > 0 ? q4(t.hours) : "", v.tip > 0 ? q4(v.tip) : ""]);
   }
   for (const [k, t] of travel) {
     const [personKey, date] = k.split("|");
     if (used.has(k) || !approved.has(personKey) || !(t.hours > 0)) continue;
-    out.push([t.name, emails.get(personKey) ?? null, "", date, 0, t.site, q4(t.hours)]);
+    out.push([t.name, emails.get(personKey) ?? null, "", date, 0, t.site, q4(t.hours), ""]);
   }
   out.sort((a, b) => String(a[0]).localeCompare(String(b[0])) || String(a[3]).localeCompare(String(b[3])));
   return [[...EXPORT_COLUMNS], ...out];
 }
 
-export type SummaryPerson = { personKey: string; name: string; group: Group; company: string | null; hours: number; byItem: Record<string, number>; days: number; review: string | null };
+export type SummaryPerson = { personKey: string; name: string; group: Group; company: string | null; hours: number; byItem: Record<string, number>; days: number; review: string | null; tipRunHours?: number };
 export function summarise(lines: PayLine[], reviews: Map<string, string>): { people: SummaryPerson[]; byItem: Record<string, number>; bySite: Record<string, number>; byAgency: Record<string, number>; total: number } {
   const people = new Map<string, SummaryPerson>();
   const byItem: Record<string, number> = {}, bySite: Record<string, number> = {}, byAgency: Record<string, number> = {};
@@ -108,6 +112,7 @@ export function summarise(lines: PayLine[], reviews: Map<string, string>): { peo
     const item = PAY_ITEMS[payTierOf(l)];
     const p = people.get(l.personKey) ?? { personKey: l.personKey, name: l.personName, group: l.group, company: l.company, hours: 0, byItem: {}, days: 0, review: reviews.get(l.personKey) ?? null };
     p.hours += h; p.byItem[item] = (p.byItem[item] ?? 0) + h;
+    if (l.tipRun) p.tipRunHours = (p.tipRunHours ?? 0) + h;
     people.set(l.personKey, p);
     byItem[item] = (byItem[item] ?? 0) + h; bySite[l.site] = (bySite[l.site] ?? 0) + h;
     if (l.group === "HIRE") byAgency[l.company ?? "Unknown agency"] = (byAgency[l.company ?? "Unknown agency"] ?? 0) + h;
@@ -116,7 +121,7 @@ export function summarise(lines: PayLine[], reviews: Map<string, string>): { peo
   for (const p of people.values()) p.days = new Set(lines.filter((l) => l.personKey === p.personKey && (l.hours ?? 0) > 0).map((l) => l.date)).size;
   const round = (o: Record<string, number>) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, q4(v)]));
   return {
-    people: [...people.values()].map((p) => ({ ...p, hours: q4(p.hours), byItem: round(p.byItem) })).sort((a, b) => a.group.localeCompare(b.group) || a.name.localeCompare(b.name)),
+    people: [...people.values()].map((p) => ({ ...p, hours: q4(p.hours), byItem: round(p.byItem), ...(p.tipRunHours != null ? { tipRunHours: q4(p.tipRunHours) } : {}) })).sort((a, b) => a.group.localeCompare(b.group) || a.name.localeCompare(b.name)),
     byItem: round(byItem), bySite: round(bySite), byAgency: round(byAgency), total: q4(total),
   };
 }

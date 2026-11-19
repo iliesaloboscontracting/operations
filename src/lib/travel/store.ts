@@ -12,6 +12,7 @@ import {
   correctionError, DIRECTION_LABEL, homeFrom, HOME_OFFER_HOURS, legHours, outRefusal, stillOpen, TRAVEL_CAP_HOURS,
   type Direction, type TravelFlag,
 } from "./rules";
+import { TIP_CAP_HOURS } from "../tipRun/rules";
 
 type Problem = { error: string; status: number };
 const HOUR = 3_600_000;
@@ -127,6 +128,10 @@ export async function startHome(resourceId: string, b: { gps?: unknown; deviceId
   if (s.open?.direction === "HOME") return { ok: true, message: `Travelling home since ${s.open.since}.`, leg: s.open };
   if (s.open) return { error: `You've already got travel on the go since ${s.open.since}.`, status: 409 };
   if (!s.home) return { error: "Travelling home is for after you sign out of a regional job.", status: 409 };
+  // A tip run on the go (19 Nov 2026) is worked time - travel home starts once it's finished, never on top of it.
+  if (await prisma.tipRun.count({ where: { resourceId, endAt: null, startAt: { gte: new Date(Date.now() - TIP_CAP_HOURS * HOUR) } } })) {
+    return { error: "You've got a tip run on the go - tap Tipped – finished first.", status: 409 };
+  }
   const a = await prisma.siteAttendance.findUnique({
     where: { id: s.home.attendanceId },
     select: { id: true, date: true, workerName: true, job: { select: { id: true, title: true, shift: true, project: { select: { id: true, name: true } } } } },

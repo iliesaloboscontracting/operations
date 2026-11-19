@@ -5,9 +5,10 @@
 // guard("MANAGER") / guard("ADMIN") and refuse the ACCOUNTS login. The only write is the "Got it" on the notice.
 import { prisma } from "./prisma";
 import { POINT_BREAK_MINUTES, STILL_ON_HOURS } from "./signin";
-import { timesheetCsv, type TimesheetLine, type TravelLine } from "./timesheets";
+import { timesheetCsv, type TimesheetLine, type TipRunLine, type TravelLine } from "./timesheets";
 import { fileIsSafe } from "./payroll/rules";
 import { HOME_OFFER_HOURS, TRAVEL_CAP_HOURS } from "./travel/rules";
+import { TIP_CAP_HOURS, TIP_OFFER_HOURS } from "./tipRun/rules";
 import { BREAK_OVER_MINUTES, BREAK_OVER_MINUTES_4H, break4hFrom, breakRuleFrom } from "./dayHours";
 
 const dateText = (d: string, weekday = true) => new Date(d + "T12:00:00Z").toLocaleDateString("en-AU", { ...(weekday ? { weekday: "long" as const } : {}), day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
@@ -23,7 +24,9 @@ const dayBefore = (d: string) => new Date(new Date(d + "T12:00:00Z").getTime() -
 // V4 (12 Nov 2026, Ilies: "change it to over 4 hours from this week but adjust the hours on the new rule from last week
 // aswell"; "Alex is on salary and therefore this rule wouldnt apply to him or anyone else on salary"): the break comes
 // off any day over 4 hours from 2 Nov 2026, none for salaried staff - she sees it again.
-export const TIMESHEETS_NOTICE = "ACCOUNTS_TIMESHEETS_V4";
+// V5 (19 Nov 2026, Ilies: shift rollover): night shifts count to their start day, the same-shift question, and
+// regional tip runs (worked hours, their own column) - she sees it again.
+export const TIMESHEETS_NOTICE = "ACCOUNTS_TIMESHEETS_V5";
 
 // New projects start with a 30-minute unpaid break (prisma/schema.prisma Project.unpaidBreakMinutes @default(30);
 // the project form's placeholder, lib/projectFormFields.ts). Not importable from the schema, so it is stated here.
@@ -81,6 +84,17 @@ export const TIMESHEETS_EXPLAINER: Explainer = {
       ],
     },
     {
+      // lib/signin.ts signInRefusal (TONIGHT_FROM_HOUR, LAST_NIGHT_UNTIL_HOUR), shiftLabel; lib/shiftRollover.ts;
+      // lib/tipRun/rules.ts (tipHours, TIP_CAP_HOURS, TIP_OFFER_HOURS, tipBlocks); lib/tipRun/store.ts; lib/timesheets.ts peopleOf
+      heading: "Night shifts and tip runs",
+      bullets: [
+        "A night shift belongs to the day it starts: Thu 19 → Fri 20 counts every hour to Thu 19, after midnight included. Tonight's night shift takes sign-ins from 12 noon.",
+        "Signed out of a night shift in the last 6 hours? A new sign-in asks \"Back on the same shift\" or \"This is a new shift\" - the answer is kept.",
+        `Tip run (regional jobs only): after signing out of a regional shift (within ${TIP_OFFER_HOURS} hours) the driver taps Start tip run, then Tipped – finished - no second sign-in. It counts to that shift's day.`,
+        `Tip run hours = start to end, to the nearest quarter hour, no break. They are worked hours: in the week total, with their own "Tip run" column. Never ended or over ${TIP_CAP_HOURS} hours counts nothing, is flagged, and the Manager can't approve the week until the office fixes it.`,
+      ],
+    },
+    {
       // app/api/attendance/[id]/route.ts PATCH (Manager+, reason); lib/attendanceEdits.ts; lib/timesheets.ts changedByOffice; lib/signin.ts (posters)
       heading: "Changes and checks",
       bullets: [
@@ -94,7 +108,7 @@ export const TIMESHEETS_EXPLAINER: Explainer = {
       heading: "Approvals, in order",
       bullets: [
         "1. The site supervisor approves the crew's hours for each job and day on their link (\"Approve hours\"). Office, yard and truck sign-ins have no supervisor step.",
-        "2. A Manager approves the week from the Monday after, once every sign-in has a sign-out and is confirmed, and every regional travel leg is ended and under 8 hours. That locks it: its sign-ins can't change unless an Admin reopens the week, with a reason.",
+        "2. A Manager approves the week from the Monday after, once every sign-in has a sign-out and is confirmed, every regional travel leg is ended and under 8 hours, and every tip run is ended and under 6 hours. That locks it: its sign-ins can't change unless an Admin reopens the week, with a reason.",
         "3. Then you approve or query each person's week in Payroll. Staff can only be approved once the Manager has locked the week. The pay-run file has the employees you approved.",
       ],
     },
@@ -126,7 +140,8 @@ export const TIMESHEETS_EXPLAINER: Explainer = {
       heading: "Travel boxes and the week",
       bullets: [
         "A blue box is regional travel (\"Travel out\" or \"Travel home\"). \"on the way\" = still travelling; \"never ended - no hours\" and \"over 8h - not counted\" turn it amber and need the office.",
-        "\"Draft\" means a Manager hasn't approved the week yet; \"Locked\" means they have. \"Need sorting\" counts the amber sign-ins and travel legs.",
+        "A purple \"Tip run\" box is a regional tip run (worked hours). \"on the go\" = not finished yet; \"never ended - no hours\" and \"over 6h - not counted\" turn it amber and need the office.",
+        "\"Draft\" means a Manager hasn't approved the week yet; \"Locked\" means they have. \"Need sorting\" counts the amber sign-ins, travel legs and tip runs.",
         "On a locked week, \"N sign-ins differ from what was approved\" means a time changed after the lock - the office would need to reopen the week.",
         "Under a name: \"Approved by accounts\" or \"Accounts query\" is your own decision in Payroll. In By site, \"Week, all places\" is that person's whole week.",
       ],
@@ -135,7 +150,7 @@ export const TIMESHEETS_EXPLAINER: Explainer = {
       // app/api/accounts/timesheets/export/route.ts; lib/timesheets.ts timesheetCsv
       heading: "Export",
       bullets: [
-        "Export downloads the week as a spreadsheet - hours only, one line per sign-in and per travel leg, plus each person's week total.",
+        "Export downloads the week as a spreadsheet - hours only, one line per sign-in, tip run and travel leg, plus each person's week total. A tip run's hours are in Hours and again in \"Tip run (h)\".",
         "A locked week exports exactly what the Manager approved. A week not locked yet is marked DRAFT.",
       ],
     },
@@ -162,9 +177,10 @@ export const AMOUNT_REMOVED = "(amount removed)";
 export const noDollar = (s: string) => s.replace(/[$＄﹩]\s?\d(?:[\d,]*\d)?(?:\.\d+)?/g, AMOUNT_REMOVED);
 const noDollarOrNull = (s: string | null) => (s == null ? null : noDollar(s));
 
-export function accountsTimesheetCsv(weekStart: string, lines: TimesheetLine[], approval: { approvedBy: string; approvedAt: Date } | null, travel: TravelLine[] = []): string | null {
+export function accountsTimesheetCsv(weekStart: string, lines: TimesheetLine[], approval: { approvedBy: string; approvedAt: Date } | null, travel: TravelLine[] = [], tipRuns: TipRunLine[] = []): string | null {
   const clean = lines.map((l) => ({ ...l, name: noDollar(l.name), role: noDollarOrNull(l.role), site: noDollar(l.site), changedByOffice: noDollarOrNull(l.changedByOffice) }));
   const cleanTravel = travel.map((t) => ({ ...t, name: noDollar(t.name), role: noDollarOrNull(t.role), site: noDollar(t.site), changedByOffice: noDollarOrNull(t.changedByOffice) }));
-  const csv = timesheetCsv(weekStart, clean, approval && { approvedBy: noDollar(approval.approvedBy), approvedAt: approval.approvedAt }, cleanTravel);
+  const cleanTips = tipRuns.map((r) => ({ ...r, name: noDollar(r.name), role: noDollarOrNull(r.role), site: noDollar(r.site), changedByOffice: noDollarOrNull(r.changedByOffice) }));
+  const csv = timesheetCsv(weekStart, clean, approval && { approvedBy: noDollar(approval.approvedBy), approvedAt: approval.approvedAt }, cleanTravel, { tipRuns: cleanTips });
   return fileIsSafe(csv) ? csv : null;
 }

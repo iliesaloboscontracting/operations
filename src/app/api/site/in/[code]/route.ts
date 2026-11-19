@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { withErrorHandling } from "@/lib/apiHandler";
-import { jobLabel, makeTicket, openJob, openJobsAtProject, pointCrew, readRotatingCode, resolvePoster, takesSignIns, type Method } from "@/lib/signin";
+import { makeTicket, openJob, openJobsAtProject, OPENS_AT_NOON, opensAtNoon, pointCrew, readRotatingCode, resolvePoster, shiftLabel, takesSignIns, type Method } from "@/lib/signin";
 import { outsideWindow } from "@/lib/posterGuard/rules";
 import { posterWindowOn, projectHours, windowForJob } from "@/lib/posterGuard/store";
 import { signInCompanies } from "@/lib/labourHire/store";
@@ -20,7 +20,7 @@ export const GET = withErrorHandling(async (_req: NextRequest, { params: paramsP
   let linkId: string;
   // signInClosed (site poster only, 11 Nov 2026): outside the poster's sign-in window - the words to show. Signing
   // OUT still works, so the job is still listed.
-  let jobs: { id: string; label: string; times: string | null; crew: { id: string; name: string }[]; signInClosed?: string }[];
+  let jobs: { id: string; label: string; times: string | null; crew: { id: string; name: string }[]; signInClosed?: string; notYet?: string }[];
 
   if (code.includes(".")) {
     const q = readRotatingCode(code);
@@ -67,10 +67,14 @@ export const GET = withErrorHandling(async (_req: NextRequest, { params: paramsP
   });
 });
 
+// label: a night shift says plainly which day its hours count to (shiftLabel, 19 Nov 2026). notYet: tonight's night
+// shift before noon - shown on the list; whether THIS person can sign in is the sign route's STATUS (it may offer
+// "Back on the same shift").
 const shape = (j: Awaited<ReturnType<typeof openJobsAtProject>>[number]) => ({
   id: j.id,
-  label: jobLabel(j),
+  label: shiftLabel(j),
   times: j.startTime && j.endTime ? `${j.startTime}-${j.endTime}` : null,
   crew: j.assignments.map((a) => a.resource),
+  ...(opensAtNoon(j) ? { notYet: OPENS_AT_NOON } : {}),
 });
 const gone = (error: string) => NextResponse.json({ error }, { status: 404 });

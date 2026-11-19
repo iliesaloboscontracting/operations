@@ -8,6 +8,7 @@
 import { prisma } from "./prisma";
 import { signInHoursForJobs } from "./attendanceView";
 import { updateTracked } from "./history/store";
+import { tipRunHoursForJobs } from "./tipRun/store";
 
 // Keep forever (10 Nov 2026): these automatic changes are kept in each row's history too, as the system's.
 const AUTO = { by: { name: "Sign-ins (automatic)" }, source: "Day Review hours from sign-ins" };
@@ -34,6 +35,13 @@ export async function syncSignInActuals(jobIds: string[]) {
     const ready = s.hours != null && !s.toConfirm;
     const prev = totals.has(key) ? totals.get(key)! : 0;
     totals.set(key, ready && prev != null ? prev + s.hours! : null);
+  }
+  // Regional tip runs (19 Nov 2026, shift rollover): a finished run's hours count to the shift's job for that person,
+  // on top of their sign-in hours there (a run on the go, or flagged, adds nothing yet).
+  for (const [key, h] of await tipRunHoursForJobs(open)) {
+    if (!totals.has(key)) continue; // a run always follows a sign-in on that job; nothing to add to otherwise
+    const prev = totals.get(key);
+    if (prev != null) totals.set(key, prev + h);
   }
 
   const existing = await prisma.jobActual.findMany({ where: { jobId: { in: open } } });

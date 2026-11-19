@@ -4,6 +4,8 @@
 // (The hours maths also merges any overlap that's left - lib/dayHours.ts.)
 import { prisma } from "./prisma";
 import { lockedWeekFor } from "./timesheets";
+import { endTipRunOnSignIn } from "./tipRun/store";
+import { syncSignInActualsQuietly } from "./signInActuals";
 
 type Who = { resourceId: string | null; workerName: string; company: string | null };
 type Here = { jobId: string | null; place?: string | null; vehicleId?: string | null };
@@ -34,6 +36,14 @@ export async function endOpenElsewhere(o: { who: Who; at: Date; here: Here; labe
       },
     });
     ended.push(e);
+  }
+  // Regional tip run (19 Nov 2026): an open tip run of theirs ends at this sign-in too - a tip run never overlaps a
+  // sign-in. Never lets a sign-in fail.
+  try {
+    const tipJob = await endTipRunOnSignIn(o.who.resourceId, o.at, null);
+    if (tipJob) await syncSignInActualsQuietly([tipJob]);
+  } catch (e) {
+    console.error("sign-in: ending an open tip run failed", e);
   }
   return ended;
 }

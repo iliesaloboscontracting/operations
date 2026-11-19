@@ -7,7 +7,7 @@ import { isISODate } from "@/lib/dateRules";
 import { todaySydney } from "@/lib/today";
 import { updateTracked } from "@/lib/history/store";
 import {
-  activeApproval, approvalBlockers, liveTravel, timesheetLines, timesheetWeek, weekDates, weekHasEnded, weekStartOf,
+  activeApproval, approvalBlockers, liveTipRuns, liveTravel, timesheetLines, timesheetWeek, weekDates, weekHasEnded, weekStartOf,
   type TimesheetSnapshot,
 } from "@/lib/timesheets";
 import { flagSummaryForDays } from "@/lib/attendanceView";
@@ -52,22 +52,24 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   if (body.action === "approve") {
     if (current) return bad("This week is already approved.");
     if (!weekHasEnded(weekStart)) return bad("The week hasn't finished yet - approve it from Monday.");
-    const [lines, travel] = await Promise.all([timesheetLines(weekStart), liveTravel(weekStart)]);
+    const [lines, travel, tipRuns] = await Promise.all([timesheetLines(weekStart), liveTravel(weekStart), liveTipRuns(weekStart)]);
     // Sign-ins with no sign-out or waiting for the supervisor, and (Ilies, 2 Nov 2026) regional travel never ended,
-    // over 8h or still on the way - all sorted on the Sign-ins page first (lib/timesheets.ts approvalBlockers).
-    const blockers = [...new Set(approvalBlockers(lines, travel))];
+    // over 8h or still on the way, and (19 Nov 2026) regional tip runs never ended, over 6h or still on the go - all
+    // sorted on the Sign-ins page first (lib/timesheets.ts approvalBlockers).
+    const blockers = [...new Set(approvalBlockers(lines, travel, tipRuns))];
     if (blockers.length) {
       return bad(`Sort these out first on the Sign-ins page: ${blockers.slice(0, 6).join(", ")}${blockers.length > 6 ? "…" : ""}`);
     }
-    // Regional travel (2 Nov 2026) is locked in with the week, like the sign-ins.
-    const snapshot: TimesheetSnapshot = { weekStart, lines, travel };
+    // Regional travel (2 Nov 2026) and tip runs (19 Nov 2026) are locked in with the week, like the sign-ins.
+    const snapshot: TimesheetSnapshot = { weekStart, lines, travel, tipRuns };
     await prisma.timesheetWeek.create({
       data: {
         weekStart,
         approvedBy: user?.name ?? "Office",
         snapshot: JSON.stringify(snapshot),
-        totalHours: Math.round(lines.reduce((n, l) => n + (l.hours ?? 0), 0) * 4) / 4,
-        people: new Set(lines.map((l) => l.resourceId)).size,
+        // Worked hours: sign-ins + tip runs.
+        totalHours: Math.round((lines.reduce((n, l) => n + (l.hours ?? 0), 0) + tipRuns.reduce((n, r) => n + (r.hours ?? 0), 0)) * 4) / 4,
+        people: new Set([...lines.map((l) => l.resourceId), ...tipRuns.map((r) => r.resourceId)]).size,
       },
     });
     return NextResponse.json({ ok: true });

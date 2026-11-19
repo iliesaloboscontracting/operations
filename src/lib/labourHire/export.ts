@@ -22,8 +22,9 @@ export function labourHireCsv(weekStart: string, week: HireWeek, companies: Hire
   // PS-051: under each company's total, every spelling grouped into it and any office mapping (and who made it), so
   // whoever sends the file can see what was put together.
   const tail: CsvRow[] = shown.flatMap((c): CsvRow[] => [
-    ["", noDollar(c.name), "", "COMPANY TOTAL", "", "", "", "", c.hours, "", "", `${c.workers} worker${c.workers === 1 ? "" : "s"}`],
-    ["", noDollar(c.name), "", "", "", "", "", "", "", "", "", noDollar(c.groupedFrom)],
+    // Under the same columns as the staff export (Hours, Tip run (h), Travel (h), Status, Notes).
+    ["", noDollar(c.name), "", "COMPANY TOTAL", "", "", "", "", c.hours, "", "", "", `${c.workers} worker${c.workers === 1 ? "" : "s"}`],
+    ["", noDollar(c.name), "", "", "", "", "", "", "", "", "", "", noDollar(c.groupedFrom)],
   ]);
   const title = `Lobos Contracting - labour hire timesheet, ${chosen ? noDollar(chosen.name) : "all companies"}, week ${weekStart} to ${weekEnd(weekStart)}`;
   const status = `Hours from site sign-ins - ${bannerText(week.unfinished) ?? "every line signed out and confirmed"}`;

@@ -14,6 +14,7 @@ import { supervisorApprovals } from "@/lib/payroll/store";
 import { syncPersonDayQuietly, syncSignInActualsQuietly } from "@/lib/signInActuals";
 import { endOpenElsewhere } from "@/lib/signinOverlap";
 import { travelLinesForDate } from "@/lib/travel/store";
+import { tipRunLinesForDate } from "@/lib/tipRun/store";
 import { notSignedInToday, openFromYesterday } from "@/lib/signinAlerts";
 
 // GET /api/attendance?date=YYYY-MM-DD -> that date's jobs with sign-ins,
@@ -23,7 +24,7 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
   if (denied) return denied;
   const q = req.nextUrl.searchParams.get("date");
   const date = q && isISODate(q) ? q : todaySydney();
-  const [view, posters, handovers, travel] = await Promise.all([
+  const [view, posters, handovers, travel, tipRuns] = await Promise.all([
     attendanceForDate(date),
     prisma.siteLink.findMany({
       where: { kind: "POSTER", revokedAt: null },
@@ -34,6 +35,7 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
       select: { id: true, jobId: true, expiresAt: true, createdBy: true, resource: { select: { name: true } } },
     }),
     travelLinesForDate(date), // regional travel legs for this day's jobs (2 Nov 2026) - times and hours, no GPS
+    tipRunLinesForDate(date), // regional tip runs counted to this day's shifts (19 Nov 2026) - times and hours
   ]);
   // The office banner (fixes 2c and 5a, 2 Nov 2026), on today's page only: yesterday's sign-ins with no sign-out, and
   // allocated crew not signed in an hour after their job started. Names and sites only.
@@ -43,7 +45,7 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
   // Supervisors' "Approve hours" per job and line (18 Nov 2026, Ilies: Managers and Admins - not the coordinator).
   const user = await getCurrentUser();
   const supervisor = user && rankAtLeast(user.role, "MANAGER") ? await supervisorApprovals(weekStartOf(date), date) : undefined;
-  return viewJson({ date, today: todaySydney(), jobs: view.jobs, points: view.points, summary: view.summary, posters, handovers, travel, gaps, ...(supervisor ? { supervisor } : {}) });
+  return viewJson({ date, today: todaySydney(), jobs: view.jobs, points: view.points, summary: view.summary, posters, handovers, travel, tipRuns, gaps, ...(supervisor ? { supervisor } : {}) });
 });
 
 // POST /api/attendance - the office adds a sign-in that was missed.

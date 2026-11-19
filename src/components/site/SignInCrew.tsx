@@ -13,7 +13,10 @@ import { serverErrorMessage } from "@/lib/apiFetch";
 type AttendanceRow = { id: string; in: string | null; out: string | null; method: string; outMethod: string | null; status: string };
 type CrewRow = { resourceId: string | null; name: string; company: string | null; allocated: boolean; attendance: AttendanceRow | null };
 // warning (11 Nov 2026): a poster sign-in with no location shared, or far from the site - "1.8 km from site".
-type Job = { id: string; label: string; times: string | null; qrUrl: string; crew: CrewRow[]; toConfirm: (AttendanceRow & { name: string; company: string | null; warning?: string | null })[] };
+// notYet (19 Nov 2026): tonight's night shift before noon - no new sign-ins yet (signing out still works).
+type Job = { id: string; label: string; notYet?: string; times: string | null; qrUrl: string; crew: CrewRow[]; toConfirm: (AttendanceRow & { name: string; company: string | null; warning?: string | null })[] };
+// Just off a night shift (19 Nov 2026, lib/shiftRollover.ts): the question the server asks before a tick-in.
+type ShiftAsk = { shift: string; countsTo: string; signedOut: string; sameOffered: boolean; newOffered: boolean; newShift: string; sameNote: string | null; tipRun: boolean };
 type Data = { person: string; handover: boolean; rotateSeconds: number; jobs: Job[] };
 
 const btn = "rounded-lg bg-brand-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50";
@@ -28,6 +31,28 @@ export default function SignInCrew({ api }: { api: string }) {
   const [handLink, setHandLink] = useState<{ name: string; url: string } | null>(null);
   // Sign out several at once (24 Oct 2026) - always "now"; the office sets other times.
   const [picked, setPicked] = useState<Set<string>>(new Set());
+  // A tick-in the server asked about (just off a night shift) - answered with one of the two buttons.
+  const [asking, setAsking] = useState<{ ask: ShiftAsk; jobId: string; resourceId: string; name: string } | null>(null);
+
+  // Tick in; a 409 with a question shows it instead of an error (19 Nov 2026).
+  async function tickIn(jobId: string, resourceId: string, name: string, shiftAnswer?: "SAME" | "NEW") {
+    setBusy(`in${resourceId}`);
+    setError(null);
+    try {
+      const res = await fetch(`${api}/signin`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "MANUAL_IN", jobId, resourceId, ...(shiftAnswer ? { shiftAnswer } : {}) }) });
+      if (res.status === 409) {
+        const j = await res.clone().json().catch(() => null);
+        if (j?.ask) { setAsking({ ask: j.ask, jobId, resourceId, name }); return; }
+      }
+      if (!res.ok) throw new Error(await serverErrorMessage(res, "Couldn't send - try again."));
+      setAsking(null);
+      await load();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  }
 
   const load = useCallback(async () => {
     const res = await fetch(`${api}/signin`);
@@ -111,6 +136,29 @@ export default function SignInCrew({ api }: { api: string }) {
         >
           {job.toConfirm.length} sign-in{job.toConfirm.length === 1 ? "" : "s"} from the poster waiting for you to confirm ↓
         </button>
+      )}
+
+      {job.notYet && <div className="rounded-xl border border-amber-500/50 bg-amber-500/10 px-3 py-2.5 text-sm text-amber-200" data-testid="not-yet">{job.notYet}</div>}
+
+      {asking && (
+        <section className="rounded-2xl border border-brand-500/50 bg-brand-600/10 p-3" data-testid="shift-ask">
+          <p className="mb-2 text-sm text-gray-100">{asking.name} signed out of {asking.ask.shift} at {asking.ask.signedOut}.</p>
+          <div className="space-y-2">
+            {asking.ask.sameOffered && (
+              <button className={`${btn} w-full`} disabled={!!busy} onClick={() => tickIn(asking.jobId, asking.resourceId, asking.name, "SAME")}>
+                Back on the same shift (counts to {asking.ask.countsTo})
+              </button>
+            )}
+            {asking.ask.newOffered && (
+              <button className={`${quiet} w-full`} disabled={!!busy} onClick={() => tickIn(asking.jobId, asking.resourceId, asking.name, "NEW")}>
+                This is a new shift - {asking.ask.newShift}
+              </button>
+            )}
+            {asking.ask.sameNote && <p className="text-xs text-gray-400">{asking.ask.sameNote}</p>}
+            {asking.ask.tipRun && <p className="text-xs text-violet-300">Going back to tip the truck? They tap Start tip run on their own phone instead - no sign-in needed.</p>}
+            <button className="w-full py-1 text-sm text-gray-400" onClick={() => setAsking(null)}>Cancel</button>
+          </div>
+        </section>
       )}
 
       <div className="flex flex-col items-center gap-2">
@@ -213,7 +261,7 @@ export default function SignInCrew({ api }: { api: string }) {
                   </div>
                 </div>
                 {c.resourceId && (!a || a.out || a.status === "REJECTED") && (
-                  <button className={quiet} disabled={!!busy} onClick={() => confirm(`Sign ${c.name} in now?`) && post(`in${c.resourceId}`, { action: "MANUAL_IN", jobId: job.id, resourceId: c.resourceId })}>
+                  <button className={quiet} disabled={!!busy} onClick={() => confirm(`Sign ${c.name} in now?`) && tickIn(job.id, c.resourceId!, c.name)}>
                     Tick in
                   </button>
                 )}

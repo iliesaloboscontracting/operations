@@ -7,7 +7,9 @@ import { syncPersonDayQuietly, syncSignInActualsQuietly } from "@/lib/signInActu
 import { endOpenElsewhere } from "@/lib/signinOverlap";
 import { fromSydneyLocal } from "@/lib/shiftTimes";
 import { todaySydney } from "@/lib/today";
-import { createHandover, jobLabel, openJob, openJobsFor, ROTATE_SECONDS, rotatingCode, shiftLabel, shiftOrder, STILL_ON_HOURS, sydneyTime, takesSignIns } from "@/lib/signin";
+import { createHandover, jobLabel, openJob, openJobsFor, OPENS_AT_NOON, opensAtNoon, ROTATE_SECONDS, rotatingCode, shiftLabel, shiftOrder, STILL_ON_HOURS, sydneyTime } from "@/lib/signin";
+import { askText, decideSignIn, recentNightShift } from "@/lib/shiftRollover";
+import { tipRunOn } from "@/lib/tipRun/rules";
 import { lockedWeekFor } from "@/lib/timesheets";
 import { posterGpsFlags } from "@/lib/posterGuard/store";
 
@@ -80,6 +82,8 @@ export const GET = withErrorHandling(async (req: NextRequest, { params: paramsP 
       return {
         id: j.id,
         label: shiftLabel(j),
+        // Tonight's night shift before noon (19 Nov 2026): no new sign-ins yet - the page says so above the QR.
+        ...(opensAtNoon(j) ? { notYet: OPENS_AT_NOON } : {}),
         times: j.startTime && j.endTime ? `${j.startTime}-${j.endTime}` : null,
         qrUrl: siteUrl(`in/${rotatingCode(j.id, link.id)}`, req.nextUrl.origin),
         crew: [...crew, ...others],
@@ -136,19 +140,27 @@ export const POST = withErrorHandling(async (req: NextRequest, { params: paramsP
       });
     }
     case "MANUAL_IN": {
-      const job = jobs.find((j) => j.id === body.jobId);
-      if (!job) return bad("Pick one of your jobs.");
-      if (!takesSignIns(job)) return bad("That shift has finished - tick them in on today's job.");
+      const picked = jobs.find((j) => j.id === body.jobId);
+      if (!picked) return bad("Pick one of your jobs.");
       const person = typeof body.resourceId === "string"
         ? await prisma.resource.findUnique({ where: { id: body.resourceId }, select: { id: true, name: true, type: true } })
         : null;
       if (!person || person.type !== "PERSONNEL") return bad("Pick someone from the crew.");
-      const open = await prisma.siteAttendance.findFirst({ where: { jobId: job.id, resourceId: person.id, signOutAt: null, status: { not: "REJECTED" } } });
+      const openPicked = await prisma.siteAttendance.findFirst({ where: { jobId: picked.id, resourceId: person.id, signOutAt: null, status: { not: "REJECTED" } } });
+      if (openPicked) return bad(`${person.name} is already signed in since ${sydneyTime(openPicked.signInAt)}.`);
+      const now = new Date();
+      // Shift rollover (19 Nov 2026, Ilies): tonight's night shift only from noon (an earlier shift kept open for signing
+      // out takes none), and just off a night shift (6 h) the supervisor is asked first - "Back on the same shift" (that
+      // night job, if it's one of theirs) or "This is a new shift". Never ticked in silently.
+      const d = decideSignIn({ chosen: picked, prior: await recentNightShift({ resourceId: person.id, workerName: person.name, company: null }, now), answer: body.shiftAnswer, now, allowed: jobIds, tipRunOn: tipRunOn() });
+      if (d.kind === "REFUSE") return bad(d.error);
+      if (d.kind === "ASK") return NextResponse.json({ error: askText(d.ask), ask: d.ask }, { status: 409 });
+      const job = jobs.find((j) => j.id === d.jobId)!;
+      const open = job.id === picked.id ? null : await prisma.siteAttendance.findFirst({ where: { jobId: job.id, resourceId: person.id, signOutAt: null, status: { not: "REJECTED" } } });
       if (open) return bad(`${person.name} is already signed in since ${sydneyTime(open.signInAt)}.`);
       // Fix 1 (2 Nov 2026): ticking someone in ends any other sign-in they still have open (a truck QR, another site).
       // TF-002: only for this job's own crew - a supervisor can't pull someone off another site by ticking them in;
       // that open line goes to its own supervisor to confirm.
-      const now = new Date();
       const allocated = job.assignments.some((a) => a.resource.id === person.id);
       const elsewhere = await prisma.siteAttendance.findFirst({
         where: { resourceId: person.id, signOutAt: null, status: { not: "REJECTED" }, removedAt: null, signInAt: { gte: new Date(now.getTime() - STILL_ON_HOURS * 3_600_000) }, OR: [{ jobId: null }, { jobId: { not: job.id } }] },
@@ -170,6 +182,7 @@ export const POST = withErrorHandling(async (req: NextRequest, { params: paramsP
         signInMethod: "MANUAL",
         status: "CONFIRMED",
         runBy: link.person.name,
+        shiftAnswer: d.answer, // SAME / NEW when asked (19 Nov 2026)
       });
       if (!made) return NextResponse.json({ error: JOB_CANCELLED_SIGN_IN }, { status: 409 }); // PS-031
       // PS-035: only once this sign-in is saved.

@@ -13,8 +13,8 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
   if (denied) return denied;
   const q = req.nextUrl.searchParams.get("week");
   const weekStart = weekStartOf(q && isISODate(q) ? q : todaySydney());
-  const { approval, lines, travel } = await exportLines(weekStart);
-  const csv = timesheetCsv(weekStart, lines, approval, travel);
+  const { approval, lines, travel, tipRuns } = await exportLines(weekStart);
+  const csv = timesheetCsv(weekStart, lines, approval, travel, { tipRuns });
   return new NextResponse("﻿" + csv, {
     headers: {
       "Content-Type": "text/csv; charset=utf-8",

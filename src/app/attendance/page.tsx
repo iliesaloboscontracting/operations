@@ -7,6 +7,7 @@ import { useAuth } from "@/components/AuthProvider";
 import AttendanceJobCard from "@/components/attendance/AttendanceJobCard";
 import PosterPanel from "@/components/attendance/PosterPanel";
 import TravelLegs from "@/components/attendance/TravelLegs";
+import TipRuns from "@/components/attendance/TipRuns";
 import type { AttendanceData, AttendanceJob } from "@/components/attendance/types";
 import { flagSummary, type SigninFlagSummary } from "@/lib/signinFlags";
 import { apiFetch } from "@/lib/apiFetch";
@@ -173,11 +174,14 @@ export default function AttendancePage() {
                   />
                   {/* Regional travel legs for this job (2 Nov 2026) */}
                   {!filter && <TravelLegs legs={(data.travel ?? []).filter((t) => t.jobId === j.id)} canEdit={canEdit} onChanged={load} />}
+                  {/* Regional tip runs counted to this shift (19 Nov 2026) */}
+                  {!filter && <TipRuns runs={(data.tipRuns ?? []).filter((r) => r.jobId === j.id)} canEdit={canEdit} onChanged={load} />}
                   </div>
                 );
               })}
               {/* Travel for a job not listed here (e.g. since completed) */}
               {!filter && <TravelLegs legs={(data.travel ?? []).filter((t) => !data.jobs.some((j) => j.id === t.jobId))} canEdit={canEdit} onChanged={load} />}
+              {!filter && <TipRuns runs={(data.tipRuns ?? []).filter((r) => !data.jobs.some((j) => j.id === r.jobId))} canEdit={canEdit} onChanged={load} />}
             </div>
             <PosterPanel projects={projects} vehicles={vehicles} posters={data.posters} canEdit={canEdit} onChanged={load} />
           </div>

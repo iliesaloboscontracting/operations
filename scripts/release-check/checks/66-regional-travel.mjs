@@ -23,7 +23,11 @@ export default {
     const reg = await db.project.create({ data: { name: `RC regional ${tag}`, status: "ACTIVE" } });
     const loc = await db.project.create({ data: { name: `RC local ${tag}`, status: "ACTIVE" } });
     const regJob = await db.job.create({ data: { projectId: reg.id, title: reg.name, date: jobDate, shift: "DAY", status: "ACTIVE" } });
-    const regNight = await db.job.create({ data: { projectId: reg.id, title: reg.name, date: jobDate, shift: "NIGHT", status: "ACTIVE" } });
+    // Shift rollover (19 Nov 2026): tonight's night shift takes sign-ins only from 12 noon Sydney - before noon the
+    // night job is last night's (it takes sign-ins until 2pm), so the QR sign-in below works whenever the check runs.
+    const sydHour = Number(new Intl.DateTimeFormat("en-CA", { timeZone: "Australia/Sydney", hour: "2-digit", hourCycle: "h23" }).format(new Date()));
+    const nightDate = sydHour < 12 ? new Date(jobDate.getTime() - 86_400_000) : jobDate;
+    const regNight = await db.job.create({ data: { projectId: reg.id, title: reg.name, date: nightDate, shift: "NIGHT", status: "ACTIVE" } });
     const locJob = await db.job.create({ data: { projectId: loc.id, title: loc.name, date: jobDate, shift: "DAY", status: "ACTIVE" } });
     for (const j of [regJob, regNight, locJob]) await db.assignment.create({ data: { jobId: j.id, resourceId: person.id } });
     await db.assignment.create({ data: { jobId: regJob.id, resourceId: person2.id } }); // regional work, but not on the night job
@@ -134,7 +138,7 @@ export default {
     }
     for (const [who, path] of [["MANAGER", `/api/timesheets/export?week=${week}`], ["ACCOUNTS", `/api/accounts/timesheets/export?week=${week}`]]) {
       const csv = (await c.text(path, who)).text;
-      t.ok(csv.includes("Hours,Travel (h),Status") && csv.includes("Travel out to") && csv.includes("Travel home from") && noMoney(csv), `${who} timesheet export has the Travel column and legs, no $`);
+      t.ok(csv.includes("Hours,Tip run (h),Travel (h),Status") && csv.includes("Travel out to") && csv.includes("Travel home from") && noMoney(csv), `${who} timesheet export has the Travel column and legs, no $`);
     }
     // Payroll files (accounts): a Travel hours column, still hours only. On a week of its own (2020-02-03), because
     // earlier checks seed "$5 Labour" sign-ins this week and the payroll files refuse a week with a $ in a name.
@@ -145,7 +149,7 @@ export default {
       const r = await c.text(`/api/accounts/payroll/export?week=${payWeek}&file=${f}`, "ACCOUNTS");
       const csv = r.text;
       t.ok(r.status === 200 && /Travel hours/.test(csv) && noMoney(csv) && !/\bBSB\b|\bTFN\b|\bABA\b/i.test(csv), `payroll ${f} file: Travel hours column, no money`, `${r.status} ${csv.slice(0, 160)}`);
-      if (f === "summary") t.ok(csv.split("\n").some((l) => l.startsWith(person.name) && /,2\r?$/.test(l)), "summary: the person's 2h travel in Travel hours", csv.slice(0, 300));
+      if (f === "summary") t.ok(csv.split("\n").some((l) => l.startsWith(person.name) && /,2,0\r?$/.test(l)), "summary: the person's 2h travel in Travel hours (then 0 Tip run hours)", csv.slice(0, 300));
     }
     // (7b) Ilies (2 Nov 2026): a leg never ended blocks the week's approval until the office fixes it with a reason.
     const blockLeg = await db.travelLeg.create({ data: { direction: "OUT", resourceId: person.id, workerName: person.name, jobId: `rc-block-${tag}`, projectId: reg.id, siteLabel: reg.name, date: "2020-02-05", startAt: new Date("2020-02-04T19:00:00Z") } });

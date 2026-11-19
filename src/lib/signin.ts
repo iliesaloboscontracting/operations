@@ -159,6 +159,9 @@ export const jobDateWhere = () => {
   };
 };
 export const STILL_ON_HOURS = 20;
+// Shift rollover (19 Nov 2026): signed out of a night shift within this long, a new sign-in asks first whether it's
+// the same shift or a new one (lib/shiftRollover.ts).
+export const SAME_SHIFT_ASK_HOURS = 6;
 const stillOnWhere = () => ({
   attendances: {
     some: { signOutAt: null, status: { not: "REJECTED" }, signInAt: { gte: new Date(Date.now() - STILL_ON_HOURS * 3_600_000) } },
@@ -175,13 +178,33 @@ export function sydneyNow(now = new Date()) {
 // the morning tip run carries on last night's shift; from 2pm the next night's crew can't land on it by mistake.
 export const LAST_NIGHT_UNTIL_HOUR = 14;
 
-// True for today's jobs (and last night's night shift until 2pm) - the only ones new
-// sign-ins go to. False for an earlier job kept open just for signing out.
+// 19 Nov 2026 (Calwell, shift rollover): tonight's night shift takes new sign-ins only from 12 noon Sydney - a crew
+// finishing last night's shift at 5am could otherwise land on tonight's by mistake (Sun 15 Nov: out of Sunday night at
+// 4:51am, the same minute signed in to Monday night until 2:16pm). Day shifts are unchanged.
+export const TONIGHT_FROM_HOUR = 12;
+
+// True for today's jobs (today's night shift from noon; last night's night shift until 2pm) - the only ones new
+// sign-ins go to. False for an earlier job kept open just for signing out. Signing OUT is never checked against this.
 export function takesSignIns(job: { date: Date; shift: string }, now = new Date()) {
+  return signInRefusal(job, now) === null;
+}
+// Tonight's night shift before noon: not open for new sign-ins yet (it opens at 12 noon today).
+export function opensAtNoon(job: { date: Date; shift: string }, now = new Date()) {
+  const { date: todayS, hour } = sydneyNow(now);
+  return job.shift === "NIGHT" && job.date.toISOString().slice(0, 10) === todayS && hour < TONIGHT_FROM_HOUR;
+}
+export const OPENS_AT_NOON = "Sign-ins for tonight's shift open at 12 noon - signing out still works.";
+// Why a new sign-in on this job is refused now (null = it isn't): the words a sign-in screen shows.
+export function signInRefusal(job: { date: Date; shift: string }, now = new Date()): string | null {
   const { date: todayS, hour } = sydneyNow(now);
   const { today, yesterday } = signinDates(todayS);
   const d = job.date.toISOString().slice(0, 10);
-  return d === today || (d === yesterday && job.shift === "NIGHT" && hour < LAST_NIGHT_UNTIL_HOUR);
+  if (d === today) {
+    if (job.shift !== "NIGHT" || hour >= TONIGHT_FROM_HOUR) return null;
+    return `Tonight's night shift (${nightSpan(job.date)}) takes sign-ins from 12 noon. Still on last night's shift? Sign in or out on that one.`;
+  }
+  if (d === yesterday && job.shift === "NIGHT" && hour < LAST_NIGHT_UNTIL_HOUR) return null;
+  return "That shift has finished - sign in to today's job.";
 }
 
 // Which shift a supervisor's page opens on (18 Nov 2026 - replaces the 17 Nov order, which in the evening put LAST
@@ -218,11 +241,21 @@ export const jobLabel = (j: { title: string; shift: string; project: { name: str
   `${j.project?.name ?? j.title}${j.shift === "NIGHT" ? " (night)" : ""}`;
 
 // A supervisor's job list with the day on night shifts (17 Nov 2026, Mt Hutton): in the morning last night's shift
-// and tonight's are both open, and "(night)" alone made them look the same - "(night, Mon 16)" / "(night, Tue 17)".
+// and tonight's are both open, and "(night)" alone made them look the same.
+// 19 Nov 2026 (Ilies, shift rollover): said plainly on every sign-in screen - "Night shift Mon 16 → Tue 17 – hours
+// count to Mon 16": a night shift is its start day's shift from start to finish, after midnight included.
+const dayName = (iso: string) => new Date(iso + "T12:00:00.000Z").toLocaleDateString("en-AU", { timeZone: "UTC", weekday: "short", day: "numeric" });
+const nextDay = (iso: string) => new Date(new Date(iso + "T12:00:00.000Z").getTime() + 86_400_000).toISOString().slice(0, 10);
+// "Mon 16 → Tue 17" for a night shift dated Mon 16.
+export const nightSpan = (date: Date) => {
+  const d = date.toISOString().slice(0, 10);
+  return `${dayName(d)} → ${dayName(nextDay(d))}`;
+};
+// "hours count to Mon 16" - the day a shift's hours belong to (its start date).
+export const countsTo = (date: Date) => dayName(date.toISOString().slice(0, 10));
 export const shiftLabel = (j: { title: string; shift: string; date: Date; project: { name: string } | null }) => {
   if (j.shift !== "NIGHT") return jobLabel(j);
-  const day = new Date(j.date.toISOString().slice(0, 10) + "T12:00:00.000Z").toLocaleDateString("en-AU", { timeZone: "UTC", weekday: "short", day: "numeric" });
-  return `${j.project?.name ?? j.title} (night, ${day})`;
+  return `${j.project?.name ?? j.title} – Night shift ${nightSpan(j.date)} – hours count to ${countsTo(j.date)}`;
 };
 
 // Jobs a person (supervisor link) runs sign-in for: the open jobs they're

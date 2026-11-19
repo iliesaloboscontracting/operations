@@ -13,6 +13,7 @@ import { nameWithoutAmounts } from "../dailyLog/money";
 import { todaySydney } from "../today";
 import type { ResolvedLink } from "../siteLinks";
 import { legHours, type TravelFlag } from "../travel/rules";
+import { tipHours } from "../tipRun/rules";
 import {
   canAccountsApprove, dayState, fileIsSafe, groupOf, inPayRun, payRunRows, personKeyOf, summarise, toCsv, TRAVEL_HOOK, travelKey,
   type ApprovalSnapshotLine, type DayState, type Group, type PayLine,
@@ -53,10 +54,11 @@ export async function payLines(weekStart: string): Promise<PayLine[]> {
     matchHireSignIns(tiles.filter((t) => t.jobId === jobId).map((t) => t.resource), rows.filter((r) => r.jobId === jobId && !r.resourceId)).forEach((t, id) => tileOf.set(id, t.name));
   }
   const kept = rows.filter((r) => !r.resource || r.resource.type === "PERSONNEL");
+  const tips = await payTipRuns(weekStart);
   // One break per person per day (over 4 h from 2 Nov 2026, none for salaried staff), overlaps counted once
   // (lib/dayHours.ts).
   const day = dayHours(kept.map((r) => ({ id: r.id, personKey: personKeyOf(r.resourceId, r.resource?.name ?? r.workerName, r.company), date: r.date, start: r.signInAt, end: r.signOutAt, breakMinutes: r.job ? r.job.project?.unpaidBreakMinutes ?? 0 : POINT_BREAK_MINUTES, deviceId: r.deviceId, noBreak: isSalaried(r.resource) })));
-  return kept.map((r) => {
+  const signIns = kept.map((r): PayLine => {
     const name = r.resource?.name ?? r.workerName;
     const chk: string[] = []; // TF-004: which of name / company / site had to be swapped for a placeholder
     return {
@@ -68,6 +70,32 @@ export async function payLines(weekStart: string): Promise<PayLine[]> {
       jobId: r.jobId, shift: (r.job?.shift === "NIGHT" ? "NIGHT" : "DAY") as "DAY" | "NIGHT", site: payText(r.job ? jobLabel(r.job) : r.placeLabel ?? r.place ?? "Sign-in point", "Site", r.date, chk, "site"), point: !r.jobId,
       in: sydneyTime(r.signInAt)!, out: sydneyTime(r.signOutAt), hours: day.get(r.id)!.hours, overlap: day.get(r.id)!.overlap, status: r.status, tile: tileOf.get(r.id) ?? null,
       gps: r.gpsLat != null && r.gpsLng != null ? { lat: r.gpsLat, lng: r.gpsLng, accuracyM: r.gpsAccuracyM } : null, gpsStatus: r.gpsStatus,
+      ...(chk.length ? { toCheck: chk } : {}),
+    };
+  });
+  return [...signIns, ...tips];
+}
+
+// Regional tip runs (19 Nov 2026, shift rollover): ordinary worked hours on the shift's date - one pay line each, on the
+// shift's pay item (its day and DAY / NIGHT), marked tipRun so the files show them in their own column too. No
+// supervisor step (jobId left empty); a run never finished or over 6 h has no hours (and blocks the Manager's lock).
+async function payTipRuns(weekStart: string): Promise<PayLine[]> {
+  const runs = await prisma.tipRun.findMany({ where: { date: { gte: weekStart, lte: weekEnd(weekStart) } }, orderBy: { startAt: "asc" } });
+  if (!runs.length) return [];
+  const [people, jobs] = await Promise.all([
+    prisma.resource.findMany({ where: { id: { in: [...new Set(runs.map((r) => r.resourceId))] } }, select: { id: true, name: true, engagement: true } }),
+    prisma.job.findMany({ where: { id: { in: [...new Set(runs.map((r) => r.jobId))] } }, select: { id: true, shift: true } }),
+  ]);
+  return runs.map((r) => {
+    const p = people.find((x) => x.id === r.resourceId);
+    const name = p?.name ?? r.workerName;
+    const chk: string[] = [];
+    return {
+      attendanceId: `tiprun:${r.id}`, date: r.date, personKey: personKeyOf(r.resourceId, name, null), personName: payText(name, "Unnamed", r.date, chk, "name"),
+      resourceId: r.resourceId, company: null, group: groupOf(r.resourceId, p?.engagement ?? null), engagementSet: !!p?.engagement,
+      jobId: null, shift: (jobs.find((j) => j.id === r.jobId)?.shift === "NIGHT" ? "NIGHT" : "DAY") as "DAY" | "NIGHT", site: payText(`Tip run - ${r.siteLabel}`, "Tip run", r.date, chk, "site"), point: false,
+      in: sydneyTime(r.startAt)!, out: sydneyTime(r.endAt), hours: tipHours(r.startAt, r.endAt).hours, status: "CONFIRMED", tile: null,
+      gps: null, gpsStatus: null, tipRun: true,
       ...(chk.length ? { toCheck: chk } : {}),
     };
   });
@@ -247,11 +275,12 @@ export async function payrollFiles(weekStart: string, which: "payrun" | "summary
     [`Lobos Contracting - weekly hours summary, ${week.weekStart} to ${week.weekEnd}`],
     [week.managerLock ? `Timesheet locked by ${week.managerLock.by}` : "Timesheet not locked by a Manager yet"],
     [],
-    ["Person", "Group", "Company", "Days", "Hours", "Ordinary", "Night", "Saturday", "Sunday", "Accounts", "Travel hours"],
+    ["Person", "Group", "Company", "Days", "Hours", "Ordinary", "Night", "Saturday", "Sunday", "Accounts", "Travel hours", "Tip run hours"],
     ...s.people.map((p) => [p.name, p.group === "HIRE" ? "Labour hire" : p.group === "ABN" ? "ABN" : "Employee", p.company, p.days, p.hours,
-      p.byItem["Ordinary Hours"] ?? 0, p.byItem["Night Hours"] ?? 0, p.byItem["Saturday Hours"] ?? 0, p.byItem["Sunday Hours"] ?? 0, p.review ?? "Not reviewed", travelOf.get(p.personKey) ?? 0]),
+      p.byItem["Ordinary Hours"] ?? 0, p.byItem["Night Hours"] ?? 0, p.byItem["Saturday Hours"] ?? 0, p.byItem["Sunday Hours"] ?? 0, p.review ?? "Not reviewed", travelOf.get(p.personKey) ?? 0, p.tipRunHours ?? 0]),
     [],
     ["Total hours", s.total],
+    ["Of which tip runs (regional)", Math.round(s.people.reduce((n, p) => n + (p.tipRunHours ?? 0), 0) * 4) / 4],
     ["Total travel hours (regional)", Math.round(week.people.reduce((n, p) => n + p.travelHours, 0) * 4) / 4],
     [`Travel pay: ${TRAVEL_HOOK}`],
     ...Object.entries(s.bySite).sort((a, b) => b[1] - a[1]).map(([k, v]) => [`Site: ${k}`, v]),

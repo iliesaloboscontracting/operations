@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState, use } from "react";
 import SiteBrand from "@/components/site/SiteBrand";
 import PrestartCheck, { type PrestartResult } from "@/components/site/PrestartCheck";
-import { Camera, Car, Home, Loader2, LogIn, LogOut } from "lucide-react";
+import { Camera, Car, Home, Loader2, LogIn, LogOut, Truck } from "lucide-react";
 import { serverErrorMessage } from "@/lib/apiFetch";
 import { resizePhoto } from "@/lib/imageResize";
 import { deviceId, ME_KEY, PASS_KEY, store, useQuietGps } from "@/lib/signinDevice";
@@ -18,7 +18,10 @@ import { OTHER_COMPANY } from "@/lib/labourHire/rules";
 
 type Person = { id: string; name: string };
 // signInClosed: a site poster outside its sign-in window (11 Nov 2026) - the words to show; signing out still works.
-type Job = { id: string; label: string; times: string | null; crew: Person[]; signInClosed?: string };
+type Job = { id: string; label: string; times: string | null; crew: Person[]; signInClosed?: string; notYet?: string };
+// Just off a night shift (19 Nov 2026, lib/shiftRollover.ts): the question the server asks before a new sign-in.
+type ShiftAsk = { shift: string; countsTo: string; signedOut: string; sameOffered: boolean; newOffered: boolean; newShift: string; sameNote: string | null; tipRun: boolean };
+class AskError extends Error { constructor(public ask: ShiftAsk, message: string) { super(message); } }
 // hireCompanies (13 Nov 2026): the labour hire companies a hire worker picks from.
 type Scan = { method: "SUPERVISOR_QR" | "POSTER" | "POINT"; ticket: string; jobs: Job[]; hireCompanies?: string[] };
 type Me = { resourceId: string; name: string } | { hire: { name: string; company: string } };
@@ -47,7 +50,9 @@ export default function CrewSignInPage({ params: paramsP }: { params: Promise<{ 
   const [prestart, setPrestart] = useState<string | null>(null);
   const [checkSent, setCheckSent] = useState<PrestartResult["sent"]>([]);
   // Regional travel (2 Nov 2026): after a sign-in / sign-out the phone may be offered the travel page or "Travelling home".
-  const [travel, setTravel] = useState<{ link: boolean; home: boolean }>({ link: false, home: false });
+  const [travel, setTravel] = useState<{ link: boolean; home: boolean; tip: boolean }>({ link: false, home: false, tip: false });
+  // The same-shift question (19 Nov 2026), when the server asked it.
+  const [ask, setAsk] = useState<ShiftAsk | null>(null);
   // Accounts stage 2 (Ilies: GPS "with sign in", "do not change the way the current sign in works"): the
   // phone's position is asked for once, quietly, while the Sign in button shows, and sent with the sign-in
   // only. Never tracked; a refusal or no fix never holds the sign-in up.
@@ -71,6 +76,10 @@ export default function CrewSignInPage({ params: paramsP }: { params: Promise<{ 
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ticket: scan!.ticket, jobId, action, deviceId: deviceId(), ...who, ...extra }),
       });
+      if (res.status === 409) {
+        const j = await res.clone().json().catch(() => null);
+        if (j?.ask) throw new AskError(j.ask, j.error ?? "");
+      }
       if (!res.ok) throw new Error(await serverErrorMessage(res, "Couldn't send - check your signal and try again."));
       return res.json();
     },
@@ -96,22 +105,24 @@ export default function CrewSignInPage({ params: paramsP }: { params: Promise<{ 
     );
   }, [status]);
 
-  async function act(action: "IN" | "OUT") {
+  async function act(action: "IN" | "OUT", shiftAnswer?: "SAME" | "NEW") {
     setBusy(true);
     setError(null);
     try {
       // Signing in: wait at most 1.5 s for the position, then go without it.
       if (action === "IN") for (let i = 0; i < 15 && !gps.current; i++) await new Promise((r) => setTimeout(r, 100));
-      const r = await send(action, me!, action === "IN" ? { gps: gps.current ?? { status: "TIMEOUT" } } : {});
+      const r = await send(action, me!, action === "IN" ? { gps: gps.current ?? { status: "TIMEOUT" }, ...(shiftAnswer ? { shiftAnswer } : {}) } : {});
+      setAsk(null);
       setDone(r.message);
       if (typeof r.odometer === "string") { setOdometer(r.odometer); setOdoToken(r.odometer); }
       setOdoRequired(r.walkaroundRequired === true);
       if (typeof r.prestart === "string") setPrestart(r.prestart);
       if (typeof r.postcheck === "string") setPrestart(r.postcheck);
       if (typeof r.travelPass === "string") store(PASS_KEY, r.travelPass);
-      setTravel({ link: !!r.travelLink, home: !!r.travelHome });
+      setTravel({ link: !!r.travelLink, home: !!r.travelHome, tip: !!r.tipRun });
     } catch (e) {
-      setError((e as Error).message);
+      if (e instanceof AskError) setAsk(e.ask);
+      else setError((e as Error).message);
     } finally {
       setBusy(false);
     }
@@ -145,6 +156,7 @@ export default function CrewSignInPage({ params: paramsP }: { params: Promise<{ 
               {checkSent.map((f, i) => <div key={i}>• {f.itemLabel} - {f.priority}{f.markedDown ? " (marked Down)" : ""}</div>)}
             </div>
           )}
+          {travel.tip && <TipRunLink />}
           {travel.home ? <TravellingHome /> : <p className="text-sm text-gray-500">You can close this page.</p>}
           {travel.link && !travel.home && <TravelLink />}
         </div>
@@ -155,6 +167,7 @@ export default function CrewSignInPage({ params: paramsP }: { params: Promise<{ 
             <button key={j.id} onClick={() => setJobId(j.id)} className="w-full rounded-2xl border border-edge bg-panel p-4 text-left text-base text-gray-100">
               {j.label} {j.times && <span className="text-sm text-gray-500">· {j.times}</span>}
               {j.signInClosed && <span className="mt-1 block text-sm text-amber-300">Sign-in closed now - signing out still works.</span>}
+              {!j.signInClosed && j.notYet && <span className="mt-1 block text-sm text-amber-300">{j.notYet}</span>}
             </button>
           ))}
         </div>
@@ -188,6 +201,8 @@ export default function CrewSignInPage({ params: paramsP }: { params: Promise<{ 
                 {busy ? <Loader2 className="animate-spin" /> : <LogOut />} Sign out
               </button>
             </>
+          ) : ask ? (
+            <SameShift ask={ask} busy={busy} onAnswer={(a) => act("IN", a)} onCancel={() => setAsk(null)} />
           ) : status.signInClosed || job?.signInClosed ? (
             <Closed text={(status.signInClosed || job?.signInClosed)!} />
           ) : (
@@ -202,6 +217,38 @@ export default function CrewSignInPage({ params: paramsP }: { params: Promise<{ 
         </div>
       )}
     </div>
+  );
+}
+
+// Just off a night shift (19 Nov 2026): "Back on the same shift" or "This is a new shift" - never signed in silently.
+function SameShift({ ask, busy, onAnswer, onCancel }: { ask: ShiftAsk; busy: boolean; onAnswer: (a: "SAME" | "NEW") => void; onCancel: () => void }) {
+  return (
+    <div className="space-y-3" data-testid="shift-ask">
+      <p className="rounded-xl border border-edge bg-panel px-4 py-3 text-sm text-gray-200">You signed out of {ask.shift} at {ask.signedOut}.</p>
+      {ask.sameOffered && (
+        <button className={`${big} bg-brand-600`} disabled={busy} onClick={() => onAnswer("SAME")}>
+          {busy ? <Loader2 className="animate-spin" /> : <LogIn />} Back on the same shift (counts to {ask.countsTo})
+        </button>
+      )}
+      {ask.newOffered && (
+        <button className={`${big} bg-panel2 text-gray-100`} disabled={busy} onClick={() => onAnswer("NEW")}>
+          This is a new shift
+        </button>
+      )}
+      {ask.newOffered && <p className="text-center text-xs text-gray-500">New shift: {ask.newShift}</p>}
+      {ask.sameNote && <p className="text-center text-xs text-gray-500">{ask.sameNote}</p>}
+      {ask.tipRun && <TipRunLink note="Going back to tip the truck? Use Start tip run instead - no sign-in needed." />}
+      <button className="w-full py-2 text-sm text-gray-400" onClick={onCancel}>Cancel</button>
+    </div>
+  );
+}
+
+// Regional tip run (19 Nov 2026): the tip run page - the driver going back to tip the truck after a regional shift.
+function TipRunLink({ note = "Going back to tip the truck? Start tip run (no sign-in needed)" }: { note?: string }) {
+  return (
+    <a href="/site/in/tip" className="flex items-center justify-center gap-2 rounded-xl border border-violet-500/40 bg-violet-500/10 px-4 py-3 text-sm text-violet-200" data-testid="tip-run-link">
+      <Truck size={16} /> {note}
+    </a>
   );
 }
 

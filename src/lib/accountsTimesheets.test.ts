@@ -7,6 +7,7 @@ import { rankAtLeast } from "./roleRank";
 import { POINT_BREAK_MINUTES, STILL_ON_HOURS } from "./signin";
 import type { TimesheetLine } from "./timesheets";
 import { HOME_OFFER_HOURS, TRAVEL_CAP_HOURS } from "./travel/rules";
+import { TIP_CAP_HOURS, TIP_OFFER_HOURS } from "./tipRun/rules";
 
 // Timesheets on the Accounts screen (2 Nov 2026): view + export for the ACCOUNTS login, every write refused.
 const src = (rel: string) => readFileSync(new URL(rel, import.meta.url), "utf8");
@@ -79,7 +80,7 @@ test("the export is hours only - fileIsSafe passes and no $ gets through", () =>
   assert.ok(csv!.includes(AMOUNT_REMOVED));
   assert.ok(csv!.includes("12 Grand Pde job"), "ordinary words that look like money stay");
   // Same columns as the Managers' export (timesheetCsv).
-  assert.ok(csv!.includes("Employee,Role,Date,Day,Site / place,Sign in,Sign out,Unpaid break (min),Hours,Travel (h),Status,Notes"));
+  assert.ok(csv!.includes("Employee,Role,Date,Day,Site / place,Sign in,Sign out,Unpaid break (min),Hours,Tip run (h),Travel (h),Status,Notes"));
   assert.ok(csv!.includes("APPROVED by Alex"));
   assert.ok(csv!.includes("WEEK TOTAL"));
 });
@@ -91,7 +92,11 @@ test("an export that still looks like bank / tax details is refused, not sent", 
 
 test("the explainer says the rules the code uses, and no money", () => {
   const text = JSON.stringify(TIMESHEETS_EXPLAINER);
-  assert.equal(TIMESHEETS_NOTICE, "ACCOUNTS_TIMESHEETS_V4", "bumped with the over-4-hours break rule (12 Nov 2026)");
+  assert.equal(TIMESHEETS_NOTICE, "ACCOUNTS_TIMESHEETS_V5", "bumped with night shifts and tip runs (19 Nov 2026)");
+  assert.ok(text.includes(`over ${TIP_CAP_HOURS} hours counts nothing`), "tip run cap from the code");
+  assert.ok(text.includes(`within ${TIP_OFFER_HOURS} hours`), "tip run offer window from the code");
+  assert.match(text, /Thu 19 → Fri 20 counts every hour to Thu 19/);
+  assert.match(text, /from 12 noon/);
   assert.ok(text.includes(`${POINT_BREAK_MINUTES} minutes at the office, yard and trucks`), "the sign-in point break is the code's constant");
   assert.match(text, /unpaid lunch break \(30 min\) comes off any day over 4 hours \(from Monday 2 November 2026\)/);
   assert.match(text, /4:01 counts 3\.5/);
@@ -117,6 +122,7 @@ test("every note on the timesheet grid is explained, word for word", () => {
   const text = JSON.stringify(TIMESHEETS_EXPLAINER);
   for (const note of ["on site now", "no sign-out", "to confirm", "check: 0h", "overlap - counted once", "min break", "office changed", "not allocated",
     "Travel out", "Travel home", "on the way", "never ended - no hours", "over 8h - not counted", "Approved by accounts", "Accounts query", "Week, all places",
+    "Tip run", "on the go", "over 6h - not counted",
     "Draft", "Locked", "Need sorting", "differ from what was approved"]) {
     assert.ok(text.includes(note), note);
   }

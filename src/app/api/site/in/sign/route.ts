@@ -3,7 +3,9 @@ import { prisma } from "@/lib/prisma";
 import { JOB_CANCELLED_SIGN_IN, createSignIn } from "@/lib/signInCreate";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { nameWithoutAmounts } from "@/lib/dailyLog/money";
-import { jobLabel, makeOdometerToken, makePrestartToken, makeTravelPass, openJob, pointOf, readTicket, sydneyTime, takesSignIns } from "@/lib/signin";
+import { makeOdometerToken, makePrestartToken, makeTravelPass, openJob, pointOf, readTicket, shiftLabel, sydneyTime } from "@/lib/signin";
+import { askText, decideSignIn, recentNightShift, type ShiftAnswer, type ShiftAsk } from "@/lib/shiftRollover";
+import { tipRunOn } from "@/lib/tipRun/rules";
 import { endOutOnSignIn, hasRegionalWork, homeOffered } from "@/lib/travel/store";
 import { walkaroundRequiredFor } from "@/lib/prestart/store";
 import { passAllowed } from "@/lib/travel/rules";
@@ -29,18 +31,11 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   if (!ticket) return bad("That scan has expired - scan the code again.", 401);
   if (typeof body.jobId !== "string" || !ticket.jobIds.includes(body.jobId)) return bad("Pick where you're signing in.");
 
-  // Where: a job on the board, or a sign-in point.
-  let where: {
-    jobId: string | null;
-    place: string | null;
-    vehicleId: string | null;
-    label: string;
-    date: string;
-    allocatedIds: string[] | null; // null = everyone counts as allocated (points)
-    projectId: string | null;
-  };
-  // Site poster only (11 Nov 2026): when its sign-IN window is open (1 h before the start to 2 h after the finish).
+  // Where: a job on the board, or a sign-in point. Site poster only (11 Nov 2026): posterWin = when its sign-IN window
+  // is open (1 h before the start to 2 h after the finish).
+  let where: Where;
   let posterWin: PosterWindow | null = null;
+  let job: OpenJob | null = null;
   if (ticket.method === "POINT") {
     const link = await prisma.siteLink.findUnique({
       where: { id: ticket.linkId },
@@ -50,15 +45,11 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
     if (!point) return bad("This sign-in QR isn't active any more.");
     where = { jobId: null, place: point.place, vehicleId: point.vehicleId, label: point.label, date: todaySydney(), allocatedIds: null, projectId: null };
   } else {
-    const job = await openJob(body.jobId);
+    job = await openJob(body.jobId);
     if (!job) return bad("That job isn't open for sign-in any more.");
-    // An earlier job kept open only so people still on it can sign out.
-    if (body.action === "IN" && !takesSignIns(job)) return bad("That shift has finished - sign in to today's job.");
-    if (ticket.method === "POSTER" && posterWindowOn()) posterWin = windowForJob(job, await projectHours(job.project?.id));
-    where = {
-      jobId: job.id, place: null, vehicleId: null, label: jobLabel(job),
-      date: job.date.toISOString().slice(0, 10), allocatedIds: job.assignments.map((a) => a.resource.id), projectId: job.project?.id ?? null,
-    };
+    // Whether a NEW sign-in may go here (an earlier job kept open only for signing out; tonight's night shift before
+    // noon; just off a night shift) is decided below, once we know who it is - lib/shiftRollover.ts decideSignIn.
+    ({ where, posterWin } = await atJob(job, ticket.method));
   }
 
   // Who: someone from the Personnel register, or a hire / subcontractor
@@ -79,6 +70,26 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   const whoWhere = who.resourceId ? { resourceId: who.resourceId } : { resourceId: null, workerName: who.workerName, company: who.company };
   const deviceId = typeof body.deviceId === "string" ? body.deviceId.slice(0, 64) : null;
   const now = new Date();
+  // Shift rollover (19 Nov 2026, Ilies): a NEW sign-in on a job - tonight's night shift only from noon, and just off a
+  // night shift (6 h) it asks first: "Back on the same shift" (that night job again) or "This is a new shift". STATUS
+  // runs the same decision so the phone shows Sign in only when there's somewhere it can go. Never for signing out.
+  let shiftAnswer: ShiftAnswer | null = null;
+  let signInClosed: string | null = null;
+  let ask: ShiftAsk | null = null;
+  if (job && (body.action === "IN" || body.action === "STATUS")) {
+    const d = decideSignIn({ chosen: job, prior: await recentNightShift(who, now), answer: body.shiftAnswer, now, tipRunOn: tipRunOn() && !!who.resourceId });
+    if (d.kind === "REFUSE") signInClosed = d.error;
+    else if (d.kind === "ASK") ask = d.ask;
+    else {
+      shiftAnswer = d.answer;
+      if (body.action === "IN" && d.jobId !== job.id) {
+        const same = await openJob(d.jobId);
+        if (!same) return bad("That shift isn't open for sign-in any more.");
+        job = same;
+        ({ where, posterWin } = await atJob(same, ticket.method));
+      }
+    }
+  }
   const recent = { gte: new Date(now.getTime() - 20 * 3_600_000) };
   // Their open sign-in here: same job, or same point (and same truck).
   const hereWhere = where.jobId ? { jobId: where.jobId } : { jobId: null, place: where.place, vehicleId: where.vehicleId, signInAt: recent };
@@ -97,7 +108,7 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   }
 
   if (body.action === "STATUS") {
-    const closed = ticket.method === "POSTER" ? outsideWindow(posterWin, now) : null;
+    const closed = signInClosed ?? (ticket.method === "POSTER" ? outsideWindow(posterWin, now) : null);
     return NextResponse.json({ signedIn: !!open, since: open ? sydneyTime(open.signInAt) : null, site: where.label, ...(closed ? { signInClosed: closed } : {}) });
   }
 
@@ -109,6 +120,9 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
 
   if (body.action === "IN") {
     if (open) return bad(`You're already signed in here since ${sydneyTime(open.signInAt)}.`, 409);
+    if (signInClosed) return bad(signInClosed);
+    // Just off a night shift: the phone shows the question (lib/shiftRollover.ts) and sends the answer back.
+    if (ask) return NextResponse.json({ error: askText(ask), ask }, { status: 409 });
     // The site poster's window (11 Nov 2026, Ilies): refused outside it - no sign-in saved and nothing else changed
     // (no other open sign-in of theirs is ended). Sign-out is never windowed; nor is any other way of signing in.
     const refusal = posterRefusal({ action: "IN", method: ticket.method, window: posterWin, now, windowOn: posterWindowOn() });
@@ -134,6 +148,7 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
         // Accounts stage 2 (Ilies: GPS "with sign in", never tracked): where the phone was at this moment
         // only, if it said. Missing / refused never stops a sign-in. Accounts / Admin see it; nobody else.
         ...parseGps(body.gps),
+        shiftAnswer, // SAME / NEW when they were asked (19 Nov 2026); null otherwise
     });
     if (!signedIn) return bad(JOB_CANCELLED_SIGN_IN, 409); // PS-031: the job was cancelled a moment ago
     // PS-035: only once this sign-in is saved (a refused one leaves the other open sign-in as it was).
@@ -166,12 +181,19 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
     });
     await syncSignInActualsQuietly([open.jobId]);
     await syncPersonDayQuietly(who.resourceId, open.date);
+    // The shift they actually signed out of (last night's, found at the same site) - named with its day (19 Nov 2026).
+    const outJob = open.jobId && open.jobId !== where.jobId
+      ? await prisma.job.findUnique({ where: { id: open.jobId }, select: { title: true, shift: true, date: true, project: { select: { name: true } } } })
+      : null;
+    const regional = !!open.jobId && (await homeOffered(who.resourceId, where.projectId));
     return NextResponse.json({
       ok: true,
-      message: `Signed out at ${sydneyTime(now)} - ${where.label}. See you next time.`,
+      message: `Signed out at ${sydneyTime(now)} - ${outJob ? shiftLabel(outJob) : where.label}. See you next time.`,
       ...(await travelFor(who.resourceId, deviceId, where.date, { jobId: where.jobId, method: ticket.method, allocatedIds: where.allocatedIds })),
       // Regional job: "Travelling home" comes next on the phone.
-      ...(open.jobId && (await homeOffered(who.resourceId, where.projectId)) ? { travelHome: true } : {}),
+      ...(regional ? { travelHome: true } : {}),
+      // ...and "Start tip run" (19 Nov 2026) for the driver going back to tip the truck - their own phone, no sign-in.
+      ...(regional && who.resourceId && tipRunOn() ? { tipRun: true } : {}),
       // Off a truck: the short post-check comes next (8 Nov 2026), for the sign-in just closed.
       ...(open.place === "VEHICLE" && open.vehicleId ? { postcheck: makePrestartToken(open.id, "POST") } : {}),
     });
@@ -180,6 +202,28 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
 });
 
 const bad = (error: string, status = 400) => NextResponse.json({ error }, { status });
+
+type OpenJob = NonNullable<Awaited<ReturnType<typeof openJob>>>;
+type Where = {
+  jobId: string | null;
+  place: string | null;
+  vehicleId: string | null;
+  label: string;
+  date: string;
+  allocatedIds: string[] | null; // null = everyone counts as allocated (points)
+  projectId: string | null;
+};
+// A job's "where" (and the poster's window for it). shiftLabel: a night shift says plainly which day its hours count
+// to (19 Nov 2026).
+async function atJob(j: OpenJob, method: string): Promise<{ where: Where; posterWin: PosterWindow | null }> {
+  return {
+    posterWin: method === "POSTER" && posterWindowOn() ? windowForJob(j, await projectHours(j.project?.id)) : null,
+    where: {
+      jobId: j.id, place: null, vehicleId: null, label: shiftLabel(j),
+      date: j.date.toISOString().slice(0, 10), allocatedIds: j.assignments.map((a) => a.resource.id), projectId: j.project?.id ?? null,
+    },
+  };
+}
 // Regional travel (2 Nov 2026): the phone is told whether its owner has regional work coming up (it then shows the
 // travel page link), and gets its travel pass ONLY from a sign-in on the supervisor's QR, on a job they're allocated
 // to, with regional work on their board (AT-001, Ilies: "Supervisor QR only" - lib/travel/rules.ts passAllowed).

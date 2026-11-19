@@ -1007,6 +1007,9 @@ model SiteAttendance {
   // status goes to REJECTED (so no hours anywhere) and the row is hidden from the lists; the edit log keeps why.
   removedAt     DateTime?
   removedBy     String?
+  // Shift rollover (19 Nov 2026, Ilies): signed out of a night shift in the last 6 hours, a new sign-in asks first -
+  // SAME = "Back on the same shift" (signed in on that night job again), NEW = "This is a new shift". Null = not asked.
+  shiftAnswer   String?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   edits         AttendanceEdit[]
@@ -2369,6 +2372,54 @@ model TravelEdit {
   editedAt    DateTime  @default(now())
 
   @@index([travelLegId])
+}
+
+// Regional tip run (19 Nov 2026, Ilies: shift rollover). After a regional shift the supervisor or truck driver often
+// tips the truck later (shift 9pm-6am, the tip opens at 8am). They tap "Start tip run" on their own phone (the travel
+// pass) and "Tipped - finished" when done - no second sign-in. One row per run (rules in lib/tipRun/rules.ts):
+//   - only after signing out of a shift on a regional project, within 12 hours; it belongs to that shift (jobId, date =
+//     the shift's date, shiftAttendanceId = that sign-in);
+//   - one open run per person; never while they're signed in; a sign-in ends an open run (endMethod SIGN_IN).
+// Hours = start to end, quarter hours, no break; ordinary worked hours on the shift's date in their own "Tip run"
+// column (Sign-ins, Timesheets, accounts' exports) and Day Review's sign-in hours - never an allocation or a job cost,
+// and not travel. Never ended / over 6 h = no hours, flagged, blocks the week's approval. No GPS (Ilies didn't ask).
+// Append-only like TravelLeg: never deleted; office corrections go in TipRunEdit with a reason. Plain ids, no relations.
+model TipRun {
+  id                String    @id @default(cuid())
+  resourceId        String // the Labour-register person (their own phone's travel pass)
+  workerName        String
+  jobId             String // the shift's job
+  projectId         String
+  siteLabel         String // the job's label when the run started
+  date              String // YYYY-MM-DD - the shift's date (the timesheet day it counts to)
+  shiftAttendanceId String // the sign-in on that shift they signed out of
+  startAt           DateTime
+  endAt             DateTime? // null = not ended (on the go for 6 h, then flagged with no hours)
+  endMethod         String? // FINISHED | SIGN_IN | OFFICE
+  endAttendanceId   String? // SIGN_IN: the sign-in that ended it
+  deviceId          String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  edits             TipRunEdit[]
+
+  @@index([date])
+  @@index([jobId])
+  @@index([resourceId, endAt])
+}
+
+// Every office change to a tip run: what, from, to, why, who (like TravelEdit).
+model TipRunEdit {
+  id        String   @id @default(cuid())
+  tipRunId  String
+  tipRun    TipRun   @relation(fields: [tipRunId], references: [id], onDelete: Restrict)
+  field     String // startAt | endAt
+  before    String?
+  after     String?
+  reason    String
+  editedBy  String
+  editedAt  DateTime @default(now())
+
+  @@index([tipRunId])
 }
 
 // Consumables inventory (Yard Stage C, Ilies 4 Nov 2026: "Stage C: start on the consumables inventory"): rubble

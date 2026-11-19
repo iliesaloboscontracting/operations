@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import type { TimesheetLine, TimesheetPerson, TravelLine } from "@/lib/timesheets";
+import type { TimesheetLine, TimesheetPerson, TipRunLine, TravelLine } from "@/lib/timesheets";
 import type { SupervisorLine } from "@/lib/payroll/store";
 import { allPlaces, mondayOf } from "@/lib/timesheetView";
 
@@ -18,6 +18,8 @@ export type TimesheetData = {
   totalHours: number;
   travelHours?: number; // regional travel (2 Nov 2026) - its own total, never in totalHours
   travelIssues?: number;
+  tipRunHours?: number; // regional tip runs (19 Nov 2026) - worked hours, the part of totalHours that is tip runs
+  tipRunIssues?: number;
   issues: number;
   approval: { approvedBy: string; approvedAt: string } | null;
   changedSinceApproval: number;
@@ -121,6 +123,22 @@ function TravelChip({ t }: { t: TravelLine }) {
   );
 }
 
+// Regional tip run (19 Nov 2026): worked hours on the shift's day, in its own box.
+const TIP_FLAG: Record<string, string> = { ON_THE_GO: "on the go", NOT_ENDED: "never ended - no hours", OVER_CAP: "over 6h - not counted" };
+function TipRunChip({ r }: { r: TipRunLine }) {
+  const warn = r.flag === "NOT_ENDED" || r.flag === "OVER_CAP";
+  return (
+    <div className={`rounded-md border px-1.5 py-1 ${warn ? "border-amber-500/50 bg-amber-500/10" : "border-violet-500/40 bg-violet-500/10"}`} title={[r.site, r.changedByOffice ? "Office changed: " + r.changedByOffice : null].filter(Boolean).join("\n")} data-testid="tip-run">
+      <div className="flex items-baseline justify-between gap-1">
+        <span className="whitespace-nowrap text-[10px] text-violet-300">Tip run</span>
+        <span className="text-xs font-semibold text-violet-200">{hrs(r.hours)}</span>
+      </div>
+      <div className="whitespace-nowrap text-[10px] text-gray-500">{r.start}–{r.end ?? "?"}</div>
+      {(r.flag || r.changedByOffice) && <div className="text-[10px] leading-tight text-amber-400">{[r.flag && TIP_FLAG[r.flag], r.changedByOffice && "office changed"].filter(Boolean).join(" · ")}</div>}
+    </div>
+  );
+}
+
 // Accounts stage 2: Victoria's latest decision on this person's week, if any.
 function AccountsNote({ a }: { a?: { status: string; note: string | null } }) {
   if (!a) return null;
@@ -171,22 +189,29 @@ export function SiteView({ data, search, emptyText = "No staff sign-ins this wee
   // Regional travel goes with the site it was to / from.
   const travel = data.people.flatMap((p) => Object.values(p.travel ?? {}).flat());
   for (const t of travel) if (!sites.has(t.site)) sites.set(t.site, []);
+  // ...and regional tip runs (19 Nov 2026) with the shift's site - worked hours there.
+  const tips = data.people.flatMap((p) => Object.values(p.tipRuns ?? {}).flat());
+  for (const r of tips) if (!sites.has(r.site)) sites.set(r.site, []);
+  const q4 = (n: number) => Math.round(n * 4) / 4;
   const groups = [...sites.entries()]
     .map(([site, ls]) => {
       const people = new Map<string, TimesheetLine[]>();
       for (const l of ls) people.set(l.resourceId, [...(people.get(l.resourceId) ?? []), l]);
       const tl = travel.filter((t) => t.site === site);
-      const names = new Map(tl.map((t) => [t.resourceId, { name: t.name, role: t.role }]));
-      for (const t of tl) if (!people.has(t.resourceId)) people.set(t.resourceId, []);
+      const rl = tips.filter((r) => r.site === site);
+      const names = new Map([...tl, ...rl].map((t) => [t.resourceId, { name: t.name, role: t.role }]));
+      for (const t of [...tl, ...rl]) if (!people.has(t.resourceId)) people.set(t.resourceId, []);
       return {
         site,
         point: ls.some((l) => l.point),
-        total: Math.round(ls.reduce((n, l) => n + (l.hours ?? 0), 0) * 4) / 4,
-        issues: ls.filter((l) => (!l.out && !l.onSite) || l.status === "TO_CONFIRM").length,
+        total: q4(ls.reduce((n, l) => n + (l.hours ?? 0), 0) + rl.reduce((n, r) => n + (r.hours ?? 0), 0)),
+        issues: ls.filter((l) => (!l.out && !l.onSite) || l.status === "TO_CONFIRM").length + rl.filter((r) => r.flag === "NOT_ENDED" || r.flag === "OVER_CAP").length,
         people: [...people.entries()]
           .map(([id, pl]) => {
             const pt = tl.filter((t) => t.resourceId === id);
-            return { id, name: pl[0]?.name ?? names.get(id)!.name, role: pl[0]?.role ?? names.get(id)!.role, lines: pl, travel: pt, total: Math.round(pl.reduce((n, l) => n + (l.hours ?? 0), 0) * 4) / 4, travelTotal: Math.round(pt.reduce((n, t) => n + (t.hours ?? 0), 0) * 4) / 4 };
+            const pr = rl.filter((r) => r.resourceId === id);
+            const tipTotal = q4(pr.reduce((n, r) => n + (r.hours ?? 0), 0));
+            return { id, name: pl[0]?.name ?? names.get(id)!.name, role: pl[0]?.role ?? names.get(id)!.role, lines: pl, travel: pt, tips: pr, tipTotal, total: q4(pl.reduce((n, l) => n + (l.hours ?? 0), 0) + tipTotal), travelTotal: q4(pt.reduce((n, t) => n + (t.hours ?? 0), 0)) };
           })
           .filter((p) => !search || p.name.toLowerCase().includes(search.toLowerCase()))
           .sort((a, b) => a.name.localeCompare(b.name)),
@@ -218,6 +243,7 @@ export function SiteView({ data, search, emptyText = "No staff sign-ins this wee
                     <th key={d} className={`px-2 py-1.5 ${d === data.today ? "text-brand-300" : ""}`}>{dayHead(d)}</th>
                   ))}
                   <th className="px-3 py-1.5 text-right">Travel here</th>
+                  <th className="px-3 py-1.5 text-right">Tip run</th>
                   <th className="px-3 py-1.5 text-right">Hours here</th>
                 </tr>
               </thead>
@@ -235,10 +261,12 @@ export function SiteView({ data, search, emptyText = "No staff sign-ins this wee
                         {p.lines.filter((l) => l.date === d).map((l) => (
                           <Entry key={l.attendanceId} l={l} today={data.today} showSite={false} sup={data.supervisor?.[l.attendanceId]} />
                         ))}
+                        {p.tips.filter((r) => r.date === d).map((r) => <TipRunChip key={r.tipRunId} r={r} />)}
                         {p.travel.filter((t) => t.date === d).map((t) => <TravelChip key={t.legId} t={t} />)}
                       </td>
                     ))}
                     <td className="px-3 py-2 text-right text-sky-200">{p.travelTotal ? hrs(p.travelTotal) : ""}</td>
+                    <td className="px-3 py-2 text-right text-violet-200">{p.tipTotal ? hrs(p.tipTotal) : ""}</td>
                     <td className="px-3 py-2 text-right font-bold text-gray-100">{hrs(p.total)}</td>
                   </tr>
                 ))}
@@ -254,7 +282,8 @@ export function SiteView({ data, search, emptyText = "No staff sign-ins this wee
 // By person: one row per person, their sign-ins under each day, the week total, and a day-total footer.
 export function PersonView({ data, search, emptyText = "No staff sign-ins this week." }: { data: TimesheetData; search: string; emptyText?: string }) {
   const people = data.people.filter((p) => !search || p.name.toLowerCase().includes(search.toLowerCase()));
-  const dayTotals = data.days.map((d) => data.people.reduce((n, p) => n + (p.days[d] ?? []).reduce((m, l) => m + (l.hours ?? 0), 0), 0));
+  // Worked hours a day: sign-ins + tip runs (19 Nov 2026).
+  const dayTotals = data.days.map((d) => data.people.reduce((n, p) => n + (p.days[d] ?? []).reduce((m, l) => m + (l.hours ?? 0), 0) + (p.tipRuns?.[d] ?? []).reduce((m, r) => m + (r.hours ?? 0), 0), 0));
   if (people.length === 0) return <p className="rounded-xl border border-edge bg-panel p-6 text-center text-sm text-gray-500">{emptyText}</p>;
   return (
     <div className="overflow-x-auto rounded-xl border border-edge shadow-soft">
@@ -266,6 +295,7 @@ export function PersonView({ data, search, emptyText = "No staff sign-ins this w
               <th key={d} className={`px-2 py-2 ${d === data.today ? "text-brand-300" : ""}`}>{dayHead(d)}</th>
             ))}
             <th className="px-3 py-2 text-right">Travel</th>
+            <th className="px-3 py-2 text-right">Tip run</th>
             <th className="px-3 py-2 text-right">Week</th>
           </tr>
         </thead>
@@ -283,10 +313,12 @@ export function PersonView({ data, search, emptyText = "No staff sign-ins this w
                   {(p.days[d] ?? []).map((l) => (
                     <Entry key={l.attendanceId} l={l} today={data.today} sup={data.supervisor?.[l.attendanceId]} />
                   ))}
+                  {(p.tipRuns?.[d] ?? []).map((r) => <TipRunChip key={r.tipRunId} r={r} />)}
                   {(p.travel?.[d] ?? []).map((t) => <TravelChip key={t.legId} t={t} />)}
                 </td>
               ))}
               <td className="px-3 py-2 text-right text-sm text-sky-200">{p.travelTotal ? hrs(p.travelTotal) : ""}</td>
+              <td className="px-3 py-2 text-right text-sm text-violet-200">{p.tipRunTotal ? hrs(p.tipRunTotal) : ""}</td>
               <td className={`px-3 py-2 text-right text-base font-bold ${p.issues ? "text-amber-400" : "text-gray-100"}`}>{hrs(p.total)}</td>
             </tr>
           ))}
@@ -298,6 +330,7 @@ export function PersonView({ data, search, emptyText = "No staff sign-ins this w
               <td key={i} className="px-2 py-2 font-semibold">{t ? hrs(Math.round(t * 4) / 4) : ""}</td>
             ))}
             <td className="px-3 py-2 text-right text-sm font-semibold text-sky-200">{data.travelHours ? hrs(data.travelHours) : ""}</td>
+            <td className="px-3 py-2 text-right text-sm font-semibold text-violet-200">{data.tipRunHours ? hrs(data.tipRunHours) : ""}</td>
             <td className="px-3 py-2 text-right text-sm font-bold text-gray-100">{hrs(data.totalHours)}</td>
           </tr>
         </tfoot>

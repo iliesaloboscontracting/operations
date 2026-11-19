@@ -80,11 +80,11 @@ test("timesheets: travel is its own column and total - site hours unchanged", ()
   assert.equal(p.total, 8, "site hours exactly as before");
   assert.equal(p.travelTotal, 7, "out + home; the never-ended leg counts nothing");
   const csv = timesheetCsv("2026-11-02", [line], null, travel);
-  assert.ok(csv.includes("Employee,Role,Date,Day,Site / place,Sign in,Sign out,Unpaid break (min),Hours,Travel (h),Status,Notes"));
-  assert.ok(csv.includes("Travel out to Orange hospital,5:00 am,8:30 am,,,3.5,Travel"));
-  assert.ok(csv.includes("Travel home from Orange hospital,5:10 pm,8:40 pm,,,3.5,Travel"));
+  assert.ok(csv.includes("Employee,Role,Date,Day,Site / place,Sign in,Sign out,Unpaid break (min),Hours,Tip run (h),Travel (h),Status,Notes"));
+  assert.ok(csv.includes("Travel out to Orange hospital,5:00 am,8:30 am,,,,3.5,Travel"));
+  assert.ok(csv.includes("Travel home from Orange hospital,5:10 pm,8:40 pm,,,,3.5,Travel"));
   assert.ok(csv.includes("never ended - no hours"));
-  assert.ok(csv.includes("WEEK TOTAL,,,,,8,7,,"));
+  assert.ok(csv.includes("WEEK TOTAL,,,,,8,0,7,,"));
   assert.ok(fileIsSafe(csv));
 });
 

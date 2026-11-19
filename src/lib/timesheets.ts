@@ -10,6 +10,8 @@ import { todaySydney } from "./today";
 import { csvCell } from "./payroll/rules";
 import type { TravelLine } from "./travel/store";
 import { FLAG_LABEL, needsOffice } from "./travel/rules";
+import type { TipRunLine } from "./tipRun/store";
+import { TIP_BLOCK_REASON, TIP_FLAG_LABEL, tipBlocks } from "./tipRun/rules";
 
 export type TimesheetIssue = "NO_SIGN_OUT" | "TO_CONFIRM";
 
@@ -40,19 +42,25 @@ export type TimesheetPerson = {
   name: string;
   role: string | null;
   days: Record<string, TimesheetLine[]>;
-  total: number; // site hours - travel is never in here
+  total: number; // worked hours: site sign-ins + regional tip runs (19 Nov 2026) - travel is never in here
   issues: number;
   // Regional travel (2 Nov 2026): its own column - out and home legs per day, and the week's travel hours.
   travel: Record<string, TravelLine[]>;
   travelTotal: number;
+  // Regional tip runs (19 Nov 2026, shift rollover): ordinary worked hours on the shift's date, in their own column -
+  // tipRunTotal is the part of `total` that is tip runs.
+  tipRuns?: Record<string, TipRunLine[]>;
+  tipRunTotal?: number;
 };
 
-export type { TravelLine };
-// travel: the week's travel legs as approved (weeks approved before travel existed have none).
-export type TimesheetSnapshot = { weekStart: string; lines: TimesheetLine[]; travel?: TravelLine[] };
+export type { TravelLine, TipRunLine };
+// travel: the week's travel legs as approved (weeks approved before travel existed have none); tipRuns likewise (19 Nov 2026).
+export type TimesheetSnapshot = { weekStart: string; lines: TimesheetLine[]; travel?: TravelLine[]; tipRuns?: TipRunLine[] };
 
 // The week's live travel legs (lib/travel/store.ts - loaded here on demand, as it imports this file).
 export const liveTravel = (weekStart: string) => import("./travel/store").then((m) => m.travelLinesForWeek(weekStart));
+// ...and its live tip runs (lib/tipRun/store.ts, loaded the same way).
+export const liveTipRuns = (weekStart: string) => import("./tipRun/store").then((m) => m.tipRunLinesForWeek(weekStart));
 
 const iso = (d: Date) => d.toISOString().slice(0, 10);
 const addDays = (date: string, n: number) => iso(new Date(new Date(date + "T00:00:00.000Z").getTime() + n * 86_400_000));
@@ -126,7 +134,7 @@ export const lineIssues = (l: TimesheetLine): TimesheetIssue[] => [
 ];
 
 // One row per person with their lines by day and a weekly total, plus their travel (its own total).
-export function peopleOf(weekStart: string, lines: TimesheetLine[], travel: TravelLine[] = []): TimesheetPerson[] {
+export function peopleOf(weekStart: string, lines: TimesheetLine[], travel: TravelLine[] = [], tipRuns: TipRunLine[] = []): TimesheetPerson[] {
   const byPerson = new Map<string, TimesheetPerson>();
   const personFor = (resourceId: string, name: string, role: string | null) => {
     const p = byPerson.get(resourceId) ?? {
@@ -135,6 +143,8 @@ export function peopleOf(weekStart: string, lines: TimesheetLine[], travel: Trav
       total: 0, issues: 0,
       travel: Object.fromEntries(weekDates(weekStart).map((d) => [d, [] as TravelLine[]])),
       travelTotal: 0,
+      tipRuns: Object.fromEntries(weekDates(weekStart).map((d) => [d, [] as TipRunLine[]])),
+      tipRunTotal: 0,
     };
     byPerson.set(resourceId, p);
     return p;
@@ -150,8 +160,16 @@ export function peopleOf(weekStart: string, lines: TimesheetLine[], travel: Trav
     (p.travel[t.date] ??= []).push(t);
     p.travelTotal += t.hours ?? 0;
   }
+  // Tip runs are worked hours: in the person's total, and their own column (tipRunTotal). A flagged run counts nothing.
+  for (const r of tipRuns) {
+    const p = personFor(r.resourceId, r.name, r.role);
+    (p.tipRuns![r.date] ??= []).push(r);
+    p.tipRunTotal! += r.hours ?? 0;
+    p.total += r.hours ?? 0;
+    if (r.flag === "NOT_ENDED" || r.flag === "OVER_CAP") p.issues += 1;
+  }
   const q = (n: number) => Math.round(n * 4) / 4;
-  return [...byPerson.values()].map((p) => ({ ...p, total: q(p.total), travelTotal: q(p.travelTotal) })).sort((a, b) => a.name.localeCompare(b.name));
+  return [...byPerson.values()].map((p) => ({ ...p, total: q(p.total), travelTotal: q(p.travelTotal), tipRunTotal: q(p.tipRunTotal ?? 0) })).sort((a, b) => a.name.localeCompare(b.name));
 }
 
 // Travel legs that stop the week being approved (Ilies, 2 Nov 2026: "YES" - like a missing sign-out): never ended,
@@ -161,12 +179,17 @@ export const travelBlocks = (t: TravelLine) => needsOffice(t.flag) || t.flag ===
 export const travelIssues = (travel: TravelLine[]) => travel.filter(travelBlocks).length;
 const TRAVEL_REASON: Record<string, string> = { NOT_ENDED: "travel never ended", OVER_CAP: "travel over 8h", ON_THE_WAY: "still travelling" };
 
-// What stops a Manager approving the week: sign-ins with no sign-out or waiting for the supervisor, and travel legs
-// (above). Each as "Name (date: why)"; empty = nothing in the way.
-export function approvalBlockers(lines: TimesheetLine[], travel: TravelLine[] = []): string[] {
+// Regional tip runs that stop the week being approved (19 Nov 2026, Ilies - like travel): never ended, over 6h, or
+// still on the go. The office fixes them on Sign-ins with a reason.
+export const tipRunIssues = (runs: TipRunLine[]) => runs.filter((r) => tipBlocks(r.flag)).length;
+
+// What stops a Manager approving the week: sign-ins with no sign-out or waiting for the supervisor, travel legs and
+// tip runs (above). Each as "Name (date: why)"; empty = nothing in the way.
+export function approvalBlockers(lines: TimesheetLine[], travel: TravelLine[] = [], tipRuns: TipRunLine[] = []): string[] {
   return [
     ...lines.filter((l) => lineIssues(l).length > 0).map((l) => `${l.name} (${l.date}: ${lineIssues(l).map((i) => (i === "NO_SIGN_OUT" ? "no sign-out" : "waiting for the supervisor")).join(", ")})`),
     ...travel.filter(travelBlocks).map((t) => `${t.name} (${t.date}: ${TRAVEL_REASON[t.flag!]})`),
+    ...tipRuns.filter((r) => tipBlocks(r.flag)).map((r) => `${r.name} (${r.date}: ${TIP_BLOCK_REASON[r.flag!]})`),
   ];
 }
 
@@ -190,7 +213,7 @@ export const weekHasEnded = (weekStart: string) => todaySydney() > weekEnd(weekS
 // opts.dayLimit (12 Nov 2026, lib/dayLimit): a line on a day past the person's days-a-week limit carries the words
 // "Over 3-day limit (4th day this week)" - information only (the office's screens; never the approval or the export).
 export async function timesheetWeek(weekStart: string, opts: { dayLimit?: boolean } = {}) {
-  const [lines, approval, history, accounts, travelNow] = await Promise.all([
+  const [lines, approval, history, accounts, travelNow, tipNow] = await Promise.all([
     timesheetLines(weekStart),
     activeApproval(weekStart),
     prisma.timesheetWeek.findMany({
@@ -202,6 +225,7 @@ export async function timesheetWeek(weekStart: string, opts: { dayLimit?: boolea
     // payroll/store.ts (which imports this file) and this file never load each other in a loop at start-up.
     import("./payroll/store").then((m) => m.accountsStatusForWeek(weekStart)),
     liveTravel(weekStart),
+    liveTipRuns(weekStart),
   ]);
   const snap = approval ? (JSON.parse(approval.snapshot) as TimesheetSnapshot) : null;
   const approvedLines = snap ? snap.lines : null;
@@ -211,22 +235,29 @@ export async function timesheetWeek(weekStart: string, opts: { dayLimit?: boolea
     if (notes.size) shown = shown.map((l) => { const n = notes.get(l.resourceId)?.get(l.date); return n ? { ...l, flagNotes: [...(l.flagNotes ?? []), n] } : l; });
   }
   const shownTravel = snap ? snap.travel ?? [] : travelNow;
+  const shownTips = snap ? snap.tipRuns ?? [] : tipNow;
   const tkey = (t: TravelLine) => `${t.legId}|${t.start}|${t.end}|${t.hours}`;
+  const rkey = (r: TipRunLine) => `${r.tipRunId}|${r.start}|${r.end}|${r.hours}`;
   const key = (l: { attendanceId: string; in: string; out: string | null; hours: number | null; status: string }) =>
     `${l.attendanceId}|${l.in}|${l.out}|${l.hours}|${l.status}`;
   const changedSinceApproval = approvedLines
     ? lines.filter((l) => !approvedLines.some((a) => key(a) === key(l))).length +
       approvedLines.filter((a) => !lines.some((l) => l.attendanceId === a.attendanceId)).length +
-      travelNow.filter((t) => !shownTravel.some((a) => tkey(a) === tkey(t))).length
+      travelNow.filter((t) => !shownTravel.some((a) => tkey(a) === tkey(t))).length +
+      tipNow.filter((r) => !shownTips.some((a) => rkey(a) === rkey(r))).length
     : 0;
+  const tipHoursShown = shownTips.reduce((n, r) => n + (r.hours ?? 0), 0);
   return {
     weekStart,
     weekEnd: weekEnd(weekStart),
     days: weekDates(weekStart),
     today: todaySydney(),
     weekEnded: weekHasEnded(weekStart),
-    people: peopleOf(weekStart, shown, shownTravel),
-    totalHours: Math.round(shown.reduce((n, l) => n + (l.hours ?? 0), 0) * 4) / 4,
+    people: peopleOf(weekStart, shown, shownTravel, shownTips),
+    // Worked hours: sign-ins + tip runs (19 Nov 2026); tipRunHours is the tip-run part.
+    totalHours: Math.round((shown.reduce((n, l) => n + (l.hours ?? 0), 0) + tipHoursShown) * 4) / 4,
+    tipRunHours: Math.round(tipHoursShown * 4) / 4,
+    tipRunIssues: tipRunIssues(tipNow),
     travelHours: Math.round(shownTravel.reduce((n, t) => n + (t.hours ?? 0), 0) * 4) / 4,
     travelIssues: travelIssues(travelNow),
     issues: lines.filter((l) => lineIssues(l).length > 0).length, // sign-ins; travelIssues (above) counts the travel legs
@@ -241,8 +272,8 @@ export async function timesheetWeek(weekStart: string, opts: { dayLimit?: boolea
 export async function exportLines(weekStart: string) {
   const approval = await activeApproval(weekStart);
   const snap = approval ? (JSON.parse(approval.snapshot) as TimesheetSnapshot) : null;
-  const [lines, travel] = snap ? [snap.lines, snap.travel ?? []] : await Promise.all([timesheetLines(weekStart), liveTravel(weekStart)]);
-  return { approval, lines, travel };
+  const [lines, travel, tipRuns] = snap ? [snap.lines, snap.travel ?? [], snap.tipRuns ?? []] : await Promise.all([timesheetLines(weekStart), liveTravel(weekStart), liveTipRuns(weekStart)]);
+  return { approval, lines, travel, tipRuns };
 }
 
 // Spreadsheet for accounts: one line per sign-in, one per travel leg (regional jobs, 2 Nov 2026 - its own
@@ -250,9 +281,11 @@ export async function exportLines(weekStart: string) {
 // `opts` (the labour hire timesheet, 11 Nov 2026): its own two title lines and its company totals under the same
 // columns. Left out, the file is exactly the staff timesheet.
 export type CsvRow = (string | number | null)[];
+// Regional tip runs (19 Nov 2026): one line each, their hours in Hours (worked hours) and again in "Tip run (h)" - the
+// tip-run part of Hours; the week total's Hours includes them.
 export function timesheetCsv(
   weekStart: string, lines: TimesheetLine[], approval: { approvedBy: string; approvedAt: Date } | null, travel: TravelLine[] = [],
-  opts: { head?: [string, string]; tail?: CsvRow[] } = {},
+  opts: { head?: [string, string]; tail?: CsvRow[]; tipRuns?: TipRunLine[] } = {},
 ) {
   // SEC-012 (27 Oct 2026): the same cell writer as the payroll exports - a name or note starting with = + - @ can't
   // become a formula when accounts open the file.
@@ -262,9 +295,9 @@ export function timesheetCsv(
     [opts.head?.[0] ?? `Lobos Contracting - staff timesheet, week ${weekStart} to ${weekEnd(weekStart)}`],
     [opts.head?.[1] ?? (approval ? `APPROVED by ${approval.approvedBy} on ${approval.approvedAt.toLocaleString("en-AU", { timeZone: "Australia/Sydney" })}` : "DRAFT - not approved yet")],
     [],
-    ["Employee", "Role", "Date", "Day", "Site / place", "Sign in", "Sign out", "Unpaid break (min)", "Hours", "Travel (h)", "Status", "Notes"],
+    ["Employee", "Role", "Date", "Day", "Site / place", "Sign in", "Sign out", "Unpaid break (min)", "Hours", "Tip run (h)", "Travel (h)", "Status", "Notes"],
   ];
-  for (const p of peopleOf(weekStart, lines, travel)) {
+  for (const p of peopleOf(weekStart, lines, travel, opts.tipRuns ?? [])) {
     for (const d of weekDates(weekStart)) {
       for (const l of p.days[d] ?? []) {
         const notes = [
@@ -275,14 +308,18 @@ export function timesheetCsv(
           ...(l.changedByOffice ? ["Office changed: " + l.changedByOffice] : []),
           ...(l.flagNotes ?? []),
         ].join("; ");
-        out.push([p.name, p.role, l.date, dayName(l.date), l.site, l.in, l.out, l.breakMinutes, l.hours, "", l.status === "CONFIRMED" ? "Confirmed" : "To confirm", notes]);
+        out.push([p.name, p.role, l.date, dayName(l.date), l.site, l.in, l.out, l.breakMinutes, l.hours, "", "", l.status === "CONFIRMED" ? "Confirmed" : "To confirm", notes]);
+      }
+      for (const r of p.tipRuns?.[d] ?? []) {
+        const notes = [...(r.flag ? [TIP_FLAG_LABEL[r.flag]] : []), ...(r.changedByOffice ? ["Office changed: " + r.changedByOffice] : [])].join("; ");
+        out.push([p.name, p.role, r.date, dayName(r.date), `Tip run - ${r.site}`, r.start, r.end, 0, r.hours, r.hours, "", "Tip run", notes]);
       }
       for (const t of p.travel[d] ?? []) {
         const notes = [...(t.flag && t.flag !== "ON_THE_WAY" ? [FLAG_LABEL[t.flag]] : t.flag ? ["Still travelling"] : []), ...(t.changedByOffice ? ["Office changed: " + t.changedByOffice] : [])].join("; ");
-        out.push([p.name, p.role, t.date, dayName(t.date), `${t.direction === "OUT" ? "Travel out to" : "Travel home from"} ${t.site}`, t.start, t.end, "", "", t.hours, "Travel", notes]);
+        out.push([p.name, p.role, t.date, dayName(t.date), `${t.direction === "OUT" ? "Travel out to" : "Travel home from"} ${t.site}`, t.start, t.end, "", "", "", t.hours, "Travel", notes]);
       }
     }
-    out.push([p.name, p.role, "", "WEEK TOTAL", "", "", "", "", p.total, p.travelTotal, "", ""]);
+    out.push([p.name, p.role, "", "WEEK TOTAL", "", "", "", "", p.total, p.tipRunTotal ?? 0, p.travelTotal, "", ""]);
   }
   out.push(...(opts.tail ?? []));
   return out.map((r) => r.map(cell).join(",")).join("\r\n") + "\r\n";
