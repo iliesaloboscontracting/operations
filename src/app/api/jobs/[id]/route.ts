@@ -10,6 +10,7 @@ import { isoDay, logBoardEdit, siteName } from "@/lib/boardGuard/store";
 import { updateTracked } from "@/lib/history/store";
 import { cancelJob } from "@/lib/jobCancel";
 import { checkBoardDay, recordOverride } from "@/lib/dayLimit/store";
+import { timeTextProblem } from "@/lib/shiftTimes";
 
 const JOB_INCLUDE = {
   project: { select: { name: true, client: true, jobNo: true, address: true } },
@@ -27,6 +28,9 @@ export const PATCH = withErrorHandling(async (
   if (denied) return denied;
   const user = await getCurrentUser();
   const body = await req.json();
+  // SR-010: start / finish times are short words (16 characters at most).
+  const timeProblem = timeTextProblem(body ?? {});
+  if (timeProblem) return NextResponse.json({ error: timeProblem }, { status: 400 });
 
   const current = await prisma.job.findUnique({
     where: { id: params.id },

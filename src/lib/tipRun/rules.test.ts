@@ -149,9 +149,20 @@ test("SR-001 (a): start → finish → start again on the same shift is refused 
   assert.match(SAME_SHIFT_RUN, /already a tip run for this shift/);
   const start = fn(store, "startTipRun");
   // Counted over every run for the shift (finished ones too), before and inside the transaction (a race rolls back).
-  assert.match(start, /prisma\.tipRun\.count\(\{ where: \{ shiftAttendanceId: shift\.id \} \}\)/);
-  assert.match(start, /tx\.tipRun\.count\(\{ where: \{ shiftAttendanceId: shift!\.id \} \}\)\) > 1\) throw new SameShift\(\)/);
+  assert.match(start, /prisma\.tipRun\.count\(\{ where: \{ resourceId, jobId: shift\.job!\.id \} \}\)/);
+  assert.match(start, /tx\.tipRun\.count\(\{ where: \{ resourceId, jobId: job\.id \} \}\)\) > 1\) throw new SameShift\(\)/);
   assert.match(start, /if \(e instanceof SameShift\) return \{ error: SAME_SHIFT_RUN, status: 409 \}/);
+});
+
+test("SR-011: one run per person per shift's job - counted by resourceId + jobId, never by job only or by sign-in row", () => {
+  const start = fn(store, "startTipRun");
+  const counts = [...start.matchAll(/tipRun\.count\(\{ where: \{ ([^}]*) \}/g)].map((m) => m[1]);
+  // The open-run count is per person; both shift counts are per person AND job.
+  assert.deepEqual(counts.filter((w) => w.includes("jobId")), ["resourceId, jobId: shift.job!.id", "resourceId, jobId: job.id"]);
+  assert.ok(counts.every((w) => w.startsWith("resourceId")), "every count is for this person");
+  assert.doesNotMatch(start, /count\(\{ where: \{ shiftAttendanceId/, "a second sign-in row on the same job (\"Back on the same shift\") can't open a second run");
+  // Locked week is checked before the run-per-shift refusal (both 409).
+  assert.deepEqual(startDecision({ ...go, runForShift: true, lockedWeek: true }), { error: LOCKED_WEEK_RUN, status: 409 });
 });
 
 test("SR-002 (b): a start in a locked week is 409 before anything is written; finish too", () => {

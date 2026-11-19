@@ -4,6 +4,19 @@
 // and the check for jobs with missing or unclear times. No server imports -
 // the Sign-ins page uses it too.
 
+// SR-010 (19 Nov 2026): a job's start / finish time is a short word ("7am", "21:30") - at most 16 characters, checked
+// on every job create / edit (POST /api/jobs, PATCH /api/jobs/:id). Null = fine; else the words for a 400.
+export const TIME_TEXT_MAX = 16;
+export function timeTextProblem(body: Record<string, unknown>): string | null {
+  for (const [key, label] of [["startTime", "Start"], ["endTime", "Finish"]] as const) {
+    const v = body[key];
+    if (v == null) continue;
+    if (typeof v !== "string") return `${label} time must be text, like "7am" or "21:30".`;
+    if (v.length > TIME_TEXT_MAX) return `${label} time is too long - use something like "7am" or "21:30" (${TIME_TEXT_MAX} characters at most).`;
+  }
+  return null;
+}
+
 // Minutes after midnight, or null when the text isn't a clear time.
 // "3pm" / "3:30pm" / "3.30 pm" / "15:30" / "0630" are clear; "3:30" with no
 // am/pm and an hour of 1-5 is not (could be 3:30am or pm) - nor is "TBC".

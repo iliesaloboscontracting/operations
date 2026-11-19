@@ -13,6 +13,8 @@ import { createHmac, timingSafeEqual } from "crypto";
 import { prisma } from "./prisma";
 import { todaySydney } from "./today";
 import { hashSecret, newLinkSecret } from "./siteLinks";
+import { fromSydneyLocal, parseClock, TIME_TEXT_MAX } from "./shiftTimes";
+import { jobStartAt } from "./signinFlags";
 
 const WINDOW_MS = 30_000;
 const TICKET_MS = 15 * 60_000;
@@ -183,23 +185,27 @@ export const LAST_NIGHT_UNTIL_HOUR = 14;
 // 4:51am, the same minute signed in to Monday night until 2:16pm). Day shifts are unchanged.
 export const TONIGHT_FROM_HOUR = 12;
 
-// SR-007 (19 Nov 2026): a night shift starting early opens an hour before its start, if that is before noon. The
-// board's start time ("21:00", "9pm", "2:30pm") as minutes after midnight; null when it doesn't read as a time.
+// SR-007 (19 Nov 2026): a night shift starting early opens an hour before its start, if that is before noon.
+// SR-010: the board's start time read with the app's one clock parser (lib/shiftTimes.ts parseClock - no
+// backtracking regex) on at most 16 characters; minutes after midnight, or null when it doesn't read as a time.
+export const START_TIME_MAX = TIME_TEXT_MAX;
 export function startMinutes(t: string | null | undefined): number | null {
-  const m = /^\s*(\d{1,2})(?:[:.](\d{2}))?\s*(am|pm)?\s*$/i.exec(t ?? "");
-  if (!m) return null;
-  let h = Number(m[1]);
-  const min = Number(m[2] ?? 0), ap = m[3]?.toLowerCase();
-  if (min > 59 || h > 23 || (ap && (h < 1 || h > 12))) return null;
-  if (ap === "pm" && h !== 12) h += 12;
-  if (ap === "am" && h === 12) h = 0;
-  return h * 60 + min;
+  return parseClock((t ?? "").slice(0, START_TIME_MAX));
 }
 type ShiftJob = { date: Date; shift: string; startTime?: string | null };
-// When today's night shift opens for new sign-ins (minutes after midnight): 12 noon, or its start less 1 h if earlier.
+// When today's night shift opens for new sign-ins (minutes after midnight on its date): the earlier of 12 noon and an
+// hour before it starts. SR-009: the start is placed the way the rest of the app places it (lib/signinFlags.ts
+// jobStartAt) - a night shift's start before noon is the NEXT morning ("12:30am" = 00:30 tomorrow), so only a start
+// between 12:00 and 12:59 pm opens before noon. An unreadable start: noon.
 export function tonightOpensAt(job: ShiftJob) {
-  const s = startMinutes(job.startTime);
-  return Math.max(0, Math.min(TONIGHT_FROM_HOUR * 60, s == null ? Infinity : s - 60));
+  const day = job.date.toISOString().slice(0, 10);
+  const start = jobStartAt(day, job.shift, (job.startTime ?? "").slice(0, START_TIME_MAX));
+  const noon = fromSydneyLocal(`${day}T12:00`);
+  if (!start || !noon) return TONIGHT_FROM_HOUR * 60;
+  const open = new Date(start.getTime() - 3_600_000);
+  if (open.getTime() >= noon.getTime()) return TONIGHT_FROM_HOUR * 60;
+  const s = sydneyNow(open);
+  return s.date === day ? s.hour * 60 + s.minute : TONIGHT_FROM_HOUR * 60;
 }
 const clock = (mins: number) => (mins === 12 * 60 ? "12 noon" : `${((Math.floor(mins / 60) + 11) % 12) + 1}${mins % 60 ? `:${String(mins % 60).padStart(2, "0")}` : ""} ${mins < 12 * 60 ? "am" : "pm"}`);
 

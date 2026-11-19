@@ -98,7 +98,9 @@ export async function startTipRun(resourceId: string, b: { attendanceId?: unknow
   // The shift picked, or their latest one when they didn't pick (one shift is the usual case).
   const shift = typeof b.attendanceId === "string" && b.attendanceId ? shifts.find((s) => s.id === b.attendanceId) : shifts[0];
   const [runForShift, lockedWeek] = shift
-    ? await Promise.all([prisma.tipRun.count({ where: { shiftAttendanceId: shift.id } }).then((n) => n > 0), lockedWeekFor(shift.date).then((w) => !!w)])
+    // SR-011: one run per person per shift's JOB - a "Back on the same shift" sign-in on that job (a second sign-in
+    // row) never opens a second run.
+    ? await Promise.all([prisma.tipRun.count({ where: { resourceId, jobId: shift.job!.id } }).then((n) => n > 0), lockedWeekFor(shift.date).then((w) => !!w)])
     : [false, false];
   const stop = startDecision({
     active: !!person && person.type === "PERSONNEL" && person.active, on: tipRunOn(),
@@ -118,7 +120,7 @@ export async function startTipRun(resourceId: string, b: { attendanceId?: unknow
       // The write first, then the counts (two taps at once can't make two - the second rolls back): one open run per
       // person, and one run per shift (SR-001).
       if ((await tx.tipRun.count({ where: { resourceId, endAt: null, startAt: { gte: new Date(now.getTime() - TIP_CAP_HOURS * HOUR) } } })) > 1) throw new TwoOpen();
-      if ((await tx.tipRun.count({ where: { shiftAttendanceId: shift!.id } })) > 1) throw new SameShift();
+      if ((await tx.tipRun.count({ where: { resourceId, jobId: job.id } })) > 1) throw new SameShift();
       return r;
     });
     return { ok: true, message: `Tip run started at ${sydneyTime(now)} - counts to ${shiftWords(job)}. Tap Tipped – finished when you're done.`, run: viewOf(run, now) };

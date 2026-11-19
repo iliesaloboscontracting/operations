@@ -71,6 +71,14 @@ export default {
     const posterScan = await keep(await c.get(`/api/site/in/${encodeURIComponent(regPoster.secret)}`, null));
     t.ok(posterScan.status === 200 && posterScan.body.jobs?.some((j) => j.id === tonight.id && /Night shift/.test(j.label) && /hours count to/.test(j.label)), "the poster scan names night shifts the same way");
 
+    // SR-010: a job's start / finish time is at most 16 characters - a longer one is a 400, nothing saved.
+    const longTime = "1".repeat(5000) + "x";
+    const pj = await c.patch(`/api/jobs/${tonight.id}`, "MANAGER", { startTime: longTime });
+    t.ok(pj.status === 400 && /too long/.test((await pj.json().catch(() => ({}))).error ?? ""), "SR-010: PATCH a job with a very long start time is a 400", `${pj.status}`);
+    const pn = await c.post("/api/jobs", "MANAGER", { title: `RC95 long time ${tag}`, date: today, shift: "NIGHT", endTime: "x".repeat(17) });
+    t.ok(pn.status === 400 && (await db.job.count({ where: { title: `RC95 long time ${tag}` } })) === 0, "SR-010: POST a job with a 17-character finish time is a 400, nothing saved", `${pn.status}`);
+    t.ok((await db.job.findUnique({ where: { id: tonight.id } }))?.startTime === null, "SR-010: the job's start time is unchanged");
+
     // (2) Tonight from noon; last night's until 2pm; sign-out never blocked.
     if (hour < 12) {
       t.ok(g.body.jobs.find((j) => j.id === tonight.id)?.notYet && posterScan.body.jobs.find((j) => j.id === tonight.id)?.notYet, "before noon: tonight's shift shows 'sign-ins open at 12 noon' (supervisor + poster)");
@@ -153,6 +161,11 @@ export default {
     const again = await tip({ pass, action: "START", attendanceId: shiftRow.id });
     t.ok(again.status === 409 && /already a tip run for this shift/.test(again.body.error ?? ""), "SR-001: a second run on the same shift is refused (409)", `${again.status} ${again.body.error ?? ""}`);
     t.ok((await db.tipRun.count({ where: { shiftAttendanceId: shiftRow.id } })) === 1, "SR-001: still one run for that shift");
+    // SR-011: a second sign-in row on the same job (e.g. "Back on the same shift") doesn't open a second run either.
+    const sameJobRow = await db.siteAttendance.create({ data: { jobId: lastNight.id, date: yesterday, resourceId: tipper.id, workerName: tipper.name, signInAt: new Date(shiftOut.getTime() + 3 * 60_000), signOutAt: new Date(shiftOut.getTime() + 6 * 60_000), signInMethod: "MANUAL", status: "CONFIRMED", shiftAnswer: "SAME" } });
+    const again2 = await tip({ pass, action: "START", attendanceId: sameJobRow.id });
+    t.ok(again2.status === 409 && /already a tip run for this shift/.test(again2.body.error ?? "") && (await db.tipRun.count({ where: { resourceId: tipper.id, jobId: lastNight.id } })) === 1,
+      "SR-011: another sign-in on the same job can't start a second run (counted per person + job)", `${again2.status} ${again2.body.error ?? ""}`);
     // Signed in: no start. A sign-in also ends an open run. Signing in now asks the same-shift question (phone path).
     const ask = await scanSign(await qr(dayJob.id), dayJob.id, "IN", tipper.id);
     t.ok(ask.status === 409 && ask.body.ask && ask.body.ask.newOffered === true, "phone sign-in just off a night shift: asked first (409 + ask)", `${ask.status} ${JSON.stringify(ask.body).slice(0, 200)}`);
@@ -162,8 +175,11 @@ export default {
     const whileIn = await tip({ pass, action: "START", attendanceId: shiftRow.id });
     t.ok(whileIn.status === 409 && /signed in/.test(whileIn.body.error ?? ""), "can't start while signed in anywhere", `${whileIn.status} ${whileIn.body.error ?? ""}`);
     await scanSign(await qr(dayJob.id), dayJob.id, "OUT", tipper.id);
-    // An earlier regional shift of theirs (in 12 h ago, out 11 h ago) for the next run.
-    const shift2 = await db.siteAttendance.create({ data: { jobId: lastNight.id, date: yesterday, resourceId: tipper.id, workerName: tipper.name, signInAt: new Date(Date.now() - 12 * HOUR), signOutAt: new Date(Date.now() - 11 * HOUR), signInMethod: "MANUAL", status: "CONFIRMED" } });
+    // An earlier regional shift of theirs on another regional job (in 12 h ago, out 11 h ago) for the next run.
+    const reg2 = await db.project.create({ data: { name: `RC95 regional B ${tag}`, status: "ACTIVE", regional: true } });
+    const lastNight2 = await db.job.create({ data: { projectId: reg2.id, title: reg2.name, date: new Date(yesterday + "T00:00:00.000Z"), shift: "NIGHT", status: "ACTIVE" } });
+    await db.assignment.create({ data: { jobId: lastNight2.id, resourceId: tipper.id } });
+    const shift2 = await db.siteAttendance.create({ data: { jobId: lastNight2.id, date: yesterday, resourceId: tipper.id, workerName: tipper.name, signInAt: new Date(Date.now() - 12 * HOUR), signOutAt: new Date(Date.now() - 11 * HOUR), signInMethod: "MANUAL", status: "CONFIRMED" } });
     // SR-001 (g): someone no longer active on the Labour register can't start one.
     await db.resource.update({ where: { id: tipper.id }, data: { active: false } });
     const inactive = await tip({ pass, action: "START", attendanceId: shift2.id });
@@ -275,9 +291,10 @@ export default {
     }
 
     // Turning regional off keeps every run; Start tip run is no longer offered for it.
-    const before = await db.tipRun.count({ where: { projectId: reg.id } });
+    const before = await db.tipRun.count({ where: { projectId: { in: [reg.id, reg2.id] } } });
     t.status(await c.patch(`/api/projects/${reg.id}`, "MANAGER", { regional: false }), 200, "a Manager marks it local");
-    t.ok((await db.tipRun.count({ where: { projectId: reg.id } })) === before && before === 6, "every tip run is kept", `${before}`);
+    t.status(await c.patch(`/api/projects/${reg2.id}`, "MANAGER", { regional: false }), 200, "...and the other regional project");
+    t.ok((await db.tipRun.count({ where: { projectId: { in: [reg.id, reg2.id] } } })) === before && before === 6, "every tip run is kept", `${before}`);
     const st2 = await tip({ pass, action: "STATUS" });
     t.ok(st2.status === 200 && (st2.body.shifts ?? []).length === 0, "not offered once the project is local");
     t.status((await tip({ pass, action: "START", attendanceId: shiftRow.id })).status, 409, "Start tip run refused on a local project");

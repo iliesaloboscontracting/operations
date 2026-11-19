@@ -11,6 +11,7 @@ import { matchHireSignIns } from "@/lib/labourHireMatch";
 import { logBoardEdit, siteName } from "@/lib/boardGuard/store";
 import { jobsWithNoSignInWay } from "@/lib/signinAlerts";
 import { reviveJob } from "@/lib/jobCancel";
+import { timeTextProblem } from "@/lib/shiftTimes";
 
 // GET /api/jobs?date=YYYY-MM-DD  -> jobs for that date, with assignments+resource included
 export const GET = withErrorHandling(async (req: NextRequest) => {
@@ -89,6 +90,9 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
       { status: 400 }
     );
   }
+  // SR-010: start / finish times are short words (16 characters at most).
+  const timeProblem = timeTextProblem(body);
+  if (timeProblem) return NextResponse.json({ error: timeProblem }, { status: 400 });
 
   const dateLocked = await assertDateOpen(body.date);
   if (dateLocked) return dateLocked;

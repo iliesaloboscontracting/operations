@@ -86,17 +86,17 @@ export function startRefusal(s: { on: boolean; shift: TipShift | undefined; now?
   return null;
 }
 
-// Everything that stops a START, in order (SR-001 / SR-002, 19 Nov 2026): not an active Labour-register person, the
-// shift rules above, a run already made for that shift (finished ones too - runs can't be chained past the 6 h cap),
-// and an approved (locked) week. Null = go; else the words and the status.
+// Everything that stops a START, in order (SR-001 / SR-002 / SR-011, 19 Nov 2026): not an active Labour-register
+// person, the shift rules above, an approved (locked) week, and a run already made by them for that shift's job
+// (finished ones too - runs can't be chained past the 6 h cap). Null = go; else the words and the status.
 export const SAME_SHIFT_RUN = "There's already a tip run for this shift – ask the office to change it.";
 export const LOCKED_WEEK_RUN = "That week's timesheet has been approved – ask the office.";
 export function startDecision(s: Parameters<typeof startRefusal>[0] & { active: boolean; runForShift: boolean; lockedWeek: boolean }): { error: string; status: number } | null {
   if (!s.active) return { error: "You're not on the active Labour register - ask the office.", status: 403 };
   const why = startRefusal(s);
   if (why) return { error: why, status: s.on ? 409 : 403 };
-  if (s.runForShift) return { error: SAME_SHIFT_RUN, status: 409 };
   if (s.lockedWeek) return { error: LOCKED_WEEK_RUN, status: 409 };
+  if (s.runForShift) return { error: SAME_SHIFT_RUN, status: 409 };
   return null;
 }
 
