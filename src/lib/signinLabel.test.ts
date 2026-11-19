@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { jobLabel, opensAtNoon, shiftLabel, shiftOrder, signInRefusal, takesSignIns, TONIGHT_FROM_HOUR } from "./signin";
+import { jobLabel, notYetText, opensAtNoon, shiftLabel, shiftOrder, signInRefusal, startMinutes, takesSignIns, tonightOpensAt, TONIGHT_FROM_HOUR } from "./signin";
 
 // 18 Nov 2026 (Mt Hutton): Tuesday 9:11pm - the page opened on Monday night's shift and the crew signed in there.
 const mon = { id: "mon", shift: "NIGHT", date: new Date("2026-11-16T00:00:00.000Z") };
@@ -67,6 +67,30 @@ test("tonight's night shift: no sign-ins before 12 noon, from 12:00 yes; day shi
   assert.equal(takesSignIns(sun15, at("2026-11-16T13:30:00")) && takesSignIns(mon16, at("2026-11-16T13:30:00")), true);
   assert.equal(takesSignIns(sun15, at("2026-11-16T14:00:00")), false);
   assert.match(signInRefusal(sun15, at("2026-11-16T14:00:00"))!, /That shift has finished/);
+});
+
+// SR-007 (19 Nov 2026): an early-starting night shift opens at its start less 1 h, if that's before noon.
+test("SR-007: tonight's shift opens at 12 noon, or an hour before an earlier start", () => {
+  const night = (startTime: string | null) => ({ shift: "NIGHT", date: new Date("2026-11-19T00:00:00.000Z"), startTime });
+  assert.equal(startMinutes("21:00"), 21 * 60);
+  assert.equal(startMinutes("9pm"), 21 * 60);
+  assert.equal(startMinutes("2:30pm"), 14 * 60 + 30);
+  assert.equal(startMinutes("10:30 am"), 10 * 60 + 30);
+  assert.equal(startMinutes("12am"), 0);
+  assert.equal(startMinutes("12pm"), 12 * 60);
+  for (const bad of [null, "", "tbc", "25:00", "13pm", "9:75"]) assert.equal(startMinutes(bad), null, String(bad));
+  assert.equal(tonightOpensAt(night("21:00")), 12 * 60, "a normal night shift: noon");
+  assert.equal(tonightOpensAt(night("2:30pm")), 12 * 60, "today's earliest live start (2:30pm): still noon");
+  assert.equal(tonightOpensAt(night("tbc")), 12 * 60, "unreadable: noon");
+  assert.equal(tonightOpensAt(night("10:30")), 9 * 60 + 30, "an early start: an hour before");
+  assert.equal(takesSignIns(night("10:30"), at("2026-11-19T09:29:00")), false);
+  assert.equal(takesSignIns(night("10:30"), at("2026-11-19T09:30:00")), true);
+  assert.match(signInRefusal(night("10:30"), at("2026-11-19T09:00:00"))!, /takes sign-ins from 9:30 am/);
+  assert.equal(opensAtNoon(night("10:30"), at("2026-11-19T09:29:00")), true);
+  assert.equal(notYetText(night("10:30")), "Sign-ins for tonight's shift open at 9:30 am - signing out still works.");
+  assert.equal(notYetText(night("21:00")), "Sign-ins for tonight's shift open at 12 noon - signing out still works.");
+  assert.equal(takesSignIns(night("21:00"), at("2026-11-19T11:59:00")), false);
+  assert.equal(takesSignIns(night("12:30am"), at("2026-11-19T00:00:00")), true, "a just-after-midnight start opens straight away");
 });
 
 test("the noon rule is Sydney time across daylight saving (4 Oct 2026 on, 5 Apr 2026 off)", () => {

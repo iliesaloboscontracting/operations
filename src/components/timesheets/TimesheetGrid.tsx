@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { TimesheetLine, TimesheetPerson, TipRunLine, TravelLine } from "@/lib/timesheets";
 import type { SupervisorLine } from "@/lib/payroll/store";
 import { allPlaces, mondayOf } from "@/lib/timesheetView";
+import { TIP_FLAG_LABEL, tipNeedsOffice } from "@/lib/tipRun/rules";
 
 // The weekly timesheet grids (21 Oct 2026), shared by the Operations Timesheets page (/timesheets) and the
 // read-only copy on the Accounts screen (/accounts/timesheets, 2 Nov 2026). Display only - no actions in here.
@@ -124,9 +125,9 @@ function TravelChip({ t }: { t: TravelLine }) {
 }
 
 // Regional tip run (19 Nov 2026): worked hours on the shift's day, in its own box.
-const TIP_FLAG: Record<string, string> = { ON_THE_GO: "on the go", NOT_ENDED: "never ended - no hours", OVER_CAP: "over 6h - not counted" };
+const TIP_FLAG: Record<string, string> = TIP_FLAG_LABEL;
 function TipRunChip({ r }: { r: TipRunLine }) {
-  const warn = r.flag === "NOT_ENDED" || r.flag === "OVER_CAP";
+  const warn = tipNeedsOffice(r.flag);
   return (
     <div className={`rounded-md border px-1.5 py-1 ${warn ? "border-amber-500/50 bg-amber-500/10" : "border-violet-500/40 bg-violet-500/10"}`} title={[r.site, r.changedByOffice ? "Office changed: " + r.changedByOffice : null].filter(Boolean).join("\n")} data-testid="tip-run">
       <div className="flex items-baseline justify-between gap-1">
@@ -205,7 +206,7 @@ export function SiteView({ data, search, emptyText = "No staff sign-ins this wee
         site,
         point: ls.some((l) => l.point),
         total: q4(ls.reduce((n, l) => n + (l.hours ?? 0), 0) + rl.reduce((n, r) => n + (r.hours ?? 0), 0)),
-        issues: ls.filter((l) => (!l.out && !l.onSite) || l.status === "TO_CONFIRM").length + rl.filter((r) => r.flag === "NOT_ENDED" || r.flag === "OVER_CAP").length,
+        issues: ls.filter((l) => (!l.out && !l.onSite) || l.status === "TO_CONFIRM").length + rl.filter((r) => tipNeedsOffice(r.flag)).length,
         people: [...people.entries()]
           .map(([id, pl]) => {
             const pt = tl.filter((t) => t.resourceId === id);

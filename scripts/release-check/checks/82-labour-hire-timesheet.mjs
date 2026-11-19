@@ -14,7 +14,7 @@ import { noMoney } from "../lib/context.mjs";
 const WEEK = "2020-05-04", MON = "2020-05-04", TUE = "2020-05-05", WED = "2020-05-06";
 const aest = (date, hhmm) => { const [h, m] = hhmm.split(":").map(Number); const [y, mo, d] = date.split("-").map(Number); return new Date(Date.UTC(y, mo - 1, d, h - 10, m)); };
 const API = "/api/timesheets/labour-hire";
-const STAFF_HEADER = "Employee,Role,Date,Day,Site / place,Sign in,Sign out,Unpaid break (min),Hours,Tip run (h),Travel (h),Status,Notes";
+const STAFF_HEADER = "Employee,Role,Date,Day,Site / place,Sign in,Sign out,Unpaid break (min),Hours,Of which tip run (h),Travel (h),Status,Notes";
 
 export default {
   id: "labour-hire-timesheet", title: "Labour hire hours: by company, staff-rule hours, flags, export, mappings, roles",

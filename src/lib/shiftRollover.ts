@@ -13,7 +13,7 @@ import { linkLabel } from "./dailyLog/money";
 export type ShiftAnswer = "SAME" | "NEW";
 export const parseShiftAnswer = (v: unknown): ShiftAnswer | null => (v === "SAME" || v === "NEW" ? v : null);
 
-type JobLike = { id: string; date: Date; shift: string; title: string; project: { id: string; name: string; regional?: boolean } | null };
+type JobLike = { id: string; date: Date; shift: string; title: string; startTime?: string | null; project: { id: string; name: string; regional?: boolean } | null };
 // Their latest sign-out of a night shift (the job they were on, and when they signed out).
 export type PriorShift = { attendanceId: string; signOutAt: Date; job: JobLike };
 
@@ -78,7 +78,7 @@ export async function recentNightShift(who: { resourceId: string | null; workerN
       signOutAt: { gte: new Date(now.getTime() - SAME_SHIFT_ASK_HOURS * HOUR), lte: now },
     },
     orderBy: { signOutAt: "desc" },
-    select: { id: true, signOutAt: true, job: { select: { id: true, date: true, shift: true, title: true, project: { select: { id: true, name: true, regional: true } } } } },
+    select: { id: true, signOutAt: true, job: { select: { id: true, date: true, shift: true, title: true, startTime: true, project: { select: { id: true, name: true, regional: true } } } } },
   });
   return row?.job && row.signOutAt ? { attendanceId: row.id, signOutAt: row.signOutAt, job: row.job } : null;
 }

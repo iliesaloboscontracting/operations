@@ -92,6 +92,8 @@ export const TIMESHEETS_EXPLAINER: Explainer = {
         "Signed out of a night shift in the last 6 hours? A new sign-in asks \"Back on the same shift\" or \"This is a new shift\" - the answer is kept.",
         `Tip run (regional jobs only): after signing out of a regional shift (within ${TIP_OFFER_HOURS} hours) the driver taps Start tip run, then Tipped – finished - no second sign-in. It counts to that shift's day.`,
         `Tip run hours = start to end, to the nearest quarter hour, no break. They are worked hours: in the week total, with their own "Tip run" column. Never ended or over ${TIP_CAP_HOURS} hours counts nothing, is flagged, and the Manager can't approve the week until the office fixes it.`,
+        // SR-005 (Ilies, 19 Nov 2026: option A) - lib/payroll/store.ts payTipRuns (the shift's pay item)
+        "A tip run is paid at the same rate as the shift it follows (night shift = night rate, weekend = weekend rate).",
       ],
     },
     {
@@ -150,7 +152,7 @@ export const TIMESHEETS_EXPLAINER: Explainer = {
       // app/api/accounts/timesheets/export/route.ts; lib/timesheets.ts timesheetCsv
       heading: "Export",
       bullets: [
-        "Export downloads the week as a spreadsheet - hours only, one line per sign-in, tip run and travel leg, plus each person's week total. A tip run's hours are in Hours and again in \"Tip run (h)\".",
+        "Export downloads the week as a spreadsheet - hours only, one line per sign-in, tip run and travel leg, plus each person's week total. A tip run's hours are in Hours and again in \"Of which tip run (h)\".",
         "A locked week exports exactly what the Manager approved. A week not locked yet is marked DRAFT.",
       ],
     },

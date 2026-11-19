@@ -169,10 +169,10 @@ const stillOnWhere = () => ({
 });
 const openWhere = () => ({ cancelledAt: null, OR: [jobDateWhere(), stillOnWhere()] });
 
-// Sydney date and hour of a moment.
+// Sydney date, hour and minute of a moment.
 export function sydneyNow(now = new Date()) {
-  const p = Object.fromEntries(new Intl.DateTimeFormat("en-CA", { timeZone: "Australia/Sydney", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", hourCycle: "h23" }).formatToParts(now).map((x) => [x.type, x.value]));
-  return { date: `${p.year}-${p.month}-${p.day}`, hour: Number(p.hour) };
+  const p = Object.fromEntries(new Intl.DateTimeFormat("en-CA", { timeZone: "Australia/Sydney", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(now).map((x) => [x.type, x.value]));
+  return { date: `${p.year}-${p.month}-${p.day}`, hour: Number(p.hour), minute: Number(p.minute) };
 }
 // 18 Nov 2026 (Mt Hutton): last night's night shift takes new sign-ins only until 2pm - a driver back after a rest for
 // the morning tip run carries on last night's shift; from 2pm the next night's crew can't land on it by mistake.
@@ -183,25 +183,47 @@ export const LAST_NIGHT_UNTIL_HOUR = 14;
 // 4:51am, the same minute signed in to Monday night until 2:16pm). Day shifts are unchanged.
 export const TONIGHT_FROM_HOUR = 12;
 
+// SR-007 (19 Nov 2026): a night shift starting early opens an hour before its start, if that is before noon. The
+// board's start time ("21:00", "9pm", "2:30pm") as minutes after midnight; null when it doesn't read as a time.
+export function startMinutes(t: string | null | undefined): number | null {
+  const m = /^\s*(\d{1,2})(?:[:.](\d{2}))?\s*(am|pm)?\s*$/i.exec(t ?? "");
+  if (!m) return null;
+  let h = Number(m[1]);
+  const min = Number(m[2] ?? 0), ap = m[3]?.toLowerCase();
+  if (min > 59 || h > 23 || (ap && (h < 1 || h > 12))) return null;
+  if (ap === "pm" && h !== 12) h += 12;
+  if (ap === "am" && h === 12) h = 0;
+  return h * 60 + min;
+}
+type ShiftJob = { date: Date; shift: string; startTime?: string | null };
+// When today's night shift opens for new sign-ins (minutes after midnight): 12 noon, or its start less 1 h if earlier.
+export function tonightOpensAt(job: ShiftJob) {
+  const s = startMinutes(job.startTime);
+  return Math.max(0, Math.min(TONIGHT_FROM_HOUR * 60, s == null ? Infinity : s - 60));
+}
+const clock = (mins: number) => (mins === 12 * 60 ? "12 noon" : `${((Math.floor(mins / 60) + 11) % 12) + 1}${mins % 60 ? `:${String(mins % 60).padStart(2, "0")}` : ""} ${mins < 12 * 60 ? "am" : "pm"}`);
+
 // True for today's jobs (today's night shift from noon; last night's night shift until 2pm) - the only ones new
 // sign-ins go to. False for an earlier job kept open just for signing out. Signing OUT is never checked against this.
-export function takesSignIns(job: { date: Date; shift: string }, now = new Date()) {
+export function takesSignIns(job: ShiftJob, now = new Date()) {
   return signInRefusal(job, now) === null;
 }
-// Tonight's night shift before noon: not open for new sign-ins yet (it opens at 12 noon today).
-export function opensAtNoon(job: { date: Date; shift: string }, now = new Date()) {
-  const { date: todayS, hour } = sydneyNow(now);
-  return job.shift === "NIGHT" && job.date.toISOString().slice(0, 10) === todayS && hour < TONIGHT_FROM_HOUR;
+// Tonight's night shift before it opens (12 noon, or earlier for an early start): not open for new sign-ins yet.
+export function opensAtNoon(job: ShiftJob, now = new Date()) {
+  const { date: todayS, hour, minute } = sydneyNow(now);
+  return job.shift === "NIGHT" && job.date.toISOString().slice(0, 10) === todayS && hour * 60 + minute < tonightOpensAt(job);
 }
 export const OPENS_AT_NOON = "Sign-ins for tonight's shift open at 12 noon - signing out still works.";
+// The words for a night shift not open yet (its own opening time).
+export const notYetText = (job: ShiftJob) => `Sign-ins for tonight's shift open at ${clock(tonightOpensAt(job))} - signing out still works.`;
 // Why a new sign-in on this job is refused now (null = it isn't): the words a sign-in screen shows.
-export function signInRefusal(job: { date: Date; shift: string }, now = new Date()): string | null {
-  const { date: todayS, hour } = sydneyNow(now);
+export function signInRefusal(job: ShiftJob, now = new Date()): string | null {
+  const { date: todayS, hour, minute } = sydneyNow(now);
   const { today, yesterday } = signinDates(todayS);
   const d = job.date.toISOString().slice(0, 10);
   if (d === today) {
-    if (job.shift !== "NIGHT" || hour >= TONIGHT_FROM_HOUR) return null;
-    return `Tonight's night shift (${nightSpan(job.date)}) takes sign-ins from 12 noon. Still on last night's shift? Sign in or out on that one.`;
+    if (job.shift !== "NIGHT" || hour * 60 + minute >= tonightOpensAt(job)) return null;
+    return `Tonight's night shift (${nightSpan(job.date)}) takes sign-ins from ${clock(tonightOpensAt(job))}. Still on last night's shift? Sign in or out on that one.`;
   }
   if (d === yesterday && job.shift === "NIGHT" && hour < LAST_NIGHT_UNTIL_HOUR) return null;
   return "That shift has finished - sign in to today's job.";

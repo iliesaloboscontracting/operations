@@ -4,11 +4,12 @@ import { useState } from "react";
 import { Truck } from "lucide-react";
 import { apiFetch, serverErrorMessage } from "@/lib/apiFetch";
 import type { TipRunLine } from "@/lib/tipRun/store";
+import { TIP_FLAG_LABEL } from "@/lib/tipRun/rules";
 
 // Regional tip runs on the Sign-ins page (19 Nov 2026, shift rollover), under the shift they count to: "Start tip run"
 // -> "Tipped – finished" on the worker's phone. Worked hours on the shift's day (in Timesheets' total, their own
 // column). The office corrects a time with a reason (kept), like a travel leg.
-const FLAG: Record<string, string> = { ON_THE_GO: "on the go", NOT_ENDED: "never ended - no hours", OVER_CAP: "over 6h - not counted" };
+const FLAG: Record<string, string> = TIP_FLAG_LABEL;
 
 // ISO -> the value a datetime-local input wants, in the browser's (Sydney) time.
 const local = (iso: string | null) => {

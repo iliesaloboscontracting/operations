@@ -149,6 +149,10 @@ export default {
     t.ok(fin.status === 200 && /tip docket/i.test(fin.body.reminder ?? ""), "Tipped – finished, then the reminder to photograph the docket", `${fin.status} ${JSON.stringify(fin.body)}`);
     t.ok((await db.tipRun.findUnique({ where: { id: run1.id } }))?.endMethod === "FINISHED", "ended FINISHED");
     t.status((await tip({ pass, action: "FINISH" })).status, 404, "finish twice: nothing open");
+    // SR-001 (a): one run per shift, ever - start -> finish -> start again on the same shift is refused.
+    const again = await tip({ pass, action: "START", attendanceId: shiftRow.id });
+    t.ok(again.status === 409 && /already a tip run for this shift/.test(again.body.error ?? ""), "SR-001: a second run on the same shift is refused (409)", `${again.status} ${again.body.error ?? ""}`);
+    t.ok((await db.tipRun.count({ where: { shiftAttendanceId: shiftRow.id } })) === 1, "SR-001: still one run for that shift");
     // Signed in: no start. A sign-in also ends an open run. Signing in now asks the same-shift question (phone path).
     const ask = await scanSign(await qr(dayJob.id), dayJob.id, "IN", tipper.id);
     t.ok(ask.status === 409 && ask.body.ask && ask.body.ask.newOffered === true, "phone sign-in just off a night shift: asked first (409 + ask)", `${ask.status} ${JSON.stringify(ask.body).slice(0, 200)}`);
@@ -158,8 +162,18 @@ export default {
     const whileIn = await tip({ pass, action: "START", attendanceId: shiftRow.id });
     t.ok(whileIn.status === 409 && /signed in/.test(whileIn.body.error ?? ""), "can't start while signed in anywhere", `${whileIn.status} ${whileIn.body.error ?? ""}`);
     await scanSign(await qr(dayJob.id), dayJob.id, "OUT", tipper.id);
-    const s3 = await tip({ pass, action: "START", attendanceId: shiftRow.id });
-    t.ok(s3.status === 200 && s3.body.run?.id && s3.body.run.id !== run1.id, "a second run after the first is finished", `${s3.status}`);
+    // An earlier regional shift of theirs (in 12 h ago, out 11 h ago) for the next run.
+    const shift2 = await db.siteAttendance.create({ data: { jobId: lastNight.id, date: yesterday, resourceId: tipper.id, workerName: tipper.name, signInAt: new Date(Date.now() - 12 * HOUR), signOutAt: new Date(Date.now() - 11 * HOUR), signInMethod: "MANUAL", status: "CONFIRMED" } });
+    // SR-001 (g): someone no longer active on the Labour register can't start one.
+    await db.resource.update({ where: { id: tipper.id }, data: { active: false } });
+    const inactive = await tip({ pass, action: "START", attendanceId: shift2.id });
+    await db.resource.update({ where: { id: tipper.id }, data: { active: true } });
+    t.ok(inactive.status === 403 && (await db.tipRun.count({ where: { shiftAttendanceId: shift2.id } })) === 0, "SR-001: an inactive person can't start a tip run (403, nothing written)", `${inactive.status} ${inactive.body.error ?? ""}`);
+    const s3 = await tip({ pass, action: "START", attendanceId: shift2.id });
+    t.ok(s3.status === 200 && s3.body.run?.id && s3.body.run.id !== run1.id, "a run for their other shift", `${s3.status} ${s3.body.error ?? ""}`);
+    // SR-003 (e): travel can't start on top of an open tip run.
+    const tr = await keep(await c.post("/api/site/in/travel", null, { pass, deviceId: dev, action: "START_OUT", jobId: tonight.id }));
+    t.ok(tr.status === 409 && /tip run on the go/.test(tr.body.error ?? ""), "SR-003: Start travel refused while a tip run is open", `${tr.status} ${tr.body.error ?? ""}`);
     await scanSign(await qr(dayJob.id), dayJob.id, "IN", tipper.id, { shiftAnswer: "NEW" });
     const run2 = await db.tipRun.findUnique({ where: { id: s3.body.run?.id ?? "-" } });
     t.ok(run2?.endAt && run2.endMethod === "SIGN_IN", "signing in ends the open run (never two places at once)", run2?.endMethod);
@@ -168,10 +182,16 @@ export default {
 
     // Office corrections: Manager+, a reason, overlap refused; the hours then show everywhere.
     const fixStart = new Date(shiftOut.getTime() + 30 * 60_000), fixEnd = new Date(shiftOut.getTime() + 105 * 60_000); // 1h15
-    t.status(await c.patch(`/api/attendance/tip-runs/${run1.id}`, "VIEWER", { endAt: fixEnd.toISOString(), reason: "rc" }), 403, "a Viewer can't correct a tip run");
-    t.status(await c.patch(`/api/attendance/tip-runs/${run1.id}`, "ACCOUNTS", { endAt: fixEnd.toISOString(), reason: "rc" }), 403, "ACCOUNTS can't correct a tip run");
-    if (c.users.COORDINATOR) t.status(await c.patch(`/api/attendance/tip-runs/${run1.id}`, "COORDINATOR", { endAt: fixEnd.toISOString(), reason: "rc" }), 403, "the COORDINATOR can't correct a tip run");
+    // (f) Manager+ only.
+    for (const role of ["VIEWER", "ACCOUNTS", "COORDINATOR", "TIMESHEETS", "YARD", "DIRECTOR"]) {
+      if (!c.users[role]) { t.note(`no ${role} test login on this build - skipped`); continue; }
+      t.status(await c.patch(`/api/attendance/tip-runs/${run1.id}`, role, { endAt: fixEnd.toISOString(), reason: "rc" }), 403, `${role} can't correct a tip run`);
+    }
     t.status(await c.patch(`/api/attendance/tip-runs/${run1.id}`, "MANAGER", { startAt: fixStart.toISOString(), endAt: fixEnd.toISOString() }), 400, "a correction needs a reason");
+    // SR-008: not a time is a 400 (never a 500); no end in the future.
+    t.status(await c.patch(`/api/attendance/tip-runs/${run1.id}`, "MANAGER", { startAt: "not-a-time", reason: "Release check - bad" }), 400, "SR-008: an invalid start is a 400");
+    t.status(await c.patch(`/api/attendance/tip-runs/${run1.id}`, "MANAGER", { endAt: "2026-99-99T99:00", reason: "Release check - bad" }), 400, "SR-008: an invalid end is a 400");
+    t.status(await c.patch(`/api/attendance/tip-runs/${run1.id}`, "MANAGER", { startAt: fixStart.toISOString(), endAt: new Date(Date.now() + HOUR).toISOString(), reason: "Release check - future" }), 400, "SR-008: an end in the future is refused");
     const ov = await c.patch(`/api/attendance/tip-runs/${run1.id}`, "MANAGER", { startAt: new Date(shiftOut.getTime() - HOUR).toISOString(), endAt: fixEnd.toISOString(), reason: "Release check - overlap" });
     t.ok(ov.status === 400 && /overlap/.test((await ov.json().catch(() => ({}))).error ?? ""), "a time over one of their sign-ins is refused", `${ov.status}`);
     const actualBefore = (await db.jobActual.findFirst({ where: { jobId: lastNight.id, resourceId: tipper.id } }))?.actualHours ?? null;
@@ -199,7 +219,7 @@ export default {
     for (const [who, path] of [["MANAGER", `/api/timesheets/export?week=${yesterday}`], ["ACCOUNTS", `/api/accounts/timesheets/export?week=${yesterday}`]]) {
       const r = await c.text(path, who);
       if (r.status !== 200) { t.note(`${who} timesheet export for this week answers ${r.status} on the copy (other checks seed $ names this week)`); continue; }
-      t.ok(r.text.includes("Hours,Tip run (h),Travel (h)") && r.text.includes(`Tip run - ${reg.name}`) && noMoney(r.text), `${who} timesheet export: the Tip run column and line, no $`);
+      t.ok(r.text.includes("Hours,Of which tip run (h),Travel (h)") && r.text.includes(`Tip run - ${reg.name}`) && noMoney(r.text), `${who} timesheet export: the Tip run column and line, no $`);
     }
 
     // Approval: a never-ended run blocks the week until the office fixes it; it's then locked into the snapshot.
@@ -215,7 +235,7 @@ export default {
     // Payroll files: a Tip run hours column, hours only (on that 2020 week - no $ names there).
     for (const f of ["payrun", "summary"]) {
       const r = await c.text(`/api/accounts/payroll/export?week=${blockWeek}&file=${f}`, "ACCOUNTS");
-      t.ok(r.status === 200 && /Tip run hours/.test(r.text) && noMoney(r.text), `payroll ${f} file: Tip run hours column, no money`, `${r.status} ${r.text.slice(0, 160)}`);
+      t.ok(r.status === 200 && /Of which tip run hours/.test(r.text) && noMoney(r.text), `payroll ${f} file: Tip run hours column, no money`, `${r.status} ${r.text.slice(0, 160)}`);
       if (f === "summary") t.ok(r.text.split("\n").some((l) => l.startsWith(tipper.name) && /,1\.5\r?$/.test(l)), "summary: the person's 1.5 h in Tip run hours", r.text.slice(0, 300));
     }
     // A locked week refuses a correction.
@@ -224,10 +244,40 @@ export default {
     const old = await db.tipRun.create({ data: { resourceId: tipper.id, workerName: tipper.name, jobId: `rc95-old-${tag}`, projectId: reg.id, siteLabel: reg.name, date: "2020-08-11", shiftAttendanceId: shiftRow.id, startAt: new Date("2020-08-11T21:00:00Z") } });
     t.status(await c.patch(`/api/attendance/tip-runs/${old.id}`, "MANAGER", { endAt: "2020-08-11T22:00:00.000Z", reason: "Release check" }), 400, "a locked (approved) week refuses a tip run change");
 
+    // SR-003 (c): a sign-in added later over a tip run - the run counts nothing and blocks the week (2020-08-17).
+    const ovRun = await db.tipRun.create({ data: { resourceId: tipper.id, workerName: tipper.name, jobId: `rc95-ov-${tag}`, projectId: reg.id, siteLabel: reg.name, date: "2020-08-18", shiftAttendanceId: shiftRow.id, startAt: new Date("2020-08-18T21:00:00Z"), endAt: new Date("2020-08-18T22:00:00Z"), endMethod: "FINISHED" } });
+    await db.siteAttendance.create({ data: { place: "OFFICE", placeLabel: "Office", date: "2020-08-19", resourceId: tipper.id, workerName: tipper.name, signInAt: new Date("2020-08-18T21:30:00Z"), signOutAt: new Date("2020-08-19T05:00:00Z"), signInMethod: "OFFICE", status: "CONFIRMED" } });
+    const ovWeek = (await c.json("/api/timesheets?week=2020-08-17", "MANAGER")).body;
+    const ovLine = Object.values(ovWeek?.people?.find((x) => x.resourceId === tipper.id)?.tipRuns ?? {}).flat().find((r) => r.tipRunId === ovRun.id);
+    t.ok(ovLine?.flag === "OVERLAPS_SIGN_IN" && ovLine.hours === null, "SR-003: a run overlapping a sign-in is flagged OVERLAPS_SIGN_IN with no hours", JSON.stringify(ovLine ?? null));
+    const ovAppr = await c.post("/api/timesheets", "MANAGER", { week: "2020-08-17", action: "approve" });
+    t.ok(ovAppr.status === 400 && /tip run overlaps a sign-in/.test((await ovAppr.json().catch(() => ({}))).error ?? ""), "SR-003: ...and blocks the week's approval", `${ovAppr.status}`);
+    // SR-004 (d): the shift sign-in it follows is rejected - no hours, blocks the week (2020-08-24).
+    const rejected = await db.siteAttendance.create({ data: { place: "OFFICE", placeLabel: "Office", date: "2020-08-25", resourceId: tipper.id, workerName: tipper.name, signInAt: new Date("2020-08-24T21:00:00Z"), signOutAt: new Date("2020-08-25T05:00:00Z"), signInMethod: "OFFICE", status: "REJECTED" } });
+    const rmRun = await db.tipRun.create({ data: { resourceId: tipper.id, workerName: tipper.name, jobId: `rc95-rm-${tag}`, projectId: reg.id, siteLabel: reg.name, date: "2020-08-25", shiftAttendanceId: rejected.id, startAt: new Date("2020-08-25T07:00:00Z"), endAt: new Date("2020-08-25T08:00:00Z"), endMethod: "FINISHED" } });
+    const rmLine = Object.values((await c.json("/api/timesheets?week=2020-08-24", "MANAGER")).body?.people?.find((x) => x.resourceId === tipper.id)?.tipRuns ?? {}).flat().find((r) => r.tipRunId === rmRun.id);
+    t.ok(rmLine?.flag === "SHIFT_REMOVED" && rmLine.hours === null, "SR-004: a run after a rejected shift sign-in is flagged SHIFT_REMOVED with no hours", JSON.stringify(rmLine ?? null));
+    const rmAppr = await c.post("/api/timesheets", "MANAGER", { week: "2020-08-24", action: "approve" });
+    t.ok(rmAppr.status === 400 && /shift sign-in was removed/.test((await rmAppr.json().catch(() => ({}))).error ?? ""), "SR-004: ...and blocks the week's approval", `${rmAppr.status}`);
+    const payOv = await c.text("/api/accounts/payroll/export?week=2020-08-17&file=summary", "ACCOUNTS");
+    t.ok(payOv.status === 200 && payOv.text.split("\n").some((l) => l.startsWith(tipper.name) && /,0\r?$/.test(l)), "SR-003: the payroll summary counts no tip run hours for it", payOv.text.slice(0, 300));
+
+    // SR-002 (b): a start in an approved (locked) week is refused before anything is written.
+    const shift3 = await db.siteAttendance.create({ data: { jobId: lastNight.id, date: yesterday, resourceId: tipper.id, workerName: tipper.name, signInAt: new Date(Date.now() - 10.8 * HOUR), signOutAt: new Date(Date.now() - 10.5 * HOUR), signInMethod: "MANUAL", status: "CONFIRMED" } });
+    const ywd = new Date(yesterday + "T12:00:00Z").getUTCDay();
+    const yWeek = addDays(yesterday, ywd === 0 ? -6 : 1 - ywd);
+    if (await db.timesheetWeek.count({ where: { weekStart: yWeek, reopenedAt: null } })) t.note(`${yWeek} is already approved on the copy - the locked-week start is covered by the unit tests`);
+    else {
+      const lock = await db.timesheetWeek.create({ data: { weekStart: yWeek, approvedBy: "Release check", snapshot: JSON.stringify({ weekStart: yWeek, lines: [] }), totalHours: 0, people: 0 } });
+      const locked = await tip({ pass, action: "START", attendanceId: shift3.id });
+      t.ok(locked.status === 409 && /approved/.test(locked.body.error ?? "") && (await db.tipRun.count({ where: { shiftAttendanceId: shift3.id } })) === 0, "SR-002: a start in a locked week is 409 and nothing is written", `${locked.status} ${locked.body.error ?? ""}`);
+      await db.timesheetWeek.update({ where: { id: lock.id }, data: { reopenedAt: new Date(), reopenedBy: "Release check", reopenReason: "Release check - lock test over" } });
+    }
+
     // Turning regional off keeps every run; Start tip run is no longer offered for it.
     const before = await db.tipRun.count({ where: { projectId: reg.id } });
     t.status(await c.patch(`/api/projects/${reg.id}`, "MANAGER", { regional: false }), 200, "a Manager marks it local");
-    t.ok((await db.tipRun.count({ where: { projectId: reg.id } })) === before && before === 4, "every tip run is kept", `${before}`);
+    t.ok((await db.tipRun.count({ where: { projectId: reg.id } })) === before && before === 6, "every tip run is kept", `${before}`);
     const st2 = await tip({ pass, action: "STATUS" });
     t.ok(st2.status === 200 && (st2.body.shifts ?? []).length === 0, "not offered once the project is local");
     t.status((await tip({ pass, action: "START", attendanceId: shiftRow.id })).status, 409, "Start tip run refused on a local project");

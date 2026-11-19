@@ -50,7 +50,7 @@ test("the pay-run file: approved employees only, hours per person, pay item and 
     L({ attendanceId: "a5", hours: null, out: null }), // no sign-out - nothing to pay
   ];
   const rows = payRunRows(lines, new Set(["r1"]), new Map([["r1", "sam@example.com"]]));
-  assert.deepEqual(rows[0], ["Employee", "Email", "Earnings Rate", "Date", "Hours", "Site", "Travel hours", "Tip run hours"]);
+  assert.deepEqual(rows[0], ["Employee", "Email", "Earnings Rate", "Date", "Hours", "Site", "Travel hours", "Of which tip run hours"]);
   assert.deepEqual(rows.slice(1), [
     ["Sam Smith", "sam@example.com", "Ordinary Hours", "2026-10-27", 7.5, "Myers / Bronte", "", ""],
     ["Sam Smith", "sam@example.com", "Saturday Hours", "2026-10-31", 6, "Myers", "", ""],

@@ -84,6 +84,7 @@ function rowOf(
     signOutMethod: a.signOutMethod,
     how: signInHow(a.signInMethod, how),
     howOut: signOutHow(a.signInMethod, a.signOutMethod, how),
+    shiftAnswer: a.shiftAnswer ?? null, // SR-008 (19 Nov 2026): "Same shift" / "New shift" when they were asked
     gpsStatus: a.gpsStatus,
     location: locationLabel(a.gpsStatus),
     status: a.status,

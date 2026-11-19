@@ -22,7 +22,7 @@ export function labourHireCsv(weekStart: string, week: HireWeek, companies: Hire
   // PS-051: under each company's total, every spelling grouped into it and any office mapping (and who made it), so
   // whoever sends the file can see what was put together.
   const tail: CsvRow[] = shown.flatMap((c): CsvRow[] => [
-    // Under the same columns as the staff export (Hours, Tip run (h), Travel (h), Status, Notes).
+    // Under the same columns as the staff export (Hours, Of which tip run (h), Travel (h), Status, Notes).
     ["", noDollar(c.name), "", "COMPANY TOTAL", "", "", "", "", c.hours, "", "", "", `${c.workers} worker${c.workers === 1 ? "" : "s"}`],
     ["", noDollar(c.name), "", "", "", "", "", "", "", "", "", "", noDollar(c.groupedFrom)],
   ]);

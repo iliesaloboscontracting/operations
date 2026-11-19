@@ -13,7 +13,7 @@ export type PayLine = {
   group: Group; engagementSet: boolean; jobId: string | null; shift: "DAY" | "NIGHT"; site: string; point: boolean;
   in: string; out: string | null; hours: number | null; overlap?: boolean; toCheck?: string[]; status: string; tile: string | null; // labour hire: the board tile it fills
   gps: { lat: number; lng: number; accuracyM: number | null } | null; gpsStatus: string | null;
-  tipRun?: boolean; // a regional tip run (19 Nov 2026) - worked hours, shown again in its own "Tip run hours" column
+  tipRun?: boolean; // a regional tip run (19 Nov 2026) - worked hours, shown again in its own "Of which tip run hours" column
 };
 export type ApprovalSnapshotLine = { attendanceId: string; name: string; company: string | null; in: string; out: string | null; hours: number | null; flag?: string };
 
@@ -57,9 +57,9 @@ export const inPayRun = (group: Group, reviewStatus: string | null) => group ===
 export const TRAVEL_HOOK = "rule to be agreed"; // how travel is PAID (driver / passenger, regional) - waits on a session with Victoria
 // Draft: match Xero's import template. "Travel hours" (2 Nov 2026): regional travel legs (lib/travel/), hours only - not
 // a pay item; whether and how travel is paid is still to be agreed (TRAVEL_HOOK).
-// "Tip run hours" (19 Nov 2026): the part of Hours that is regional tip runs (lib/tipRun/) - they are worked hours on the
+// "Of which tip run hours" (19 Nov 2026, SR-006): the part of Hours that is regional tip runs (lib/tipRun/) - they are worked hours on the
 // shift's pay item, shown again here so accounts can see them.
-export const EXPORT_COLUMNS = ["Employee", "Email", "Earnings Rate", "Date", "Hours", "Site", "Travel hours", "Tip run hours"] as const;
+export const EXPORT_COLUMNS = ["Employee", "Email", "Earnings Rate", "Date", "Hours", "Site", "Travel hours", "Of which tip run hours"] as const;
 export const csvCell = (v: string | number | null | undefined) => {
   const s = v == null ? "" : String(v);
   // No spreadsheet formulas: a cell starting with = + - @ (or a tab / CR, SEC-012) is quoted and prefixed with '.

@@ -80,7 +80,7 @@ test("the export is hours only - fileIsSafe passes and no $ gets through", () =>
   assert.ok(csv!.includes(AMOUNT_REMOVED));
   assert.ok(csv!.includes("12 Grand Pde job"), "ordinary words that look like money stay");
   // Same columns as the Managers' export (timesheetCsv).
-  assert.ok(csv!.includes("Employee,Role,Date,Day,Site / place,Sign in,Sign out,Unpaid break (min),Hours,Tip run (h),Travel (h),Status,Notes"));
+  assert.ok(csv!.includes("Employee,Role,Date,Day,Site / place,Sign in,Sign out,Unpaid break (min),Hours,Of which tip run (h),Travel (h),Status,Notes"));
   assert.ok(csv!.includes("APPROVED by Alex"));
   assert.ok(csv!.includes("WEEK TOTAL"));
 });
@@ -97,6 +97,8 @@ test("the explainer says the rules the code uses, and no money", () => {
   assert.ok(text.includes(`within ${TIP_OFFER_HOURS} hours`), "tip run offer window from the code");
   assert.match(text, /Thu 19 → Fri 20 counts every hour to Thu 19/);
   assert.match(text, /from 12 noon/);
+  // SR-005 (Ilies, 19 Nov 2026: option A) - a tip run is paid at its shift's tier.
+  assert.ok(text.includes("A tip run is paid at the same rate as the shift it follows (night shift = night rate, weekend = weekend rate)."));
   assert.ok(text.includes(`${POINT_BREAK_MINUTES} minutes at the office, yard and trucks`), "the sign-in point break is the code's constant");
   assert.match(text, /unpaid lunch break \(30 min\) comes off any day over 4 hours \(from Monday 2 November 2026\)/);
   assert.match(text, /4:01 counts 3\.5/);

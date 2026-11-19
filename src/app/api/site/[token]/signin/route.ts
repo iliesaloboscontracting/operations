@@ -7,7 +7,7 @@ import { syncPersonDayQuietly, syncSignInActualsQuietly } from "@/lib/signInActu
 import { endOpenElsewhere } from "@/lib/signinOverlap";
 import { fromSydneyLocal } from "@/lib/shiftTimes";
 import { todaySydney } from "@/lib/today";
-import { createHandover, jobLabel, openJob, openJobsFor, OPENS_AT_NOON, opensAtNoon, ROTATE_SECONDS, rotatingCode, shiftLabel, shiftOrder, STILL_ON_HOURS, sydneyTime } from "@/lib/signin";
+import { createHandover, jobLabel, openJob, openJobsFor, notYetText, opensAtNoon, ROTATE_SECONDS, rotatingCode, shiftLabel, shiftOrder, STILL_ON_HOURS, sydneyTime } from "@/lib/signin";
 import { askText, decideSignIn, recentNightShift } from "@/lib/shiftRollover";
 import { tipRunOn } from "@/lib/tipRun/rules";
 import { lockedWeekFor } from "@/lib/timesheets";
@@ -83,7 +83,7 @@ export const GET = withErrorHandling(async (req: NextRequest, { params: paramsP 
         id: j.id,
         label: shiftLabel(j),
         // Tonight's night shift before noon (19 Nov 2026): no new sign-ins yet - the page says so above the QR.
-        ...(opensAtNoon(j) ? { notYet: OPENS_AT_NOON } : {}),
+        ...(opensAtNoon(j) ? { notYet: notYetText(j) } : {}),
         times: j.startTime && j.endTime ? `${j.startTime}-${j.endTime}` : null,
         qrUrl: siteUrl(`in/${rotatingCode(j.id, link.id)}`, req.nextUrl.origin),
         crew: [...crew, ...others],

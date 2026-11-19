@@ -20,6 +20,7 @@ export type AttendanceRow = {
   // the position itself (accounts / Admin only).
   how?: string;
   howOut?: string | null;
+  shiftAnswer?: string | null; // SAME / NEW - asked just off a night shift (19 Nov 2026)
   gpsStatus?: string | null;
   location?: string;
   status: "CONFIRMED" | "TO_CONFIRM" | "REJECTED";

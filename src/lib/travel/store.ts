@@ -16,6 +16,10 @@ import { TIP_CAP_HOURS } from "../tipRun/rules";
 
 type Problem = { error: string; status: number };
 const HOUR = 3_600_000;
+// A tip run on the go for this person (lib/tipRun/) - travel out or home never starts on top of one.
+export const TIP_RUN_OPEN = "You've got a tip run on the go - tap Tipped – finished first.";
+const tipRunOpen = async (resourceId: string) =>
+  (await prisma.tipRun.count({ where: { resourceId, endAt: null, startAt: { gte: new Date(Date.now() - TIP_CAP_HOURS * HOUR) } } })) > 0;
 const label = (j: { title: string; shift: string; project: { name: string } | null }) => linkLabel(jobLabel(j), "Regional job");
 const gpsOf = (prefix: "start" | "end", v: unknown) => {
   const g = parseGps(v);
@@ -105,6 +109,8 @@ export async function startOut(resourceId: string, b: { jobId?: unknown; gps?: u
   const why = outRefusal(job ? { jobId, regional: !!job.project?.regional, signedIn: signedIn > 0, existingLeg: false } : undefined);
   if (why) return { error: why, status: job ? 409 : 403 };
   if (anyOpen) return { error: `You've already got ${DIRECTION_LABEL[anyOpen.direction as Direction].toLowerCase()} on the go since ${sydneyTime(anyOpen.startAt)}.`, status: 409 };
+  // SR-003 (19 Nov 2026): a tip run on the go is worked time - travel never starts on top of it.
+  if (await tipRunOpen(resourceId)) return { error: TIP_RUN_OPEN, status: 409 };
   const now = new Date();
   try {
     const leg = await prisma.travelLeg.create({
@@ -129,9 +135,7 @@ export async function startHome(resourceId: string, b: { gps?: unknown; deviceId
   if (s.open) return { error: `You've already got travel on the go since ${s.open.since}.`, status: 409 };
   if (!s.home) return { error: "Travelling home is for after you sign out of a regional job.", status: 409 };
   // A tip run on the go (19 Nov 2026) is worked time - travel home starts once it's finished, never on top of it.
-  if (await prisma.tipRun.count({ where: { resourceId, endAt: null, startAt: { gte: new Date(Date.now() - TIP_CAP_HOURS * HOUR) } } })) {
-    return { error: "You've got a tip run on the go - tap Tipped – finished first.", status: 409 };
-  }
+  if (await tipRunOpen(resourceId)) return { error: TIP_RUN_OPEN, status: 409 };
   const a = await prisma.siteAttendance.findUnique({
     where: { id: s.home.attendanceId },
     select: { id: true, date: true, workerName: true, job: { select: { id: true, title: true, shift: true, project: { select: { id: true, name: true } } } } },

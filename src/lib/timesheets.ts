@@ -11,7 +11,7 @@ import { csvCell } from "./payroll/rules";
 import type { TravelLine } from "./travel/store";
 import { FLAG_LABEL, needsOffice } from "./travel/rules";
 import type { TipRunLine } from "./tipRun/store";
-import { TIP_BLOCK_REASON, TIP_FLAG_LABEL, tipBlocks } from "./tipRun/rules";
+import { TIP_BLOCK_REASON, TIP_FLAG_LABEL, tipBlocks, tipNeedsOffice } from "./tipRun/rules";
 
 export type TimesheetIssue = "NO_SIGN_OUT" | "TO_CONFIRM";
 
@@ -166,7 +166,7 @@ export function peopleOf(weekStart: string, lines: TimesheetLine[], travel: Trav
     (p.tipRuns![r.date] ??= []).push(r);
     p.tipRunTotal! += r.hours ?? 0;
     p.total += r.hours ?? 0;
-    if (r.flag === "NOT_ENDED" || r.flag === "OVER_CAP") p.issues += 1;
+    if (tipNeedsOffice(r.flag)) p.issues += 1;
   }
   const q = (n: number) => Math.round(n * 4) / 4;
   return [...byPerson.values()].map((p) => ({ ...p, total: q(p.total), travelTotal: q(p.travelTotal), tipRunTotal: q(p.tipRunTotal ?? 0) })).sort((a, b) => a.name.localeCompare(b.name));
@@ -281,7 +281,7 @@ export async function exportLines(weekStart: string) {
 // `opts` (the labour hire timesheet, 11 Nov 2026): its own two title lines and its company totals under the same
 // columns. Left out, the file is exactly the staff timesheet.
 export type CsvRow = (string | number | null)[];
-// Regional tip runs (19 Nov 2026): one line each, their hours in Hours (worked hours) and again in "Tip run (h)" - the
+// Regional tip runs (19 Nov 2026): one line each, their hours in Hours (worked hours) and again in "Of which tip run (h)" - the
 // tip-run part of Hours; the week total's Hours includes them.
 export function timesheetCsv(
   weekStart: string, lines: TimesheetLine[], approval: { approvedBy: string; approvedAt: Date } | null, travel: TravelLine[] = [],
@@ -295,7 +295,7 @@ export function timesheetCsv(
     [opts.head?.[0] ?? `Lobos Contracting - staff timesheet, week ${weekStart} to ${weekEnd(weekStart)}`],
     [opts.head?.[1] ?? (approval ? `APPROVED by ${approval.approvedBy} on ${approval.approvedAt.toLocaleString("en-AU", { timeZone: "Australia/Sydney" })}` : "DRAFT - not approved yet")],
     [],
-    ["Employee", "Role", "Date", "Day", "Site / place", "Sign in", "Sign out", "Unpaid break (min)", "Hours", "Tip run (h)", "Travel (h)", "Status", "Notes"],
+    ["Employee", "Role", "Date", "Day", "Site / place", "Sign in", "Sign out", "Unpaid break (min)", "Hours", "Of which tip run (h)", "Travel (h)", "Status", "Notes"],
   ];
   for (const p of peopleOf(weekStart, lines, travel, opts.tipRuns ?? [])) {
     for (const d of weekDates(weekStart)) {

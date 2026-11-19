@@ -138,7 +138,7 @@ export default {
     }
     for (const [who, path] of [["MANAGER", `/api/timesheets/export?week=${week}`], ["ACCOUNTS", `/api/accounts/timesheets/export?week=${week}`]]) {
       const csv = (await c.text(path, who)).text;
-      t.ok(csv.includes("Hours,Tip run (h),Travel (h),Status") && csv.includes("Travel out to") && csv.includes("Travel home from") && noMoney(csv), `${who} timesheet export has the Travel column and legs, no $`);
+      t.ok(csv.includes("Hours,Of which tip run (h),Travel (h),Status") && csv.includes("Travel out to") && csv.includes("Travel home from") && noMoney(csv), `${who} timesheet export has the Travel column and legs, no $`);
     }
     // Payroll files (accounts): a Travel hours column, still hours only. On a week of its own (2020-02-03), because
     // earlier checks seed "$5 Labour" sign-ins this week and the payroll files refuse a week with a $ in a name.

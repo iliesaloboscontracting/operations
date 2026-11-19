@@ -13,7 +13,7 @@ import { nameWithoutAmounts } from "../dailyLog/money";
 import { todaySydney } from "../today";
 import type { ResolvedLink } from "../siteLinks";
 import { legHours, type TravelFlag } from "../travel/rules";
-import { tipHours } from "../tipRun/rules";
+import { tipRunVerdicts } from "../tipRun/store";
 import {
   canAccountsApprove, dayState, fileIsSafe, groupOf, inPayRun, payRunRows, personKeyOf, summarise, toCsv, TRAVEL_HOOK, travelKey,
   type ApprovalSnapshotLine, type DayState, type Group, type PayLine,
@@ -77,14 +77,17 @@ export async function payLines(weekStart: string): Promise<PayLine[]> {
 }
 
 // Regional tip runs (19 Nov 2026, shift rollover): ordinary worked hours on the shift's date - one pay line each, on the
-// shift's pay item (its day and DAY / NIGHT), marked tipRun so the files show them in their own column too. No
+// shift's pay item (its day and DAY / NIGHT - SR-005, Ilies option A: paid at the rate of the shift it follows), marked
+// tipRun so the files show them in their own column too. No
 // supervisor step (jobId left empty); a run never finished or over 6 h has no hours (and blocks the Manager's lock).
 async function payTipRuns(weekStart: string): Promise<PayLine[]> {
   const runs = await prisma.tipRun.findMany({ where: { date: { gte: weekStart, lte: weekEnd(weekStart) } }, orderBy: { startAt: "asc" } });
   if (!runs.length) return [];
-  const [people, jobs] = await Promise.all([
+  const [people, jobs, verdicts] = await Promise.all([
     prisma.resource.findMany({ where: { id: { in: [...new Set(runs.map((r) => r.resourceId))] } }, select: { id: true, name: true, engagement: true } }),
     prisma.job.findMany({ where: { id: { in: [...new Set(runs.map((r) => r.jobId))] } }, select: { id: true, shift: true } }),
+    // SR-003 / SR-004: checked against their sign-ins - an overlap or a removed shift sign-in counts nothing here too.
+    tipRunVerdicts(runs),
   ]);
   return runs.map((r) => {
     const p = people.find((x) => x.id === r.resourceId);
@@ -94,7 +97,7 @@ async function payTipRuns(weekStart: string): Promise<PayLine[]> {
       attendanceId: `tiprun:${r.id}`, date: r.date, personKey: personKeyOf(r.resourceId, name, null), personName: payText(name, "Unnamed", r.date, chk, "name"),
       resourceId: r.resourceId, company: null, group: groupOf(r.resourceId, p?.engagement ?? null), engagementSet: !!p?.engagement,
       jobId: null, shift: (jobs.find((j) => j.id === r.jobId)?.shift === "NIGHT" ? "NIGHT" : "DAY") as "DAY" | "NIGHT", site: payText(`Tip run - ${r.siteLabel}`, "Tip run", r.date, chk, "site"), point: false,
-      in: sydneyTime(r.startAt)!, out: sydneyTime(r.endAt), hours: tipHours(r.startAt, r.endAt).hours, status: "CONFIRMED", tile: null,
+      in: sydneyTime(r.startAt)!, out: sydneyTime(r.endAt), hours: verdicts.get(r.id)?.hours ?? null, status: "CONFIRMED", tile: null,
       gps: null, gpsStatus: null, tipRun: true,
       ...(chk.length ? { toCheck: chk } : {}),
     };
@@ -275,7 +278,7 @@ export async function payrollFiles(weekStart: string, which: "payrun" | "summary
     [`Lobos Contracting - weekly hours summary, ${week.weekStart} to ${week.weekEnd}`],
     [week.managerLock ? `Timesheet locked by ${week.managerLock.by}` : "Timesheet not locked by a Manager yet"],
     [],
-    ["Person", "Group", "Company", "Days", "Hours", "Ordinary", "Night", "Saturday", "Sunday", "Accounts", "Travel hours", "Tip run hours"],
+    ["Person", "Group", "Company", "Days", "Hours", "Ordinary", "Night", "Saturday", "Sunday", "Accounts", "Travel hours", "Of which tip run hours"],
     ...s.people.map((p) => [p.name, p.group === "HIRE" ? "Labour hire" : p.group === "ABN" ? "ABN" : "Employee", p.company, p.days, p.hours,
       p.byItem["Ordinary Hours"] ?? 0, p.byItem["Night Hours"] ?? 0, p.byItem["Saturday Hours"] ?? 0, p.byItem["Sunday Hours"] ?? 0, p.review ?? "Not reviewed", travelOf.get(p.personKey) ?? 0, p.tipRunHours ?? 0]),
     [],

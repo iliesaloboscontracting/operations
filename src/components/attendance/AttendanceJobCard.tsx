@@ -59,6 +59,12 @@ function HowChips({ r }: { r: AttendanceRow }) {
     <>
       <span className="whitespace-nowrap rounded border border-edge px-1 py-px text-[10px] text-gray-300">{how}</span>
       {r.howOut && <span className="whitespace-nowrap rounded border border-edge px-1 py-px text-[10px] text-gray-400">{r.howOut}</span>}
+      {/* Just off a night shift, they were asked (19 Nov 2026, SR-008) */}
+      {r.shiftAnswer && (
+        <span className="whitespace-nowrap rounded border border-violet-500/40 px-1 py-px text-[10px] text-violet-300" data-testid="shift-answer" title="Signed out of a night shift in the 6 hours before - asked which shift this is">
+          {r.shiftAnswer === "SAME" ? "Same shift" : "New shift"}
+        </span>
+      )}
       <span className={`whitespace-nowrap text-[10px] ${loc.tone}`}><span aria-hidden>{loc.icon}</span> {r.location ?? LOCATION_LABEL[kind]}</span>
     </>
   );

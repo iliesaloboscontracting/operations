@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { withErrorHandling } from "@/lib/apiHandler";
-import { makeTicket, openJob, openJobsAtProject, OPENS_AT_NOON, opensAtNoon, pointCrew, readRotatingCode, resolvePoster, shiftLabel, takesSignIns, type Method } from "@/lib/signin";
+import { makeTicket, openJob, openJobsAtProject, notYetText, opensAtNoon, pointCrew, readRotatingCode, resolvePoster, shiftLabel, takesSignIns, type Method } from "@/lib/signin";
 import { outsideWindow } from "@/lib/posterGuard/rules";
 import { posterWindowOn, projectHours, windowForJob } from "@/lib/posterGuard/store";
 import { signInCompanies } from "@/lib/labourHire/store";
@@ -75,6 +75,6 @@ const shape = (j: Awaited<ReturnType<typeof openJobsAtProject>>[number]) => ({
   label: shiftLabel(j),
   times: j.startTime && j.endTime ? `${j.startTime}-${j.endTime}` : null,
   crew: j.assignments.map((a) => a.resource),
-  ...(opensAtNoon(j) ? { notYet: OPENS_AT_NOON } : {}),
+  ...(opensAtNoon(j) ? { notYet: notYetText(j) } : {}),
 });
 const gone = (error: string) => NextResponse.json({ error }, { status: 404 });
