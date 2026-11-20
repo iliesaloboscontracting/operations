@@ -7,7 +7,8 @@ import { prisma } from "../prisma";
 import { ReadingNotConfigured } from "../invoiceReading";
 import { readReceiptPhoto, receiptMimeOf } from "./files";
 import { claudeReader, type Photo, type ReadContext, type Reader } from "./reading";
-import { decideFuel, decideOdometer, decidePurchase, decideTip, fuelFields, hasClockTime, normDocket, purchaseFields, tipFields, type Decision } from "./checks";
+import { decideFuel, decideOdometer, decidePurchase, decideTip, docketDate, fuelFields, hasClockTime, normDocket, purchaseFields, tipFields, type Decision } from "./checks";
+import { jobForDocket } from "./batchRules";
 import { senderCheck } from "./senderStore";
 import { claimFromOwnReceipt } from "../reimbursements/store";
 import { syncTipMatchesSoon, truckRegos, vehicleForRego } from "./tipStore";
@@ -55,6 +56,32 @@ async function withSender(d: Decision, r: { kind: string; sentByResourceId: stri
   return hit ? { status: "CHECK", reasons: [...d.reasons, hit.reason] } : d;
 }
 
+async function save(r: { id: string; kind: string; ownMoney: boolean }, data: Record<string, unknown>, decision: Decision) {
+  const saved = await prisma.receipt.updateMany({ where: { id: r.id, status: "SENT" }, data: { ...data, status: decision.status, checkReasons: JSON.stringify(decision.reasons) } });
+  // A tip docket that now counts may be one an invoice already bills (R3).
+  if (saved.count && r.kind === "TIP" && decision.status === "READ") syncTipMatchesSoon();
+  // "I paid this myself" from a phone: a clean reading becomes the claim for accounts.
+  if (saved.count && r.ownMoney && decision.status === "READ") await claimFromOwnReceipt(r.id);
+}
+
+// One tip docket at a time between "is this docket number already in?" and saving.
+let tipChain: Promise<unknown> = Promise.resolve();
+function tipLock<T>(fn: () => Promise<T>): Promise<T> {
+  const run = tipChain.then(fn, fn);
+  tipChain = run.catch(() => undefined);
+  return run;
+}
+
+// The job an office-batch docket goes on, from the date read off it (rule: ./batchRules.ts jobForDocket).
+async function batchJob(projectId: string, dateTime: string) {
+  const m = /^(\d{4}-\d{2}-\d{2})(?:T(\d{2}:\d{2}))?/.exec((dateTime ?? "").trim());
+  if (!m || !docketDate(dateTime)) return { jobId: null, note: null };
+  const day = m[1];
+  const from = new Date(new Date(`${day}T00:00:00Z`).getTime() - 86_400_000);
+  const jobs = await prisma.job.findMany({ where: { projectId, cancelledAt: null, date: { gte: from, lte: new Date(`${day}T00:00:00Z`) } }, select: { id: true, date: true, shift: true } });
+  return jobForDocket(jobs.map((j) => ({ id: j.id, day: j.date.toISOString().slice(0, 10), shift: j.shift })), { day, time: m[2] ?? null });
+}
+
 export async function readReceipt(id: string, reader: Reader = claudeReader): Promise<void> {
   if (!readingEnabled() || inFlight.has(id)) return;
   inFlight.add(id);
@@ -65,20 +92,31 @@ export async function readReceipt(id: string, reader: Reader = claudeReader): Pr
     if ((prior.tries ?? 0) >= MAX_TRIES) return;
     try {
       const [photos, ctx] = await Promise.all([photosOf(r.photos), context()]);
-      let data: Record<string, unknown>, decision;
+      let data: Record<string, unknown>, decision: Decision;
       if (r.kind === "TIP") {
         const x = await reader.tip(photos, ctx);
-        const fields = tipFields(x);
-        const key = normDocket(fields.docketNo);
-        const earlier = key
-          ? (await prisma.receipt.findMany({ where: { kind: "TIP", id: { not: r.id }, docketNo: { not: null }, status: { not: "REJECTED" }, sentAt: { gte: new Date(Date.now() - 400 * 86_400_000) } }, select: { docketNo: true, sentBy: true, sentAt: true } }))
-              .find((o) => normDocket(o.docketNo) === key)
-          : undefined;
-        decision = decideTip(x, { sentAt: r.sentAt, asbestosTap: r.asbestos, ourRegos: ctx.regos, duplicateOf: earlier ? `by ${earlier.sentBy} on ${earlier.sentAt.toLocaleDateString("en-AU", { timeZone: "Australia/Sydney" })}` : null });
-        // The docket's rego, when it's one of our trucks, links it to that truck (R3; R4 uses it).
-        const vehicleId = vehicleForRego(fields.rego, ctx.trucks);
-        decision = await withSender(decision, r, { vehicleId: vehicleId ?? r.vehicleId, docketAt: hasClockTime(x.dateTime) ? fields.docketAt : null });
-        data = { ...fields, ...(vehicleId ? { vehicleId } : {}), reading: JSON.stringify({ ...prior, result: x, reasons: decision.reasons, readAt: new Date().toISOString(), tries: (prior.tries ?? 0) + 1, lastError: undefined }) };
+        // Looking for the same docket number and saving happen one docket at a time (tipLock), so two photos of one
+        // docket read side by side (an office batch, or two phones) can't both miss each other.
+        await tipLock(async () => {
+          const fields = tipFields(x);
+          const key = normDocket(fields.docketNo);
+          const earlier = key
+            ? (await prisma.receipt.findMany({ where: { kind: "TIP", id: { not: r.id }, docketNo: { not: null }, status: { not: "REJECTED" }, sentAt: { gte: new Date(Date.now() - 400 * 86_400_000) } }, select: { docketNo: true, sentBy: true, sentAt: true } }))
+                .find((o) => normDocket(o.docketNo) === key)
+            : undefined;
+          // An office batch: the job from the docket's date (batchRules.jobForDocket) - never moves a job already set.
+          const pick = r.officeBatchId && !r.jobId && r.projectId ? await batchJob(r.projectId, x.dateTime) : null;
+          const first = decideTip(x, {
+            sentAt: r.sentAt, asbestosTap: r.asbestos, ourRegos: ctx.regos, officeBatch: !!r.officeBatchId, jobNote: pick?.note ?? null,
+            duplicateOf: earlier ? `by ${earlier.sentBy} on ${earlier.sentAt.toLocaleDateString("en-AU", { timeZone: "Australia/Sydney" })}` : null,
+          });
+          // The docket's rego, when it's one of our trucks, links it to that truck (R3; R4 uses it).
+          const vehicleId = vehicleForRego(fields.rego, ctx.trucks);
+          const tipDecision = await withSender(first, r, { vehicleId: vehicleId ?? r.vehicleId, docketAt: hasClockTime(x.dateTime) ? fields.docketAt : null });
+          const tipData = { ...fields, ...(vehicleId ? { vehicleId } : {}), ...(pick?.jobId ? { jobId: pick.jobId } : {}), reading: JSON.stringify({ ...prior, result: x, reasons: tipDecision.reasons, readAt: new Date().toISOString(), tries: (prior.tries ?? 0) + 1, lastError: undefined }) };
+          await save(r, tipData, tipDecision);
+        });
+        return;
       } else if (r.kind === "PURCHASE") {
         const x = await reader.purchase(photos);
         decision = decidePurchase(x, { sentAt: r.sentAt });
@@ -91,11 +129,7 @@ export async function readReceipt(id: string, reader: Reader = claudeReader): Pr
         decision = await withSender(decision, r, { vehicleId: r.vehicleId, docketAt: hasClockTime(x.dateTime) ? fuel.docketAt : null });
         data = { ...fuel, reading: JSON.stringify({ ...prior, result: x, reasons: decision.reasons, readAt: new Date().toISOString(), tries: (prior.tries ?? 0) + 1, lastError: undefined }) };
       }
-      const saved = await prisma.receipt.updateMany({ where: { id: r.id, status: "SENT" }, data: { ...data, status: decision.status, checkReasons: JSON.stringify(decision.reasons) } });
-      // A tip docket that now counts may be one an invoice already bills (R3).
-      if (saved.count && r.kind === "TIP" && decision.status === "READ") syncTipMatchesSoon();
-      // "I paid this myself" from a phone: a clean reading becomes the claim for accounts.
-      if (saved.count && r.ownMoney && decision.status === "READ") await claimFromOwnReceipt(r.id);
+      await save(r, data, decision);
     } catch (e) {
       await failed("receipt", r.id, prior, e);
     }

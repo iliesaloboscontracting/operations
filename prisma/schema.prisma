@@ -1775,6 +1775,10 @@ model Receipt {
   // A second docket on the same photo (office "Add another docket from this photo", 27 Oct 2026): the receipt
   // whose photo(s) this one shares - the file isn't copied.
   photoFromReceiptId String?
+  // Office batch upload (20 Nov 2026, Ilies: "we may upload a batch like from whats app"): the ReceiptBatch it came in.
+  // Such a receipt has no phone link - siteLinkId is "office-batch:<batchId>", which no link ever resolves to - and no
+  // sentByResourceId, so it's never on anyone's phone. Null for everything sent from a phone.
+  officeBatchId    String?
   photos           ReceiptPhoto[]
 
   @@index([jobId])
@@ -1782,6 +1786,19 @@ model Receipt {
   @@index([sentAt])
   @@index([siteLinkId])
   @@index([docketNo])
+  @@index([officeBatchId])
+}
+
+// A batch of tip-docket photos the office uploaded for one project (/receipts, Manager+, lib/receipts/batch.ts). Each
+// photo becomes a TIP Receipt (officeBatchId) read like a phone-sent one. Append-only: nothing here is changed or deleted.
+model ReceiptBatch {
+  id          String   @id @default(cuid())
+  projectId   String
+  createdById String // the User who uploaded it
+  createdBy   String // their name then
+  createdAt   DateTime @default(now())
+
+  @@index([createdById, createdAt])
 }
 
 // The odometer photo asked for after signing in on a truck's QR (or "Can't now" - SKIPPED).
@@ -1815,9 +1832,11 @@ model ReceiptPhoto {
   receipt           Receipt?         @relation(fields: [receiptId], references: [id], onDelete: SetNull)
   odometerReadingId String?
   odometerReading   OdometerReading? @relation(fields: [odometerReadingId], references: [id], onDelete: SetNull)
+  sha256            String? // the file's SHA-256 (hex), from 20 Nov 2026 - the same photo uploaded twice is caught by it
 
   @@index([siteLinkId, createdAt])
   @@index([receiptId])
+  @@index([sha256])
 }
 
 // Tip rates (Receipts R3, 26 Oct 2026): the office's rate per tonne ex GST for each tip site and waste

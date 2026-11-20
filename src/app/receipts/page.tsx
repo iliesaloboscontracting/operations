@@ -12,6 +12,7 @@ import ReceiptRow from "@/components/receipts/ReceiptRow";
 import TipRates from "@/components/receipts/TipRates";
 import TipMismatches from "@/components/receipts/TipMismatches";
 import Indicators from "@/components/receipts/Indicators";
+import DocketBatch from "@/components/receipts/DocketBatch";
 import { apiFetch, serverErrorMessage } from "@/lib/apiFetch";
 import type { ReceiptOfficeDTO } from "@/lib/receipts/store";
 
@@ -56,6 +57,7 @@ export default function ReceiptsPage() {
         <button className={tabBtn(tab === "indicators")} onClick={() => setTab("indicators")}>Indicators</button>
       </div>
       {tab === "rates" ? <TipRates isAdmin={isAdmin} /> : tab === "mismatch" ? <TipMismatches /> : tab === "indicators" ? <Indicators /> : (<>
+      <div className="mb-3"><DocketBatch onDone={(m) => { setFlash(m); load(); }} /></div>
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <input type="date" className={select} value={f.day ?? ""} onChange={set("day")} aria-label="Day" />
         <select className={select} value={f.kind ?? ""} onChange={set("kind")} aria-label="Kind">

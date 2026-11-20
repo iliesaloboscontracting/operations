@@ -30,9 +30,12 @@ const LABEL: Record<string, string> = {
   supplier: "shop", receiptNo: "receipt number", gst: "GST",
 };
 
-function common(dateTime: string, unclear: string[], sentAt: Date, rego: string, ourRegos: string[], reasons: string[]) {
+// `uploaded`: an office batch (photos from e.g. a WhatsApp group, loaded days later) - the gap to when it was sent
+// means nothing, but a docket dated after the upload does.
+function common(dateTime: string, unclear: string[], sentAt: Date, rego: string, ourRegos: string[], reasons: string[], uploaded = false) {
   const d = docketDate(dateTime);
-  if (d && Math.abs(d.getTime() - sentAt.getTime()) > 2 * DAY) reasons.push(`Dated ${dateTime.slice(0, 10)} - more than 2 days from when it was sent`);
+  if (d && uploaded && d.getTime() - sentAt.getTime() > DAY) reasons.push(`Dated ${dateTime.slice(0, 10)} - after it was uploaded`);
+  else if (d && !uploaded && Math.abs(d.getTime() - sentAt.getTime()) > 2 * DAY) reasons.push(`Dated ${dateTime.slice(0, 10)} - more than 2 days from when it was sent`);
   const r = normRego(rego);
   if (r && !ourRegos.map(normRego).includes(r)) reasons.push(`Rego ${r} isn't one of our trucks`);
   const shaky = [...new Set(unclear.map((f) => LABEL[f] ?? f))];
@@ -41,7 +44,9 @@ function common(dateTime: string, unclear: string[], sentAt: Date, rego: string,
 
 // Tip docket: docket number, date, tip site, waste type and net tonnes are the key fields; the price
 // isn't (R3 prices it from the tip rate when it's missing).
-export function decideTip(x: TipReading, f: { sentAt: Date; asbestosTap: boolean | null; ourRegos: string[]; duplicateOf: string | null }): Decision {
+// An office batch (f.officeBatch) has no Yes / No tap: asbestos stays unanswered (never defaulted) and the docket waits
+// for a person to say; its job comes from the docket's date (./batchRules.ts) - f.jobNote when that needs a person.
+export function decideTip(x: TipReading, f: { sentAt: Date; asbestosTap: boolean | null; ourRegos: string[]; duplicateOf: string | null; officeBatch?: boolean; jobNote?: string | null }): Decision {
   const reasons: string[] = [];
   if (x.documentType === "fuel_receipt" || x.documentType === "other") reasons.push(x.documentType === "fuel_receipt" ? "Looks like a fuel receipt, not a tip docket" : "Doesn't look like a tip docket");
   const missing = [
@@ -55,7 +60,9 @@ export function decideTip(x: TipReading, f: { sentAt: Date; asbestosTap: boolean
   if (x.wasteType.trim() && f.asbestosTap !== null && ASBESTOS.test(x.wasteType) !== f.asbestosTap) {
     reasons.push(f.asbestosTap ? `Sent as asbestos, but the docket says "${x.wasteType}"` : `The docket says "${x.wasteType}", but it was sent as not asbestos`);
   }
-  common(x.dateTime, x.unclear, f.sentAt, x.rego, f.ourRegos, reasons);
+  if (f.officeBatch && f.asbestosTap === null) reasons.push("Office batch - asbestos yes or no? (say it when you confirm)");
+  if (f.jobNote) reasons.push(f.jobNote);
+  common(x.dateTime, x.unclear, f.sentAt, x.rego, f.ourRegos, reasons, !!f.officeBatch);
   if (x.note.trim()) reasons.push(`Reader's note: ${x.note.trim()}`);
   return { status: reasons.length ? "CHECK" : "READ", reasons };
 }

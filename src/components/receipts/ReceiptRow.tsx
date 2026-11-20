@@ -61,6 +61,8 @@ export default function ReceiptRow({ r, jobs, trucks, onChanged }: { r: ReceiptO
   const [form, setForm] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [projectJobs, setProjectJobs] = useState<{ id: string; label: string }[] | null>(null);
+  const jobChoices = projectJobs ?? jobs;
   const s = STATUS[r.status] ?? { text: r.status, tone: "bg-gray-700 text-gray-300" };
   const read = summary(r);
 
@@ -80,15 +82,18 @@ export default function ReceiptRow({ r, jobs, trucks, onChanged }: { r: ReceiptO
       const v = (r.read as Record<string, unknown>)[fl.key];
       f[fl.key] = fl.kind === "datetime" ? localInput(v as string | null) : v == null ? "" : String(v);
     }
-    if (r.type === "TIP") { f.jobId = r.jobId ?? ""; f.asbestos = r.asbestos ? "yes" : "no"; }
+    // An office-batch docket has no asbestos answer yet: it stays blank until a person picks (never "No" by default).
+    if (r.type === "TIP") { f.jobId = r.jobId ?? ""; f.asbestos = r.asbestos == null ? "" : r.asbestos ? "yes" : "no"; }
     if (r.type === "FUEL") f.vehicleId = r.vehicleId ?? "";
+    // A batch docket can be weeks old: offer its project's jobs (any date), not just the last fortnight's.
+    if (r.batch) apiFetch(`/api/receipts?jobs=1&projectId=${encodeURIComponent(r.batch.projectId)}`).then(async (x) => x.ok && setProjectJobs((await x.json()).jobs));
     setForm(f);
     setEditing(true);
   }
   function saveEdit(confirm: boolean) {
     const fields: Record<string, unknown> = {};
     for (const fl of FIELDS[r.type]) fields[fl.key] = form[fl.key];
-    if (r.type === "TIP") { if (form.jobId) fields.jobId = form.jobId; fields.asbestos = form.asbestos === "yes"; }
+    if (r.type === "TIP") { if (form.jobId) fields.jobId = form.jobId; if (form.asbestos) fields.asbestos = form.asbestos === "yes"; }
     if (r.type === "FUEL" && form.vehicleId) fields.vehicleId = form.vehicleId;
     act({ op: "CORRECT", fields, confirm }, confirm ? "Corrected and confirmed." : "Corrected.");
   }
@@ -109,6 +114,8 @@ export default function ReceiptRow({ r, jobs, trucks, onChanged }: { r: ReceiptO
         <div className="flex flex-wrap items-center gap-2">
           <span className="font-semibold text-gray-100">{r.label}</span>
           {r.asbestos && <span className="rounded-full bg-red-500/20 px-2 py-0.5 text-[11px] font-semibold text-red-300">Asbestos</span>}
+          {r.type === "TIP" && r.asbestos == null && r.status !== "REJECTED" && <span className="rounded-full bg-amber-500/20 px-2 py-0.5 text-[11px] text-amber-300">Asbestos?</span>}
+          {r.batch && <span className="rounded-full bg-violet-500/20 px-2 py-0.5 text-[11px] text-violet-300">Office batch</span>}
           <span className={`rounded-full px-2 py-0.5 text-[11px] ${s.tone}`}>{r.unreadable ? "Couldn't be read" : s.text}</span>
           {r.onInvoice && <span className="rounded-full bg-sky-500/20 px-2 py-0.5 text-[11px] text-sky-300">On a tip invoice</span>}
         </div>
@@ -123,7 +130,7 @@ export default function ReceiptRow({ r, jobs, trucks, onChanged }: { r: ReceiptO
         {r.rejected && <div className="mt-1 text-xs text-red-300">Set aside by {r.rejected.by}: {r.rejected.reason}</div>}
         {r.added && <div className="text-xs text-sky-300">Added by {r.added.by} from another docket&apos;s photo</div>}
         <div className="text-xs text-gray-500">
-          {r.sentBy} · {when(r.sentAt)}
+          {r.batch ? `Office batch - ${r.batch.by}` : r.sentBy} · {when(r.sentAt)}
           {r.corrections.length > 0 && ` · corrected by ${[...new Set(r.corrections.map((c) => c.by))].join(", ")} (${r.corrections.length} change${r.corrections.length === 1 ? "" : "s"})`}
         </div>
 
@@ -135,7 +142,8 @@ export default function ReceiptRow({ r, jobs, trucks, onChanged }: { r: ReceiptO
                   {/* A docket for a site not running that day has no job (SEC-001): it shows as it is, and saving it
                       unchanged leaves it on the project with no job. */}
                   {!r.jobId && <option value="">{r.for}</option>}
-                  {jobs.map((j) => <option key={j.id} value={j.id}>{j.label}</option>)}
+                  {r.jobId && !jobChoices.some((j) => j.id === r.jobId) && <option value={r.jobId}>{r.for}</option>}
+                  {jobChoices.map((j) => <option key={j.id} value={j.id}>{j.label}</option>)}
                 </select>
               </label>
             )}
@@ -155,6 +163,7 @@ export default function ReceiptRow({ r, jobs, trucks, onChanged }: { r: ReceiptO
             {r.type === "TIP" && (
               <label className="text-xs text-gray-400">Asbestos
                 <select className={input} value={form.asbestos} onChange={(e) => setForm({ ...form, asbestos: e.target.value })}>
+                  {form.asbestos === "" && <option value="">Yes or no?</option>}
                   <option value="no">No</option><option value="yes">Yes</option>
                 </select>
               </label>
