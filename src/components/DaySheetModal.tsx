@@ -212,10 +212,10 @@ export default function DaySheetModal({
         )}
 
         {clean && mail.mode !== "FULL" && !notice && (
-          <div className="border-t border-edge px-5 py-2.5 text-xs text-amber-500" data-testid="sheet-email-hint">
+          <div className="border-t border-edge px-5 py-2 text-xs text-amber-500" data-testid="sheet-email-hint">
             {mail.mode === "NO_BODY"
-              ? "Open in email: the sheet is too long to go in the email link - Outlook opens with the To line and subject, and the sheet is copied for you to paste into the body."
-              : "Open in email: the email list is too long for an email link - Outlook opens with the subject only, and the addresses are copied for you to paste into To."}
+              ? "Sheet too long for an email link: Outlook opens with To and subject, and the sheet is copied - paste it into the body."
+              : "Email list too long for an email link: Outlook opens with the subject only, and the addresses are copied - paste them into To."}
           </div>
         )}
 

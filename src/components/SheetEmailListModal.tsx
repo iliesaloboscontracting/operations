@@ -59,7 +59,8 @@ export default function SheetEmailListModal({ onClose, onChanged }: { onClose: (
     const r = await post({ action: "add", text: paste });
     if (!r.ok) { setResult({ ok: false, text: r.error }); return; }
     setResult({ ok: r.body.invalid?.length === 0, text: r.body.message });
-    if (paste === text) setText("");
+    // The ones that weren't valid stay in the box to fix; everything else is cleared.
+    if (paste === text) setText((r.body.invalid ?? []).join("\n"));
     await load();
   }
 
