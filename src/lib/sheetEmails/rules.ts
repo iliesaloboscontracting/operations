@@ -32,9 +32,10 @@ export function isValidEmail(email: string): boolean {
   return local.length <= 64 && LOCAL.test(local) && DOMAIN.test(domain);
 }
 
-// Invisible / control characters out (a newline stays - it separates addresses), then trimmed.
+// Invisible / control characters out, then trimmed. A newline stays (it separates addresses), and so does a tab (it
+// separates a name from its address when two spreadsheet columns are pasted).
 const clean = (s: string) =>
-  s.replace(/[\r\n]+/g, "\n").replace(/\t/g, " ").replace(/[\p{Cc}\p{Cf}]/gu, (c) => (c === "\n" ? c : "")).trim();
+  s.replace(/[\r\n]+/g, "\n").replace(/[\p{Cc}\p{Cf}]/gu, (c) => (c === "\n" || c === "\t" ? c : "")).trim();
 
 export function tidyLabel(raw: string | null | undefined): string | null {
   const s = clean(raw ?? "").replace(/^["'\s]+|["'\s]+$/g, "").replace(/\s+/g, " ").slice(0, MAX_LABEL).trim();
@@ -47,7 +48,7 @@ export function tidyReason(raw: unknown): string | null {
   return s || null;
 }
 
-export type ParsedEmail ={ email: string; label: string | null };
+export type ParsedEmail = { email: string; label: string | null };
 export type ParsedBlock = {
   entries: ParsedEmail[]; // valid, lower-cased, each address once (the first one pasted wins), in the order pasted
   repeated: number; // valid addresses pasted more than once (the extra copies)
@@ -76,14 +77,16 @@ export function parseEmailBlock(text: unknown): ParsedBlock {
     const named = /^(.*?)<([^<>]*)>$/.exec(piece);
     let label = named ? tidyLabel(named[1]) : null;
     let email = (named ? named[2] : piece).trim().replace(/^mailto:/i, "").toLowerCase();
-    // A name and an address side by side ("Joe Bloggs joe@example.com", or two spreadsheet columns): exactly one
-    // word holds an @ and it is a valid address - that's the address, the rest is the name.
-    if (!named && /\s/.test(email)) {
-      const words = piece.split(/\s+/);
-      const withAt = words.filter((w) => w.includes("@"));
-      if (withAt.length === 1 && isValidEmail(withAt[0].replace(/^mailto:/i, "").toLowerCase())) {
-        email = withAt[0].replace(/^mailto:/i, "").toLowerCase();
-        label = tidyLabel(words.filter((w) => w !== withAt[0]).join(" "));
+    // A name and an address in two spreadsheet columns (a tab between): exactly one column holds an @ and it is a
+    // valid address - that's the address, the rest is the name. Only a tab counts: "joe smith@example.com" (a space
+    // typed inside an address) is refused, never read as smith@example.com.
+    if (!named && piece.includes("\t")) {
+      const cells = piece.split(/\t+/).map((w) => w.trim()).filter(Boolean);
+      const withAt = cells.filter((w) => w.includes("@"));
+      const cand = withAt.length === 1 ? withAt[0].replace(/^mailto:/i, "").toLowerCase() : "";
+      if (isValidEmail(cand)) {
+        email = cand;
+        label = tidyLabel(cells.filter((w) => w !== withAt[0]).join(" "));
       }
     }
     if (!isValidEmail(email)) {

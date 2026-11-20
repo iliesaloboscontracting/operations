@@ -41,9 +41,10 @@ test("parseEmailBlock: names are kept as labels, Outlook style and side by side"
 
 test("parseEmailBlock: invalid entries are named back; hidden characters stripped", () => {
   const zw = String.fromCharCode(0x200b);
-  const r = parseEmailBlock(`good@example.com\nnot-an-email\nbad@\nzero${zw}width@example.com\ntwo@ats@example.com`);
+  const r = parseEmailBlock(`good@example.com\nnot-an-email\nbad@\nzero${zw}width@example.com\ntwo@ats@example.com\njoe smith@example.com\nJoe\ta@example.com\tb@example.com`);
   assert.deepEqual(r.entries.map((e) => e.email), ["good@example.com", "zerowidth@example.com"]);
-  assert.deepEqual(r.invalid, ["not-an-email", "bad@", "two@ats@example.com"]);
+  // A space typed inside an address is refused (never read as smith@...); two addresses in one row are refused.
+  assert.deepEqual(r.invalid, ["not-an-email", "bad@", "two@ats@example.com", "joe smith@example.com", "Joe\ta@example.com\tb@example.com"]);
 });
 
 test("parseEmailBlock: too much at once reads nothing; not text reads nothing", () => {
