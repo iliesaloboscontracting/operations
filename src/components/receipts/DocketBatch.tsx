@@ -1,14 +1,13 @@
 "use client";
 
 // "Upload a batch of dockets" on /receipts (20 Nov 2026, Ilies: "we may upload a batch like from whats app"): pick the
-// project, pick many photos, and they go up one at a time (7 MB each), each with its own progress; a failed one can be
+// project, pick many photos, and they go up one at a time (3.5 MB each - bigger ones are shrunk here), each with its own progress; a failed one can be
 // tried again. Each photo becomes a tip docket read like a phone-sent one; its job comes from the date read off it.
 // The same photo twice is refused by the server; a docket number already in is flagged To check. Manager+.
 import { useEffect, useRef, useState } from "react";
 import ProjectSelect from "@/components/ProjectSelect";
 import { apiFetch, serverErrorMessage } from "@/lib/apiFetch";
 import { resizePhoto } from "@/lib/imageResize";
-import { UPLOAD_FILE_MAX } from "@/lib/uploadLimits";
 import { BATCH_LIMITS } from "@/lib/receipts/batchRules";
 import type { PickerProject } from "@/lib/projectPicker";
 
@@ -25,6 +24,29 @@ const asDataUrl = (f: File) => new Promise<string>((resolve, reject) => {
   r.onerror = () => reject(new Error("Couldn't open the file."));
   r.readAsDataURL(f);
 });
+
+// "None of this batch is asbestos" (Ilies, option b): sets not-asbestos on the batch's unanswered dockets only, kept
+// with who and when; confirms nothing. Also on each batch docket's row (ReceiptRow).
+export function NoAsbestosButton({ batchId, onDone }: { batchId: string; onDone: (msg: string) => void }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  async function go() {
+    if (!confirm("None of the dockets in this batch are asbestos?\n\nDockets someone already answered stay as they are. Nothing is confirmed - each docket still needs confirming.")) return;
+    setBusy(true);
+    setError(null);
+    const r = await apiFetch(`/api/receipts/batches/${batchId}/no-asbestos`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+    setBusy(false);
+    if (!r.ok) return setError(await serverErrorMessage(r, "Couldn't save."));
+    const { changed } = await r.json();
+    onDone(`Not asbestos: ${changed} docket${changed === 1 ? "" : "s"} in the batch. Each one still needs confirming.`);
+  }
+  return (
+    <>
+      <button className={quiet} disabled={busy} onClick={go}>None of this batch is asbestos</button>
+      {error && <span className="text-xs text-red-400">{error}</span>}
+    </>
+  );
+}
 
 export default function DocketBatch({ onDone }: { onDone: (msg: string) => void }) {
   const [open, setOpen] = useState(false);
@@ -55,8 +77,8 @@ export default function DocketBatch({ onDone }: { onDone: (msg: string) => void 
   async function sendOne(item: Item, batchId: string): Promise<Item> {
     try {
       let dataUrl = await asDataUrl(item.file);
-      // Sent as it is (so the same photo is always the same bytes); only a photo over 7 MB is shrunk first.
-      if (item.file.size > UPLOAD_FILE_MAX) dataUrl = await resizePhoto(item.file, 2400, 0.9);
+      // Sent as it is (so the same photo is always the same bytes); only a photo over 3.5 MB is shrunk first (DB-004).
+      if (item.file.size > BATCH_LIMITS.photoMaxBytes) dataUrl = await resizePhoto(item.file, 2400, 0.9);
       const r = await apiFetch(`/api/receipts/batches/${batchId}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dataUrl }) });
       if (r.ok) return { ...item, state: "done", note: undefined };
       const msg = await serverErrorMessage(r, "Couldn't send it.");
@@ -112,6 +134,7 @@ export default function DocketBatch({ onDone }: { onDone: (msg: string) => void 
         <button className={btn} disabled={busy || !items.some((i) => i.state === "waiting" || i.state === "failed")} onClick={start}>
           {busy ? "Uploading..." : counts.failed && !counts.waiting ? `Try the ${counts.failed} again` : `Upload ${counts.waiting + counts.failed || ""} photo${counts.waiting + counts.failed === 1 ? "" : "s"}`}
         </button>
+        {batch && !busy && counts.done > 0 && <NoAsbestosButton batchId={batch.id} onDone={onDone} />}
         {batch && !busy && <button className={quiet} onClick={reset}>New batch</button>}
       </div>
       {error && <p className="mt-2 text-xs text-red-400">{error}</p>}

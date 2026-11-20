@@ -115,13 +115,13 @@ export async function receiptAction(who: Who, id: string, body: Record<string, u
 
 // Confirming a tip docket (20 Nov 2026, office batch upload). A docket with no asbestos answer - an office batch has no
 // Yes / No tap - can't be confirmed until a person says (it's never taken as "No"). Phone dockets always have the tap,
-// so for them nothing changes. An office-batch docket whose number is already in at the same tip site (on a receipt
-// not set aside) can't be confirmed either - it would count twice in tip costs; set one of the two aside.
+// so for them nothing changes. A tip docket - phone or batch (DB-001) - whose number is already counted (read or
+// confirmed) at the same tip site can't be confirmed either - it would count twice in tip costs; set one aside.
 type TipRow = { id: string; kind: string; asbestos: boolean | null; officeBatchId: string | null; docketNo: string | null; tipSite: string | null };
 async function confirmBlocked(r: TipRow): Promise<Problem | null> {
   if (r.kind !== "TIP") return null;
   if (r.asbestos === null) return { error: "Say whether it's asbestos first (Correct -> Asbestos), then confirm.", status: 400 };
-  if (!r.officeBatchId || !normDocket(r.docketNo)) return null;
+  if (!normDocket(r.docketNo)) return null;
   const key = normDocket(r.docketNo), site = siteKey(r.tipSite);
   // Only one that already counts (read or confirmed): the first of two photos of one docket can still be confirmed.
   const same = (await prisma.receipt.findMany({ where: { kind: "TIP", id: { not: r.id }, status: { in: ["READ", "CONFIRMED"] }, docketNo: { not: null } }, select: { docketNo: true, tipSite: true, sentBy: true } }))
@@ -163,6 +163,8 @@ async function addDocketFromPhoto(
   const missing = [!fields.tipSite && "tip site", !fields.docketNo && "docket number", !fields.docketAt && "date and time", !(fields.tonnes != null && fields.tonnes > 0) && "tonnes"].filter(Boolean);
   if (fields.docketAt === undefined || fields.tonnes === undefined) return { error: "Check the date and the tonnes - they don't look right.", status: 400 };
   if (missing.length) return { error: `Fill in the ${missing.join(", ")}.`, status: 400 };
+  // DB-003: from an office-batch photo there was never a Yes / No tap - a person must say (never guessed from the words).
+  if (src.officeBatchId && f.asbestos !== true && f.asbestos !== false) return { error: "Say whether it's asbestos.", status: 400 };
   const job = typeof f.jobId === "string" && f.jobId ? await prisma.job.findFirst({ where: { id: f.jobId, cancelledAt: null }, select: { id: true, projectId: true } }) : null;
   // No job picked, from a docket for a site not running that day (project, no job): the new one goes on that same
   // project with no job (SEC-001). Otherwise a job is needed.

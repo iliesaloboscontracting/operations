@@ -2,19 +2,21 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCurrentUser, guard } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { readJsonBody } from "@/lib/jsonBody";
-import { NEXT_BODY_LIMIT, UPLOAD_TOO_LARGE } from "@/lib/uploadLimits";
 import { addBatchPhoto } from "@/lib/receipts/batch";
+import { BATCH_BODY_MAX } from "@/lib/receipts/batchRules";
 
-// POST /api/receipts/batches/:id { dataUrl } -> { id }: one photo of the batch (one per request, 7 MB a file) becomes a
-// TIP receipt, read in the background like a phone-sent docket. Only the batch's own uploader, while it's open.
-// 409 = the same photo is already in; 429 = a cap. Manager+.
+const TOO_LARGE = "Too large (3.5 MB per photo) - the page shrinks bigger photos; try again.";
+
+// POST /api/receipts/batches/:id { dataUrl } -> { id }: one photo of the batch (one per request, 3.5 MB at most -
+// DB-004) becomes a TIP receipt, read in the background like a phone-sent docket. Only the batch's own uploader, while
+// it's open. 409 = the same photo is already in; 429 = a cap. Manager+.
 export const POST = withErrorHandling(async (req: NextRequest, { params: paramsP }: { params: Promise<{ id: string }> }) => {
   const denied = await guard("MANAGER");
   if (denied) return denied;
   const user = (await getCurrentUser())!;
   // The size is checked before the body is read.
-  if (Number(req.headers.get("content-length") ?? 0) > NEXT_BODY_LIMIT) return NextResponse.json({ error: UPLOAD_TOO_LARGE }, { status: 413 });
-  const read = await readJsonBody(req, UPLOAD_TOO_LARGE);
+  if (Number(req.headers.get("content-length") ?? 0) > BATCH_BODY_MAX) return NextResponse.json({ error: TOO_LARGE }, { status: 413 });
+  const read = await readJsonBody(req, TOO_LARGE);
   if ("denied" in read) return read.denied;
   const out = await addBatchPhoto({ id: user.id, name: user.name }, (await paramsP).id, read.b);
   if ("error" in out) return NextResponse.json({ error: out.error }, { status: out.status });

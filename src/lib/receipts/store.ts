@@ -329,7 +329,8 @@ export async function officeList(f: ReceiptFilters): Promise<{ rows: ReceiptOffi
       read: r.kind === "TIP"
         ? { docketNo: r.docketNo, docketAt: iso(r.docketAt), tipSite: r.tipSite, wasteType: r.wasteType, tonnes: r.tonnes, priceExGst: r.priceExGst, priceIncGst: r.priceIncGst, rego: r.rego }
         : { litres: r.litres, pricePerLitre: r.pricePerLitre, fuelTotal: r.fuelTotal, station: r.station, docketAt: iso(r.docketAt), rego: r.rego },
-      ...extra(r.status, r.reading, reasonsOf(r.checkReasons)), onInvoice: !!r.invoicedCostId,
+      // The batch's "asbestos yes or no?" note goes once someone has answered it (on the docket or for the whole batch).
+      ...extra(r.status, r.reading, reasonsOf(r.checkReasons).filter((x) => r.asbestos === null || !/^Office batch - asbestos/.test(x))), onInvoice: !!r.invoicedCostId,
       batch: batchOf(r.officeBatchId),
     })),
     ...readings.map((r) => ({

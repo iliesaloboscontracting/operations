@@ -6,7 +6,11 @@ export const BATCH_LIMITS = {
   photosPerBatch: 100, // one batch = one project's export; more is a second batch
   photosPerUserPerDay: 300, // one login, 24 hours (a phone link: 60 photos) - Draft
   batchOpenHours: 24, // photos are added to a batch the same session; after a day start a new one
+  // DB-004: one photo at most 3.5 MB - the browser shrinks anything bigger first (a docket reads fine at 2400 px).
+  photoMaxBytes: Math.round(3.5 * 1024 * 1024),
 };
+// The most a request carrying one photo can be: base64 is 4/3 the bytes, plus the JSON around it.
+export const BATCH_BODY_MAX = Math.ceil((BATCH_LIMITS.photoMaxBytes * 4) / 3) + 8192;
 
 // The marker in Receipt.siteLinkId for an office batch: never a SiteLink id (those are cuids), so resolveLink /
 // resolveReceiptLink - which look links up by their secret - can never land on it.

@@ -6,6 +6,7 @@
 import { useState } from "react";
 import { apiFetch, serverErrorMessage } from "@/lib/apiFetch";
 import type { ReceiptOfficeDTO } from "@/lib/receipts/store";
+import { NoAsbestosButton } from "@/components/receipts/DocketBatch";
 
 const STATUS: Record<string, { text: string; tone: string }> = {
   SENT: { text: "Not read yet", tone: "bg-gray-700 text-gray-300" },
@@ -185,8 +186,9 @@ export default function ReceiptRow({ r, jobs, trucks, onChanged }: { r: ReceiptO
               <button className={quiet} disabled={busy} onClick={() => { const reason = prompt("Why is it being set aside? (e.g. duplicate photo, not ours)"); if (reason) act({ op: "REJECT", reason }, "Set aside."); }}>Set aside</button>
             )}
             {r.type !== "ODOMETER" && r.photoIds.length > 0 && !adding && (
-              <button className={quiet} disabled={busy} onClick={() => { setDocket({ ...docket, jobId: r.type === "TIP" ? r.jobId ?? "" : "" }); setAdding(true); }}>Add another docket from this photo</button>
+              <button className={quiet} disabled={busy} onClick={() => { setDocket({ ...docket, jobId: r.type === "TIP" ? r.jobId ?? "" : "", asbestos: r.batch ? "" : "no" }); setAdding(true); }}>Add another docket from this photo</button>
             )}
+            {r.batch && r.type === "TIP" && r.asbestos == null && r.status !== "REJECTED" && <NoAsbestosButton batchId={r.batch.id} onDone={onChanged} />}
           </div>
         )}
         {adding && (
@@ -205,10 +207,14 @@ export default function ReceiptRow({ r, jobs, trucks, onChanged }: { r: ReceiptO
               </label>
             ))}
             <label className="text-xs text-gray-400">Asbestos
-              <select className={input} value={docket.asbestos} onChange={(e) => setDocket({ ...docket, asbestos: e.target.value })}><option value="no">No</option><option value="yes">Yes</option></select>
+              <select className={input} value={docket.asbestos} onChange={(e) => setDocket({ ...docket, asbestos: e.target.value })}>
+                {docket.asbestos === "" && <option value="">Yes or no?</option>}
+                <option value="no">No</option><option value="yes">Yes</option>
+              </select>
             </label>
             <div className="flex flex-wrap gap-2 sm:col-span-2">
-              <button className={btn} disabled={busy} onClick={() => act({ op: "ADD_DOCKET", fields: { ...docket, asbestos: docket.asbestos === "yes" } }, "Second docket added and confirmed.")}>Add docket</button>
+              {/* DB-003: from a batch photo it starts blank and is only sent once chosen - the server asks otherwise. */}
+              <button className={btn} disabled={busy} onClick={() => { const { asbestos, ...rest } = docket; act({ op: "ADD_DOCKET", fields: { ...rest, ...(asbestos ? { asbestos: asbestos === "yes" } : {}) } }, "Second docket added and confirmed."); }}>Add docket</button>
               <button className={quiet} disabled={busy} onClick={() => setAdding(false)}>Cancel</button>
             </div>
           </div>

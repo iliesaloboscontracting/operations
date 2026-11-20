@@ -4,15 +4,26 @@
 // ./batchRules.ts. Nothing from a batch is ever on a phone link: no sentByResourceId, a siteLinkId no link resolves to,
 // and the daily log's docket count leaves batches out. Append-only - REJECT on /receipts is the only way to set one aside.
 import { prisma } from "../prisma";
-import { UPLOAD_FILE_MAX } from "../uploadLimits";
 import { checkReceiptPhoto, writeReceiptPhoto } from "./files";
 import { BATCH_LIMITS, batchLinkMarker, capProblem, samePhotoProblem } from "./batchRules";
-import { MAX_TRIES, logOf, readReceipt, readingEnabled } from "./runner";
+import { dueReceipts, logOf, readReceipt, readingEnabled } from "./runner";
 
 type Problem = { error: string; status: number };
 type Who = { id: string; name: string };
 const ID = /^[a-z0-9]{20,40}$/;
 const dayAgo = () => new Date(Date.now() - 86_400_000);
+
+// DB-002 / DB-005: shared by every route bundle on this server (globalThis), like media/protocol.ts.
+const shared = globalThis as unknown as { __receiptBatchChain?: Promise<unknown>; __receiptBatchLooping?: boolean };
+shared.__receiptBatchChain ??= Promise.resolve();
+shared.__receiptBatchLooping ??= false;
+// One photo at a time on this server from "count the caps / look for the same photo" to "receipt made", so a burst
+// of parallel uploads can't all slip under a cap (DB-005).
+function serial<T>(f: () => Promise<T>): Promise<T> {
+  const run = (shared.__receiptBatchChain ?? Promise.resolve()).then(f, f);
+  shared.__receiptBatchChain = run.catch(() => undefined);
+  return run;
+}
 
 export async function createBatch(who: Who, body: Record<string, unknown>): Promise<{ id: string; project: string } | Problem> {
   const projectId = typeof body.projectId === "string" && ID.test(body.projectId) ? body.projectId : null;
@@ -34,47 +45,67 @@ export async function addBatchPhoto(who: Who, batchId: string, body: Record<stri
   // Only its own uploader adds to a batch, and only while it's open.
   if (!batch || batch.createdById !== who.id) return { error: "Not found", status: 404 };
   if (Date.now() - batch.createdAt.getTime() > BATCH_LIMITS.batchOpenHours * 3_600_000) return { error: "That batch is closed - start a new one.", status: 409 };
-  const cap = capProblem({ inBatch: await prisma.receipt.count({ where: { officeBatchId: batch.id } }), userToday: await userToday(who.id) });
-  if (cap) return { error: cap, status: 429 };
-  const photo = checkReceiptPhoto(body.dataUrl, UPLOAD_FILE_MAX);
+  // Checked before the queue (no database): type by its bytes, at most 3.5 MB (DB-004).
+  const photo = checkReceiptPhoto(body.dataUrl, BATCH_LIMITS.photoMaxBytes);
   if ("error" in photo) return { error: photo.error, status: 400 };
-  // The same photo (same bytes) already in, on a receipt that isn't set aside -> refused, nothing written.
-  const earlier = await prisma.receiptPhoto.findMany({ where: { sha256: photo.sha256, receiptId: { not: null } }, select: { createdAt: true, receipt: { select: { status: true, sentBy: true } } }, orderBy: { createdAt: "asc" } });
-  const live = earlier.find((p) => p.receipt && p.receipt.status !== "REJECTED");
-  const same = samePhotoProblem(live?.receipt ? { receiptStatus: live.receipt.status, sentBy: live.receipt.sentBy, at: live.createdAt } : null);
-  if (same) return { error: same, status: 409 };
-  const fileName = await writeReceiptPhoto(photo);
-  const r = await prisma.receipt.create({
-    data: {
-      kind: "TIP", siteLinkId: batchLinkMarker(batch.id), sentBy: who.name, sentByResourceId: null, officeBatchId: batch.id,
-      projectId: batch.projectId, jobId: null, asbestos: null, // no tap in a batch - never defaulted (decided on /receipts)
-      photos: { create: [{ fileName, siteLinkId: null, takenBy: who.name, sha256: photo.sha256 }] },
-    },
+  const out = await serial(async (): Promise<{ id: string } | Problem> => {
+    const cap = capProblem({ inBatch: await prisma.receipt.count({ where: { officeBatchId: batch.id } }), userToday: await userToday(who.id) });
+    if (cap) return { error: cap, status: 429 };
+    // The same photo (same bytes) already in, on a receipt that isn't set aside -> refused, nothing written.
+    const earlier = await prisma.receiptPhoto.findMany({ where: { sha256: photo.sha256, receiptId: { not: null } }, select: { createdAt: true, receipt: { select: { status: true, sentBy: true } } }, orderBy: { createdAt: "asc" } });
+    const live = earlier.find((p) => p.receipt && p.receipt.status !== "REJECTED");
+    const same = samePhotoProblem(live?.receipt ? { receiptStatus: live.receipt.status, sentBy: live.receipt.sentBy, at: live.createdAt } : null);
+    if (same) return { error: same, status: 409 };
+    const fileName = await writeReceiptPhoto(photo);
+    const r = await prisma.receipt.create({
+      data: {
+        kind: "TIP", siteLinkId: batchLinkMarker(batch.id), sentBy: who.name, sentByResourceId: null, officeBatchId: batch.id,
+        projectId: batch.projectId, jobId: null, asbestos: null, // no tap in a batch - never defaulted (decided on /receipts)
+        photos: { create: [{ fileName, siteLinkId: null, takenBy: who.name, sha256: photo.sha256 }] },
+      },
+    });
+    return { id: r.id };
   });
-  readBatchSoon();
-  return { id: r.id };
+  if ("id" in out) readBatchSoon();
+  return out;
 }
 
-// The batch's photos are read one at a time (not 100 at once): one loop per server, oldest first. The one-minute tick
-// (runner.readWaiting) also picks up anything waiting; the duplicate check is safe either way (runner's tip lock).
-let looping = false;
+// Asbestos option (b), Ilies 20 Nov 2026: "None of this batch is asbestos". Any Manager / Admin (an office colleague
+// may finish someone else's batch). Sets asbestos = false only on the batch's dockets still unanswered and not set
+// aside - never one a person already answered - and keeps who / when / how many (ReceiptBatchEvent, append-only).
+// Confirms nothing: each docket still goes through the normal confirm; a single one can still be changed afterwards.
+export async function noAsbestosForBatch(who: Who, batchId: string): Promise<{ ok: true; changed: number } | Problem> {
+  const batch = ID.test(batchId) ? await prisma.receiptBatch.findUnique({ where: { id: batchId }, select: { id: true } }) : null;
+  if (!batch) return { error: "Not found", status: 404 };
+  const changed = await prisma.$transaction(async (tx) => {
+    const n = await tx.receipt.updateMany({ where: { officeBatchId: batch.id, kind: "TIP", asbestos: null, status: { not: "REJECTED" } }, data: { asbestos: false } });
+    await tx.receiptBatchEvent.create({ data: { batchId: batch.id, action: "NO_ASBESTOS", by: who.name, byId: who.id, count: n.count } });
+    return n.count;
+  });
+  return { ok: true, changed };
+}
+
+// The batch's photos are read one at a time (not 100 at once): one loop per server (the flag is on globalThis, so the
+// route bundles share it), oldest first, paging past ones that used up their tries (DB-004). The one-minute tick
+// (runner.readWaiting) also picks up anything waiting; the duplicate check is safe either way (runner's tip lock, also
+// on globalThis).
 export function readBatchSoon() {
-  if (looping || !readingEnabled()) return;
-  looping = true;
+  if (shared.__receiptBatchLooping || !readingEnabled()) return;
+  shared.__receiptBatchLooping = true;
   (async () => {
     try {
       for (let n = 0; n < 500; n++) {
-        const waiting = await prisma.receipt.findMany({ where: { status: "SENT", officeBatchId: { not: null } }, select: { id: true, reading: true }, orderBy: { sentAt: "asc" }, take: 20 });
-        const next = waiting.find((r) => (logOf(r.reading).tries ?? 0) < MAX_TRIES);
+        const [next] = await dueReceipts({ officeBatchId: { not: null } }, 1);
         if (!next) break;
-        await readReceipt(next.id);
-        const after = await prisma.receipt.findUnique({ where: { id: next.id }, select: { status: true, reading: true } });
-        if (after?.status === "SENT" && (logOf(after.reading).tries ?? 0) === (logOf(next.reading).tries ?? 0)) break; // not read and no try counted (e.g. no key) - the tick tries later
+        const before = await prisma.receipt.findUnique({ where: { id: next }, select: { reading: true } });
+        await readReceipt(next);
+        const after = await prisma.receipt.findUnique({ where: { id: next }, select: { status: true, reading: true } });
+        if (after?.status === "SENT" && (logOf(after.reading).tries ?? 0) === (logOf(before?.reading).tries ?? 0)) break; // not read and no try counted (e.g. no key) - the tick tries later
       }
     } catch (e) {
       console.error("receipts: batch reading", e instanceof Error ? e.message : "failed");
     } finally {
-      looping = false;
+      shared.__receiptBatchLooping = false;
     }
   })();
 }

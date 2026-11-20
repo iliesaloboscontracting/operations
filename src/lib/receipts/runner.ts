@@ -24,7 +24,10 @@ export type ReadingLog = {
 };
 export const logOf = (s: string | null | undefined): ReadingLog => { try { return s ? (JSON.parse(s) as ReadingLog) : {}; } catch { return {}; } };
 
-const inFlight = new Set<string>();
+// DB-002: the "being read" set and the tip lock live on globalThis - every route bundle (the phone link's, /receipts',
+// the batch upload's) and the instrumentation tick load their own copy of this module, and must share one of each.
+const shared = globalThis as unknown as { __receiptInFlight?: Set<string>; __tipChain?: Promise<unknown> };
+const inFlight = (shared.__receiptInFlight ??= new Set<string>());
 
 async function photosOf(rows: { fileName: string }[]): Promise<Photo[]> {
   return Promise.all(rows.map(async (p) => ({ data: await readReceiptPhoto(p.fileName), mime: receiptMimeOf(p.fileName) as Photo["mime"] })));
@@ -64,11 +67,11 @@ async function save(r: { id: string; kind: string; ownMoney: boolean }, data: Re
   if (saved.count && r.ownMoney && decision.status === "READ") await claimFromOwnReceipt(r.id);
 }
 
-// One tip docket at a time between "is this docket number already in?" and saving.
-let tipChain: Promise<unknown> = Promise.resolve();
+// One tip docket at a time between "is this docket number already in?" and saving (on globalThis - DB-002).
+shared.__tipChain ??= Promise.resolve();
 function tipLock<T>(fn: () => Promise<T>): Promise<T> {
-  const run = tipChain.then(fn, fn);
-  tipChain = run.catch(() => undefined);
+  const run = (shared.__tipChain ?? Promise.resolve()).then(fn, fn);
+  shared.__tipChain = run.catch(() => undefined);
   return run;
 }
 
@@ -170,17 +173,36 @@ export const readReceiptSoon = (id: string) => { readReceipt(id).catch(() => und
 export const readOdometerSoon = (id: string) => { readOdometer(id).catch(() => undefined); };
 
 // The one-minute tick: anything still waiting (sent over a minute ago, under 3 tries), a few at a time.
+// DB-004: rows that used up their three tries stay SENT ("couldn't be read") - the search pages past them (oldest
+// first, 40 at a time, at most SCAN_BOUND rows looked at), so a pile of used-up ones never hides a fresh one.
+export const SCAN_BOUND = 500;
+type Row = { id: string; reading: string | null };
+export async function pagedDue(page: (cursor: string | null) => Promise<Row[]>, want: number): Promise<string[]> {
+  const out: string[] = [];
+  let cursor: string | null = null;
+  for (let seen = 0; seen < SCAN_BOUND && out.length < want; ) {
+    const rows = await page(cursor);
+    if (!rows.length) break;
+    seen += rows.length;
+    for (const r of rows) if ((logOf(r.reading).tries ?? 0) < MAX_TRIES && out.length < want) out.push(r.id);
+    cursor = rows[rows.length - 1].id;
+    if (rows.length < 40) break;
+  }
+  return out;
+}
+const pageArgs = (cursor: string | null) => ({ select: { id: true, reading: true }, orderBy: [{ sentAt: "asc" as const }, { id: "asc" as const }], take: 40, ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}) });
+// SENT receipts still under three tries, oldest first. `where` narrows it (e.g. office batches only).
+export const dueReceipts = (where: Record<string, unknown>, want: number) =>
+  pagedDue((cursor) => prisma.receipt.findMany({ where: { ...where, status: "SENT" }, ...pageArgs(cursor) }), want);
+
 export async function readWaiting(reader: Reader = claudeReader, max = 5): Promise<number> {
   if (!readingEnabled()) return 0;
   const before = new Date(Date.now() - 60_000);
   const [receipts, odos] = await Promise.all([
-    prisma.receipt.findMany({ where: { status: "SENT", sentAt: { lt: before } }, select: { id: true, reading: true }, orderBy: { sentAt: "asc" }, take: 40 }),
-    prisma.odometerReading.findMany({ where: { status: "SENT", sentAt: { lt: before } }, select: { id: true, reading: true }, orderBy: { sentAt: "asc" }, take: 40 }),
+    dueReceipts({ sentAt: { lt: before } }, max),
+    pagedDue((cursor) => prisma.odometerReading.findMany({ where: { status: "SENT", sentAt: { lt: before } }, ...pageArgs(cursor) }), max),
   ]);
-  const due = [
-    ...receipts.filter((r) => (logOf(r.reading).tries ?? 0) < MAX_TRIES).map((r) => () => readReceipt(r.id, reader)),
-    ...odos.filter((o) => (logOf(o.reading).tries ?? 0) < MAX_TRIES).map((o) => () => readOdometer(o.id, reader)),
-  ].slice(0, max);
+  const due = [...receipts.map((id) => () => readReceipt(id, reader)), ...odos.map((id) => () => readOdometer(id, reader))].slice(0, max);
   for (const run of due) await run();
   return due.length;
 }

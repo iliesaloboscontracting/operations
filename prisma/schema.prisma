@@ -1801,6 +1801,20 @@ model ReceiptBatch {
   @@index([createdById, createdAt])
 }
 
+// What was done to a whole batch at once (append-only), e.g. NO_ASBESTOS - "None of this batch is asbestos" (Ilies,
+// 20 Nov 2026, option b): who, when, and how many unanswered dockets it set to not asbestos.
+model ReceiptBatchEvent {
+  id      String   @id @default(cuid())
+  batchId String
+  action  String // NO_ASBESTOS
+  by      String // the person's name then
+  byId    String // their User id
+  at      DateTime @default(now())
+  count   Int      @default(0)
+
+  @@index([batchId])
+}
+
 // The odometer photo asked for after signing in on a truck's QR (or "Can't now" - SKIPPED).
 model OdometerReading {
   id               String         @id @default(cuid())

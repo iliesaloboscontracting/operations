@@ -12,7 +12,14 @@
 //       To check with "already sent"; tip costs (tipDocketsByProject) count each docket number once; CONFIRM needs the
 //       asbestos answer, and a duplicate can't be confirmed into the costs;
 //   (6) nothing from a batch reaches a site link (the supervisor's My receipts, the daily log's docket count), no $.
-// WRITES on the test copy: a project with two jobs, a supervisor link, one phone docket, two batches with 6 photos.
+// Security review fixes (Ilies approved 20 Nov 2026, "approve DB-001 to DB-005 ... b"):
+//   (7) DB-001 the "already counted" confirm check holds for phone and batch dockets, either order;
+//   (8) DB-003 another docket from a batch photo needs the asbestos answer;
+//   (9) option b "None of this batch is asbestos": Manager+ only, unanswered + not set aside only, kept, confirms nothing;
+//   (10) DB-004 a 4 MB photo refused; used-up SENT rows don't hide a fresh one;
+//   (11) DB-005 ten parallel photos into a batch of 95 stop at 100.
+// WRITES on the test copy: a project with two jobs, a supervisor link, phone and batch dockets, four batches (one with 95
+// set-aside rows, one with 25 used-up rows).
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -159,6 +166,91 @@ export default {
       t.ok(new Set(list).size === list.length && list.filter((x) => x === norm(`RC96-${tag}-D`)).length === 1, "tipDocketsByProject (what Tracking adds) had no docket twice after reading", JSON.stringify(list));
     }
     t.ok(phone.id && (await get(phone.id))?.status === "READ", "the phone docket is untouched");
+
+    // (7) DB-001: the "already counted" check holds for every tip confirm, phone or batch, in either order.
+    const marker = `office-batch:${b2.body.id}`;
+    const tipRow = (data) => db.receipt.create({ data: { kind: "TIP", projectId: project.id, asbestos: false, status: "CHECK", tipSite: "Release Check Tip", tonnes: 4, docketAt: new Date(`${earlier}T02:00:00.000Z`), ...data } });
+    const asPhone = { siteLinkId: supLink.id, sentBy: sup.name, sentByResourceId: sup.id, jobId: jobEarlier.id };
+    const asBatch = { siteLinkId: marker, sentBy: "Release check office", officeBatchId: b2.body.id };
+    const e1 = await tipRow({ ...asBatch, docketNo: `RC96-${tag}-X1` }), p1 = await tipRow({ ...asPhone, docketNo: `rc96 ${tag} x1` });
+    t.status(await c.post(`/api/receipts/${e1.id}`, "MANAGER", { op: "CONFIRM" }), 200, "DB-001: a batch docket is confirmed");
+    t.status(await c.post(`/api/receipts/${p1.id}`, "MANAGER", { op: "CONFIRM" }), 409, "DB-001: then a phone docket with the same number + tip site can't be confirmed");
+    const p2 = await tipRow({ ...asPhone, docketNo: `RC96-${tag}-X2` }), e2 = await tipRow({ ...asBatch, docketNo: `RC96-${tag}-X2` });
+    t.status(await c.post(`/api/receipts/${p2.id}`, "MANAGER", { op: "CONFIRM" }), 200, "DB-001: a phone docket is confirmed");
+    t.status(await c.post(`/api/receipts/${e2.id}`, "MANAGER", { op: "CONFIRM" }), 409, "DB-001: then the batch docket with the same number + tip site can't be");
+    const p3 = await tipRow({ ...asPhone, docketNo: `RC96-${tag}-X3` }), p4 = await tipRow({ ...asPhone, docketNo: `RC96-${tag}-X3` });
+    t.status(await c.post(`/api/receipts/${p3.id}`, "MANAGER", { op: "CONFIRM" }), 200, "DB-001: two phone dockets, one number: the first confirms");
+    t.status(await c.post(`/api/receipts/${p4.id}`, "MANAGER", { op: "CONFIRM" }), 409, "DB-001: ...the second can't (phone dockets are covered too)");
+
+    // (8) DB-003: another docket from a batch photo needs the asbestos answer.
+    const extra = { jobId: jobToday.id, tipSite: "Release Check Tip", docketNo: `RC96-${tag}-EXTRA`, docketAt: `${today}T10:00`, wasteType: "Mixed C&D", tonnes: 3.1, rego: "" };
+    const noAns = await c.post(`/api/receipts/${ids.B}`, "MANAGER", { op: "ADD_DOCKET", fields: extra });
+    t.ok(noAns.status === 400 && /asbestos/.test((await noAns.json().catch(() => ({}))).error ?? ""), "DB-003: no asbestos answer -> 400", `${noAns.status}`);
+    const withAns = await c.post(`/api/receipts/${ids.B}`, "MANAGER", { op: "ADD_DOCKET", fields: { ...extra, asbestos: false } });
+    const wa = await withAns.json().catch(() => ({}));
+    const added = wa.id ? await get(wa.id) : null;
+    t.ok(withAns.status === 200 && added?.status === "CONFIRMED" && added.asbestos === false && added.officeBatchId === b1.body.id, "DB-003: 'not asbestos' -> CONFIRMED, asbestos false, still the office batch", `${withAns.status}`);
+
+    // (9) Option b: "None of this batch is asbestos".
+    await c.post(`/api/receipts/${ids.C}`, "MANAGER", { op: "CORRECT", fields: { asbestos: true } }); // someone answered C: yes
+    await c.post(`/api/receipts/${ids.A2}`, "MANAGER", { op: "REJECT", reason: "Release check - same docket twice" });
+    for (const role of ["VIEWER", "COORDINATOR", "YARD", "ACCOUNTS", "TIMESHEETS", "DIRECTOR"]) {
+      if (!c.users[role]) continue;
+      t.status(await c.post(`/api/receipts/batches/${b1.body.id}/no-asbestos`, role, {}), [401, 403], `option b: ${role} refused`);
+    }
+    t.status(await c.post(`/api/receipts/batches/${b1.body.id}/no-asbestos`, null, {}), 401, "option b: signed out refused");
+    const nb = await c.post(`/api/receipts/batches/${b1.body.id}/no-asbestos`, "ADMIN", {});
+    const nbj = await nb.json().catch(() => ({}));
+    const [B9, C9, D9, A29] = await Promise.all([ids.B, ids.C, ids.D, ids.A2].map(get));
+    t.ok(nb.status === 200 && nbj.changed === 2 && B9?.asbestos === false && D9?.asbestos === false, "option b (any Manager+, here an Admin who didn't upload it): the two unanswered dockets become not asbestos", `${nb.status} ${JSON.stringify(nbj)}`);
+    t.ok(C9?.asbestos === true, "...never one a person already answered (C stays asbestos)");
+    t.ok(A29?.asbestos === null && A29?.status === "REJECTED", "...nor one set aside");
+    t.ok(B9?.status === "CHECK" && D9?.status === "CHECK", "...and it confirms nothing");
+    const ev = await db.receiptBatchEvent.findMany({ where: { batchId: b1.body.id } });
+    t.ok(ev.length === 1 && ev[0].action === "NO_ASBESTOS" && ev[0].count === 2 && ev[0].by && ev[0].byId, "who, when and how many are kept (ReceiptBatchEvent)");
+    t.status(await c.post(`/api/receipts/${ids.B}`, "MANAGER", { op: "CONFIRM" }), 200, "the asbestos question no longer blocks B's confirm");
+    t.status(await c.post(`/api/receipts/${ids.B}`, "MANAGER", { op: "CORRECT", fields: { asbestos: true } }), 200, "a single docket can still be changed afterwards");
+    const again2 = await (await c.post(`/api/receipts/batches/${b1.body.id}/no-asbestos`, "MANAGER", {})).json().catch(() => ({}));
+    t.ok(again2.changed === 0 && (await db.receiptBatchEvent.count({ where: { batchId: b1.body.id } })) === 2 && (await get(ids.B))?.asbestos === true, "pressed again: nothing changes (B stays yes), and the press is kept too");
+    const listed = ((await c.json(`/api/receipts?day=${today}`, "MANAGER")).body?.rows ?? []).find((x) => x.id === ids.D);
+    t.ok(listed && !(listed.reasons ?? []).some((x) => /asbestos yes or no/.test(x)), "the list drops the 'asbestos yes or no?' note once it's answered");
+
+    // (10) DB-004: a 4 MB photo is refused before it's read; used-up rows don't hide a fresh one.
+    const big = "data:image/jpeg;base64," + Buffer.concat([Buffer.from(JPEG_B64, "base64"), Buffer.alloc(4 * 1024 * 1024, 7)]).toString("base64");
+    const bigR = await send(b1.body.id, "MANAGER", big);
+    t.ok([400, 413].includes(bigR.status), "DB-004: a 4 MB JPEG is refused (the page shrinks it first)", `${bigR.status}`);
+    const b3 = await start("MANAGER");
+    const used = JSON.stringify({ tries: 3, lastError: "Couldn't read it this time" });
+    const old = new Date(Date.now() - 3600_000);
+    await db.receipt.createMany({ data: Array.from({ length: 25 }, () => ({ kind: "TIP", siteLinkId: `office-batch:${b3.body.id}`, sentBy: "Release check office", officeBatchId: b3.body.id, projectId: project.id, status: "SENT", reading: used, sentAt: old })) });
+    const fresh = await send(b3.body.id, "MANAGER", photo(`${tag}-fresh`));
+    t.status(fresh.status, 201, "a fresh photo goes in after 25 used-up ones");
+    if (fresh.body.id) await db.receipt.update({ where: { id: fresh.body.id }, data: { sentAt: new Date(Date.now() - 120_000) } });
+    const script2 = path.join(c.p.files, `rc96-due-${tag}.mts`);
+    writeFileSync(script2, [
+      `import { dueReceipts, readReceipt } from ${lib("runner.ts")};`,
+      `const reader = { tip: async () => ({ documentType: "tip_docket", docketNo: "RC96-${tag}-FRESH", dateTime: "${today}T07:00", tipSite: "Release Check Tip", wasteType: "Mixed C&D", tonnesNet: "2", rego: "", priceExGst: "", priceIncGst: "", unclear: [], note: "" }), fuel: async () => { throw new Error("x"); }, purchase: async () => { throw new Error("x"); }, odometer: async () => { throw new Error("x"); } };`,
+      `const [first] = await dueReceipts({ officeBatchId: ${JSON.stringify(b3.body.id)} }, 1);`,
+      `if (first) await readReceipt(first, reader);`,
+      `console.log("RESULT " + JSON.stringify({ first }));`,
+      `process.exit(0);`,
+    ].join("\n"));
+    let out2 = "";
+    try {
+      const childEnv = { ...process.env, ...env, RECEIPT_READING: "on" };
+      delete childEnv.ANTHROPIC_API_KEY;
+      out2 = execFileSync(process.execPath, [tsxCli, script2], { cwd: c.p.appDir, env: childEnv, encoding: "utf8", timeout: 120_000 });
+    } catch (e) { out2 = String(e?.stdout ?? "") + String(e?.stderr ?? ""); }
+    const due = /RESULT (\{.*\})/.exec(out2);
+    const freshRow = fresh.body.id ? await get(fresh.body.id) : null;
+    t.ok(due && JSON.parse(due[1]).first === fresh.body.id && freshRow?.status !== "SENT", "DB-004: past 25 used-up SENT receipts the fresh one is found and read (stand-in reader)", due ? `${freshRow?.status}` : out2.slice(-200));
+
+    // (11) DB-005: ten photos at once into a batch holding 95 -> never over 100.
+    const b4 = await start("MANAGER");
+    await db.receipt.createMany({ data: Array.from({ length: 95 }, () => ({ kind: "TIP", siteLinkId: `office-batch:${b4.body.id}`, sentBy: "Release check office", officeBatchId: b4.body.id, projectId: project.id, status: "REJECTED" })) });
+    const burst = await Promise.all(Array.from({ length: 10 }, (_, i) => send(b4.body.id, "MANAGER", photo(`${tag}-burst-${i}`))));
+    const inB4 = await db.receipt.count({ where: { officeBatchId: b4.body.id } });
+    t.ok(inB4 === 100 && burst.filter((r) => r.status === 201).length === 5 && burst.filter((r) => r.status === 429).length === 5, "DB-005: 10 parallel photos into a batch of 95 -> 5 in, 5 refused (429), 100 in the batch", `${inB4} ${burst.map((r) => r.status).join(",")}`);
 
     // (6) nothing on a link.
     const mine = await keep(await c.get(c.site(supLink, "/receipts"), null));
