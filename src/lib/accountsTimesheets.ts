@@ -5,7 +5,7 @@
 // guard("MANAGER") / guard("ADMIN") and refuse the ACCOUNTS login. The only write is the "Got it" on the notice.
 import { prisma } from "./prisma";
 import { POINT_BREAK_MINUTES, STILL_ON_HOURS } from "./signin";
-import { timesheetCsv, type TimesheetLine, type TipRunLine, type TravelLine } from "./timesheets";
+import { timesheetCsv, type AbsenceLine, type TimesheetLine, type TipRunLine, type TravelLine } from "./timesheets";
 import { fileIsSafe } from "./payroll/rules";
 import { HOME_OFFER_HOURS, TRAVEL_CAP_HOURS } from "./travel/rules";
 import { TIP_CAP_HOURS, TIP_OFFER_HOURS } from "./tipRun/rules";
@@ -26,7 +26,8 @@ const dayBefore = (d: string) => new Date(new Date(d + "T12:00:00Z").getTime() -
 // off any day over 4 hours from 2 Nov 2026, none for salaried staff - she sees it again.
 // V5 (19 Nov 2026, Ilies: shift rollover): night shifts count to their start day, the same-shift question, and
 // regional tip runs (worked hours, their own column) - she sees it again.
-export const TIMESHEETS_NOTICE = "ACCOUNTS_TIMESHEETS_V5";
+// V6 (23 Nov 2026, "Not in today"): the Sick / Not in marks on the timesheet and in the export - she sees it again.
+export const TIMESHEETS_NOTICE = "ACCOUNTS_TIMESHEETS_V6";
 
 // New projects start with a 30-minute unpaid break (prisma/schema.prisma Project.unpaidBreakMinutes @default(30);
 // the project form's placeholder, lib/projectFormFields.ts). Not importable from the schema, so it is stated here.
@@ -138,6 +139,17 @@ export const TIMESHEETS_EXPLAINER: Explainer = {
       ],
     },
     {
+      // lib/absence/rules.ts (timesheetDayCell, markedButSignedInText, absenceCsvNotes); lib/absence/store.ts (markAbsence,
+      // cancelAbsence - locked weeks refuse); app/api/attendance/absence (guardOrCoordinator); TimesheetGrid.tsx AbsenceChip
+      heading: "Sick / Not in",
+      bullets: [
+        "The office (a Manager, an Admin or the project coordinator) can mark someone who was on the board but didn't sign in as \"Sick\" or \"Not in\" for that day, with a short note if they like.",
+        "A grey \"Sick\" or \"Not in\" box on a day means just that - \"no hours\". It never adds hours or pay. The export has it as its own line with no hours.",
+        "\"Marked Sick but signed in\" (amber) - marked off, but they signed in that day too. The sign-in's hours count; the office checks which is right.",
+        "Marks can't be added or undone in a locked week. An undone mark is kept, with who undid it and why.",
+      ],
+    },
+    {
       // components/timesheets/TimesheetGrid.tsx (TravelChip TRAVEL_FLAG, AccountsNote, WholeWeek); app/accounts/timesheets/page.tsx (tiles, banner)
       heading: "Travel boxes and the week",
       bullets: [
@@ -179,10 +191,12 @@ export const AMOUNT_REMOVED = "(amount removed)";
 export const noDollar = (s: string) => s.replace(/[$＄﹩]\s?\d(?:[\d,]*\d)?(?:\.\d+)?/g, AMOUNT_REMOVED);
 const noDollarOrNull = (s: string | null) => (s == null ? null : noDollar(s));
 
-export function accountsTimesheetCsv(weekStart: string, lines: TimesheetLine[], approval: { approvedBy: string; approvedAt: Date } | null, travel: TravelLine[] = [], tipRuns: TipRunLine[] = []): string | null {
+export function accountsTimesheetCsv(weekStart: string, lines: TimesheetLine[], approval: { approvedBy: string; approvedAt: Date } | null, travel: TravelLine[] = [], tipRuns: TipRunLine[] = [], absences: AbsenceLine[] = []): string | null {
   const clean = lines.map((l) => ({ ...l, name: noDollar(l.name), role: noDollarOrNull(l.role), site: noDollar(l.site), changedByOffice: noDollarOrNull(l.changedByOffice) }));
   const cleanTravel = travel.map((t) => ({ ...t, name: noDollar(t.name), role: noDollarOrNull(t.role), site: noDollar(t.site), changedByOffice: noDollarOrNull(t.changedByOffice) }));
   const cleanTips = tipRuns.map((r) => ({ ...r, name: noDollar(r.name), role: noDollarOrNull(r.role), site: noDollar(r.site), changedByOffice: noDollarOrNull(r.changedByOffice) }));
-  const csv = timesheetCsv(weekStart, clean, approval && { approvedBy: noDollar(approval.approvedBy), approvedAt: approval.approvedAt }, cleanTravel, { tipRuns: cleanTips });
+  // Sick / Not in (23 Nov 2026): the marker, with any amount taken out of the note (refused at entry anyway).
+  const cleanAbsences = absences.map((a) => ({ ...a, name: noDollar(a.name), role: noDollarOrNull(a.role), note: noDollarOrNull(a.note), by: noDollar(a.by) }));
+  const csv = timesheetCsv(weekStart, clean, approval && { approvedBy: noDollar(approval.approvedBy), approvedAt: approval.approvedAt }, cleanTravel, { tipRuns: cleanTips, absences: cleanAbsences });
   return fileIsSafe(csv) ? csv : null;
 }

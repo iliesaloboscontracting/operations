@@ -125,7 +125,7 @@ test("approval: blocked by a run never ended, over 6h or still on the go - not b
   // The approval route locks them into the snapshot and counts them in the week's hours.
   const route = readFileSync(new URL("../../app/api/timesheets/route.ts", import.meta.url), "utf8");
   assert.match(route, /approvalBlockers\(lines, travel, tipRuns\)/);
-  assert.match(route, /const snapshot: TimesheetSnapshot = \{ weekStart, lines, travel, tipRuns \}/);
+  assert.match(route, /const snapshot: TimesheetSnapshot = \{ weekStart, lines, travel, tipRuns(, absences)? \}/); // + Sick / Not in marks (23 Nov 2026)
 });
 
 test("Day Review and every sign-in: a sign-in ends an open run; Day Review adds finished runs' hours", () => {

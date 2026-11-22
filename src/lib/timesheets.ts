@@ -12,6 +12,7 @@ import type { TravelLine } from "./travel/store";
 import { FLAG_LABEL, needsOffice } from "./travel/rules";
 import type { TipRunLine } from "./tipRun/store";
 import { TIP_BLOCK_REASON, TIP_FLAG_LABEL, tipBlocks, tipNeedsOffice } from "./tipRun/rules";
+import { absenceCsvNotes, type AbsenceLine } from "./absence/rules";
 
 export type TimesheetIssue = "NO_SIGN_OUT" | "TO_CONFIRM";
 
@@ -51,16 +52,21 @@ export type TimesheetPerson = {
   // tipRunTotal is the part of `total` that is tip runs.
   tipRuns?: Record<string, TipRunLine[]>;
   tipRunTotal?: number;
+  // "Not in today" (23 Nov 2026): a day the office marked them Sick / Not in - shown with no hours, never in `total`.
+  absences?: Record<string, AbsenceLine>;
 };
 
-export type { TravelLine, TipRunLine };
-// travel: the week's travel legs as approved (weeks approved before travel existed have none); tipRuns likewise (19 Nov 2026).
-export type TimesheetSnapshot = { weekStart: string; lines: TimesheetLine[]; travel?: TravelLine[]; tipRuns?: TipRunLine[] };
+export type { TravelLine, TipRunLine, AbsenceLine };
+// travel: the week's travel legs as approved (weeks approved before travel existed have none); tipRuns likewise (19 Nov
+// 2026); absences: the Sick / Not in marks as approved (23 Nov 2026 - weeks approved before have none).
+export type TimesheetSnapshot = { weekStart: string; lines: TimesheetLine[]; travel?: TravelLine[]; tipRuns?: TipRunLine[]; absences?: AbsenceLine[] };
 
 // The week's live travel legs (lib/travel/store.ts - loaded here on demand, as it imports this file).
 export const liveTravel = (weekStart: string) => import("./travel/store").then((m) => m.travelLinesForWeek(weekStart));
 // ...and its live tip runs (lib/tipRun/store.ts, loaded the same way).
 export const liveTipRuns = (weekStart: string) => import("./tipRun/store").then((m) => m.tipRunLinesForWeek(weekStart));
+// ...and its live Sick / Not in marks (lib/absence/store.ts, loaded the same way - it imports this file).
+export const liveAbsences = (weekStart: string) => import("./absence/store").then((m) => m.absenceLinesForWeek(weekStart));
 
 const iso = (d: Date) => d.toISOString().slice(0, 10);
 const addDays = (date: string, n: number) => iso(new Date(new Date(date + "T00:00:00.000Z").getTime() + n * 86_400_000));
@@ -134,7 +140,9 @@ export const lineIssues = (l: TimesheetLine): TimesheetIssue[] => [
 ];
 
 // One row per person with their lines by day and a weekly total, plus their travel (its own total).
-export function peopleOf(weekStart: string, lines: TimesheetLine[], travel: TravelLine[] = [], tipRuns: TipRunLine[] = []): TimesheetPerson[] {
+// absences (23 Nov 2026): a Sick / Not in day is on the person's row with no hours - someone marked all week with no
+// sign-in still has a row (total 0).
+export function peopleOf(weekStart: string, lines: TimesheetLine[], travel: TravelLine[] = [], tipRuns: TipRunLine[] = [], absences: AbsenceLine[] = []): TimesheetPerson[] {
   const byPerson = new Map<string, TimesheetPerson>();
   const personFor = (resourceId: string, name: string, role: string | null) => {
     const p = byPerson.get(resourceId) ?? {
@@ -167,6 +175,11 @@ export function peopleOf(weekStart: string, lines: TimesheetLine[], travel: Trav
     p.tipRunTotal! += r.hours ?? 0;
     p.total += r.hours ?? 0;
     if (tipNeedsOffice(r.flag)) p.issues += 1;
+  }
+  // Information only: never hours, never an issue that holds up the approval.
+  for (const a of absences) {
+    const p = personFor(a.resourceId, a.name, a.role);
+    (p.absences ??= {})[a.date] = a;
   }
   const q = (n: number) => Math.round(n * 4) / 4;
   return [...byPerson.values()].map((p) => ({ ...p, total: q(p.total), travelTotal: q(p.travelTotal), tipRunTotal: q(p.tipRunTotal ?? 0) })).sort((a, b) => a.name.localeCompare(b.name));
@@ -213,7 +226,7 @@ export const weekHasEnded = (weekStart: string) => todaySydney() > weekEnd(weekS
 // opts.dayLimit (12 Nov 2026, lib/dayLimit): a line on a day past the person's days-a-week limit carries the words
 // "Over 3-day limit (4th day this week)" - information only (the office's screens; never the approval or the export).
 export async function timesheetWeek(weekStart: string, opts: { dayLimit?: boolean } = {}) {
-  const [lines, approval, history, accounts, travelNow, tipNow] = await Promise.all([
+  const [lines, approval, history, accounts, travelNow, tipNow, absencesNow] = await Promise.all([
     timesheetLines(weekStart),
     activeApproval(weekStart),
     prisma.timesheetWeek.findMany({
@@ -226,9 +239,12 @@ export async function timesheetWeek(weekStart: string, opts: { dayLimit?: boolea
     import("./payroll/store").then((m) => m.accountsStatusForWeek(weekStart)),
     liveTravel(weekStart),
     liveTipRuns(weekStart),
+    liveAbsences(weekStart),
   ]);
   const snap = approval ? (JSON.parse(approval.snapshot) as TimesheetSnapshot) : null;
   const approvedLines = snap ? snap.lines : null;
+  // Sick / Not in (23 Nov 2026): an approved week shows the marks it was approved with (a locked week refuses changes).
+  const shownAbsences = snap ? snap.absences ?? [] : absencesNow;
   let shown = approvedLines ?? lines;
   if (opts.dayLimit) {
     const notes = await import("./dayLimit/store").then((m) => m.overLimitNotes(shown.map((l) => l.resourceId), [weekStart]));
@@ -253,7 +269,8 @@ export async function timesheetWeek(weekStart: string, opts: { dayLimit?: boolea
     days: weekDates(weekStart),
     today: todaySydney(),
     weekEnded: weekHasEnded(weekStart),
-    people: peopleOf(weekStart, shown, shownTravel, shownTips),
+    people: peopleOf(weekStart, shown, shownTravel, shownTips, shownAbsences),
+    absenceDays: shownAbsences.length, // Sick / Not in days marked this week - information only, no hours
     // Worked hours: sign-ins + tip runs (19 Nov 2026); tipRunHours is the tip-run part.
     totalHours: Math.round((shown.reduce((n, l) => n + (l.hours ?? 0), 0) + tipHoursShown) * 4) / 4,
     tipRunHours: Math.round(tipHoursShown * 4) / 4,
@@ -272,8 +289,10 @@ export async function timesheetWeek(weekStart: string, opts: { dayLimit?: boolea
 export async function exportLines(weekStart: string) {
   const approval = await activeApproval(weekStart);
   const snap = approval ? (JSON.parse(approval.snapshot) as TimesheetSnapshot) : null;
-  const [lines, travel, tipRuns] = snap ? [snap.lines, snap.travel ?? [], snap.tipRuns ?? []] : await Promise.all([timesheetLines(weekStart), liveTravel(weekStart), liveTipRuns(weekStart)]);
-  return { approval, lines, travel, tipRuns };
+  const [lines, travel, tipRuns, absences] = snap
+    ? [snap.lines, snap.travel ?? [], snap.tipRuns ?? [], snap.absences ?? []]
+    : await Promise.all([timesheetLines(weekStart), liveTravel(weekStart), liveTipRuns(weekStart), liveAbsences(weekStart)]);
+  return { approval, lines, travel, tipRuns, absences };
 }
 
 // Spreadsheet for accounts: one line per sign-in, one per travel leg (regional jobs, 2 Nov 2026 - its own
@@ -285,7 +304,7 @@ export type CsvRow = (string | number | null)[];
 // tip-run part of Hours; the week total's Hours includes them.
 export function timesheetCsv(
   weekStart: string, lines: TimesheetLine[], approval: { approvedBy: string; approvedAt: Date } | null, travel: TravelLine[] = [],
-  opts: { head?: [string, string]; tail?: CsvRow[]; tipRuns?: TipRunLine[] } = {},
+  opts: { head?: [string, string]; tail?: CsvRow[]; tipRuns?: TipRunLine[]; absences?: AbsenceLine[] } = {},
 ) {
   // SEC-012 (27 Oct 2026): the same cell writer as the payroll exports - a name or note starting with = + - @ can't
   // become a formula when accounts open the file.
@@ -297,8 +316,11 @@ export function timesheetCsv(
     [],
     ["Employee", "Role", "Date", "Day", "Site / place", "Sign in", "Sign out", "Unpaid break (min)", "Hours", "Of which tip run (h)", "Travel (h)", "Status", "Notes"],
   ];
-  for (const p of peopleOf(weekStart, lines, travel, opts.tipRuns ?? [])) {
+  for (const p of peopleOf(weekStart, lines, travel, opts.tipRuns ?? [], opts.absences ?? [])) {
     for (const d of weekDates(weekStart)) {
+      // Sick / Not in (23 Nov 2026): a text marker, no hours - "Sick" in Site / place and Status; Hours left empty.
+      const a = p.absences?.[d];
+      if (a) out.push([p.name, p.role, a.date, dayName(a.date), a.label, "", "", "", "", "", "", a.label, absenceCsvNotes(a, (p.days[d] ?? []).length > 0)]);
       for (const l of p.days[d] ?? []) {
         const notes = [
           ...lineIssues(l).map((i) => (i === "NO_SIGN_OUT" ? "No sign-out" : "Waiting for supervisor")),

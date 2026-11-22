@@ -5,6 +5,7 @@ import type { TimesheetLine, TimesheetPerson, TipRunLine, TravelLine } from "@/l
 import type { SupervisorLine } from "@/lib/payroll/store";
 import { allPlaces, mondayOf } from "@/lib/timesheetView";
 import { TIP_FLAG_LABEL, tipNeedsOffice } from "@/lib/tipRun/rules";
+import { markWords, timesheetDayCell, type AbsenceLine } from "@/lib/absence/rules";
 
 // The weekly timesheet grids (21 Oct 2026), shared by the Operations Timesheets page (/timesheets) and the
 // read-only copy on the Accounts screen (/accounts/timesheets, 2 Nov 2026). Display only - no actions in here.
@@ -21,6 +22,7 @@ export type TimesheetData = {
   travelIssues?: number;
   tipRunHours?: number; // regional tip runs (19 Nov 2026) - worked hours, the part of totalHours that is tip runs
   tipRunIssues?: number;
+  absenceDays?: number; // Sick / Not in days marked this week (23 Nov 2026) - information only, no hours
   issues: number;
   approval: { approvedBy: string; approvedAt: string } | null;
   changedSinceApproval: number;
@@ -140,6 +142,26 @@ function TipRunChip({ r }: { r: TipRunLine }) {
   );
 }
 
+// "Not in today" (23 Nov 2026): a day the office marked Sick / Not in - grey, no hours. Amber "Marked Sick but signed
+// in" when they signed in that day too: the sign-in's hours stand, someone checks the mark.
+function AbsenceChip({ a, linesThatDay }: { a: AbsenceLine; linesThatDay: TimesheetLine[] }) {
+  const cell = timesheetDayCell(a, linesThatDay);
+  if (!cell) return null;
+  return (
+    <div
+      className={`rounded-md border px-1.5 py-1 ${cell.warn ? "border-amber-500/50 bg-amber-500/10" : "border-gray-500/40 bg-gray-600/20"}`}
+      title={markWords({ ...a, id: a.absenceId, cancelledAt: null, cancelledBy: null, cancelReason: null }, when)}
+      data-testid="absence-day"
+    >
+      <div className="flex items-baseline justify-between gap-1">
+        <span className="text-[11px] font-semibold text-gray-200">{a.label}</span>
+        <span className="text-[10px] text-gray-500">no hours</span>
+      </div>
+      {cell.warn && <div className="text-[10px] leading-tight text-amber-400">{cell.text}</div>}
+    </div>
+  );
+}
+
 // Accounts stage 2: Victoria's latest decision on this person's week, if any.
 function AccountsNote({ a }: { a?: { status: string; note: string | null } }) {
   if (!a) return null;
@@ -222,7 +244,9 @@ export function SiteView({ data, search, emptyText = "No staff sign-ins this wee
     // Project sites first (A-Z), then the office, yard and trucks.
     .sort((a, b) => Number(a.point) - Number(b.point) || a.site.localeCompare(b.site));
 
-  if (groups.length === 0) return <p className="rounded-xl border border-edge bg-panel p-6 text-center text-sm text-gray-500">{emptyText}</p>;
+  // Sick / Not in (23 Nov 2026) belong to no site - listed after the sites, with no hours.
+  const off = data.people.filter((p) => p.absences && Object.keys(p.absences).length && (!search || p.name.toLowerCase().includes(search.toLowerCase())));
+  if (groups.length === 0 && off.length === 0) return <p className="rounded-xl border border-edge bg-panel p-6 text-center text-sm text-gray-500">{emptyText}</p>;
   return (
     <div className="space-y-4">
       {groups.map((g) => (
@@ -276,7 +300,30 @@ export function SiteView({ data, search, emptyText = "No staff sign-ins this wee
           </div>
         </section>
       ))}
+      {off.length > 0 && <AbsenceList people={off} days={data.days} />}
     </div>
+  );
+}
+
+// "By site": the week's Sick / Not in days (23 Nov 2026) - one line per person, no hours.
+function AbsenceList({ people, days }: { people: TimesheetPerson[]; days: string[] }) {
+  return (
+    <section className="overflow-hidden rounded-xl border border-edge shadow-soft" data-testid="absence-list">
+      <header className="border-b border-edge bg-panel px-4 py-2.5 text-sm font-semibold text-gray-100">Sick / Not in <span className="text-xs font-normal text-gray-400">· marked by the office · no hours</span></header>
+      <ul className="divide-y divide-edge/60 bg-panel/60 text-sm">
+        {people.map((p) => (
+          <li key={p.resourceId} className="flex flex-wrap items-start gap-2 px-4 py-2">
+            <span className="w-44 shrink-0 font-medium text-gray-100">{p.name}</span>
+            {days.filter((d) => p.absences?.[d]).map((d) => (
+              <span key={d} className="w-32 shrink-0">
+                <span className="text-[10px] text-gray-500">{dayHead(d)}</span>
+                <AbsenceChip a={p.absences![d]} linesThatDay={p.days[d] ?? []} />
+              </span>
+            ))}
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -316,6 +363,7 @@ export function PersonView({ data, search, emptyText = "No staff sign-ins this w
                   ))}
                   {(p.tipRuns?.[d] ?? []).map((r) => <TipRunChip key={r.tipRunId} r={r} />)}
                   {(p.travel?.[d] ?? []).map((t) => <TravelChip key={t.legId} t={t} />)}
+                  {p.absences?.[d] && <AbsenceChip a={p.absences[d]} linesThatDay={p.days[d] ?? []} />}
                 </td>
               ))}
               <td className="px-3 py-2 text-right text-sm text-sky-200">{p.travelTotal ? hrs(p.travelTotal) : ""}</td>

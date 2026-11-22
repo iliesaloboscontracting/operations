@@ -10,6 +10,8 @@ import TravelLegs from "@/components/attendance/TravelLegs";
 import TipRuns from "@/components/attendance/TipRuns";
 import type { AttendanceData, AttendanceJob } from "@/components/attendance/types";
 import { flagSummary, type SigninFlagSummary } from "@/lib/signinFlags";
+import { isMarked, unexplained } from "@/lib/absence/rules";
+import { NoShowList } from "@/components/attendance/NotInToday";
 import { apiFetch } from "@/lib/apiFetch";
 import { localISODate } from "@/lib/resource";
 import type { ResourceDTO } from "@/lib/types";
@@ -45,7 +47,9 @@ const shiftDate = (iso: string, days: number) => {
 };
 
 export default function AttendancePage() {
-  const { canEdit, isAdmin } = useAuth();
+  const { canEdit, isAdmin, coordinatorOnly } = useAuth();
+  // "Not in today" (23 Nov 2026, Ilies: "alex can too"): Managers, Admins and the coordinator mark Sick / Not in.
+  const canMark = canEdit || coordinatorOnly;
   const [date, setDate] = useState(() => localISODate());
   const [data, setData] = useState<AttendanceData | null>(null);
   const [people, setPeople] = useState<ResourceDTO[]>([]);
@@ -86,7 +90,7 @@ export default function AttendancePage() {
   const summary = data ? data.summary ?? flagSummary(groups) : null;
   const shown = (g: AttendanceJob): AttendanceJob =>
     !filter ? g
-    : filter === "noSignIn" ? { ...g, rows: [], noShows: g.noShows.filter((n) => n.nowhere) }
+    : filter === "noSignIn" ? { ...g, rows: [], noShows: g.noShows.filter((n) => n.nowhere && !isMarked(n)) } // marked Sick / Not in: explained (23 Nov 2026)
     : { ...g, rows: g.rows.filter((r) => ROW_FILTER[filter].some((f) => r.flags.includes(f))), noShows: [] };
   const keep = (g: AttendanceJob) => !filter || g.rows.length > 0 || g.noShows.length > 0;
   const pointsShown = data ? data.points.map(shown).filter(keep) : [];
@@ -132,8 +136,9 @@ export default function AttendancePage() {
             <Tile label={date === data.today ? "On site now" : "Didn't sign out"} value={has(date === data.today ? "STILL_ON" : "NO_SIGN_OUT")} tone={date === data.today ? "text-emerald-400" : "text-amber-500"} />
             <Tile label="Signed in" value={rows.filter((r) => r.status !== "REJECTED").length} />
             <Tile label="Poster - to confirm" value={has("TO_CONFIRM")} tone="text-amber-500" />
-            <Tile label="Expected, not signed in" value={groups.reduce((n, j) => n + j.noShows.length, 0)} tone="text-amber-500" />
-            <Tile label="Other flags" value={has("NOT_ALLOCATED") + has("SHARED_PHONE") + has("MOVED") + has("ODD_HOURS") + has("LONG_DAY")} tone="text-amber-500" />
+            {/* Not counting anyone marked Sick / Not in for the day (23 Nov 2026) */}
+            <Tile label="Expected, not signed in" value={groups.reduce((n, j) => n + unexplained(j.noShows).length, 0)} tone="text-amber-500" />
+            <Tile label="Other flags" value={has("NOT_ALLOCATED") + has("SHARED_PHONE") + has("MOVED") + has("ODD_HOURS") + has("LONG_DAY") + has("MARKED_NOT_IN")} tone="text-amber-500" />
           </div>
           {/* Fixes 2c / 5a (2 Nov 2026): what still needs the office this morning. */}
           {data.gaps && data.gaps.noSignOutYesterday.length > 0 && (
@@ -152,7 +157,7 @@ export default function AttendancePage() {
               {filter && pointsShown.length === 0 && jobsShown.length === 0 && <p className="text-sm text-gray-500">Nothing to show for this day.</p>}
               {pointsShown.length > 0 && <h2 className="text-sm font-semibold text-gray-200">Office, yard &amp; trucks</h2>}
               {pointsShown.map((j) => (
-                <AttendanceJobCard key={j.id} job={j} date={date} filtered={!!filter} canEdit={canEdit} canRemove={isAdmin} people={people} handover={null} onChanged={load} />
+                <AttendanceJobCard key={j.id} job={j} date={date} filtered={!!filter} canEdit={canEdit} canMark={canMark} canRemove={isAdmin} people={people} handover={null} onChanged={load} />
               ))}
               {(!filter || jobsShown.length > 0) && <h2 className="pt-3 text-sm font-semibold text-gray-200">Sites</h2>}
               {!filter && data.jobs.length === 0 && <p className="text-sm text-gray-500">No jobs on the board for this day.</p>}
@@ -166,6 +171,7 @@ export default function AttendancePage() {
                     date={date}
                     filtered={!!filter}
                     canEdit={canEdit}
+                    canMark={canMark}
                     canRemove={isAdmin}
                     people={people}
                     handover={h ? { name: h.resource?.name ?? "someone", expiresAt: h.expiresAt } : null}
@@ -182,6 +188,13 @@ export default function AttendancePage() {
               {/* Travel for a job not listed here (e.g. since completed) */}
               {!filter && <TravelLegs legs={(data.travel ?? []).filter((t) => !data.jobs.some((j) => j.id === t.jobId))} canEdit={canEdit} onChanged={load} />}
               {!filter && <TipRuns runs={(data.tipRuns ?? []).filter((r) => !data.jobs.some((j) => j.id === r.jobId))} canEdit={canEdit} onChanged={load} />}
+              {/* Sick / Not in marks for people no card lists (taken off the board since, or signed in after all) - 23 Nov 2026 */}
+              {!filter && (data.otherMarks ?? []).length > 0 && (
+                <div className="rounded-xl border border-edge bg-panel px-3.5 py-2 text-xs" data-testid="other-marks">
+                  <div className="mb-1 font-semibold text-gray-300">Marked not in - not listed on a card above ({data.otherMarks!.length})</div>
+                  <NoShowList noShows={data.otherMarks!} date={date} canEdit={false} canMark={canMark} onChanged={load} />
+                </div>
+              )}
             </div>
             <PosterPanel projects={projects} vehicles={vehicles} posters={data.posters} canEdit={canEdit} onChanged={load} />
           </div>

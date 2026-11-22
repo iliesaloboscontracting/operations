@@ -3,6 +3,7 @@ import type { TravelLine } from "@/lib/travel/store";
 import type { TipRunLine } from "@/lib/tipRun/store";
 import type { SigninFlagSummary } from "@/lib/signinFlags";
 import type { SupervisorJobDay, SupervisorLine } from "@/lib/payroll/store";
+import type { AbsenceView } from "@/lib/absence/rules";
 export type AttendanceEditRow = { field: string; before: string | null; after: string | null; reason: string; editedBy: string; editedAt: string };
 export type AttendanceRow = {
   id: string;
@@ -49,9 +50,11 @@ export type AttendanceJob = {
   breakMinutes: number | null;
   allocated: { id: string; name: string }[];
   rows: AttendanceRow[];
-  // staff: a Lobos (Personnel) no-show; nowhere: no sign-in anywhere that day (10 Nov 2026). Labour hire tiles: neither.
-  noShows: { id: string; name: string; staff?: boolean; nowhere?: boolean }[];
+  // staff: a Lobos (Personnel) no-show; nowhere: no sign-in anywhere that day (10 Nov 2026). Labour hire tiles: neither
+  // (hireTile). absence (23 Nov 2026, "Not in today"): their Sick / Not in mark for the day - a live one isn't counted.
+  noShows: NoShow[];
 };
+export type NoShow = { id: string; name: string; staff?: boolean; nowhere?: boolean; hireTile?: boolean; absence?: AbsenceView | null };
 export type AttendanceData = {
   date: string;
   today: string;
@@ -62,6 +65,8 @@ export type AttendanceData = {
   travel?: TravelLine[]; // regional travel legs (2 Nov 2026)
   tipRuns?: TipRunLine[]; // regional tip runs (19 Nov 2026) - worked hours on the shift's day
   summary?: SigninFlagSummary; // the strip at the top (10 Nov 2026)
+  // The day's Sick / Not in marks for people no card lists (23 Nov 2026) - so they can still be seen and undone.
+  otherMarks?: { id: string; name: string; absence: AbsenceView }[];
   // Today's page only (fixes 2c / 5a): yesterday's open sign-ins, crew not signed in an hour after the start.
   gaps?: { noSignOutYesterday: { id: string; name: string; company: string | null; site: string }[]; notSignedIn: { jobId: string; site: string; names: string[] }[] } | null;
   // The supervisors' "Approve hours" (18 Nov 2026) - Managers and Admins only: per job and day ("<jobId>|<date>") and
@@ -88,6 +93,7 @@ export const FLAG_LABEL: Record<string, string> = {
   NO_LOCATION: "No location shared",
   FAR_FROM_SITE: "Far from site",
   OVER_DAY_LIMIT: "Over days-a-week limit", // 12 Nov 2026 - the words: "Over 3-day limit (4th day this week)"
+  MARKED_NOT_IN: "Marked not in but signed in", // 23 Nov 2026 - the words: "Marked Sick but signed in"
 };
 export const METHOD_LABEL: Record<string, string> = {
   SUPERVISOR_QR: "Supervisor QR",

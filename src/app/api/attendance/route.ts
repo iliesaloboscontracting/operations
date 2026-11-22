@@ -45,7 +45,8 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
   // Supervisors' "Approve hours" per job and line (18 Nov 2026, Ilies: Managers and Admins - not the coordinator).
   const user = await getCurrentUser();
   const supervisor = user && rankAtLeast(user.role, "MANAGER") ? await supervisorApprovals(weekStartOf(date), date) : undefined;
-  return viewJson({ date, today: todaySydney(), jobs: view.jobs, points: view.points, summary: view.summary, posters, handovers, travel, tipRuns, gaps, ...(supervisor ? { supervisor } : {}) });
+  // otherMarks (23 Nov 2026): the day's Sick / Not in marks for people no card lists (names and the mark only).
+  return viewJson({ date, today: todaySydney(), jobs: view.jobs, points: view.points, summary: view.summary, otherMarks: view.otherMarks, posters, handovers, travel, tipRuns, gaps, ...(supervisor ? { supervisor } : {}) });
 });
 
 // POST /api/attendance - the office adds a sign-in that was missed.
