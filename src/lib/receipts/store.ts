@@ -122,7 +122,7 @@ export async function uploadReceiptPhoto(link: { id: string; person: { name: str
   if (sent >= LIMITS.photosPerLinkPerDay) return { error: "That's the most photos this link can send in a day - call the office.", status: 429 };
   const saved = await saveReceiptPhoto(dataUrl);
   if ("error" in saved) return { error: saved.error, status: 400 };
-  const p = await prisma.receiptPhoto.create({ data: { fileName: saved.fileName, siteLinkId: link.id, takenBy: link.person.name } });
+  const p = await prisma.receiptPhoto.create({ data: { fileName: saved.fileName, siteLinkId: link.id, takenBy: link.person.name, sha256: saved.sha256 } });
   return { id: p.id };
 }
 
@@ -187,10 +187,11 @@ async function linkRows(ids?: string[], personId?: string): Promise<ReceiptLinkD
 export const myReceiptsToday = (link: ReceiptLink) => linkRows(undefined, link.person.id);
 export const receiptsSentToday = (personId: string) => prisma.receipt.count({ where: { sentByResourceId: personId, sentAt: { gte: sydneyMidnight() } } });
 
-// For the daily log: dockets sent today (by anyone) for each job.
+// For the daily log: dockets sent from site (by anyone) for each job. An office batch upload is office-only data -
+// it never reaches a supervisor's link, so it isn't counted here (20 Nov 2026).
 export async function docketsSentFor(jobIds: string[]): Promise<Map<string, number>> {
   if (!jobIds.length) return new Map();
-  const g = await prisma.receipt.groupBy({ by: ["jobId"], where: { kind: "TIP", jobId: { in: jobIds }, status: { not: "REJECTED" } }, _count: { _all: true } });
+  const g = await prisma.receipt.groupBy({ by: ["jobId"], where: { kind: "TIP", jobId: { in: jobIds }, status: { not: "REJECTED" }, officeBatchId: null }, _count: { _all: true } });
   return new Map(g.map((x) => [x.jobId as string, x._count._all]));
 }
 
@@ -235,10 +236,11 @@ export type ReadFieldsDTO = {
 export type ReceiptOfficeDTO = {
   id: string; type: "TIP" | "FUEL" | "ODOMETER"; label: string; for: string; jobId: string | null; vehicleId: string | null;
   sentBy: string; sentAt: string; asbestos: boolean | null; status: string; photoIds: string[];
-  read: ReadFieldsDTO; reasons: string[]; unreadable: boolean; corrections: { at: string; by: string; field: string }[];
+  read: ReadFieldsDTO; reasons: string[]; unreadable: boolean; corrections: { at: string; by: string; field: string; via?: "batch" }[];
   rejected: { by: string; reason: string } | null;
   onInvoice: boolean; // a tip invoice has replaced this docket's estimate (R3)
   added?: { by: string; fromReceiptId: string } | null; // typed in by the office from another receipt's photo
+  batch?: { id: string; by: string; at: string; projectId: string } | null; // uploaded by the office in a batch (lib/receipts/batch.ts)
 };
 export type ReceiptFilters = { day?: string; jobId?: string; vehicleId?: string; person?: string; kind?: string; asbestos?: string; check?: string };
 
@@ -287,6 +289,12 @@ export async function officeList(f: ReceiptFilters): Promise<{ rows: ReceiptOffi
   }
   const recent = { sentAt: { gte: new Date(Date.now() - 60 * 86_400_000) } };
   const siteIds = [...new Set(receipts.filter((r) => !r.jobId).map((r) => r.projectId).filter((x): x is string => !!x))];
+  const batchIds = [...new Set(receipts.map((r) => r.officeBatchId).filter((x): x is string => !!x))];
+  const batches = new Map((batchIds.length ? await prisma.receiptBatch.findMany({ where: { id: { in: batchIds } } }) : []).map((b) => [b.id, b]));
+  const batchOf = (id: string | null) => {
+    const b = id ? batches.get(id) : undefined;
+    return b ? { id: b.id, by: b.createdBy, at: b.createdAt.toISOString(), projectId: b.projectId } : null;
+  };
   const [jobRows, siteRows, trucks, senders, odoSenders, toCheck] = await Promise.all([
     prisma.job.findMany({ where: { id: { in: jobIds } }, select: { id: true, title: true, shift: true, date: true, project: { select: { name: true } } } }),
     prisma.project.findMany({ where: { id: { in: siteIds } }, select: { id: true, name: true } }),
@@ -301,7 +309,7 @@ export async function officeList(f: ReceiptFilters): Promise<{ rows: ReceiptOffi
     return {
       reasons: unreadable ? ["Couldn't be read - type it in, or read it again"] : reasons,
       unreadable,
-      corrections: (log.corrections ?? []).map((c) => ({ at: c.at, by: c.by, field: c.field })),
+      corrections: (log.corrections ?? []).map((c) => ({ at: c.at, by: c.by, field: c.field, ...(c.via === "batch" ? { via: "batch" as const } : {}) })),
       rejected: log.rejected ? { by: log.rejected.by, reason: log.rejected.reason } : null,
     };
   };
@@ -321,7 +329,9 @@ export async function officeList(f: ReceiptFilters): Promise<{ rows: ReceiptOffi
       read: r.kind === "TIP"
         ? { docketNo: r.docketNo, docketAt: iso(r.docketAt), tipSite: r.tipSite, wasteType: r.wasteType, tonnes: r.tonnes, priceExGst: r.priceExGst, priceIncGst: r.priceIncGst, rego: r.rego }
         : { litres: r.litres, pricePerLitre: r.pricePerLitre, fuelTotal: r.fuelTotal, station: r.station, docketAt: iso(r.docketAt), rego: r.rego },
-      ...extra(r.status, r.reading, reasonsOf(r.checkReasons)), onInvoice: !!r.invoicedCostId,
+      // The batch's "asbestos yes or no?" note goes once someone has answered it (on the docket or for the whole batch).
+      ...extra(r.status, r.reading, reasonsOf(r.checkReasons).filter((x) => r.asbestos === null || !/^Office batch - asbestos/.test(x))), onInvoice: !!r.invoicedCostId,
+      batch: batchOf(r.officeBatchId),
     })),
     ...readings.map((r) => ({
       id: r.id, type: "ODOMETER" as const, label: "Odometer", for: truckName(r.vehicleId), jobId: null, vehicleId: r.vehicleId,

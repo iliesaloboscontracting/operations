@@ -70,8 +70,19 @@ export async function receiptAction(who: Who, id: string, body: Record<string, u
     // A corrected rego on a tip docket re-links it to our truck (or unlinks it).
     if (!isOdo && (row as { kind: string }).kind === "TIP" && "rego" in data) data.vehicleId = vehicleForRego(data.rego as string | null, await truckRegos());
     const confirm = body.confirm === true && row.status !== "REJECTED";
+    if (confirm && !isOdo) {
+      const blocked = await confirmBlocked({ ...(row as TipRow), ...(data as Partial<TipRow>) });
+      if (blocked) return blocked;
+    }
     // Typed in from an unreadable photo without confirming: it stays on the list to check.
     const status = confirm ? "CONFIRMED" : unreadable ? "CHECK" : row.status;
+    // DB-007 (Ilies approved 23 Nov 2026): a correction without confirm on a counted tip docket (READ / CONFIRMED) can't
+    // turn it into one whose number is already counted at that tip site. CHECK / SENT / REJECTED rows aren't blocked here -
+    // their later confirm already is.
+    if (!isOdo && (row as { kind: string }).kind === "TIP" && !confirm && (status === "READ" || status === "CONFIRMED") && ("docketNo" in data || "tipSite" in data)) {
+      const blocked = await alreadyCounted({ ...(row as TipRow), ...(data as Partial<TipRow>) });
+      if (blocked) return blocked;
+    }
     await save({ ...data, ...(Object.keys(data).length ? { correctedBy: who.name, correctedAt: now, reading: JSON.stringify({ ...log, corrections }) } : {}), status });
     if (!isOdo) syncTipMatchesSoon();
     if (!isOdo && status === "CONFIRMED") await claimFromOwnReceipt(id); // "I paid this myself" -> the claim
@@ -80,6 +91,10 @@ export async function receiptAction(who: Who, id: string, body: Record<string, u
   if (op === "ADD_DOCKET" && !isOdo) return addDocketFromPhoto(who, row as { id: string; kind: string; status: string; siteLinkId: string; sentBy: string; sentByResourceId: string | null; sentAt: Date; photoFromReceiptId: string | null; jobId: string | null; projectId: string | null }, body);
   if (op === "CONFIRM") {
     if (row.status !== "READ" && row.status !== "CHECK") return { error: row.status === "CONFIRMED" ? "Already confirmed." : "Only a read receipt can be confirmed.", status: 409 };
+    if (!isOdo) {
+      const blocked = await confirmBlocked(row as TipRow);
+      if (blocked) return blocked;
+    }
     await save({ status: "CONFIRMED" });
     if (!isOdo) syncTipMatchesSoon();
     if (!isOdo) await claimFromOwnReceipt(id); // "I paid this myself" -> the claim
@@ -105,12 +120,38 @@ export async function receiptAction(who: Who, id: string, body: Record<string, u
   return { error: "Correct, confirm, reject or read again.", status: 400 };
 }
 
+// Confirming a tip docket (20 Nov 2026, office batch upload). A docket with no asbestos answer - an office batch has no
+// Yes / No tap - can't be confirmed until a person says (it's never taken as "No"). Phone dockets always have the tap,
+// so for them nothing changes. A tip docket - phone or batch (DB-001) - whose number is already counted (read or
+// confirmed) at the same tip site can't be confirmed either - it would count twice in tip costs; set one aside.
+type TipRow = { id: string; kind: string; asbestos: boolean | null; officeBatchId: string | null; docketNo: string | null; tipSite: string | null };
+// DB-007: split in two so a correction without confirm can use the "already counted" half on its own.
+async function confirmBlocked(r: TipRow): Promise<Problem | null> {
+  return asbestosMissing(r) ?? (await alreadyCounted(r));
+}
+function asbestosMissing(r: TipRow): Problem | null {
+  if (r.kind !== "TIP") return null;
+  return r.asbestos === null ? { error: "Say whether it's asbestos first (Correct -> Asbestos), then confirm.", status: 400 } : null;
+}
+async function alreadyCounted(r: TipRow): Promise<Problem | null> {
+  if (r.kind !== "TIP") return null;
+  if (!normDocket(r.docketNo)) return null;
+  const key = normDocket(r.docketNo), site = siteKey(r.tipSite);
+  // Only one that already counts (read or confirmed): the first of two photos of one docket can still be confirmed.
+  const same = (await prisma.receipt.findMany({ where: { kind: "TIP", id: { not: r.id }, status: { in: ["READ", "CONFIRMED"] }, docketNo: { not: null } }, select: { docketNo: true, tipSite: true, sentBy: true } }))
+    .find((o) => normDocket(o.docketNo) === key && siteKey(o.tipSite) === site);
+  return same ? { error: `Docket ${r.docketNo} at ${r.tipSite ?? "that tip"} is already in (sent by ${same.sentBy}) - set this one aside.`, status: 409 } : null;
+}
+
 // Today's jobs for the "move to another job" picker on a tip docket (and the job it's on).
-export async function jobsForCorrection(currentJobId: string | null) {
+// With projectId (an office-batch docket, which can be weeks old): that project's jobs, any date, latest first.
+export async function jobsForCorrection(currentJobId: string | null, projectId?: string | null) {
   const { today, yesterday } = signinDates();
   const from = new Date(new Date(`${yesterday}T00:00:00Z`).getTime() - 12 * 86_400_000);
   const jobs = await prisma.job.findMany({
-    where: { cancelledAt: null, OR: [{ date: { gte: from, lte: new Date(`${today}T00:00:00Z`) }, status: { not: "INACTIVE" } }, ...(currentJobId ? [{ id: currentJobId }] : [])] },
+    where: projectId
+      ? { cancelledAt: null, projectId }
+      : { cancelledAt: null, OR: [{ date: { gte: from, lte: new Date(`${today}T00:00:00Z`) }, status: { not: "INACTIVE" } }, ...(currentJobId ? [{ id: currentJobId }] : [])] },
     select: { id: true, title: true, shift: true, date: true, project: { select: { name: true } } },
     orderBy: [{ date: "desc" }, { title: "asc" }], take: 300,
   });
@@ -124,7 +165,7 @@ export async function jobsForCorrection(currentJobId: string | null) {
 const siteKey = (s: string | null | undefined) => (s ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 async function addDocketFromPhoto(
   who: Who,
-  src: { id: string; kind: string; status: string; siteLinkId: string; sentBy: string; sentByResourceId: string | null; sentAt: Date; photoFromReceiptId: string | null; jobId: string | null; projectId: string | null },
+  src: { id: string; kind: string; status: string; siteLinkId: string; sentBy: string; sentByResourceId: string | null; sentAt: Date; photoFromReceiptId: string | null; jobId: string | null; projectId: string | null; officeBatchId?: string | null },
   body: Record<string, unknown>,
 ): Promise<{ ok: true; status: string; id: string } | Problem> {
   if (src.kind === "PURCHASE") return { error: "Not found", status: 404 };
@@ -136,6 +177,8 @@ async function addDocketFromPhoto(
   const missing = [!fields.tipSite && "tip site", !fields.docketNo && "docket number", !fields.docketAt && "date and time", !(fields.tonnes != null && fields.tonnes > 0) && "tonnes"].filter(Boolean);
   if (fields.docketAt === undefined || fields.tonnes === undefined) return { error: "Check the date and the tonnes - they don't look right.", status: 400 };
   if (missing.length) return { error: `Fill in the ${missing.join(", ")}.`, status: 400 };
+  // DB-003: from an office-batch photo there was never a Yes / No tap - a person must say (never guessed from the words).
+  if (src.officeBatchId && f.asbestos !== true && f.asbestos !== false) return { error: "Say whether it's asbestos.", status: 400 };
   const job = typeof f.jobId === "string" && f.jobId ? await prisma.job.findFirst({ where: { id: f.jobId, cancelledAt: null }, select: { id: true, projectId: true } }) : null;
   // No job picked, from a docket for a site not running that day (project, no job): the new one goes on that same
   // project with no job (SEC-001). Otherwise a job is needed.
@@ -151,6 +194,7 @@ async function addDocketFromPhoto(
   const created = await prisma.receipt.create({
     data: {
       kind: "TIP", siteLinkId: src.siteLinkId, sentBy: src.sentBy, sentByResourceId: src.sentByResourceId, sentAt: src.sentAt,
+      officeBatchId: src.officeBatchId ?? null, // from a batch photo: office-only like it (never on a link's count)
       jobId: job ? job.id : null, projectId: job ? job.projectId : src.projectId, asbestos, status: "CONFIRMED", photoFromReceiptId: photoOwner,
       docketNo: fields.docketNo, docketAt: fields.docketAt, tipSite: fields.tipSite, wasteType: fields.wasteType, tonnes: fields.tonnes, rego: fields.rego,
       vehicleId: vehicleForRego(fields.rego, await truckRegos()),
