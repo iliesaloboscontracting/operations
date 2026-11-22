@@ -88,6 +88,7 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   }
 
   const data = pickResourceData(body) as Record<string, unknown>;
+  if (data.type !== "PERSONNEL") data.fullTime = false; // FT-003: only Labour-register people are ever full-time
   const hireError = hireDateError(data as Parameters<typeof hireDateError>[0]);
   if (hireError) return NextResponse.json({ error: hireError }, { status: 400 });
   const registerError = await hireRegisterError(data);

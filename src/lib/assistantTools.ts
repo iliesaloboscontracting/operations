@@ -146,10 +146,12 @@ function textForModel(x: unknown, key?: string): unknown {
   if (x && typeof x === "object") return Object.fromEntries(Object.entries(x).map(([k, v]) => [k, textForModel(v, k)]));
   return x;
 }
+// FT-001 (Ilies, 22 Nov 2026, "approve b"): who is full-time is for the board's colours only - never sent to the model.
+export const RESOURCE_FIELDS_NOT_FOR_MODEL = ["notes", "fullTime"] as const;
 function resourceForModel(r: unknown): unknown {
   if (!r || typeof r !== "object") return textForModel(r);
   const out = toPublicResource({ ...(r as Record<string, unknown>) }, "VIEWER");
-  delete out.notes;
+  for (const k of RESOURCE_FIELDS_NOT_FOR_MODEL) delete out[k];
   return textForModel(out);
 }
 export function resourcesForModel(data: unknown): unknown {

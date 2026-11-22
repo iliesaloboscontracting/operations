@@ -6,7 +6,12 @@
 // on 14 Sep 2020 (a day no other check uses) and one TODAY so a supervisor link and a site poster have crew to show.
 // On screen only (Ilies, 22 Nov 2026: "only for the system not to be exported"): the day sheet text, the DaySheetSend
 // snapshot, the CSV exports and the daily report carry no full-time marker with ticked people allocated.
-// WRITES: four people, a machine, two projects, two jobs, assignments, a supervisor link, a poster and a day-sheet send.
+// FT-001: the Assistant's tools never hand fullTime to the model. FT-002: every export / report assertion first sees the
+// ticked person (A) by name - seeded sign-ins on 14 Sep 2020, the week locked and A approved for the pay run, then put
+// back. FT-003: a record moved off the Labour register loses its tick (recorded).
+// WRITES (all tagged "RC ... <tag>", on the test copy only): five people, a machine, two projects, two jobs,
+// assignments, a supervisor link, a poster, a day-sheet send, sign-ins on 14 Sep 2020 and a pay review - the sign-ins
+// and the pay review are removed again and the week reopened at the end.
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -27,7 +32,7 @@ const filesUnder = (dir) => {
 };
 
 export default {
-  id: "full-time-tiles", title: "Full-time tiles: Manager / Admin set it, the board carries it, no site link does, no outbound call",
+  id: "full-time-tiles", title: "Full-time tiles: Manager / Admin set it, the board carries it; no site link, export, sheet, report or Assistant does (replies + whole-src scan); no outbound call",
   writes: true, timeoutMs: 300_000,
   applies: (c) => c.hasPath("src/lib/fullTime.ts") || "needs lib/fullTime.ts",
   async run(t, c) {
@@ -79,6 +84,17 @@ export default {
     const regRow = (await c.json("/api/resources?type=PERSONNEL", "MANAGER")).body?.find?.((r) => r.id === A.id);
     t.status(await c.patch(`/api/resources/${A.id}`, "MANAGER", { ...regRow, notes: "RC whole-form resave" }), 200, "a Manager re-saving A's whole Labour form");
     t.ok((await ft(A)) === true, "A is still full-time after the whole-form save");
+
+    // FT-003: moved off the Labour register -> the tick is cleared, and that's in the record's history.
+    const X = await mk("RC Moved X");
+    t.status(await c.patch(`/api/resources/${X.id}`, "MANAGER", { fullTime: true }), 200, "a Manager ticks X full-time");
+    t.status(await c.patch(`/api/resources/${X.id}`, "ADMIN", { type: "EQUIPMENT" }), 200, "an Admin moves X to the Plant register (type EQUIPMENT)");
+    t.ok((await ft(X)) === false, "X is no longer full-time once off the Labour register");
+    const rx = await db.recordChange.findMany({ where: { model: "Resource", recordId: X.id, field: "fullTime" }, orderBy: { changedAt: "asc" } });
+    t.ok(rx.map((r) => r.after).join(",") === "true,false", "both changes are in X's history (true, then false with the move)", JSON.stringify(rx.map((r) => r.after)));
+    const made2 = await c.post("/api/resources", "MANAGER", { name: `RC Plant Untick ${tag}`, type: "EQUIPMENT" });
+    t.status(made2, 201, "a Manager adds a machine");
+    t.ok((await db.resource.findFirst({ where: { name: `RC Plant Untick ${tag}` } }))?.fullTime === false, "a new non-Labour record is saved not full-time");
 
     // History: recorded like every other resource edit (RecordChange), shown to a Manager with who did it.
     const rc = await db.recordChange.findMany({ where: { model: "Resource", recordId: A.id, field: "fullTime" } });
@@ -132,8 +148,9 @@ export default {
       const text = await r.text().catch(() => "");
       t.ok(!/"fullTime"/.test(text), `no fullTime in ${pth.split("?")[0]} (${r.status})`, text.slice(0, 160));
     }
-    if (!crewShown) t.note("no site reply on this copy listed A by name - the key scan above still covers every reply");
-    // And in the source: no site-link route or page names it, and none hands back a whole resource row.
+    t.ok(crewShown, "a site-link / poster reply listed A (ticked full-time) by name - so there was a full-timer to leak");
+    // And in the source: no site-link route or page names it, and none hands back a whole resource row. (The src/lib
+    // modules those routes import are covered by the whole-src scan in (4): fullTime is named only in the allowed files.)
     const siteFiles = [...filesUnder(path.join(c.p.appDir, "src", "app", "api", "site")), ...filesUnder(path.join(c.p.appDir, "src", "app", "site"))];
     const named = siteFiles.filter((f) => readFileSync(f, "utf8").includes("fullTime"));
     t.ok(siteFiles.length > 0 && named.length === 0, "no site-link route or page mentions fullTime", named.map((f) => path.relative(c.p.appDir, f)).join(", "));
@@ -181,15 +198,74 @@ export default {
     try { snapJob = JSON.parse(send?.snapshot ?? "{}").jobs?.find((j) => (j.crew ?? []).some((p) => p.id === A.id)) ?? null; } catch { /* checked below */ }
     t.ok(!!snapJob && snapJob.crew.some((p) => p.id === S.id), "the send's snapshot holds today's job with A and S");
     t.ok(!!send && !/fulltime|full-time/i.test(send.snapshot) && !MARK.test(JSON.stringify(snapJob ?? {})), "the DaySheetSend snapshot has no full-time marker", send ? "" : "no send row");
-    for (const [pth, who] of [
-      [`/api/timesheets/export?week=${c.thisWeek}`, "MANAGER"], [`/api/timesheets/labour-hire/export?week=${c.thisWeek}`, "MANAGER"],
-      [`/api/accounts/timesheets/export?week=${c.thisWeek}`, "ACCOUNTS"], [`/api/accounts/payroll/export?week=${c.thisWeek}&file=payrun`, "ACCOUNTS"],
-      [`/api/accounts/payroll/export?week=${c.thisWeek}&file=summary`, "ACCOUNTS"], [`/api/daily-report/${JT.id}`, "MANAGER"], [`/api/directors/daily-report/${JT.id}`, "DIRECTOR"],
-    ]) {
+    // FT-002: an export only proves something if it lists the ticked person. Sign-ins on DAY (its own week, 14-20 Sep
+    // 2020) for A and S (staff, both ticked) and a labour hire worker, signed in and out; removed again at the end.
+    const aest = (date, hhmm) => { const [h, m] = hhmm.split(":").map(Number); const [y, mo, d] = date.split("-").map(Number); return new Date(Date.UTC(y, mo - 1, d, h - 10, m)); };
+    const seeded = [];
+    const signIn = async (data) => {
+      const r = await db.siteAttendance.create({ data: { jobId: J.id, date: DAY, allocated: true, signInMethod: "SUPERVISOR_QR", status: "CONFIRMED",
+        signInAt: aest(DAY, "07:00"), signOutAt: aest(DAY, "15:30"), signOutMethod: "SUPERVISOR_QR", ...data } });
+      seeded.push(r.id);
+    };
+    const hireName = `RC Hireworker ${tag}`;
+    await signIn({ resourceId: A.id, workerName: A.name });
+    await signIn({ resourceId: S.id, workerName: S.name });
+    await signIn({ resourceId: null, workerName: hireName, company: "Advanced Labour Hire" });
+    const sees = async (pth, who, name, what) => {
       const r = await c.text(pth, who);
-      t.ok(!MARK.test(r.text), `no full-time marker in ${pth.split("?")[0].replace(JT.id, ":jobId")} (${r.status})`, (r.text.match(MARK) ?? [""])[0]);
+      if (r.status !== 200 || !r.text.includes(name)) return t.block(`${what}: the copy didn't produce it listing ${name === A.name ? "A" : "the test hire worker"} (${r.status} ${r.text.slice(0, 100)})`);
+      t.ok(true, `${what} lists ${name === A.name ? "A (ticked full-time)" : "the test hire worker"} by name`);
+      t.ok(!MARK.test(r.text), `no full-time marker in ${what}`, (r.text.match(MARK) ?? [""])[0]);
+    };
+    let locked = false;
+    try {
+      await sees(`/api/timesheets/export?week=${DAY}`, "MANAGER", A.name, "the staff timesheet CSV (draft)");
+      await sees(`/api/accounts/timesheets/export?week=${DAY}`, "ACCOUNTS", A.name, "the accounts timesheet CSV");
+      await sees(`/api/accounts/payroll/export?week=${DAY}&file=summary`, "ACCOUNTS", A.name, "the payroll hours summary CSV");
+      // Full-timers are Labour-register staff, never labour hire: that file is checked with a test hire worker in it.
+      await sees(`/api/timesheets/labour-hire/export?week=${DAY}`, "MANAGER", hireName, "the labour hire timesheet CSV");
+      await sees(`/api/daily-report/${J.id}`, "MANAGER", A.name, "the printable daily report");
+      await sees(`/api/directors/daily-report/${J.id}`, "DIRECTOR", A.name, "the Directors' daily report");
+      // The pay-run file lists only people accounts approved in a locked week: lock it, approve A, read it, put it back.
+      const ap = await c.post("/api/timesheets", "MANAGER", { week: DAY, action: "approve" });
+      locked = ap.status === 200;
+      if (!locked) t.block(`pay-run CSV: the week of ${DAY} couldn't be locked on this copy (${ap.status} ${(await ap.text().catch(() => "")).slice(0, 120)})`);
+      else {
+        await sees(`/api/timesheets/export?week=${DAY}`, "MANAGER", A.name, "the staff timesheet CSV (approved week)");
+        const pw = (await c.json(`/api/accounts/payroll?week=${DAY}`, "ACCOUNTS")).body;
+        const pa = pw?.people?.find?.((p) => p.name === A.name);
+        const rv = pa ? await c.post("/api/accounts/payroll", "ACCOUNTS", { week: DAY, personKey: pa.personKey, status: "APPROVED" }) : null;
+        if (!rv || ![200, 201].includes(rv.status)) t.block(`pay-run CSV: accounts couldn't approve A on this copy (${rv ? rv.status + " " + (await rv.text().catch(() => "")).slice(0, 120) : "A not on the payroll week"})`);
+        else await sees(`/api/accounts/payroll/export?week=${DAY}&file=payrun`, "ACCOUNTS", A.name, "the pay-run CSV");
+      }
+    } finally {
+      if (locked) t.status(await c.post("/api/timesheets", "ADMIN", { week: DAY, action: "reopen", reason: "RC full-time check - put back" }), 200, "the week of 14 Sep 2020 reopened again");
+      await db.payWeekReview.deleteMany({ where: { weekStart: DAY, personName: { contains: tag } } });
+      await db.siteAttendance.deleteMany({ where: { id: { in: seeded } } });
     }
+
+    // FT-001: the Assistant's tools (runTool -> the real /api/jobs and /api/resources, as a Manager) hand the model no
+    // fullTime - with A and S ticked and on the board.
+    if (existsSync(tsxCli) && c.p.files) {
+      const cookie = (await c.login("MANAGER")).cookie;
+      const toolsLib = "file:///" + path.join(c.p.appDir, "src", "lib", "assistantTools.ts").split(path.sep).join("/");
+      const script = path.join(c.p.files, `rc98-assistant-${tag}.mts`);
+      writeFileSync(script, [
+        `import { runTool } from ${JSON.stringify(toolsLib)};`,
+        `const jobs = await runTool("get_jobs", { date: ${JSON.stringify(DAY)} }, ${JSON.stringify(c.base)}, ${JSON.stringify(cookie)});`,
+        `const res = await runTool("get_resources", {}, ${JSON.stringify(c.base)}, ${JSON.stringify(cookie)});`,
+        `console.log("RESULT " + JSON.stringify({ jobs, res }));`,
+      ].join("\n"));
+      let out = "";
+      try { out = execFileSync(process.execPath, [tsxCli, script], { cwd: c.p.appDir, env: { ...process.env, ...(c.childEnv ?? {}) }, encoding: "utf8", timeout: 120_000 }); }
+      catch (e) { out = String(e?.stdout ?? "") + String(e?.stderr ?? ""); }
+      const line = out.split("\n").find((l) => l.startsWith("RESULT ")) ?? "";
+      t.ok(line.includes(A.name) && /"ok":true/.test(line), "the Assistant's get_jobs / get_resources ran on the copy and include A", line ? "" : out.slice(0, 160));
+      t.ok(!!line && !line.includes("fullTime"), "no fullTime in the Assistant's tool results (FT-001)");
+    } else t.block("no tsx in the candidate's node_modules - the Assistant tools couldn't be run");
+
     const ALLOWED = new Set([
+      "src/lib/assistantTools.ts", "src/lib/assistantTools.test.ts", // FT-001: they name it only to take it out
       "src/lib/fullTime.ts", "src/lib/fullTime.test.ts", "src/lib/resourceFields.ts", "src/lib/recordPatch.ts", "src/lib/types.ts",
       "src/app/api/resources/route.ts", "src/app/labour/page.tsx", "src/components/AssignedChip.tsx", "src/components/ResourceCard.tsx",
       "src/components/ResourceSidebar.tsx", "src/components/board/FullTimeMark.tsx", "src/components/HistoryButton.tsx",

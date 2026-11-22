@@ -189,3 +189,21 @@ test("get_projects: anything that isn't a list passes through untouched", () => 
   assert.equal(projectsForModel(err), err);
   assert.equal(projectsForModel(null), null);
 });
+
+test("FT-001: who is full-time never reaches the model (get_jobs / get_resources, via runTool too)", async () => {
+  const person = { id: "r1", name: "Alex", type: "PERSONNEL", category: "Labourer", role: "General labour", fullTime: true };
+  const jobs = [{ id: "j1", title: "Site", assignments: [{ id: "a1", role: null, resourceId: "r1", resource: person }] }];
+  assert.ok(!JSON.stringify(resourcesForModel([person])).includes("fullTime"));
+  assert.ok(!JSON.stringify(jobsForModel(jobs)).includes("fullTime"));
+  assert.equal((resourcesForModel([person]) as { name: string }[])[0].name, "Alex"); // the rest stays
+  const real = globalThis.fetch;
+  globalThis.fetch = (async (url: string) => new Response(JSON.stringify(String(url).includes("/api/jobs") ? jobs : [person]), { status: 200 })) as typeof fetch;
+  try {
+    for (const [name, input] of [["get_jobs", { date: "2026-11-23" }], ["get_resources", {}]] as const) {
+      const out = await runTool(name, input, "http://127.0.0.1:3000", null);
+      assert.ok(out.ok && !JSON.stringify(out.data).includes("fullTime"), name);
+    }
+  } finally {
+    globalThis.fetch = real;
+  }
+});

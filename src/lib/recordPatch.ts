@@ -58,6 +58,12 @@ export async function applyResourcePatch(id: string, body: Record<string, unknow
   }
 
   const data = pickResourceData(body) as Record<string, unknown>;
+  // FT-003 (Ilies, 22 Nov 2026): a record that isn't on the Labour register after this write loses its full-time tick -
+  // set here so it's recorded in RecordChange like any other edit.
+  {
+    const stored = await prisma.resource.findUnique({ where: { id }, select: { type: true, fullTime: true } });
+    if (stored?.fullTime && String(data.type ?? stored.type) !== "PERSONNEL") data.fullTime = false;
+  }
   if ("onHireDate" in data || "offHireDate" in data) {
     const existing = await prisma.resource.findUnique({
       where: { id },
