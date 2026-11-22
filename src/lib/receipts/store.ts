@@ -236,7 +236,7 @@ export type ReadFieldsDTO = {
 export type ReceiptOfficeDTO = {
   id: string; type: "TIP" | "FUEL" | "ODOMETER"; label: string; for: string; jobId: string | null; vehicleId: string | null;
   sentBy: string; sentAt: string; asbestos: boolean | null; status: string; photoIds: string[];
-  read: ReadFieldsDTO; reasons: string[]; unreadable: boolean; corrections: { at: string; by: string; field: string }[];
+  read: ReadFieldsDTO; reasons: string[]; unreadable: boolean; corrections: { at: string; by: string; field: string; via?: "batch" }[];
   rejected: { by: string; reason: string } | null;
   onInvoice: boolean; // a tip invoice has replaced this docket's estimate (R3)
   added?: { by: string; fromReceiptId: string } | null; // typed in by the office from another receipt's photo
@@ -309,7 +309,7 @@ export async function officeList(f: ReceiptFilters): Promise<{ rows: ReceiptOffi
     return {
       reasons: unreadable ? ["Couldn't be read - type it in, or read it again"] : reasons,
       unreadable,
-      corrections: (log.corrections ?? []).map((c) => ({ at: c.at, by: c.by, field: c.field })),
+      corrections: (log.corrections ?? []).map((c) => ({ at: c.at, by: c.by, field: c.field, ...(c.via === "batch" ? { via: "batch" as const } : {}) })),
       rejected: log.rejected ? { by: log.rejected.by, reason: log.rejected.reason } : null,
     };
   };

@@ -5,7 +5,7 @@
 // and the daily log's docket count leaves batches out. Append-only - REJECT on /receipts is the only way to set one aside.
 import { prisma } from "../prisma";
 import { checkReceiptPhoto, writeReceiptPhoto } from "./files";
-import { BATCH_LIMITS, batchLinkMarker, capProblem, samePhotoProblem } from "./batchRules";
+import { BATCH_LIMITS, batchLinkMarker, bulkNoAsbestos, capProblem, samePhotoProblem } from "./batchRules";
 import { dueReceipts, logOf, readReceipt, readingEnabled } from "./runner";
 
 type Problem = { error: string; status: number };
@@ -71,18 +71,40 @@ export async function addBatchPhoto(who: Who, batchId: string, body: Record<stri
 }
 
 // Asbestos option (b), Ilies 20 Nov 2026: "None of this batch is asbestos". Any Manager / Admin (an office colleague
-// may finish someone else's batch). Sets asbestos = false only on the batch's dockets still unanswered and not set
-// aside - never one a person already answered - and keeps who / when / how many (ReceiptBatchEvent, append-only).
-// Confirms nothing: each docket still goes through the normal confirm; a single one can still be changed afterwards.
-export async function noAsbestosForBatch(who: Who, batchId: string): Promise<{ ok: true; changed: number } | Problem> {
+// may finish someone else's batch). Narrowed by DB-006 (Ilies approved 23 Nov 2026, "approve all"): sets asbestos = false
+// only on the batch's tip dockets still unanswered, not set aside, already read (READ / CHECK) and whose waste type
+// doesn't read as asbestos (bulkNoAsbestos, ./batchRules.ts) - never one a person already answered, never one that says
+// asbestos (answered one by one), never one not read yet (SENT). DB-008: each docket it answers gets a correction
+// (via "batch", who / when) in its log, and the press is kept with who / when / which ones (ReceiptBatchEvent,
+// append-only). Confirms nothing and never changes status, reasons or job: each docket still goes through the normal
+// confirm; a single one can still be changed afterwards.
+export async function noAsbestosForBatch(who: Who, batchId: string): Promise<{ ok: true; changed: number; leftAsbestos: number; waiting: number } | Problem> {
   const batch = ID.test(batchId) ? await prisma.receiptBatch.findUnique({ where: { id: batchId }, select: { id: true } }) : null;
   if (!batch) return { error: "Not found", status: 404 };
-  const changed = await prisma.$transaction(async (tx) => {
-    const n = await tx.receipt.updateMany({ where: { officeBatchId: batch.id, kind: "TIP", asbestos: null, status: { not: "REJECTED" } }, data: { asbestos: false } });
-    await tx.receiptBatchEvent.create({ data: { batchId: batch.id, action: "NO_ASBESTOS", by: who.name, byId: who.id, count: n.count } });
-    return n.count;
+  return prisma.$transaction(async (tx) => {
+    const rows = await tx.receipt.findMany({
+      where: { officeBatchId: batch.id, kind: "TIP", asbestos: null, status: { not: "REJECTED" } },
+      select: { id: true, kind: true, status: true, asbestos: true, wasteType: true, reading: true },
+    });
+    const now = new Date();
+    const changedIds: string[] = [];
+    let leftAsbestos = 0, waiting = 0;
+    for (const row of rows) {
+      const rule = bulkNoAsbestos(row);
+      if (rule === "SKIP_ASBESTOS") leftAsbestos++;
+      if (rule === "SKIP_UNREAD") waiting++;
+      if (rule !== "SET") continue;
+      const log = logOf(row.reading);
+      const corrections = [...(log.corrections ?? []), { at: now.toISOString(), by: who.name, field: "asbestos", before: null, after: false, via: "batch" as const }];
+      const n = await tx.receipt.updateMany({
+        where: { id: row.id, asbestos: null, status: { in: ["READ", "CHECK"] } },
+        data: { asbestos: false, reading: JSON.stringify({ ...log, corrections }), correctedBy: who.name, correctedAt: now },
+      });
+      if (n.count === 1) changedIds.push(row.id);
+    }
+    await tx.receiptBatchEvent.create({ data: { batchId: batch.id, action: "NO_ASBESTOS", by: who.name, byId: who.id, count: changedIds.length, receiptIds: JSON.stringify(changedIds) } });
+    return { ok: true as const, changed: changedIds.length, leftAsbestos, waiting };
   });
-  return { ok: true, changed };
 }
 
 // The batch's photos are read one at a time (not 100 at once): one loop per server (the flag is on globalThis, so the

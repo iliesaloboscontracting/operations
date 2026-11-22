@@ -1,6 +1,7 @@
 // Office batch upload of tip dockets (20 Nov 2026, Ilies: "we may upload a batch like from whats app but never will we
 // need to upload an individual receipts") - the plain rules, no database. Store: ./batch.ts. Each photo becomes a TIP
 // Receipt read like a phone-sent one (./runner.ts, ./checks.ts).
+import { ASBESTOS } from "./checks";
 
 export const BATCH_LIMITS = {
   photosPerBatch: 100, // one batch = one project's export; more is a second batch
@@ -43,6 +44,18 @@ export function capProblem(n: { inBatch: number; userToday: number }): string | 
   if (n.inBatch >= BATCH_LIMITS.photosPerBatch) return `A batch holds at most ${BATCH_LIMITS.photosPerBatch} photos - start another batch for the rest.`;
   if (n.userToday >= BATCH_LIMITS.photosPerUserPerDay) return `That's the most photos one login can upload in a day (${BATCH_LIMITS.photosPerUserPerDay}) - carry on tomorrow.`;
   return null;
+}
+
+// ---------- "None of this batch is asbestos" ----------
+// DB-006 (Ilies approved 23 Nov 2026, "approve all"): the batch button answers "not asbestos" only on a tip docket that is
+// unanswered, not set aside, already read (READ / CHECK) and whose waste type doesn't read as asbestos. A docket that says
+// asbestos is left for a person to answer one by one; one not read yet (SENT - including one whose tries ran out) waits.
+export type BulkNoAsbestos = "SET" | "SKIP_ASBESTOS" | "SKIP_UNREAD" | "SKIP";
+export function bulkNoAsbestos(row: { kind: string; status: string; asbestos: boolean | null; wasteType: string | null }): BulkNoAsbestos {
+  if (row.kind !== "TIP" || row.asbestos !== null || row.status === "REJECTED") return "SKIP";
+  if (row.status === "SENT") return "SKIP_UNREAD";
+  if (ASBESTOS.test(row.wasteType ?? "")) return "SKIP_ASBESTOS";
+  return row.status === "READ" || row.status === "CHECK" ? "SET" : "SKIP";
 }
 
 // ---------- the same photo twice ----------

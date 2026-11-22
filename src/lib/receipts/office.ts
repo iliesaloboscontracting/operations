@@ -76,6 +76,13 @@ export async function receiptAction(who: Who, id: string, body: Record<string, u
     }
     // Typed in from an unreadable photo without confirming: it stays on the list to check.
     const status = confirm ? "CONFIRMED" : unreadable ? "CHECK" : row.status;
+    // DB-007 (Ilies approved 23 Nov 2026): a correction without confirm on a counted tip docket (READ / CONFIRMED) can't
+    // turn it into one whose number is already counted at that tip site. CHECK / SENT / REJECTED rows aren't blocked here -
+    // their later confirm already is.
+    if (!isOdo && (row as { kind: string }).kind === "TIP" && !confirm && (status === "READ" || status === "CONFIRMED") && ("docketNo" in data || "tipSite" in data)) {
+      const blocked = await alreadyCounted({ ...(row as TipRow), ...(data as Partial<TipRow>) });
+      if (blocked) return blocked;
+    }
     await save({ ...data, ...(Object.keys(data).length ? { correctedBy: who.name, correctedAt: now, reading: JSON.stringify({ ...log, corrections }) } : {}), status });
     if (!isOdo) syncTipMatchesSoon();
     if (!isOdo && status === "CONFIRMED") await claimFromOwnReceipt(id); // "I paid this myself" -> the claim
@@ -118,9 +125,16 @@ export async function receiptAction(who: Who, id: string, body: Record<string, u
 // so for them nothing changes. A tip docket - phone or batch (DB-001) - whose number is already counted (read or
 // confirmed) at the same tip site can't be confirmed either - it would count twice in tip costs; set one aside.
 type TipRow = { id: string; kind: string; asbestos: boolean | null; officeBatchId: string | null; docketNo: string | null; tipSite: string | null };
+// DB-007: split in two so a correction without confirm can use the "already counted" half on its own.
 async function confirmBlocked(r: TipRow): Promise<Problem | null> {
+  return asbestosMissing(r) ?? (await alreadyCounted(r));
+}
+function asbestosMissing(r: TipRow): Problem | null {
   if (r.kind !== "TIP") return null;
-  if (r.asbestos === null) return { error: "Say whether it's asbestos first (Correct -> Asbestos), then confirm.", status: 400 };
+  return r.asbestos === null ? { error: "Say whether it's asbestos first (Correct -> Asbestos), then confirm.", status: 400 } : null;
+}
+async function alreadyCounted(r: TipRow): Promise<Problem | null> {
+  if (r.kind !== "TIP") return null;
   if (!normDocket(r.docketNo)) return null;
   const key = normDocket(r.docketNo), site = siteKey(r.tipSite);
   // Only one that already counts (read or confirmed): the first of two photos of one docket can still be confirmed.

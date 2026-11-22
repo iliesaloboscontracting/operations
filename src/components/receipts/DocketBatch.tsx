@@ -26,19 +26,26 @@ const asDataUrl = (f: File) => new Promise<string>((resolve, reject) => {
 });
 
 // "None of this batch is asbestos" (Ilies, option b): sets not-asbestos on the batch's unanswered dockets only, kept
-// with who and when; confirms nothing. Also on each batch docket's row (ReceiptRow).
+// with who and when; confirms nothing. Since DB-006 (23 Nov 2026) only on ones already read whose docket doesn't say
+// asbestos - those, and ones not read yet, are left for a person. Also on each batch docket's row (ReceiptRow).
 export function NoAsbestosButton({ batchId, onDone }: { batchId: string; onDone: (msg: string) => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   async function go() {
-    if (!confirm("None of the dockets in this batch are asbestos?\n\nDockets someone already answered stay as they are. Nothing is confirmed - each docket still needs confirming.")) return;
+    if (!confirm("None of the dockets in this batch are asbestos?\n\nDockets someone already answered stay as they are. Dockets that say asbestos, and ones not read yet, are left for you. Nothing is confirmed - each docket still needs confirming.")) return;
     setBusy(true);
     setError(null);
     const r = await apiFetch(`/api/receipts/batches/${batchId}/no-asbestos`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
     setBusy(false);
     if (!r.ok) return setError(await serverErrorMessage(r, "Couldn't save."));
-    const { changed } = await r.json();
-    onDone(`Not asbestos: ${changed} docket${changed === 1 ? "" : "s"} in the batch. Each one still needs confirming.`);
+    const { changed = 0, leftAsbestos = 0, waiting = 0 } = await r.json();
+    const s = (n: number) => (n === 1 ? "" : "s");
+    onDone([
+      `Not asbestos: ${changed} docket${s(changed)}.`,
+      leftAsbestos > 0 && `${leftAsbestos} say${leftAsbestos === 1 ? "s" : ""} asbestos on the docket - answer ${leftAsbestos === 1 ? "that" : "those"} one by one.`,
+      waiting > 0 && `${waiting} ${waiting === 1 ? "isn't" : "aren't"} read yet - press again once ${waiting === 1 ? "it's" : "they're"} read.`,
+      "Each one still needs confirming.",
+    ].filter(Boolean).join(" "));
   }
   return (
     <>

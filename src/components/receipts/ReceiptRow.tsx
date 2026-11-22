@@ -132,7 +132,7 @@ export default function ReceiptRow({ r, jobs, trucks, onChanged }: { r: ReceiptO
         {r.added && <div className="text-xs text-sky-300">Added by {r.added.by} from another docket&apos;s photo</div>}
         <div className="text-xs text-gray-500">
           {r.batch ? `Office batch - ${r.batch.by}` : r.sentBy} · {when(r.sentAt)}
-          {r.corrections.length > 0 && ` · corrected by ${[...new Set(r.corrections.map((c) => c.by))].join(", ")} (${r.corrections.length} change${r.corrections.length === 1 ? "" : "s"})`}
+          {r.corrections.length > 0 && ` · corrected by ${[...new Set(r.corrections.map((c) => c.by))].join(", ")} (${r.corrections.length} change${r.corrections.length === 1 ? "" : "s"})${r.corrections.some((c) => c.via === "batch") ? " (whole batch)" : ""}`}
         </div>
 
         {editing ? (
@@ -188,7 +188,7 @@ export default function ReceiptRow({ r, jobs, trucks, onChanged }: { r: ReceiptO
             {r.type !== "ODOMETER" && r.photoIds.length > 0 && !adding && (
               <button className={quiet} disabled={busy} onClick={() => { setDocket({ ...docket, jobId: r.type === "TIP" ? r.jobId ?? "" : "", asbestos: r.batch ? "" : "no" }); setAdding(true); }}>Add another docket from this photo</button>
             )}
-            {r.batch && r.type === "TIP" && r.asbestos == null && r.status !== "REJECTED" && <NoAsbestosButton batchId={r.batch.id} onDone={onChanged} />}
+            {r.batch && r.type === "TIP" && r.asbestos == null && r.status !== "REJECTED" && r.status !== "SENT" && <NoAsbestosButton batchId={r.batch.id} onDone={onChanged} />}
           </div>
         )}
         {adding && (

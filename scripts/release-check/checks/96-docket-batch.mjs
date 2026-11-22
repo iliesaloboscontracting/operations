@@ -18,6 +18,10 @@
 //   (9) option b "None of this batch is asbestos": Manager+ only, unanswered + not set aside only, kept, confirms nothing;
 //   (10) DB-004 a 4 MB photo refused; used-up SENT rows don't hide a fresh one;
 //   (11) DB-005 ten parallel photos into a batch of 95 stop at 100.
+// Security review fixes (Ilies approved 23 Nov 2026, "approve all"):
+//   (12) DB-006 / DB-008 (in step 9) the batch button leaves a docket that says asbestos, and one not read yet; it keeps
+//        which dockets it answered (ReceiptBatchEvent.receiptIds) and a via "batch" correction on each;
+//   (13) DB-007 (step 7b) a correction without confirm can't turn a counted docket into one already counted.
 // WRITES on the test copy: a project with two jobs, a supervisor link, phone and batch dockets, four batches (one with 95
 // set-aside rows, one with 25 used-up rows).
 import { execFileSync } from "node:child_process";
@@ -182,6 +186,28 @@ export default {
     t.status(await c.post(`/api/receipts/${p3.id}`, "MANAGER", { op: "CONFIRM" }), 200, "DB-001: two phone dockets, one number: the first confirms");
     t.status(await c.post(`/api/receipts/${p4.id}`, "MANAGER", { op: "CONFIRM" }), 409, "DB-001: ...the second can't (phone dockets are covered too)");
 
+    // (7b) DB-007: a correction without confirm can't turn a counted docket (READ / CONFIRMED) into a duplicate.
+    const correct = async (id, fields) => { const r = await c.post(`/api/receipts/${id}`, "MANAGER", { op: "CORRECT", fields }); return { status: r.status, body: await r.json().catch(() => ({})) }; };
+    const q1No = `RC96-${tag}-Q1`, q1Typed = `rc96 ${tag} q1`;
+    const q1 = await tipRow({ ...asPhone, status: "READ", docketNo: q1No });
+    const q2 = await tipRow({ ...asPhone, status: "READ", docketNo: `RC96-${tag}-Q2` });
+    const q2r = await correct(q2.id, { docketNo: q1Typed });
+    t.ok(q2r.status === 409 && /already in/.test(q2r.body.error ?? ""), "DB-007: correcting a read docket to a number already counted (no confirm) -> 409", `${q2r.status} ${q2r.body.error ?? ""}`);
+    const q2after = await get(q2.id);
+    t.ok(q2after?.docketNo === q2.docketNo && q2after?.status === "READ" && !q2after?.correctedBy, "DB-007: ...and nothing is saved on it", `${q2after?.docketNo} ${q2after?.status}`);
+    const q1Counted = (await db.receipt.findMany({ where: { kind: "TIP", status: { in: ["READ", "CONFIRMED"] }, docketNo: { not: null } }, select: { docketNo: true } })).filter((r) => norm(r.docketNo) === norm(q1No)).length;
+    t.ok(q1Counted === 1, "DB-007: Q1's number is counted once", `${q1Counted}`);
+    const q3 = await tipRow({ ...asPhone, status: "CONFIRMED", docketNo: `RC96-${tag}-Q3` });
+    t.status((await correct(q3.id, { docketNo: q1Typed })).status, 409, "DB-007: ...the same on a confirmed docket -> 409");
+    const q2fresh = await correct(q2.id, { docketNo: `RC96-${tag}-Q2B` });
+    t.ok(q2fresh.status === 200 && (await get(q2.id))?.status === "READ", "DB-007: correcting to a fresh number works, and it stays read", `${q2fresh.status}`);
+    const q4 = await tipRow({ ...asPhone, status: "CHECK", docketNo: `RC96-${tag}-Q4` });
+    const q4r = await correct(q4.id, { docketNo: q1Typed });
+    t.ok(q4r.status === 200 && (await get(q4.id))?.status === "CHECK", "DB-007: a To check docket can still be corrected to that number (stays To check)", `${q4r.status}`);
+    t.status(await c.post(`/api/receipts/${q4.id}`, "MANAGER", { op: "CONFIRM" }), 409, "DB-007: ...but then can't be confirmed");
+    const q5 = await tipRow({ ...asPhone, status: "READ", docketNo: q1No, tipSite: "Other Tip" });
+    t.status((await correct(q5.id, { tipSite: "Release Check Tip" })).status, 409, "DB-007: changing only the tip site onto a counted number + site -> 409");
+
     // (8) DB-003: another docket from a batch photo needs the asbestos answer.
     const extra = { jobId: jobToday.id, tipSite: "Release Check Tip", docketNo: `RC96-${tag}-EXTRA`, docketAt: `${today}T10:00`, wasteType: "Mixed C&D", tonnes: 3.1, rego: "" };
     const noAns = await c.post(`/api/receipts/${ids.B}`, "MANAGER", { op: "ADD_DOCKET", fields: extra });
@@ -199,19 +225,38 @@ export default {
       t.status(await c.post(`/api/receipts/batches/${b1.body.id}/no-asbestos`, role, {}), [401, 403], `option b: ${role} refused`);
     }
     t.status(await c.post(`/api/receipts/batches/${b1.body.id}/no-asbestos`, null, {}), 401, "option b: signed out refused");
+    // DB-006: two more in the batch - one whose docket says asbestos (AS), one not read yet with its tries used up (SN).
+    const asbReason = "Office batch - asbestos yes or no? (say it when you confirm)";
+    const inB1 = { siteLinkId: `office-batch:${b1.body.id}`, sentBy: "Release check office", officeBatchId: b1.body.id, asbestos: null };
+    const AS = await tipRow({ ...inB1, status: "CHECK", wasteType: "Asbestos - bonded", docketNo: `RC96-${tag}-AS`, checkReasons: JSON.stringify([asbReason]) });
+    const SN = await tipRow({ ...inB1, status: "SENT", reading: JSON.stringify({ tries: 3 }), docketNo: null });
     const nb = await c.post(`/api/receipts/batches/${b1.body.id}/no-asbestos`, "ADMIN", {});
     const nbj = await nb.json().catch(() => ({}));
-    const [B9, C9, D9, A29] = await Promise.all([ids.B, ids.C, ids.D, ids.A2].map(get));
+    const [B9, C9, D9, A29, AS9, SN9] = await Promise.all([ids.B, ids.C, ids.D, ids.A2, AS.id, SN.id].map(get));
     t.ok(nb.status === 200 && nbj.changed === 2 && B9?.asbestos === false && D9?.asbestos === false, "option b (any Manager+, here an Admin who didn't upload it): the two unanswered dockets become not asbestos", `${nb.status} ${JSON.stringify(nbj)}`);
+    t.ok(nbj.changed === 2 && nbj.leftAsbestos === 1 && nbj.waiting === 1, "(9a) DB-006: changed 2, 1 left because it says asbestos, 1 waiting to be read", JSON.stringify(nbj));
+    t.ok(AS9?.asbestos === null && AS9?.status === "CHECK", "(9b) DB-006: the docket that says asbestos is left unanswered, still To check", `${AS9?.asbestos} ${AS9?.status}`);
+    const asConf = await c.post(`/api/receipts/${AS.id}`, "MANAGER", { op: "CONFIRM" });
+    t.ok(asConf.status === 400 && /asbestos/.test((await asConf.json().catch(() => ({}))).error ?? ""), "(9b) DB-006: ...and can't be confirmed until a person answers", `${asConf.status}`);
+    t.ok(SN9?.asbestos === null && SN9?.status === "SENT", "(9c) DB-006: the one not read yet is left as it was", `${SN9?.asbestos} ${SN9?.status}`);
     t.ok(C9?.asbestos === true, "...never one a person already answered (C stays asbestos)");
     t.ok(A29?.asbestos === null && A29?.status === "REJECTED", "...nor one set aside");
     t.ok(B9?.status === "CHECK" && D9?.status === "CHECK", "...and it confirms nothing");
-    const ev = await db.receiptBatchEvent.findMany({ where: { batchId: b1.body.id } });
+    const listedAS = ((await c.json(`/api/receipts?day=${today}`, "MANAGER")).body?.rows ?? []).find((x) => x.id === AS.id);
+    t.ok(listedAS && (listedAS.reasons ?? []).some((x) => /asbestos yes or no/.test(x)), "(9d) DB-006: the list still asks 'asbestos yes or no?' on the docket that says asbestos", listedAS ? "" : "row not in the list");
+    const ev = await db.receiptBatchEvent.findMany({ where: { batchId: b1.body.id }, orderBy: { at: "asc" } });
     t.ok(ev.length === 1 && ev[0].action === "NO_ASBESTOS" && ev[0].count === 2 && ev[0].by && ev[0].byId, "who, when and how many are kept (ReceiptBatchEvent)");
+    const evIds = (() => { try { return JSON.parse(ev[0]?.receiptIds ?? "null"); } catch { return null; } })();
+    t.ok(Array.isArray(evIds) && JSON.stringify([...evIds].sort()) === JSON.stringify([ids.B, ids.D].sort()), "(9e) DB-008: the press keeps which dockets it answered (B and D)", JSON.stringify(evIds));
+    const viaBatch = (r) => { try { return (JSON.parse(r?.reading ?? "{}").corrections ?? []).filter((x) => x.via === "batch"); } catch { return []; } };
+    t.ok([B9, D9].every((r) => { const v = viaBatch(r); return v.length === 1 && v[0].field === "asbestos" && v[0].before === null && v[0].after === false && v[0].by && r?.correctedBy && r?.correctedAt; }), "(9e) DB-008: B and D each carry the batch correction (asbestos, before null, after false, who) and correctedBy");
+    t.ok([AS9, SN9, C9, A29].every((r) => viaBatch(r).length === 0) && !AS9?.correctedBy && !SN9?.correctedBy, "(9e) DB-008: AS, SN, C and A2 have no batch correction");
     t.status(await c.post(`/api/receipts/${ids.B}`, "MANAGER", { op: "CONFIRM" }), 200, "the asbestos question no longer blocks B's confirm");
     t.status(await c.post(`/api/receipts/${ids.B}`, "MANAGER", { op: "CORRECT", fields: { asbestos: true } }), 200, "a single docket can still be changed afterwards");
     const again2 = await (await c.post(`/api/receipts/batches/${b1.body.id}/no-asbestos`, "MANAGER", {})).json().catch(() => ({}));
     t.ok(again2.changed === 0 && (await db.receiptBatchEvent.count({ where: { batchId: b1.body.id } })) === 2 && (await get(ids.B))?.asbestos === true, "pressed again: nothing changes (B stays yes), and the press is kept too");
+    const ev2 = (await db.receiptBatchEvent.findMany({ where: { batchId: b1.body.id }, orderBy: { at: "asc" } }))[1];
+    t.ok(ev2?.receiptIds === "[]" && ev2?.count === 0, "(9f) DB-008: the second press is kept with no dockets ('[]', count 0)", `${ev2?.receiptIds} ${ev2?.count}`);
     const listed = ((await c.json(`/api/receipts?day=${today}`, "MANAGER")).body?.rows ?? []).find((x) => x.id === ids.D);
     t.ok(listed && !(listed.reasons ?? []).some((x) => /asbestos yes or no/.test(x)), "the list drops the 'asbestos yes or no?' note once it's answered");
 

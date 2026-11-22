@@ -18,7 +18,7 @@ export const MAX_TRIES = 3;
 
 export type ReadingLog = {
   result?: unknown; reasons?: string[]; readAt?: string; tries?: number; lastError?: string;
-  corrections?: { at: string; by: string; field: string; before: unknown; after: unknown }[];
+  corrections?: { at: string; by: string; field: string; before: unknown; after: unknown; via?: "batch" }[]; // via: "None of this batch is asbestos" (DB-008)
   rejected?: { at: string; by: string; reason: string };
   added?: { at: string; by: string; fromReceiptId: string }; // a second docket typed in from another receipt's photo
 };

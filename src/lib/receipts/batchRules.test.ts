@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { BATCH_LIMITS, batchLinkMarker, capProblem, jobForDocket, samePhotoProblem, shownName } from "./batchRules";
+import { BATCH_LIMITS, batchLinkMarker, bulkNoAsbestos, capProblem, jobForDocket, samePhotoProblem, shownName } from "./batchRules";
 import { checkReceiptPhoto, sniffImage } from "./files";
 import { decideTip } from "./checks";
 import type { TipReading } from "./reading";
@@ -86,4 +86,28 @@ test("office batch reading: asbestos unanswered -> To check; old date isn't a pr
   // a phone docket is unchanged: the 2-day rule still applies, no asbestos question
   const phone = decideTip(tip(), { sentAt: uploaded, asbestosTap: false, ourRegos: [], duplicateOf: null });
   assert.ok(phone.reasons.some((x) => /more than 2 days/.test(x)) && !phone.reasons.some((x) => /asbestos yes or no/.test(x)));
+});
+
+// DB-006 (Ilies approved 23 Nov 2026): "None of this batch is asbestos" answers only read dockets that don't say asbestos.
+type BulkRow = { kind: string; status: string; asbestos: boolean | null; wasteType: string | null; reading?: string | null };
+const bulk = (o: Partial<BulkRow>): BulkRow => ({ kind: "TIP", status: "CHECK", asbestos: null, wasteType: "Mixed C&D", ...o });
+test("bulk not-asbestos: SET only for a read, unanswered docket that doesn't say asbestos", () => {
+  assert.equal(bulkNoAsbestos(bulk({ status: "CHECK", wasteType: "Mixed C&D" })), "SET");
+  assert.equal(bulkNoAsbestos(bulk({ status: "READ", wasteType: "Concrete" })), "SET");
+});
+test("bulk not-asbestos: a docket that says asbestos is left for a person (any case)", () => {
+  for (const w of ["Asbestos - bonded", "ACM", "Friable", "bonded sheet", "ASBESTOS", "acm waste", "FRIABLE material", "Bonded Sheet"]) {
+    assert.equal(bulkNoAsbestos(bulk({ status: "CHECK", wasteType: w })), "SKIP_ASBESTOS", w);
+  }
+});
+test("bulk not-asbestos: not read yet (SENT) waits - with no reading and with its tries used up", () => {
+  assert.equal(bulkNoAsbestos(bulk({ status: "SENT", reading: null })), "SKIP_UNREAD");
+  assert.equal(bulkNoAsbestos(bulk({ status: "SENT", reading: JSON.stringify({ tries: 3, lastError: "Couldn't read it this time" }) })), "SKIP_UNREAD");
+  assert.equal(bulkNoAsbestos(bulk({ status: "SENT", wasteType: null })), "SKIP_UNREAD");
+});
+test("bulk not-asbestos: set aside, already answered or not a tip docket -> SKIP", () => {
+  assert.equal(bulkNoAsbestos(bulk({ status: "REJECTED" })), "SKIP");
+  assert.equal(bulkNoAsbestos(bulk({ asbestos: true })), "SKIP");
+  assert.equal(bulkNoAsbestos(bulk({ asbestos: false })), "SKIP");
+  assert.equal(bulkNoAsbestos(bulk({ kind: "FUEL" })), "SKIP");
 });
