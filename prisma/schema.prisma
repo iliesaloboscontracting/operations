@@ -926,6 +926,28 @@ model DaySheetSend {
   @@index([date, sentAt])
 }
 
+// The allocation email list (Ilies, 20 Nov 2026: "add these emails to the automatic email listing when allocations
+// goes out into outlook" - every address on the list goes in To, every day). The board's "Open in email" puts the
+// active addresses in To. Workers' personal emails: they live here only, never in code, git, tests, seeds, logs, a
+// site link or a DaySheetSend snapshot. Managers / Admins only (lib/sheetEmails). Keep forever: removing an address
+// is a soft remove (removedAt), and adding it again makes a new row - the old one stays as its history.
+model SheetEmailRecipient {
+  id            String    @id @default(cuid())
+  email         String // trimmed, lower-cased
+  activeEmail   String?   @unique // = email while on the list, null once removed: one active row per address
+  label         String? // a name, if one was pasted with the address ("Joe Bloggs <joe@...>")
+  active        Boolean   @default(true)
+  addedBy       String
+  addedById     String?
+  addedAt       DateTime  @default(now())
+  removedBy     String?
+  removedById   String?
+  removedAt     DateTime?
+  removedReason String?
+
+  @@index([email])
+}
+
 // Every change made on the allocations board: which day, what, who (2 Nov 2026). Append-only. The board learns from
 // it which day each person usually works on at each time of day, and it's the change history the board didn't keep.
 model BoardEdit {
