@@ -8,6 +8,22 @@ import {
 import { pickResourceData, RESOURCE_FIELDS, PAY_RATE_FIELDS } from "./resourceFields";
 import { HIRE_MONEY_FIELDS, HIRE_WRITE_FIELDS, coordinatorHireWrite } from "./coordinatorHire";
 import { toPublicResource } from "./serializeResource";
+import { buildDaySheet, type DaySheetJob } from "./daySheet";
+
+test("on screen only: the day sheet never says FT or Full-time, even handed a ticked person", () => {
+  // Ilies, 22 Nov 2026: "the colour display for the full timers is only for the system not to be exported".
+  const crew = (name: string, role: string | null, fullTime: boolean) =>
+    ({ role, resource: { name, type: "PERSONNEL", category: "Labourer", identifier: null, agency: null, fullTime } });
+  const job = {
+    title: "Test Site", client: null, siteAddress: "1 Test St", startTime: "7am", endTime: "3:30pm", shift: "DAY",
+    notRunning: false, dayBrief: null,
+    assignments: [crew("Alex Fulltimer", "Supervisor", true), crew("Bo Fulltimer", null, true), crew("Cy Casual", null, false)],
+  } as unknown as DaySheetJob; // the board's own objects carry fullTime; the builder must ignore it
+  const { subject, body } = buildDaySheet([job], "2026-11-23");
+  const text = `${subject}\n${body}`;
+  assert.ok(text.includes("Alex Fulltimer") && text.includes("Bo Fulltimer") && text.includes("Cy Casual"));
+  assert.doesNotMatch(text.replace(/Fulltimer/g, ""), /fulltime|full-time|\bFT\b/i);
+});
 
 const person = (fullTime?: boolean | null) => ({ type: "PERSONNEL", category: "Labourer", fullTime });
 

@@ -4,8 +4,11 @@
 // /api/jobs, the Yard sidebar from /api/resources) for everyone who sees the board; no site-link reply ever does; it's
 // Labour register only; nothing is called outside. Made-up people, a project and jobs on the test copy only - one job
 // on 14 Sep 2020 (a day no other check uses) and one TODAY so a supervisor link and a site poster have crew to show.
-// WRITES: four people, a machine, two projects, two jobs, assignments, a supervisor link and a poster.
-import { readFileSync, readdirSync } from "node:fs";
+// On screen only (Ilies, 22 Nov 2026: "only for the system not to be exported"): the day sheet text, the DaySheetSend
+// snapshot, the CSV exports and the daily report carry no full-time marker with ticked people allocated.
+// WRITES: four people, a machine, two projects, two jobs, assignments, a supervisor link, a poster and a day-sheet send.
+import { execFileSync } from "node:child_process";
+import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { noMoney } from "../lib/context.mjs";
 import { makeLink } from "../lib/setup.mjs";
@@ -36,12 +39,12 @@ export default {
 
     // Seed: A and B (Labour register), S a supervisor, H a hire worker, M a machine; jobs on DAY and today.
     const mk = (name, extra = {}) => db.resource.create({ data: { name: `${name} ${tag}`, type: "PERSONNEL", category: "Labourer", role: "General labour", status: "AVAILABLE", ...extra } });
-    const A = await mk("RC Fulltimer A"), B = await mk("RC Casual B"), S = await mk("RC Ftsuper S", { category: "Site Manager", role: "Supervisor" });
+    const A = await mk("RC Ticked A"), B = await mk("RC Casual B"), S = await mk("RC Tsuper S", { category: "Site Manager", role: "Supervisor" });
     const H = await mk("RC Hire H", { type: "HIRE", category: "LABOUR", ownership: "HIRED" });
     const M = await mk("RC Machine M", { type: "EQUIPMENT", category: null, role: null });
     t.ok(A.fullTime === false && M.fullTime === false, "new records start not full-time (the column's default)");
-    const P = await db.project.create({ data: { name: `RC Full-time ${tag}`, status: "ACTIVE" } });
-    const T = await db.project.create({ data: { name: `RC Full-time today ${tag}`, status: "ACTIVE" } });
+    const P = await db.project.create({ data: { name: `RC Tiles ${tag}`, status: "ACTIVE" } });
+    const T = await db.project.create({ data: { name: `RC Tiles today ${tag}`, status: "ACTIVE" } });
     const J = await db.job.create({ data: { projectId: P.id, title: P.name, date: at(DAY), shift: "DAY", status: "ACTIVE", startTime: "7am", endTime: "3:30pm" } });
     const JT = await db.job.create({ data: { projectId: T.id, title: T.name, date: at(c.today), shift: "DAY", status: "ACTIVE", startTime: "6am", endTime: "11pm" } });
     for (const [r, role] of [[A, null], [B, null], [S, "Supervisor"], [M, null]]) await db.assignment.create({ data: { jobId: J.id, resourceId: r.id, role } });
@@ -62,13 +65,13 @@ export default {
     t.status(await c.patch(`/api/resources/${S.id}`, "ADMIN", { fullTime: "false" }), 200, "an Admin unticks S");
     t.ok((await ft(S)) === false, "S is saved as not full-time");
     t.status(await c.patch(`/api/resources/${S.id}`, "MANAGER", { fullTime: true }), 200, "a Manager ticks S again");
-    const made = await c.post("/api/resources", "MANAGER", { name: `RC New FT ${tag}`, type: "PERSONNEL", category: "Labourer", fullTime: "true" });
+    const made = await c.post("/api/resources", "MANAGER", { name: `RC New Tick ${tag}`, type: "PERSONNEL", category: "Labourer", fullTime: "true" });
     t.status(made, 201, "a Manager adds a new worker ticked full-time");
-    t.ok((await db.resource.findFirst({ where: { name: `RC New FT ${tag}` } }))?.fullTime === true, "the new worker is saved as full-time");
+    t.ok((await db.resource.findFirst({ where: { name: `RC New Tick ${tag}` } }))?.fullTime === true, "the new worker is saved as full-time");
     // Labour register only; a yes or a no; the Plant form sending its "false" back is fine.
     t.status(await c.patch(`/api/resources/${M.id}`, "MANAGER", { fullTime: true }), 400, "ticking a machine full-time");
     t.status(await c.patch(`/api/resources/${H.id}`, "MANAGER", { fullTime: true }), 400, "ticking a labour hire worker full-time");
-    t.status(await c.post("/api/resources", "MANAGER", { name: `RC Plant FT ${tag}`, type: "EQUIPMENT", fullTime: true }), 400, "adding a machine ticked full-time");
+    t.status(await c.post("/api/resources", "MANAGER", { name: `RC Plant Tick ${tag}`, type: "EQUIPMENT", fullTime: true }), 400, "adding a machine ticked full-time");
     t.status(await c.patch(`/api/resources/${A.id}`, "MANAGER", { fullTime: "maybe" }), 400, "a full-time value that isn't a yes or a no");
     t.status(await c.patch(`/api/resources/${M.id}`, "MANAGER", { fullTime: false, notes: "RC resave" }), 200, "the Plant form re-saving a machine with full-time = no");
     t.ok((await ft(M)) === false && (await ft(H)) === false && (await ft(A)) === true, "the machine and the hire worker are still not full-time; A still is");
@@ -124,7 +127,7 @@ export default {
     t.ok(!/"fullTime"/.test(prText), `no fullTime in the site poster's sign-in reply (${pr.status})`, prText.slice(0, 160));
     if (pr.status === 200) { t.ok(prText.includes(A.name), "the poster lists today's crew (A among them) - so the check had a full-timer to leak"); crewShown = true; }
     else t.note(`the poster answered ${pr.status} on this copy: ${prText.slice(0, 120)}`);
-    for (const pth of [`/api/site/in/search?q=${encodeURIComponent("RC Fulltimer")}`, "/api/site/in/prestart", `/api/site/plant/search?q=RC`]) {
+    for (const pth of [`/api/site/in/search?q=${encodeURIComponent("RC Ticked")}`, "/api/site/in/prestart", `/api/site/plant/search?q=RC`]) {
       const r = await c.get(pth, null);
       const text = await r.text().catch(() => "");
       t.ok(!/"fullTime"/.test(text), `no fullTime in ${pth.split("?")[0]} (${r.status})`, text.slice(0, 160));
@@ -139,7 +142,64 @@ export default {
     const lib = readFileSync(path.join(c.p.appDir, "src", "lib", "fullTime.ts"), "utf8");
     t.ok(!/fetch\(|https?:\/\/|from "(node:)?(http|https|net)"/.test(lib), "lib/fullTime.ts makes no network call");
 
-    // (4) Nothing was called outside during this check.
+    // (4) On screen only (Ilies, 22 Nov 2026: "the colour display for the full timers is only for the system not to be
+    // exported"). With ticked people (A, S) on today's job: the day sheet's text and the DaySheetSend snapshot carry no
+    // full-time marker; nor do the CSV exports or the printable daily report; and outside the board / sidebar / Labour
+    // register / the write path, no source file uses it.
+    const MARK = /fulltime|full-time|\bFT\b/i;
+    const boardJobs = (await c.json(`/api/jobs?date=${c.today}`, "MANAGER")).body;
+    const jt = (Array.isArray(boardJobs) ? boardJobs : []).filter((j) => j.id === JT.id);
+    t.ok(jt[0]?.assignments?.some((a) => a.resourceId === A.id && a.resource?.fullTime === true), "today's board data has A ticked full-time (the sheet is built from it)");
+    const tsxCli = path.join(c.p.appDir, "node_modules", "tsx", "dist", "cli.mjs");
+    if (existsSync(tsxCli) && c.p.files) {
+      // The day sheet is built in the browser (Board.tsx -> lib/daySheet.ts buildDaySheet). Run the same builder on the
+      // board's own job objects - fullTime included, not even narrowed as Board.tsx does - and read the text it makes.
+      const input = path.join(c.p.files, `rc98-jobs-${tag}.json`);
+      const script = path.join(c.p.files, `rc98-sheet-${tag}.mts`);
+      writeFileSync(input, JSON.stringify(jt));
+      const sheetLib = "file:///" + path.join(c.p.appDir, "src", "lib", "daySheet.ts").split(path.sep).join("/");
+      writeFileSync(script, [
+        `import { readFileSync } from "node:fs";`,
+        `import { buildDaySheet } from ${JSON.stringify(sheetLib)};`,
+        `const s = buildDaySheet(JSON.parse(readFileSync(${JSON.stringify(input)}, "utf8")), ${JSON.stringify(c.today)});`,
+        `console.log("RESULT " + JSON.stringify(s));`,
+      ].join("\n"));
+      let out = "";
+      try { out = execFileSync(process.execPath, [tsxCli, script], { cwd: c.p.appDir, env: { ...process.env, ...(c.childEnv ?? {}) }, encoding: "utf8", timeout: 120_000 }); }
+      catch (e) { out = String(e?.stdout ?? "") + String(e?.stderr ?? ""); }
+      let sheet = null;
+      try { sheet = JSON.parse(out.split("\n").find((l) => l.startsWith("RESULT "))?.slice(7) ?? "null"); } catch { /* checked below */ }
+      const text = sheet ? `${sheet.subject}\n${sheet.body}` : "";
+      t.ok(text.includes(A.name) && text.includes(S.name), "the day sheet was built and lists A and S (both ticked full-time)", sheet ? "" : out.slice(0, 160));
+      t.ok(!!sheet && !MARK.test(text), "the day sheet text (Export / Copy / Open in email) has no FT / Full-time marker", (text.match(MARK) ?? [""])[0]);
+    } else t.block("no tsx in the candidate's node_modules - the day sheet text couldn't be built");
+    const sent = await c.post("/api/board/sends", "MANAGER_DIRECTOR", { date: c.today, how: "COPY" });
+    t.status(sent, [200, 201], "a Manager copies today's sheet (recorded as a send)");
+    t.ok(!MARK.test(await sent.text().catch(() => "")), "no full-time marker in the send's reply");
+    const send = await db.daySheetSend.findFirst({ where: { date: c.today }, orderBy: { sentAt: "desc" } });
+    let snapJob = null;
+    try { snapJob = JSON.parse(send?.snapshot ?? "{}").jobs?.find((j) => (j.crew ?? []).some((p) => p.id === A.id)) ?? null; } catch { /* checked below */ }
+    t.ok(!!snapJob && snapJob.crew.some((p) => p.id === S.id), "the send's snapshot holds today's job with A and S");
+    t.ok(!!send && !/fulltime|full-time/i.test(send.snapshot) && !MARK.test(JSON.stringify(snapJob ?? {})), "the DaySheetSend snapshot has no full-time marker", send ? "" : "no send row");
+    for (const [pth, who] of [
+      [`/api/timesheets/export?week=${c.thisWeek}`, "MANAGER"], [`/api/timesheets/labour-hire/export?week=${c.thisWeek}`, "MANAGER"],
+      [`/api/accounts/timesheets/export?week=${c.thisWeek}`, "ACCOUNTS"], [`/api/accounts/payroll/export?week=${c.thisWeek}&file=payrun`, "ACCOUNTS"],
+      [`/api/accounts/payroll/export?week=${c.thisWeek}&file=summary`, "ACCOUNTS"], [`/api/daily-report/${JT.id}`, "MANAGER"], [`/api/directors/daily-report/${JT.id}`, "DIRECTOR"],
+    ]) {
+      const r = await c.text(pth, who);
+      t.ok(!MARK.test(r.text), `no full-time marker in ${pth.split("?")[0].replace(JT.id, ":jobId")} (${r.status})`, (r.text.match(MARK) ?? [""])[0]);
+    }
+    const ALLOWED = new Set([
+      "src/lib/fullTime.ts", "src/lib/fullTime.test.ts", "src/lib/resourceFields.ts", "src/lib/recordPatch.ts", "src/lib/types.ts",
+      "src/app/api/resources/route.ts", "src/app/labour/page.tsx", "src/components/AssignedChip.tsx", "src/components/ResourceCard.tsx",
+      "src/components/ResourceSidebar.tsx", "src/components/board/FullTimeMark.tsx", "src/components/HistoryButton.tsx",
+    ]);
+    const srcFiles = filesUnder(path.join(c.p.appDir, "src"));
+    const strays = srcFiles.map((f) => path.relative(c.p.appDir, f).split(path.sep).join("/"))
+      .filter((rel) => !ALLOWED.has(rel) && /\bfullTime\b|lib\/fullTime"|\.\/fullTime"|FullTimeMark/.test(readFileSync(path.join(c.p.appDir, rel), "utf8")));
+    t.ok(srcFiles.length > 0 && strays.length === 0, "full-time is used only by the board, the sidebar, the Labour register and the write path (no export, sheet, report or link)", strays.join(", "));
+
+    // (5) Nothing was called outside during this check.
     const net1 = netLines(c);
     t.ok(net1 === net0, "no outbound connection attempted during this check", `${net1 - net0} new blocked attempt(s)`);
   },
