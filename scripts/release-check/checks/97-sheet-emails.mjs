@@ -29,6 +29,10 @@ export default {
       t.status(await add(who, addr("x")), 403, `adding refused for ${who}`);
       t.status(await c.post(API, who, { action: "remove", id: "x" }), 403, `removing refused for ${who}`);
     }
+    // SE-002: the Building Agent login (Operations AI) is a Manager, but never reads or changes the list.
+    t.status(await c.get(API, "OPS_AI"), 403, "the list refused for Operations AI");
+    t.status(await add("OPS_AI", addr("ai")), 403, "adding refused for Operations AI");
+    t.ok((await db.sheetEmailRecipient.count({ where: { email: addr("ai") } })) === 0, "nothing was stored by Operations AI's add");
     t.status(await c.get(API, null), 401, "the list refused with no login");
     t.status(await add(null, addr("x")), 401, "adding refused with no login");
     t.ok((await db.sheetEmailRecipient.count({ where: { email: addr("x") } })) === 0, "nothing was stored by a refused add");
@@ -46,6 +50,9 @@ export default {
     t.ok(rows.length === 3 && rows.every((r) => r.active && r.activeEmail === r.email && r.email === r.email.toLowerCase().trim()), "three rows, trimmed and lower-cased, active", rows.length);
     t.ok(rows.find((r) => r.email === addr(2))?.label === "RC Two", "a pasted name is kept as the label");
     t.ok(rows.every((r) => !!r.addedBy && !!r.addedAt), "who added each one and when is kept");
+    const aiTarget = rows.find((r) => r.email === addr(1));
+    t.status(await c.post(API, "OPS_AI", { action: "remove", id: aiTarget?.id }), 403, "removing refused for Operations AI");
+    t.ok((await db.sheetEmailRecipient.findUnique({ where: { id: aiTarget?.id ?? "-" } }))?.active === true, "...and the row is still on the list");
     const r2 = await (await add("ADMIN", addr(2))).json().catch(() => ({}));
     t.ok(r2.added === 0 && r2.already === 1, "adding an address already on the list adds nothing", JSON.stringify(r2));
     t.ok((await db.sheetEmailRecipient.count({ where: { email: addr(2) } })) === 1, "...still one row for it");
@@ -84,17 +91,32 @@ export default {
     t.ok(r100.added === 0 && r100.already === 1, "re-pasting one already on a full list is fine", JSON.stringify(r100));
 
     // (6) Never in a DaySheetSend snapshot or on a site link.
+    // SE-004: the snapshot's real addresses (active and removed; never this check's own) - looked for below, COUNTS
+    // ONLY: no address ever goes in a message or detail.
+    const real = [...new Set((await db.sheetEmailRecipient.findMany({ where: { NOT: { email: { contains: `rc-${tag}-` } } }, select: { email: true } }))
+      .map((r) => String(r.email ?? "").trim().toLowerCase()).filter(Boolean))];
     const send = await c.post("/api/board/sends", "MANAGER", { date: c.today, how: "EMAIL" });
     t.status(send, [201, 429], "the board records an email send");
     const latest = await db.daySheetSend.findFirst({ orderBy: { sentAt: "desc" } });
-    const sendText = JSON.stringify(latest ?? {}) + JSON.stringify(await send.json().catch(() => ({})));
+    const sendReply = JSON.stringify(await send.json().catch(() => ({})));
+    const sendText = JSON.stringify(latest ?? {}) + sendReply;
     t.ok(!sendText.includes("@example.com") && !sendText.includes(`rc-${tag}`), "no address in the send record or its reply");
     const linkReplies = [];
-    for (const l of [c.links?.sup, c.links?.office].filter(Boolean)) {
+    for (const l of [c.links?.sup, c.links?.office, c.links?.poster, c.links?.driver].filter(Boolean)) {
       for (const p of [c.site(l), c.sitePage(l)]) linkReplies.push((await c.text(p, null)).text);
     }
     if (!linkReplies.length) t.note("no site links in the snapshot - link replies not checked");
     t.ok(linkReplies.every((x) => !x.includes(`rc-${tag}`) && !x.includes("@example.com")), "no address on a supervisor / office link", linkReplies.length);
+    // SE-004: every send record, the new send's reply, every link reply and the Assistant's routes (as a Manager, body
+    // text whatever the status) - none may hold a real address from the list.
+    const hay = [sendReply, ...linkReplies];
+    for (const s of await db.daySheetSend.findMany()) hay.push(JSON.stringify(s));
+    for (const p of [`/api/jobs?date=${c.today}`, "/api/tracking", "/api/projects", "/api/resources", "/api/documents?scope=site&q=a"])
+      hay.push((await c.text(p, "MANAGER")).text);
+    const haystack = hay.join("\n").toLowerCase();
+    const hits = real.filter((e) => haystack.includes(e)).length;
+    if (real.length === 0) t.note("no real addresses in the snapshot - only the check's own were looked for");
+    t.ok(hits === 0, "no real list address in a send record, a link reply or an Assistant route", `${hits} of ${real.length} found`);
     const src = (rel) => { try { return readFileSync(path.join(c.p.appDir, rel), "utf8"); } catch { return ""; } };
     const walk = (rel) => {
       const dir = path.join(c.p.appDir, rel), out = [];
@@ -115,6 +137,7 @@ export default {
     // Run the real rules in a tsx child on today's real day sheet (built from the board's own jobs) and a long one.
     const modalSrc = src("src/components/DaySheetModal.tsx");
     t.ok(/buildSheetMailto\(emails \?\? \[\], subject, text\)/.test(modalSrc), "the day sheet builds its link with the default ceiling (no lower limit passed)");
+    t.ok(!/data-mailto=\{/.test(modalSrc) && !/=\{mail\.href\}/.test(modalSrc), "the email link is never written into the page"); // SE-003
     const tsxCli = path.join(c.p.appDir, "node_modules", "tsx", "dist", "cli.mjs");
     if (existsSync(tsxCli) && c.p.files) {
       const jobs = (await c.json(`/api/jobs?date=${c.today}`, "MANAGER")).body;

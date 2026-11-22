@@ -56,6 +56,38 @@ test("parseEmailBlock: too much at once reads nothing; not text reads nothing", 
   assert.deepEqual(parseEmailBlock(null).entries, []);
 });
 
+test("parseEmailBlock (SE-005): one very long entry is refused without being read, quickly", () => {
+  const started = Date.now();
+  const long = "a<" + "@".repeat(19_990);
+  const one = parseEmailBlock(long);
+  assert.deepEqual(one.entries, []);
+  assert.equal(one.invalid.length, 1);
+  assert.ok(one.invalid[0].endsWith("..."), "shortened when named back");
+  assert.equal(one.invalid[0].length, 60);
+
+  const two = parseEmailBlock("x\n" + long);
+  assert.deepEqual(two.entries, []);
+  assert.equal(two.invalid.length, 2);
+  assert.equal(two.invalid[0], "x");
+  assert.ok(two.invalid[1].startsWith("a<@") && two.invalid[1].endsWith("..."), "the long piece is invalid, not merged with x");
+  assert.ok(Date.now() - started < 1000, "well under a second");
+});
+
+test("parseEmailBlock (SE-005): normal entries still read - split names merge, long labels kept", () => {
+  const r = parseEmailBlock('"Smith, Ann" <ann@example.com>\nBloggs, Fred <fred@example.com>');
+  assert.deepEqual(r.entries, [
+    { email: "ann@example.com", label: "Smith, Ann" },
+    { email: "fred@example.com", label: "Bloggs, Fred" },
+  ]);
+  const label = "Labourer Number One From The Western Sydney Crew Who Works On The Night Shifts X";
+  const email = `${"a".repeat(48)}@example.com`;
+  assert.equal(label.length, 80);
+  assert.equal(email.length, 60);
+  const l = parseEmailBlock(`${label} <${email}>`);
+  assert.deepEqual(l.entries, [{ email, label }]);
+  assert.deepEqual(l.invalid, []);
+});
+
 test("planAdd: dedupe against the list, and the cap", () => {
   const parsed = parseEmailBlock("a@example.com\nb@example.com\nb@example.com\nc@example.com");
   const p = planAdd(["a@example.com"], parsed);

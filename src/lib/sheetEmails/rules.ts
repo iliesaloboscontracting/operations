@@ -10,6 +10,9 @@ export const MAX_PASTE_CHARS = 20_000;
 export const MAX_PASTE_ENTRIES = 300;
 const MAX_EMAIL = 254;
 const MAX_LABEL = 80;
+// SE-005 (23 Nov 2026): one pasted entry longer than this is refused without running the name / address patterns on it,
+// so a long paste can't tie up the server. A label (80) plus an address (254) and the punctuation fit well under it.
+const MAX_ENTRY_CHARS = 400;
 
 // The longest mailto: link "Open in email" will hand to Windows (23 Nov 2026). Ilies sends the day sheet this way
 // every day and today's whole sheet (4,000+ characters once encoded) opens in his Outlook with its body, so the link
@@ -66,7 +69,10 @@ export function parseEmailBlock(text: unknown): ParsedBlock {
   const merged: string[] = [];
   for (let i = 0; i < pieces.length; i++) {
     const p = pieces[i], next = pieces[i + 1];
-    if (!p.includes("@") && !p.includes("<") && next && /^[^@<>]*<[^<>]*@[^<>]*>$/.test(next) && !next.startsWith("<")) {
+    if (
+      p.length <= MAX_ENTRY_CHARS && next && next.length <= MAX_ENTRY_CHARS &&
+      !p.includes("@") && !p.includes("<") && /^[^@<>]*<[^<>]*@[^<>]*>$/.test(next) && !next.startsWith("<")
+    ) {
       merged.push(`${p}, ${next}`);
       i++;
     } else merged.push(p);
@@ -74,6 +80,10 @@ export function parseEmailBlock(text: unknown): ParsedBlock {
   if (merged.length > MAX_PASTE_ENTRIES) return { ...out, tooMany: true };
   const seen = new Set<string>();
   for (const piece of merged) {
+    if (piece.length > MAX_ENTRY_CHARS) {
+      out.invalid.push(`${piece.slice(0, 57)}...`);
+      continue;
+    }
     const named = /^(.*?)<([^<>]*)>$/.exec(piece);
     let label = named ? tidyLabel(named[1]) : null;
     let email = (named ? named[2] : piece).trim().replace(/^mailto:/i, "").toLowerCase();
