@@ -11,12 +11,12 @@ export const MAX_PASTE_ENTRIES = 300;
 const MAX_EMAIL = 254;
 const MAX_LABEL = 80;
 
-// The longest mailto: link "Open in email" will hand to Windows (20 Nov 2026). Nothing in the chain promises more:
-// Chrome refused external links over 2,048 characters for years (crbug.com/727909), Outlook 2010 was measured cutting
-// mailto links at about 2,061, IE stopped at 2,083, and Microsoft documents no mailto limit for Outlook classic or the
-// new Outlook for Windows. Past the limit the failure is silent - nothing opens, or the body is cut off - so above
-// it the email opens with the To list and subject only, and the sheet is copied for pasting (never cut short).
-export const MAILTO_SAFE_LENGTH = 2000;
+// The longest mailto: link "Open in email" will hand to Windows (23 Nov 2026). Ilies sends the day sheet this way
+// every day and today's whole sheet (4,000+ characters once encoded) opens in his Outlook with its body, so the link
+// carries the full sheet plus the To list up to a ceiling just under Windows' own limit for a URL handed to
+// ShellExecute (about 32,767 characters). Only above that ceiling does the email open with the To list and subject
+// only, with the sheet copied for pasting (never cut short) - then the To list too, if even that is over it.
+export const MAILTO_SAFE_LENGTH = 30_000;
 
 // A plain, strict address: letters, digits and . _ + ' - before the @ (no dot first, last or doubled); a domain of
 // dot-separated labels (letters, digits, inner hyphens) ending in a 2-24 letter top level. Lower case only - callers

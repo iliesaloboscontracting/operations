@@ -99,9 +99,28 @@ test("mailto: an empty list is exactly today's link", () => {
   assert.equal(m.mode, "FULL");
 });
 
-test("mailto: too long - the sheet is left out whole, then the To list; never some addresses", () => {
+test("mailto: the ceiling is ~30,000 (under Windows' ~32,767 for a URL), not the old 2,000", () => {
+  assert.equal(MAILTO_SAFE_LENGTH, 30_000);
+  assert.ok(MAILTO_SAFE_LENGTH < 32_767);
+});
+
+test("mailto: a normal day's sheet (4,000+ encoded) and 37 addresses go in whole - today's behaviour kept", () => {
   const to = Array.from({ length: 37 }, (_, i) => `worker${i}@example.com`);
   const body = "📋 *DAY SHIFT*\n".repeat(200);
+  assert.ok(encodeURIComponent(body).length > 4000, "a long, real-size sheet");
+  const m = buildSheetMailto(to, "Subject", body);
+  assert.equal(m.mode, "FULL");
+  assert.equal(m.href, `mailto:${to.join(",")}?subject=Subject&body=${encodeURIComponent(body)}`, "the whole sheet, every address");
+  // The longest list the cap allows still fits with that sheet.
+  const longest = Array.from({ length: MAX_SHEET_EMAILS }, (_, i) => `a.long.address.number${i}@subdomain.example.com`);
+  assert.equal(buildSheetMailto(longest, "Subject", body).mode, "FULL");
+  // No one on the list: exactly the link before the list existed, even for a long sheet.
+  assert.equal(buildSheetMailto([], "Subject", body).href, `mailto:?subject=Subject&body=${encodeURIComponent(body)}`);
+});
+
+test("mailto: over the ceiling - the sheet is left out whole, then the To list; never some addresses", () => {
+  const to = Array.from({ length: 37 }, (_, i) => `worker${i}@example.com`);
+  const body = "📋 *DAY SHIFT*\n".repeat(1600); // ~33,000 encoded
   const noBody = buildSheetMailto(to, "Subject", body);
   assert.equal(noBody.mode, "NO_BODY");
   assert.ok(noBody.href.length <= MAILTO_SAFE_LENGTH);
@@ -109,8 +128,9 @@ test("mailto: too long - the sheet is left out whole, then the To list; never so
   assert.ok(noBody.length > MAILTO_SAFE_LENGTH, "reports the full length it would have been");
   assert.deepEqual(noBody.href.slice(7, noBody.href.indexOf("?")).split(","), to, "every address, in order");
 
+  // Even the To list over the ceiling (only reachable with a lower limit, as the list stops at 100).
   const big = Array.from({ length: MAX_SHEET_EMAILS }, (_, i) => `a.long.address.number${i}@subdomain.example.com`);
-  const none = buildSheetMailto(big, "Subject", "short");
+  const none = buildSheetMailto(big, "Subject", "short", 2000);
   assert.equal(none.mode, "NO_RECIPIENTS");
   assert.equal(none.href, "mailto:?subject=Subject");
 
@@ -118,7 +138,7 @@ test("mailto: too long - the sheet is left out whole, then the To list; never so
   assert.equal(empty.mode, "NO_BODY");
   assert.equal(empty.href, "mailto:?subject=Subject");
 
-  // Right at the limit.
+  // Right at the ceiling.
   const exact = "x".repeat(MAILTO_SAFE_LENGTH - "mailto:?subject=S&body=".length);
   assert.equal(buildSheetMailto([], "S", exact).mode, "FULL");
   assert.equal(buildSheetMailto([], "S", exact + "x").mode, "NO_BODY");

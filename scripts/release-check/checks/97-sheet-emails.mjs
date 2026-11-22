@@ -3,9 +3,11 @@
 // or change the list (every other login and no login refused); a pasted block is trimmed, lower-cased and deduped,
 // invalid addresses refused and named back; removing keeps the row (soft remove, with who / when / why) and adding it
 // again makes a new row; the list stops at 100; the addresses never reach a DaySheetSend snapshot or a site link; the
-// code makes no outbound call. Made-up example.com addresses only.
+// code makes no outbound call; "Open in email" carries the whole sheet plus the list up to a 30,000-character link
+// (23 Nov 2026 - today's behaviour kept), and only above that leaves the sheet out whole. Made-up example.com addresses only.
 // WRITES on the test copy: SheetEmailRecipient rows (all taken off the list again at the end), one DaySheetSend.
-import { readdirSync, readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 const API = "/api/sheet-emails";
@@ -107,6 +109,41 @@ export default {
     const own = [src("src/lib/sheetEmails/rules.ts"), src("src/lib/sheetEmails/store.ts"), src("src/app/api/sheet-emails/route.ts")];
     t.ok(own.every((s) => s && !/\bfetch\(|https?:\/\/|node:http|node:net|require\(["']https?/.test(s.replace(/\/\/[^\n]*/g, ""))), "the list's server code makes no outbound call");
     t.ok(!/console\.(log|info|warn|error)/.test(own.join("\n")), "the list's server code logs nothing");
+
+    // (8) "Open in email" keeps today's behaviour (23 Nov 2026): the whole sheet in the body plus the list in To, up to a
+    // ~30,000-character link (under Windows' ~32,767 ShellExecute limit); only above that the sheet is left out whole.
+    // Run the real rules in a tsx child on today's real day sheet (built from the board's own jobs) and a long one.
+    const modalSrc = src("src/components/DaySheetModal.tsx");
+    t.ok(/buildSheetMailto\(emails \?\? \[\], subject, text\)/.test(modalSrc), "the day sheet builds its link with the default ceiling (no lower limit passed)");
+    const tsxCli = path.join(c.p.appDir, "node_modules", "tsx", "dist", "cli.mjs");
+    if (existsSync(tsxCli) && c.p.files) {
+      const jobs = (await c.json(`/api/jobs?date=${c.today}`, "MANAGER")).body;
+      const input = path.join(c.p.files, `rc97-jobs-${tag}.json`);
+      const script = path.join(c.p.files, `rc97-mailto-${tag}.mts`);
+      writeFileSync(input, JSON.stringify(Array.isArray(jobs) ? jobs : []));
+      const lib = (f) => JSON.stringify("file:///" + path.join(c.p.appDir, "src", "lib", ...f.split("/")).split(path.sep).join("/"));
+      writeFileSync(script, [
+        `import { readFileSync } from "node:fs";`,
+        `import { buildDaySheet } from ${lib("daySheet.ts")};`,
+        `import { buildSheetMailto, MAILTO_SAFE_LENGTH } from ${lib("sheetEmails/rules.ts")};`,
+        `const to = Array.from({ length: 37 }, (_, i) => "rc97-worker" + i + "@example.com");`,
+        `const s = buildDaySheet(JSON.parse(readFileSync(${JSON.stringify(input)}, "utf8")), ${JSON.stringify(c.today)});`,
+        `const long = s.body + "\\n" + "Site notes line for a busy day - crew, plant, trucks and times.\\n".repeat(60);`,
+        `const huge = "x".repeat(MAILTO_SAFE_LENGTH);`,
+        `const pick = (m, body) => ({ mode: m.mode, len: m.href.length, hasBody: m.href.includes("&body=" + encodeURIComponent(body)), toOk: m.href.startsWith("mailto:" + to.join(",") + "?") });`,
+        `console.log("RESULT " + JSON.stringify({ limit: MAILTO_SAFE_LENGTH, today: pick(buildSheetMailto(to, s.subject, s.body), s.body), long: { enc: encodeURIComponent(long).length, ...pick(buildSheetMailto(to, s.subject, long), long) }, huge: pick(buildSheetMailto(to, s.subject, huge), huge) }));`,
+      ].join("\n"));
+      let out = "";
+      try { out = execFileSync(process.execPath, [tsxCli, script], { cwd: c.p.appDir, env: { ...process.env, ...(c.childEnv ?? {}) }, encoding: "utf8", timeout: 120_000 }); }
+      catch (e) { out = String(e?.stdout ?? "") + String(e?.stderr ?? ""); }
+      let r = null;
+      try { r = JSON.parse(out.split("\n").find((l) => l.startsWith("RESULT "))?.slice(7) ?? "null"); } catch { /* checked below */ }
+      t.ok(r?.limit === 30000, "the link ceiling is 30,000 characters", r ? r.limit : out.slice(0, 160));
+      t.ok(r?.today?.mode === "FULL" && r.today.hasBody && r.today.toOk, "today's real day sheet + 37 addresses: the whole sheet in the body, every address in To", JSON.stringify(r?.today ?? null));
+      t.ok(r?.long?.enc > 4000 && r.long.mode === "FULL" && r.long.hasBody && r.long.toOk, "a 4,000+ character (encoded) sheet + 37 addresses still opens whole", JSON.stringify(r?.long ?? null));
+      t.ok(r?.huge?.mode === "NO_BODY" && !r.huge.hasBody && r.huge.toOk && r.huge.len <= 30000, "over the ceiling: To and subject only, the sheet left out whole (copied for pasting)", JSON.stringify(r?.huge ?? null));
+      t.ok(/Copy email list/.test(modalSrc), "the day sheet still has \"Copy email list\"");
+    } else t.block("no tsx in the candidate's node_modules - the email link couldn't be built");
 
     // Tidy: take off everything this check added, so later checks see an empty list.
     for (const r of await db.sheetEmailRecipient.findMany({ where: { active: true, email: { contains: `rc-${tag}-` } } }))
