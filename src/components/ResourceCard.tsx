@@ -6,6 +6,8 @@ import HireTag from "./HireTag";
 import { TicketFlagBadge } from "./compliance/TicketFlags";
 import { FaultFlagBadge } from "./faults/FaultFlags";
 import DayLimitTag from "./board/DayLimitTag";
+import FullTimeMark from "./board/FullTimeMark";
+import { CARD_TONE, cardKind, cardRoleTone, withFullTimeTitle } from "@/lib/fullTime";
 
 // Tiles for these two roles stand out from the rest of the crew list at a
 // glance, same idea as a supervisor/lead being flagged on an assigned job chip.
@@ -44,25 +46,23 @@ export default function ResourceCard({
   const editableRole = isCrew && onRoleChange;
   const highlighted = editableRole && !!resource.role && HIGHLIGHT_ROLES.has(resource.role);
   const sub = resource.role ?? resource.detail;
+  // Full-timers (22 Nov 2026) get an orange card - lib/fullTime has the colours.
+  const kind = cardKind(resource, { labourHire: isLabourHire(resource), highlighted: !!highlighted });
+  const fullTime = kind === "fullTime";
 
   return (
     <div
       draggable
       onDragStart={onDragStart}
-      className={`flex cursor-grab items-center justify-between gap-2 rounded-lg border px-2 py-1 text-sm active:cursor-grabbing ${
-        isLabourHire(resource)
-          ? "border-yellow-400 bg-yellow-400/20 font-medium text-yellow-100"
-          : highlighted
-          ? "border-brand-500/50 bg-brand-500/10"
-          : "border-edge bg-panel2"
-      } ${down ? "opacity-50" : ""}`}
-      title={resource.detail ?? resource.role ?? undefined}
+      className={`flex cursor-grab items-center justify-between gap-2 rounded-lg border px-2 py-1 text-sm active:cursor-grabbing ${CARD_TONE[kind]} ${down ? "opacity-50" : ""}`}
+      title={withFullTimeTitle(resource.detail ?? resource.role, fullTime)}
     >
       <span className="min-w-0 flex-1 truncate">
         {resource.name}
         {columnFor(resource) === "hire" && <HireTag resource={resource} className="ml-1.5" />}
       </span>
       <div className="flex shrink-0 items-center gap-1">
+        {fullTime && <FullTimeMark />}
         {isCrew && <TicketFlagBadge resourceId={resource.id} />}
         {isCrew && <DayLimitTag limit={resource.maxDaysPerWeek} dates={(resource.assignments ?? []).map((a) => a.job.date.slice(0, 10))} day={day} />}
         {!isCrew && <FaultFlagBadge resourceId={resource.id} />}
@@ -76,9 +76,7 @@ export default function ResourceCard({
             value={resource.role ?? ""}
             onClick={(e) => e.stopPropagation()}
             onChange={(e) => onRoleChange(resource.id, e.target.value)}
-            className={`max-w-[6.5rem] shrink-0 rounded-full border-0 py-0.5 pl-1.5 pr-4 text-[10px] font-medium focus:outline-none focus:ring-2 focus:ring-brand-500/40 ${
-              highlighted ? "bg-brand-600 text-white" : "bg-gray-700 text-gray-300"
-            }`}
+            className={`${fullTime ? "max-w-[5.5rem]" : "max-w-[6.5rem]"} shrink-0 rounded-full border-0 py-0.5 pl-1.5 pr-4 text-[10px] font-medium focus:outline-none focus:ring-2 focus:ring-brand-500/40 ${cardRoleTone(kind, !!highlighted)}`}
           >
             <option value="">No role set</option>
             {CREW_ROLE_OPTIONS.map((r) => (

@@ -10,6 +10,7 @@ import { formOffHireDay, offHiresByStatus } from "@/lib/offHire/rules";
 import { recordOffHire } from "@/lib/offHire/store";
 import { todaySydney } from "@/lib/today";
 import { coordinatorHireWrite, toCoordinatorHire } from "@/lib/coordinatorHire";
+import { fullTimeInputError } from "@/lib/fullTime";
 
 // GET /api/resources?type=PERSONNEL,EQUIPMENT&category=LABOUR
 // Includes assignments (+ job) so the UI can show "where is it today".
@@ -78,6 +79,12 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   if (body.maxDaysPerWeek != null && body.maxDaysPerWeek !== "") {
     if (user?.role !== "ADMIN") return NextResponse.json({ error: "Only an admin can set a days-a-week limit" }, { status: 403 });
     if (body.type !== "PERSONNEL") return NextResponse.json({ error: "A days-a-week limit is for people on the Labour register only." }, { status: 400 });
+  }
+  // Full-time (22 Nov 2026, lib/fullTime): Labour register only. Managers / Admins (the guard above); the coordinator's
+  // body never carries it (coordinatorHireWrite refuses any non-hire field).
+  if ("fullTime" in body) {
+    const bad = fullTimeInputError(body.fullTime, String(body.type));
+    if (bad) return NextResponse.json({ error: bad }, { status: 400 });
   }
 
   const data = pickResourceData(body) as Record<string, unknown>;

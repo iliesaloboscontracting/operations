@@ -11,6 +11,8 @@ import { hireDateError } from "./dateRules";
 import { formOffHireDay, hireStatusChangeError, offHiresByStatus } from "./offHire/rules";
 import { closeOffHireRequests, recordOffHire } from "./offHire/store";
 import { todaySydney } from "./today";
+import { fullTimeInputError } from "./fullTime";
+import { rankAtLeast } from "./roleRank";
 import { pickProject, projectStatusError } from "./pickProject";
 import { projectFileError } from "./projectFileServer";
 import { recordChanges, updateTracked, type Who } from "./history/store";
@@ -45,6 +47,14 @@ export async function applyResourcePatch(id: string, body: Record<string, unknow
       if (actor.role !== "ADMIN") return { error: "Only an admin can set or change a days-a-week limit", status: 403 };
       if (next != null && existing && String(body.type ?? existing.type) !== "PERSONNEL") return { error: "A days-a-week limit is for people on the Labour register only.", status: 400 };
     }
+  }
+  // Full-time (22 Nov 2026, lib/fullTime): a Manager or an Admin, Labour register only. The route's guard already
+  // keeps everyone else out; this is the same rule again for any other caller of applyResourcePatch.
+  if ("fullTime" in body) {
+    if (!rankAtLeast(actor.role, "MANAGER")) return { error: "Only a Manager or an Admin can set who is full-time.", status: 403 };
+    const existing = await prisma.resource.findUnique({ where: { id }, select: { type: true } });
+    const bad = fullTimeInputError(body.fullTime, String(body.type ?? existing?.type ?? ""));
+    if (bad) return { error: bad, status: 400 };
   }
 
   const data = pickResourceData(body) as Record<string, unknown>;

@@ -9,6 +9,8 @@ import ReportBugButton from "./ReportBugButton";
 import YardBin from "./YardBin";
 import FormModal, { FieldDef } from "./FormModal";
 import { useAuth } from "./AuthProvider";
+import FullTimeMark from "./board/FullTimeMark";
+import { CHIP_TONE, FULL_TIME_LABEL, isFullTime } from "@/lib/fullTime";
 
 type GroupKey = "crew" | "plant" | "attach" | "vehicles" | "hire";
 
@@ -162,6 +164,7 @@ export default function ResourceSidebar({
     hire: false,
   });
   const [query, setQuery] = useState("");
+  const hasFullTimers = useMemo(() => resources.some((r) => isFullTime(r)), [resources]);
 
   const grouped = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -211,6 +214,15 @@ export default function ResourceSidebar({
         <div className="text-[11px] text-gray-500">
           Drag crew, plant, vehicles &amp; hire onto a job
         </div>
+        {/* What the orange tiles mean (22 Nov 2026) - once anyone is ticked full-time. */}
+        {hasFullTimers && (
+          <div className="mt-1.5 flex items-center gap-1.5 text-[11px] text-gray-400">
+            <span className={`inline-flex items-center gap-1 rounded-full py-0.5 pl-2 pr-1 text-[10px] ${CHIP_TONE.fullTime}`}>
+              Name <FullTimeMark />
+            </span>
+            = {FULL_TIME_LABEL}
+          </div>
+        )}
       </div>
 
       <ReportBugButton />

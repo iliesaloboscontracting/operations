@@ -6,6 +6,8 @@ import { RegColumn } from "@/components/RegisterPage";
 import { ResourceDTO } from "@/lib/types";
 import { effectiveStatus, money, REGISTER_ROLE_OPTIONS, STATUS_LABEL, STATUS_OPTIONS, whereToday } from "@/lib/resource";
 import { useAuth } from "@/components/AuthProvider";
+import FullTimeMark from "@/components/board/FullTimeMark";
+import { isFullTime } from "@/lib/fullTime";
 
 const CATEGORIES = ["Office", "Site Manager", "Truck Driver", "Labourer"];
 const SECTION_TITLES: Record<string, string> = {
@@ -69,11 +71,31 @@ const DAY_LIMIT_FIELD: FieldDef = {
   options: [{ value: "", label: "No limit" }, ...[1, 2, 3, 4, 5, 6].map((n) => ({ value: String(n), label: `${n} day${n === 1 ? "" : "s"} a week (Mon–Sun)` }))],
 };
 
+// Full-time (22 Nov 2026, lib/fullTime): an orange tile on the board. Managers and Admins (the only ones who can open
+// this form) set it; the server checks it again.
+const FULL_TIME_FIELD: FieldDef = {
+  key: "fullTime",
+  label: "Full-time",
+  type: "select",
+  options: [
+    { value: "false", label: "No" },
+    { value: "true", label: "Yes - orange tile on the board" },
+  ],
+};
+
 export default function LabourPage() {
   const { isAdmin } = useAuth();
 
   const columns: RegColumn<ResourceDTO>[] = [
-    { label: "Name", render: (r) => <span className="font-medium">{r.name}</span> },
+    {
+      label: "Name",
+      render: (r) => (
+        <span className="inline-flex items-center gap-1.5">
+          <span className="font-medium">{r.name}</span>
+          {isFullTime(r) && <FullTimeMark />}
+        </span>
+      ),
+    },
     { label: "Role", render: (r) => r.role },
     { label: "Pay class", render: (r) => r.payClass },
     { label: "Phone", render: (r) => r.phone },
@@ -120,7 +142,7 @@ export default function LabourPage() {
         searchText: (r) => `${r.name} ${r.role} ${r.phone} ${r.email} ${r.tickets}`,
         statusOf: effectiveStatus,
         statusOptions: STATUS_OPTIONS,
-        newDefaults: { type: "PERSONNEL", category: "Labourer", role: "General labour", payClass: "Labourer", status: "AVAILABLE" },
+        newDefaults: { type: "PERSONNEL", category: "Labourer", role: "General labour", payClass: "Labourer", status: "AVAILABLE", fullTime: false },
         columns,
         fields: [
           { key: "name", label: "Name", required: true },
@@ -131,6 +153,7 @@ export default function LabourPage() {
           { key: "email", label: "Email" },
           { key: "tickets", label: "Tickets / licences", full: true },
           { key: "status", label: "Status", type: "select", options: [{ value: "AVAILABLE", label: "Available (auto)" }, { value: "LEAVE", label: "On leave" }, { value: "DOWN", label: "Unavailable" }] },
+          FULL_TIME_FIELD,
           { key: "notes", label: "Notes", type: "textarea" },
           ...(isAdmin ? [...PAY_RATE_FIELDS, DAY_LIMIT_FIELD] : []),
         ],

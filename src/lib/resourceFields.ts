@@ -57,6 +57,7 @@ export const RESOURCE_FIELDS = [
   "hireStatus",
   "hireSource",
   "active",
+  "fullTime", // 22 Nov 2026 (lib/fullTime): Labour register only, Managers / Admins set it (api/resources, recordPatch)
   ...PAY_RATE_FIELDS,
   ...ADMIN_SET_FIELDS,
 ] as const;
@@ -86,7 +87,7 @@ export function pickResourceData(body: Record<string, unknown>) {
         data[key] = "value" in p ? p.value : v; // a bad value is refused before this (dayLimitInputError)
       } else if (NUMERIC_FIELDS.has(key)) {
         data[key] = v === "" || v === null || v === undefined ? null : Number(v);
-      } else if (key === "payRateConfirmed") {
+      } else if (key === "payRateConfirmed" || key === "fullTime") {
         data[key] = v === true || v === "true";
       } else {
         data[key] = typeof v === "string" && v.trim() === "" && key !== "name" ? null : v;

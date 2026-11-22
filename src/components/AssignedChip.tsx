@@ -7,6 +7,8 @@ import HireTag from "./HireTag";
 import { TicketFlagBadge } from "./compliance/TicketFlags";
 import { FaultFlagBadge } from "./faults/FaultFlags";
 import DayLimitTag from "./board/DayLimitTag";
+import FullTimeMark from "./board/FullTimeMark";
+import { CHIP_ROLE_TEXT, CHIP_TONE, chipKind, withFullTimeTitle } from "@/lib/fullTime";
 
 export default function AssignedChip({
   assignment,
@@ -37,30 +39,27 @@ export default function AssignedChip({
   }
 
   const labourHire = isLabourHire(r);
-  const tone = labourHire
-    ? "border border-yellow-400 bg-yellow-400/20 font-medium text-yellow-100"
-    : isSupervisorLike
-    ? "bg-brand-600 text-white"
-    : column === "plant"
-    ? "border border-orange-500/60 bg-orange-950/60 text-orange-200"
-    : column === "hire"
-    ? "border border-teal-500/60 bg-teal-950/60 text-teal-200"
-    : "border border-brand-500/40 bg-brand-950/20 text-gray-200";
+  // Full-timers (22 Nov 2026) are orange instead of blue - lib/fullTime has every tile's colours.
+  const kind = chipKind(r, { column, supervisorLike: isSupervisorLike, labourHire });
+  const fullTime = kind === "fullTime" || kind === "fullTimeLead";
+  const tone = CHIP_TONE[kind];
 
   return (
     <div
       draggable
       onDragStart={onDragStart}
-      title={
+      title={withFullTimeTitle(
         conflict > 0
           ? `Also on ${conflict} other job${conflict > 1 ? "s" : ""} this shift`
-          : "Drag to move to another job"
-      }
+          : "Drag to move to another job",
+        fullTime
+      )}
       className={`flex cursor-grab items-center gap-1 rounded-full py-1 pl-2.5 pr-1 text-xs active:cursor-grabbing ${tone} ${
         conflict > 0 ? "ring-2 ring-amber-400" : ""
       }`}
     >
       <span className="max-w-[8rem] truncate">{r.name}</span>
+      {fullTime && <FullTimeMark />}
       {/* Labour hire: who signed in with the QR to fill this tile. */}
       {labourHire && assignment.signedInAs && (
         <span className="max-w-[9rem] truncate text-[10px] text-yellow-200/80" title={`Signed in: ${assignment.signedInAs}`}>
@@ -77,9 +76,7 @@ export default function AssignedChip({
         <select
           value={assignment.role ?? ""}
           onChange={(e) => onRoleChange(e.target.value)}
-          className={`rounded bg-transparent text-[10px] outline-none ${
-            labourHire ? "text-yellow-200" :isSupervisorLike ? "text-white" : "text-gray-400"
-          }`}
+          className={`rounded bg-transparent text-[10px] outline-none ${CHIP_ROLE_TEXT[kind]}`}
         >
           <option value="">-</option>
           {CREW_ROLE_OPTIONS.map((o) => (
