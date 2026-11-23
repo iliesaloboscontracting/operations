@@ -27,6 +27,7 @@ import JobRow from "./JobRow";
 import JobFormModal from "./JobFormModal";
 import CommandAssistant from "./CommandAssistant";
 import UpcomingAlerts from "./UpcomingAlerts";
+import PrestartToday from "./faults/PrestartToday";
 import { useAuth } from "./AuthProvider";
 import { addDays } from "@/lib/dates";
 import { buildDaySheet, DaySheetJob } from "@/lib/daySheet";
@@ -596,6 +597,10 @@ As an Admin you can go over the limit. Why? (kept on record) - or Cancel to leav
         </div>
         <div className="mt-3 empty:hidden">
           <UpcomingAlerts compact onSelect={selectAlert} />
+        </div>
+        {/* Pre-starts today (Ilies, 23 Nov 2026): Managers and Admins - the route refuses anyone else. Always today. */}
+        <div className="mt-3 empty:hidden">
+          <PrestartToday enabled={canEdit} />
         </div>
       </header>
 

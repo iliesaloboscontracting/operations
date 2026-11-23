@@ -8,6 +8,7 @@ import { askText, decideSignIn, recentNightShift, type ShiftAnswer, type ShiftAs
 import { tipRunOn } from "@/lib/tipRun/rules";
 import { endOutOnSignIn, hasRegionalWork, homeOffered } from "@/lib/travel/store";
 import { walkaroundRequiredFor } from "@/lib/prestart/store";
+import { truckPrestartPending } from "@/lib/prestart/today";
 import { passAllowed } from "@/lib/travel/rules";
 import { looksLikeLobos } from "@/lib/staffMatch";
 import { todaySydney } from "@/lib/today";
@@ -109,7 +110,10 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
 
   if (body.action === "STATUS") {
     const closed = signInClosed ?? (ticket.method === "POSTER" ? outsideWindow(posterWin, now) : null);
-    return NextResponse.json({ signedIn: !!open, since: open ? sydneyTime(open.signInAt) : null, site: where.label, ...(closed ? { signInClosed: closed } : {}) });
+    return NextResponse.json({
+      signedIn: !!open, since: open ? sydneyTime(open.signInAt) : null, site: where.label, ...(closed ? { signInClosed: closed } : {}),
+      ...(open ? await resumePrestart(open, deviceId) : {}),
+    });
   }
 
   const toConfirm = ticket.method === "POSTER";
@@ -170,6 +174,9 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
       // (no "Can't now"). Only a hint for the screen - a failure here never touches the sign-in, and the check decides.
       ...(where.place === "VEHICLE" && where.vehicleId
         ? { walkaroundRequired: await walkaroundRequiredFor(where.vehicleId, "VEHICLE").catch(() => false) } : {}),
+      // Ilies, 23 Nov 2026: with no pre-start on the truck yet today the driver can't skip it ("Do it later" is gone) -
+      // the sign-in time above is already saved; reopening the QR on this phone comes back to it (STATUS below).
+      ...(where.place === "VEHICLE" ? { prestartRequired: await truckPrestartPending(signedIn.id).catch(() => false) } : {}),
     });
   }
 
@@ -202,6 +209,28 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
 });
 
 const bad = (error: string, status = 400) => NextResponse.json({ error }, { status });
+
+// Reopening the truck QR with a required pre-start still to send (Ilies, 23 Nov 2026): the phone is taken straight back
+// into it. Only for the phone that signed in (its device id), only while the sign-in is open (PS-006: a PRE token is never
+// handed out after sign-out) and only in this reply's body - never the address (PS-005). A failure here never touches the
+// sign-in or the Sign out button.
+async function resumePrestart(open: { id: string; place: string | null; vehicleId: string | null; deviceId: string | null; signOutAt: Date | null }, deviceId: string | null) {
+  if (open.place !== "VEHICLE" || !open.vehicleId || open.signOutAt || !deviceId || open.deviceId !== deviceId) return {};
+  try {
+    if (!(await truckPrestartPending(open.id))) return {};
+    const odo = await prisma.odometerReading.findUnique({ where: { siteAttendanceId: open.id }, select: { status: true } });
+    return {
+      prestartRequired: true,
+      prestart: makePrestartToken(open.id, "PRE"),
+      walkaroundRequired: await walkaroundRequiredFor(open.vehicleId, "VEHICLE").catch(() => true),
+      // The odometer step again when it isn't in yet (the pre-start screen can also take it).
+      odometer: makeOdometerToken(open.id),
+      odometerSent: !!odo && odo.status !== "SKIPPED",
+    };
+  } catch {
+    return {};
+  }
+}
 
 type OpenJob = NonNullable<Awaited<ReturnType<typeof openJob>>>;
 type Where = {

@@ -9,6 +9,7 @@ import { localISODate } from "@/lib/resource";
 import { useAuth } from "./AuthProvider";
 import FormModal from "./FormModal";
 
+export const PRESTARTS_HREF = "/faults?tab=checks";
 // Same nav model as the old left Sidebar - just laid out as a single horizontal row.
 const OPERATIONS = [
   { href: "/projects", label: "Projects" },
@@ -25,6 +26,10 @@ const OPERATIONS = [
   { href: "/day-review", label: "Day Review" },
   { href: "/receipts", label: "Receipts" },
   { href: "/attendance", label: "Sign-ins" },
+  // The truck and plant pre-starts (23 Nov 2026, Ilies couldn't find them under Registers -> Faults): the Checks tab
+  // straight away. The same people as before - Managers and Admins here (filtered below), the coordinator and the yard
+  // on their own screens; the routes refuse everyone else (guardFaults).
+  { href: PRESTARTS_HREF, label: "Pre-starts" },
   { href: "/timesheets", label: "Timesheets" },
   // Labour hire hours (11 Nov 2026, Ilies): the hire workers' week by company, to send to the labour hire company.
   { href: "/timesheets/labour-hire", label: "Labour hire hours" },
@@ -127,6 +132,7 @@ const COORDINATOR = [
   { href: "/calendar", label: "Calendar" },
   { href: "/tools", label: "Tools" },
   { href: "/faults", label: "Faults" }, // vehicle & plant faults, pre-start checks (8 Nov 2026)
+  { href: PRESTARTS_HREF, label: "Pre-starts" }, // the Checks tab (23 Nov 2026)
   { href: "/hire", label: "Hire" },
   { href: "/purchases", label: "Purchases" },
   { href: "/messages", label: "Messages" },
@@ -140,6 +146,7 @@ const YARD = [
   { href: "/yard/inventory", label: "Consumables" }, // Yard Stage C (4 Nov 2026)
   { href: "/tools", label: "Tools" },
   { href: "/faults", label: "Faults" }, // vehicle & plant faults, pre-start checks (8 Nov 2026)
+  { href: PRESTARTS_HREF, label: "Pre-starts" }, // the Checks tab (23 Nov 2026)
 ];
 // The invoices inbox is an Operations page as well as an Accounts tab: an Admin who got there from the
 // Accounts screen stays on the Accounts screen.
@@ -212,6 +219,7 @@ export default function TopNav() {
   useAutoRefresh(refreshBadge);
 
   // The labour hire hours page is its own tab, not part of Timesheets (11 Nov 2026).
+  // Pre-starts is an address on the Faults page (?tab=checks) - the Faults tab shows as the one you're on.
   const isActive = (href: string) => path === href || (path.startsWith(href + "/") && !(href === "/timesheets" && path.startsWith("/timesheets/labour-hire")));
 
   // Which screen this page belongs to. Remembered for the tab, so the invoices inbox opened from the
@@ -270,7 +278,7 @@ export default function TopNav() {
             <Divider />
           </>
         )}
-        {OPERATIONS.filter((i) => (i.href !== "/tracking" && i.href !== "/invoices" && i.href !== "/assistant" && i.href !== "/attendance" && i.href !== "/timesheets" && i.href !== "/timesheets/labour-hire" && i.href !== "/requests" && i.href !== "/office-requests" && i.href !== "/purchases" && i.href !== "/questions" && i.href !== "/messages" && i.href !== "/receipts" && i.href !== "/documents") || canEdit).filter((i) => i.href !== "/questions" || myQuestions >= 0).map((i) => (
+        {OPERATIONS.filter((i) => (i.href !== "/tracking" && i.href !== "/invoices" && i.href !== "/assistant" && i.href !== "/attendance" && i.href !== PRESTARTS_HREF && i.href !== "/timesheets" && i.href !== "/timesheets/labour-hire" && i.href !== "/requests" && i.href !== "/office-requests" && i.href !== "/purchases" && i.href !== "/questions" && i.href !== "/messages" && i.href !== "/receipts" && i.href !== "/documents") || canEdit).filter((i) => i.href !== "/questions" || myQuestions >= 0).map((i) => (
           <NavTab
             key={i.href}
             href={i.href}

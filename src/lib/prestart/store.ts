@@ -3,7 +3,9 @@
 //   Link side (the crew's phone, /api/site/in/prestart*): the token from a truck sign-in / sign-out says which sign-in
 //   and which check. Words and dates only - no money, and the reporter's first name only.
 //   Office side (/api/faults*, guardFaults): the list, the moves, the photos, the day's checks and the board flags.
-// Signing in never waits on any of this: the sign-in is already saved when the token is handed out.
+// Signing in never waits on any of this: the sign-in is already saved when the token is handed out. Since Ilies on
+// 23 Nov 2026 the truck's first pre-start of the day can't be skipped on the phone (today.ts truckPrestartPending) -
+// still never blocking the sign-in or the sign-out.
 import { createHash } from "crypto";
 import { prisma } from "../prisma";
 import { readPlantCheckToken, readPrestartToken, sydneyTime, type PrestartKind } from "../signin";
@@ -18,6 +20,8 @@ import { phoneConfig } from "../media/protocol";
 import { HOUR_METER_SLOT, checklistFor, slotLabel, walkaroundSlotsFor, type Checklist } from "./checklists";
 import { plantChecksForDay, plantSource } from "./plant";
 import { oneAtATime, queueWaiting, TX } from "./queue";
+import { preStatusFor, truckPrestartPending } from "./today";
+import { odometerCapFull } from "../receipts/store";
 import {
   LIMITS, OPEN_STATUSES, PHOTO_LIMIT_NOTE, PRIORITY_LABEL, STATUS_LABEL, alertDecision, alertFor, alertMessage, canMove, cleanText, firstName, isOpenStatus,
   isPriority, marksDown, offerBackToAvailable, photoCapFull, photoPrecheck, photoRefusal, sortFaults, validateSubmission, validateWalkaround,
@@ -117,12 +121,16 @@ const odometerSent = async (db: Prisma.TransactionClient | typeof prisma, attend
 export async function linkView(ctx: LinkCtx) {
   const slots = walkaroundSlotsFor(ctx.machine.type, ctx.kind);
   const truckOdo = slots.length > 0 && !isPlant(ctx);
-  const [open, done, today, odo, last] = await Promise.all([
+  const truckPre = !isPlant(ctx) && ctx.kind === "PRE";
+  const [open, done, today, odo, last, required, odoFull] = await Promise.all([
     openFaultsOf(ctx.machine.id),
     checkOf(prisma, ctx),
     slots.length ? preToday(prisma, ctx.machine.id) : Promise.resolve([]),
     truckOdo ? odometerSent(prisma, ctx.attendanceId!) : Promise.resolve(true),
     isPlant(ctx) ? lastHours(prisma, ctx.machine.id) : Promise.resolve(null),
+    // Ilies, 23 Nov 2026: the truck's first pre-start of the day can't be skipped - the phone shows no "Do it later".
+    truckPre ? truckPrestartPending(ctx.attendanceId!) : Promise.resolve(false),
+    truckOdo ? odometerCapFull(ctx.attendanceId!) : Promise.resolve(false),
   ]);
   const first = today.find((c) => c.walkaround === "DONE" || c.walkaround === "LIMIT");
   return {
@@ -142,7 +150,9 @@ export async function linkView(ctx: LinkCtx) {
       // "This morning's photos were taken at 6:12 by Turori" - first name only on a link.
       earlier: first ? { at: sydneyTime(first.createdAt), by: linkLabel(firstName(first.personName), "someone"), limit: first.walkaround === "LIMIT" } : null,
     } : null,
-    odometer: truckOdo ? (odo ? "SENT" : "MISSING") : null,
+    odometer: truckOdo ? (odo ? "SENT" : odoFull ? "LIMIT" : "MISSING") : null,
+    // The truck pre-start can't be skipped (Ilies, 23 Nov 2026) - true only while it's still needed for this sign-in.
+    required,
     // Stage 2: every plant check needs the hour meter - a photo and the hours typed; the last reading as a hint.
     hourMeter: isPlant(ctx) ? { required: true, last } : null,
     // Large uploads (10 Nov 2026): photos at full quality and fault videos (up to 2 minutes) go straight to the bucket;
@@ -342,6 +352,9 @@ export async function submitCheck(ctx: LinkCtx, body: unknown) {
   const faultFull = photoCapFull("FAULT", { roleMachineDay: await roleDay("FAULT"), allDay });
   const walkFull = photoCapFull("WALKAROUND", { roleMachineDay: await roleDay("WALKAROUND"), allDay });
   const meterFull = isPlant(ctx) && photoCapFull("METER", { roleMachineDay: await roleDay("METER"), allDay });
+  // Never trapped on a limit (Ilies, 23 Nov 2026): the truck's odometer photos for the day used up -> the first pre-start
+  // goes without the odometer (counted on the server).
+  const odoFull = !isPlant(ctx) && walkaroundSlotsFor(ctx.machine.type, ctx.kind).length > 0 && (await odometerCapFull(ctx.attendanceId!));
   const v = validateSubmission(ctx.list, body, open.map((f) => ({ id: f.id, itemKey: f.itemKey })), { capFull: faultFull });
   if (!v.ok) return problem(v.error);
   const slots = walkaroundSlotsFor(ctx.machine.type, ctx.kind);
@@ -386,7 +399,7 @@ export async function submitCheck(ctx: LinkCtx, body: unknown) {
         const w = validateWalkaround(b.walkaround, slots, { required, capFull: walkFull });
         if (!w.ok) throw new Refused(problem(w.error, 400));
         // Trucks: the odometer too (the sign-in's own step). Plant has the hour meter instead (below).
-        if (required && !isPlant(ctx) && !(await odometerSent(tx, ctx.attendanceId!))) throw new Refused(problem("Take the odometer photo first.", 400));
+        if (required && !isPlant(ctx) && !odoFull && !(await odometerSent(tx, ctx.attendanceId!))) throw new Refused(problem("Take the odometer photo first.", 400));
         for (const [s, mediaId] of Object.entries(w.photos)) {
           const ok = await tx.assetFaultMedia.updateMany({
             where: { id: mediaId, ...bindOf(ctx), checkKind: ctx.kind, role: "WALKAROUND", slot: s, faultId: null, checkId: null },
@@ -605,7 +618,7 @@ export async function faultFlags(): Promise<Record<string, { open: number; worst
 export async function checksForDay(day: string) {
   const signIns = await prisma.siteAttendance.findMany({
     where: { place: "VEHICLE", date: day, removedAt: null, status: { not: "REJECTED" } },
-    select: { id: true, workerName: true, company: true, placeLabel: true, vehicleId: true, signInAt: true, signOutAt: true },
+    select: { id: true, workerName: true, company: true, placeLabel: true, vehicleId: true, signInAt: true, signOutAt: true, signInMethod: true, date: true },
     orderBy: { signInAt: "asc" },
     take: 500,
   });
@@ -613,6 +626,8 @@ export async function checksForDay(day: string) {
     ? await prisma.prestartCheck.findMany({ where: { attendanceId: { in: signIns.map((s) => s.id) } }, include: { faults: { select: { id: true, itemLabel: true, priority: true, status: true } } } })
     : [];
   const of = (id: string, kind: string) => checks.find((c) => c.attendanceId === id && c.kind === kind);
+  // Ilies, 23 Nov 2026: a truck QR sign-in whose truck had no pre-start by its end (or by now) reads "Pre-start not done".
+  const preWords = await preStatusFor(signIns, new Map(checks.filter((c) => c.kind === "PRE").map((c) => [c.attendanceId!, { faultCount: c.faultCount }])));
   // Stage 1b: each check's walk-around photos, and each sign-in's odometer photo and reading (km once read).
   const [walk, odos] = checks.length || signIns.length ? await Promise.all([
     prisma.assetFaultMedia.findMany({ where: { checkId: { in: checks.map((c) => c.id) }, role: "WALKAROUND" }, select: { id: true, checkId: true, slot: true }, orderBy: { createdAt: "asc" } }),
@@ -639,7 +654,7 @@ export async function checksForDay(day: string) {
           const o = odos.find((r) => r.siteAttendanceId === s.id);
           return o ? { status: o.status, km: o.km, photoIds: o.photos.map((p) => p.id) } : null;
         })(),
-        preStatus: pre ? (pre.faultCount ? `Done - ${pre.faultCount} fault${pre.faultCount > 1 ? "s" : ""}` : "Done") : "No pre-start",
+        preStatus: preWords.get(s.id) ?? (pre ? "Done" : "No pre-start"),
         postStatus: post ? (post.faultCount ? `Done - ${post.faultCount} fault${post.faultCount > 1 ? "s" : ""}` : "Done") : s.signOutAt ? "No post-check" : "Still signed in",
       };
     }),

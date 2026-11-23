@@ -156,6 +156,58 @@ export function validateWalkaround(raw: unknown, slots: readonly { key: string; 
   if (o.capFull) return { ok: true, photos, status: "LIMIT" };
   return { ok: false, error: `Take the walk-around photos first: ${missing.map((s) => s.label).join(", ")}.` };
 }
+// ---------- the truck pre-start can't be skipped (Ilies, 23 Nov 2026) ----------
+// Before: "Do it later" skipped the whole pre-start (8 Nov 2026). Ilies, 23 Nov 2026: a driver can't skip the truck
+// pre-start. Sign-ins are the pay record, so the sign-in time is still saved at the scan and sign-out is never blocked -
+// the PHONE keeps the driver on the pre-start (and takes them back to it on reopening) until it's sent. Required = the
+// truck QR sign-in is still open, its own pre-start isn't in, and the truck has no pre-start yet today (from anyone). A
+// later sign-in on a truck already checked today stays optional, as before. Decided on the server, from the database.
+export const PRESTART_NOT_DONE = "Pre-start not done";
+export function truckPrestartRequired(s: { fromQr: boolean; signedOut: boolean; ownPreDone: boolean; truckPreToday: number }): boolean {
+  return s.fromQr && !s.signedOut && !s.ownPreDone && s.truckPreToday === 0;
+}
+// Every photo limit lets a driver through (PS-010 / PS-012) - and on a REQUIRED pre-start nothing may trap them: once a
+// photo is refused for a limit (429), the phone offers "Do it later" again (`capped`). The office still sees it red.
+export const prestartSkippable = (o: { required: boolean; capped: boolean }) => !o.required || o.capped;
+
+// The office's word for one truck sign-in's pre-start (Checks tab, Sign-ins, the card). A truck QR sign-in with no
+// pre-start of its own while the truck had none by the time it ended (or by now, still open) = "Pre-start not done"
+// (red). The truck already checked by someone else = "No pre-start", as before (optional). An office-added sign-in has no
+// phone, so it's never "not done".
+export function signInPreStatus(s: { pre: { faultCount: number } | null; fromQr: boolean; truckPreByEnd: boolean }): string {
+  if (s.pre) return s.pre.faultCount ? `Done - ${s.pre.faultCount} fault${s.pre.faultCount > 1 ? "s" : ""}` : "Done";
+  return s.fromQr && !s.truckPreByEnd ? PRESTART_NOT_DONE : "No pre-start";
+}
+
+// ---------- "Pre-starts today" (the card on the Allocations board, Ilies 23 Nov 2026) ----------
+// One truck's day: no pre-start yet -> "Pre-start not done" (red); a fault reported or still there today -> "Fault -
+// <priority>"; the post-check in -> "Post-check done"; else "Done". A machine's: "No pre-start" / "Fault - ..." / "Done".
+export type CardStatus = "NOT_DONE" | "FAULT" | "POST_DONE" | "DONE";
+export function truckCardStatus(t: { preDone: boolean; postDone: boolean; worstFault: string | null }): { status: CardStatus; label: string } {
+  if (!t.preDone) return { status: "NOT_DONE", label: PRESTART_NOT_DONE };
+  if (t.worstFault && isPriority(t.worstFault)) return { status: "FAULT", label: `Fault - ${PRIORITY_LABEL[t.worstFault]}` };
+  return t.postDone ? { status: "POST_DONE", label: "Post-check done" } : { status: "DONE", label: "Done" };
+}
+export function machineCardStatus(m: { preDone: boolean; worstFault: string | null }): { status: Exclude<CardStatus, "POST_DONE">; label: string } {
+  if (!m.preDone) return { status: "NOT_DONE", label: "No pre-start" };
+  if (m.worstFault && isPriority(m.worstFault)) return { status: "FAULT", label: `Fault - ${PRIORITY_LABEL[m.worstFault]}` };
+  return { status: "DONE", label: "Done" };
+}
+// The counts at the top: how many done (a fault still counts as done - the check is in), how many not.
+export function cardCounts(rows: { status: CardStatus; needed?: boolean }[]) {
+  const needed = rows.filter((r) => r.needed !== false);
+  return {
+    total: needed.length,
+    done: needed.filter((r) => r.status !== "NOT_DONE").length,
+    notDone: needed.filter((r) => r.status === "NOT_DONE").length,
+    faults: needed.filter((r) => r.status === "FAULT").length,
+  };
+}
+// "9 machines have no QR sticker yet": Lobos-owned plant (plantQrAllowed) with no switched-on PLANT QR.
+export const noStickerCount = (machines: { id: string; type: string; ownership: string | null; active: boolean }[], stickered: Set<string>) =>
+  machines.filter((m) => plantQrAllowed(m) && !stickered.has(m.id)).length;
+export const noStickerText = (n: number) => (n === 0 ? null : `${n} machine${n === 1 ? " has" : "s have"} no QR sticker yet`);
+
 // Walk-around, fault and hour-meter photos - truck and plant - are kept forever (Ilies, 10 Nov 2026): nothing is removed by age.
 // The one alert for a check: Do not use if any fault is, else Urgent; each fault on a line. Null = nothing to alert.
 export function alertMessage(machine: string, by: string, faults: { itemLabel: string; priority: string; description: string; markedDown: boolean }[]) {

@@ -46,8 +46,11 @@ export default function CrewSignInPage({ params: paramsP }: { params: Promise<{ 
   // walk-around photos. The token stays for the pre-start screen, which can take a missing odometer photo too.
   const [odoRequired, setOdoRequired] = useState(false);
   const [odoToken, setOdoToken] = useState<string | null>(null);
-  // ...and the pre-start after it (sign-in), or the post-check (sign-out) - 8 Nov 2026. Skippable ("Do it later").
+  // ...and the pre-start after it (sign-in), or the post-check (sign-out) - 8 Nov 2026. Skippable ("Do it later") -
+  // except, since Ilies on 23 Nov 2026, the truck's first pre-start of the day (prestartRequired): no skip, and reopening
+  // the QR on this phone comes straight back to it (the STATUS reply hands the token back while it's still needed).
   const [prestart, setPrestart] = useState<string | null>(null);
+  const [prestartRequired, setPrestartRequired] = useState(false);
   const [checkSent, setCheckSent] = useState<PrestartResult["sent"]>([]);
   // Regional travel (2 Nov 2026): after a sign-in / sign-out the phone may be offered the travel page or "Travelling home".
   const [travel, setTravel] = useState<{ link: boolean; home: boolean; tip: boolean }>({ link: false, home: false, tip: false });
@@ -90,7 +93,19 @@ export default function CrewSignInPage({ params: paramsP }: { params: Promise<{ 
   useEffect(() => {
     if (!scan || !jobId || !me) return;
     setStatus(null);
-    send("STATUS", me).then(setStatus, (e) => setError((e as Error).message));
+    send("STATUS", me).then((s) => {
+      setStatus(s);
+      // Reopened with the truck's first pre-start still to send (23 Nov 2026): straight back into it - the odometer
+      // first if it isn't in yet. The sign-in time was saved at the scan.
+      if (typeof s.prestart === "string" && s.prestartRequired === true) {
+        setDone(`Signed in since ${s.since ?? "earlier"} - the pre-start is still to send.`);
+        setOdoRequired(s.walkaroundRequired === true);
+        setOdoToken(typeof s.odometer === "string" ? s.odometer : null);
+        setOdometer(typeof s.odometer === "string" && !s.odometerSent ? s.odometer : null);
+        setPrestart(s.prestart);
+        setPrestartRequired(true);
+      }
+    }, (e) => setError((e as Error).message));
   }, [scan, jobId, me, send]);
 
   // Ask for the position once the Sign in button is showing (the browser asks permission the first time).
@@ -105,7 +120,8 @@ export default function CrewSignInPage({ params: paramsP }: { params: Promise<{ 
     );
   }, [status]);
 
-  async function act(action: "IN" | "OUT", shiftAnswer?: "SAME" | "NEW") {
+  // Returns the error's words, or null when it went.
+  async function act(action: "IN" | "OUT", shiftAnswer?: "SAME" | "NEW"): Promise<string | null> {
     setBusy(true);
     setError(null);
     try {
@@ -114,18 +130,29 @@ export default function CrewSignInPage({ params: paramsP }: { params: Promise<{ 
       const r = await send(action, me!, action === "IN" ? { gps: gps.current ?? { status: "TIMEOUT" }, ...(shiftAnswer ? { shiftAnswer } : {}) } : {});
       setAsk(null);
       setDone(r.message);
-      if (typeof r.odometer === "string") { setOdometer(r.odometer); setOdoToken(r.odometer); }
+      // Each reply says what comes next - a sign-out from the pre-start screen (23 Nov 2026) clears the pre-start's steps.
+      setOdometer(typeof r.odometer === "string" ? r.odometer : null);
+      if (typeof r.odometer === "string") setOdoToken(r.odometer);
       setOdoRequired(r.walkaroundRequired === true);
-      if (typeof r.prestart === "string") setPrestart(r.prestart);
-      if (typeof r.postcheck === "string") setPrestart(r.postcheck);
+      setPrestartRequired(r.prestartRequired === true);
+      setPrestart(typeof r.prestart === "string" ? r.prestart : typeof r.postcheck === "string" ? r.postcheck : null);
       if (typeof r.travelPass === "string") store(PASS_KEY, r.travelPass);
       setTravel({ link: !!r.travelLink, home: !!r.travelHome, tip: !!r.tipRun });
+      return null;
     } catch (e) {
-      if (e instanceof AskError) setAsk(e.ask);
-      else setError((e as Error).message);
+      if (e instanceof AskError) { setAsk(e.ask); return e.message; }
+      setError((e as Error).message);
+      return (e as Error).message;
     } finally {
       setBusy(false);
     }
+  }
+  // Sign-out is never blocked (Ilies, 23 Nov 2026): the required pre-start screen offers it - the pre-start stays "not
+  // done" for the office. The post-check comes next, as with any truck sign-out.
+  async function signOutInstead() {
+    if (!window.confirm("Sign out now? Your pre-start stays not done.")) return;
+    const err = await act("OUT");
+    if (err) window.alert(err);
   }
 
   const job = scan?.jobs.find((j) => j.id === jobId);
@@ -141,12 +168,12 @@ export default function CrewSignInPage({ params: paramsP }: { params: Promise<{ 
       ) : !scan ? (
         <div className="py-16 text-center text-gray-500"><Loader2 className="mx-auto animate-spin" /></div>
       ) : done && odometer ? (
-        <Odometer token={odometer} signedIn={done} required={odoRequired && !!prestart} onDone={(m) => { setOdometer(null); setDone(`${done} ${m}`); }}
-          onSkipAll={(m) => { setOdometer(null); setPrestart(null); setDone(`${done} ${m}`); }} />
+        <Odometer token={odometer} signedIn={done} required={odoRequired && !!prestart} noSkip={prestartRequired} busyOut={busy} onDone={(m) => { setOdometer(null); setDone(`${done} ${m}`); }}
+          onSkipAll={(m) => { setOdometer(null); setPrestart(null); setDone(`${done} ${m}`); }} onSignOut={signOutInstead} />
       ) : done && prestart ? (
         <PrestartCheck token={prestart} banner={done} odometerToken={odoToken}
-          onDone={(r) => { setPrestart(null); setCheckSent(r.sent); setDone(`${done} ${r.message}`); }}
-          onSkip={() => setPrestart(null)} />
+          onDone={(r) => { setPrestart(null); setPrestartRequired(false); setCheckSent(r.sent); setDone(`${done} ${r.message}`); }}
+          onSkip={() => { setPrestart(null); setPrestartRequired(false); }} onSignOut={prestartRequired ? signOutInstead : undefined} />
       ) : done ? (
         <div className="space-y-4 text-center">
           <div className="rounded-2xl bg-emerald-500/15 px-4 py-6 text-lg font-semibold text-emerald-300">✓ {done}</div>
@@ -294,16 +321,23 @@ function TravelLinkArrived() {
 }
 
 // After signing in on a truck's QR: a photo of the odometer, or "Can't now". Stage 1b: on the day's first pre-start
-// for the truck it's required - no "Can't now"; "Do it later" skips the odometer and the whole pre-start.
-function Odometer({ token, signedIn, required, onDone, onSkipAll }: { token: string; signedIn: string; required: boolean; onDone: (message: string) => void; onSkipAll: (message: string) => void }) {
+// for the truck it's required - no "Can't now". Ilies, 23 Nov 2026 (noSkip): no "Do it later" either - the driver can't
+// skip the truck's first pre-start of the day; "Sign out" stays (never blocked), and a full photo limit (429) lets them
+// go on without the photo (the server counts it).
+function Odometer({ token, signedIn, required, noSkip, busyOut, onDone, onSkipAll, onSignOut }: {
+  token: string; signedIn: string; required: boolean; noSkip: boolean; busyOut: boolean;
+  onDone: (message: string) => void; onSkipAll: (message: string) => void; onSignOut: () => void;
+}) {
   const file = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [full, setFull] = useState(false); // the truck's odometer photos for today are used up
   async function send(body: Record<string, unknown>, all = false) {
     setBusy(true);
     setError(null);
     try {
       const res = await fetch("/api/site/in/odometer", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token, ...body }) });
+      if (res.status === 429) setFull(true);
       if (!res.ok) throw new Error(await serverErrorMessage(res, "Couldn't send - check your signal and try again."));
       const m = (await res.json()).message;
       if (all) onSkipAll(m); else onDone(m);
@@ -323,7 +357,13 @@ function Odometer({ token, signedIn, required, onDone, onSkipAll }: { token: str
       <input ref={file} type="file" accept="image/*" capture="environment" className="hidden"
         onChange={async (e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) send({ dataUrl: await resizePhoto(f) }); }} />
       {error && <div className="rounded-lg bg-red-900/30 px-3 py-2 text-sm text-red-300">{error}</div>}
-      {required
+      {noSkip ? (
+        <div className="space-y-1 text-center" data-testid="odometer-required">
+          {full && <button className={`${big} bg-panel2 text-gray-100`} disabled={busy} onClick={() => send({ skip: true })}>Go on without it (photo limit reached)</button>}
+          <p className="text-xs text-gray-400">Next: the pre-start - it has to be sent before you drive. Your sign-in time is already saved.</p>
+          <button className="w-full py-2 text-sm text-gray-400" disabled={busy || busyOut} onClick={onSignOut}>Not driving after all? Sign out</button>
+        </div>
+      ) : required
         ? <button className="w-full py-2 text-sm text-gray-400" disabled={busy} onClick={() => send({ skip: true }, true)}>Do it later (skip the pre-start)</button>
         : <button className="w-full py-2 text-sm text-gray-400" disabled={busy} onClick={() => send({ skip: true })}>Can&apos;t now</button>}
     </div>

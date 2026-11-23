@@ -89,6 +89,9 @@ export function readOdometerToken(token: unknown, now = Date.now()): string | nu
 // --- the pre-start / post-check after a truck sign-in / sign-out (8 Nov 2026) -
 // Signing in on a truck's QR returns a PRE token, signing out there a POST token, each tied to that sign-in; the
 // checklist screen (and its photos) send it back. 2 hours - "Do it later" just lets it run out. Only VEHICLE points.
+// Ilies, 23 Nov 2026: the truck's first pre-start of the day can't be skipped - reopening the QR on the phone that signed
+// in gets a fresh PRE token in the STATUS reply's body while it's still needed (never in an address - PS-005; never after
+// sign-out - PS-006, linkContext refuses it).
 const PRESTART_MS = 2 * 3_600_000;
 export type PrestartKind = "PRE" | "POST";
 export function makePrestartToken(attendanceId: string, kind: PrestartKind, now = Date.now()) {

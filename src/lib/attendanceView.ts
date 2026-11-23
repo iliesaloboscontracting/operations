@@ -14,6 +14,7 @@ import { flagsForJobRows, flagSummary, signedInEarlierIds, type SigninFlagSummar
 import { posterGpsFlags } from "./posterGuard/store";
 import { locationLabel, signInHow, signOutHow } from "./signinHow";
 import { overLimitNotes } from "./dayLimit/store";
+import { preNotDoneIds } from "./prestart/today";
 
 export type AttendanceFlag =
   | "NO_SIGN_IN" // allocated, never signed in
@@ -37,7 +38,10 @@ export type AttendanceFlag =
   | "NO_LOCATION" // the phone shared no position
   | "FAR_FROM_SITE" // further than 500 m (+ the fix's accuracy) from where the site's crew sign in
   // 12 Nov 2026 (Ilies, lib/dayLimit) - information only: a sign-in date past the person's days-a-week limit.
-  | "OVER_DAY_LIMIT"; // "Over 3-day limit (4th day this week)" - never blocks approval, hours unchanged
+  | "OVER_DAY_LIMIT" // "Over 3-day limit (4th day this week)" - never blocks approval, hours unchanged
+  // 23 Nov 2026 (Ilies: the truck pre-start can't be skipped) - information only: a truck QR sign-in whose truck had no
+  // pre-start by its end (or by now). Hours unchanged, never blocks anything (lib/prestart/today.ts).
+  | "PRESTART_NOT_DONE";
 
 type AttendanceWithEdits = Prisma.SiteAttendanceGetPayload<{ include: { edits: true } }>;
 
@@ -259,6 +263,9 @@ export async function attendanceForDate(date: string) {
       }
     }
   }
+  // Truck QR sign-ins with the pre-start not done (23 Nov 2026) - red on the Sign-ins page. Never fails the page.
+  const notDone = await preNotDoneIds(pointRows).catch(() => new Set<string>());
+  if (notDone.size) for (const g of points) for (const r of g.rows) if (notDone.has(r.id)) r.flags.push("PRESTART_NOT_DONE");
   // The Sign-ins page's strip (10 Nov 2026): "N to confirm · N late · N long day · N no sign-in".
   return { jobs: jobGroups, points, summary: flagSummary([...points, ...jobGroups]) };
 }
