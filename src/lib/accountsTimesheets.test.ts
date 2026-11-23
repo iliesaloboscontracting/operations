@@ -93,6 +93,10 @@ test("an export that still looks like bank / tax details is refused, not sent", 
 test("the explainer says the rules the code uses, and no money", () => {
   const text = JSON.stringify(TIMESHEETS_EXPLAINER);
   assert.equal(TIMESHEETS_NOTICE, "ACCOUNTS_TIMESHEETS_V6", "bumped with the Sick / Not in marks (23 Nov 2026)");
+  // NI-001 a / b (Ilies approved 23 Nov 2026): the note's hint, and that it never goes in an export.
+  assert.ok(text.includes("e.g. rang in at 6am - no medical details"), "the note hint");
+  assert.match(text, /The note shows on screen only - never in an export/);
+  assert.match(text, /up to 14 days back, or for tomorrow/, "NI-002's window");
   assert.ok(text.includes(`over ${TIP_CAP_HOURS} hours counts nothing`), "tip run cap from the code");
   assert.ok(text.includes(`within ${TIP_OFFER_HOURS} hours`), "tip run offer window from the code");
   assert.match(text, /Thu 19 → Fri 20 counts every hour to Thu 19/);

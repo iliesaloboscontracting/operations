@@ -143,7 +143,9 @@ export const TIMESHEETS_EXPLAINER: Explainer = {
       // cancelAbsence - locked weeks refuse); app/api/attendance/absence (guardOrCoordinator); TimesheetGrid.tsx AbsenceChip
       heading: "Sick / Not in",
       bullets: [
-        "The office (a Manager, an Admin or the project coordinator) can mark someone who was on the board but didn't sign in as \"Sick\" or \"Not in\" for that day, with a short note if they like.",
+        "The office (a Manager, an Admin or the project coordinator) can mark someone on the board that day as \"Sick\" or \"Not in\" - up to 14 days back, or for tomorrow.",
+        // NI-001 a / b (Ilies approved 23 Nov 2026)
+        "A mark can have a short note for the office (e.g. rang in at 6am - no medical details). The note shows on screen only - never in an export.",
         "A grey \"Sick\" or \"Not in\" box on a day means just that - \"no hours\". It never adds hours or pay. The export has it as its own line with no hours.",
         "\"Marked Sick but signed in\" (amber) - marked off, but they signed in that day too. The sign-in's hours count; the office checks which is right.",
         "Marks can't be added or undone in a locked week. An undone mark is kept, with who undid it and why.",

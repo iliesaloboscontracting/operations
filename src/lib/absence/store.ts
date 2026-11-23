@@ -1,9 +1,11 @@
 // "Not in today" (23 Nov 2026) - the database side. Marks are only ever added; an undo fills the row's cancelled
 // fields and the row stays (keep forever). The plain rules are in ./rules.ts.
 import { prisma } from "../prisma";
-import { writeLock, type Who } from "../history/store";
-import { lockedWeekFor, weekEnd } from "../timesheets";
-import { cancelRefusal, markRefusal, type AbsenceLine, type AbsenceRow, type MarkInput, toMark } from "./rules";
+import { writeLock, type Tx, type Who } from "../history/store";
+import { lockedWeekFor, weekEnd, weekStartOf } from "../timesheets";
+import {
+  cancelRefusal, markRefusal, NOT_ALLOCATED_REFUSAL, onOfficeList, toMark, whoRefusal, type AbsenceLine, type AbsenceRow, type MarkInput,
+} from "./rules";
 
 type Problem = { error: string; status: number };
 const byName = (w: Who) => ((w?.name && w.name.trim()) || "Office").slice(0, 120);
@@ -53,17 +55,32 @@ export async function absencesForWeek(weekStart: string) {
   return rows.map((r) => ({ ...toMark(r), resourceId: r.resourceId, date: r.date, name: who.get(r.resourceId)?.name ?? "Someone", hireTile: who.get(r.resourceId)?.type === "HIRE" }));
 }
 
-// Mark a person Sick / Not in for a day. A Labour-register person or a labour hire tile; one live mark per person per
-// day (checked inside one locked transaction, so two taps at once can't make two); a locked week refuses.
+// NI-004: the week's lock read inside the caller's transaction (after writeLock), so an approval that lands between the
+// first check and the write is still seen.
+const lockedInTx = async (tx: Tx, date: string) =>
+  (await tx.timesheetWeek.findFirst({ where: { weekStart: weekStartOf(date), reopenedAt: null }, select: { id: true } })) ? weekStartOf(date) : null;
+
+// NI-002: on that day's board - an allocation on a running (ACTIVE, not cancelled) job that day, the same jobs the
+// Sign-ins page lists as "Allocated, not signed in" - or on the Office list on a weekday.
+async function onBoard(who: { id: string; type: string; category: string | null; active: boolean }, date: string) {
+  if (onOfficeList(who, date)) return true;
+  return (await prisma.assignment.count({ where: { resourceId: who.id, job: { date: new Date(`${date}T00:00:00.000Z`), status: "ACTIVE", cancelledAt: null } } })) > 0;
+}
+
+// Mark a person Sick / Not in for a day. An active Labour-register person or a labour hire tile on that day's board
+// (NI-002); one live mark per person per day (checked inside one locked transaction, so two taps at once can't make
+// two); a locked week refuses - checked again inside the transaction (NI-004).
 export async function markAbsence(input: MarkInput, by: Who): Promise<{ id: string } | Problem> {
-  const who = await prisma.resource.findUnique({ where: { id: input.resourceId }, select: { id: true, type: true, category: true } });
-  if (!who || !(who.type === "PERSONNEL" || (who.type === "HIRE" && who.category === "LABOUR"))) return { error: "Pick someone from the Labour register (or a labour hire booking).", status: 400 };
+  const who = await prisma.resource.findUnique({ where: { id: input.resourceId }, select: { id: true, type: true, category: true, active: true } });
+  const bad = whoRefusal(who);
+  if (bad) return { error: bad, status: 400 };
   const lockedWeek = await lockedWeekFor(input.date);
   if (lockedWeek) return markRefusal({ lockedWeek, active: null })!;
+  if (!(await onBoard(who!, input.date))) return { error: NOT_ALLOCATED_REFUSAL, status: 400 };
   return prisma.$transaction(async (tx) => {
     await writeLock(tx);
     const active = await tx.attendanceAbsence.findFirst({ where: { resourceId: input.resourceId, date: input.date, cancelledAt: null }, select: { reason: true } });
-    const refused = markRefusal({ lockedWeek: null, active });
+    const refused = markRefusal({ lockedWeek: await lockedInTx(tx, input.date), active });
     if (refused) return refused;
     const row = await tx.attendanceAbsence.create({
       data: { resourceId: input.resourceId, date: input.date, reason: input.reason, note: input.note, createdBy: byName(by), createdById: by?.id ?? null },
@@ -73,16 +90,20 @@ export async function markAbsence(input: MarkInput, by: Who): Promise<{ id: stri
   });
 }
 
-// Undo a mark, with a reason. The row stays (the history); a locked week refuses.
+// Undo a mark, with a reason. The row stays (the history); a locked week refuses. NI-004: one locked transaction - the
+// mark and the week's lock are read after writeLock, then the undo is written.
 export async function cancelAbsence(id: string, reason: string, by: Who): Promise<{ ok: true } | Problem> {
-  const row = await prisma.attendanceAbsence.findUnique({ where: { id }, select: { id: true, date: true, cancelledAt: true } });
-  const refused = cancelRefusal({ row, lockedWeek: row ? await lockedWeekFor(row.date) : null });
-  if (refused) return refused;
-  // Only a live mark is filled in - a second undo at the same moment changes nothing.
-  const done = await prisma.attendanceAbsence.updateMany({
-    where: { id, cancelledAt: null },
-    data: { cancelledAt: new Date(), cancelledBy: byName(by), cancelledById: by?.id ?? null, cancelReason: reason },
+  return prisma.$transaction(async (tx) => {
+    await writeLock(tx);
+    const row = await tx.attendanceAbsence.findUnique({ where: { id }, select: { id: true, date: true, cancelledAt: true } });
+    const refused = cancelRefusal({ row, lockedWeek: row ? await lockedInTx(tx, row.date) : null });
+    if (refused) return refused;
+    // Only a live mark is filled in - a second undo can never overwrite the first.
+    const done = await tx.attendanceAbsence.updateMany({
+      where: { id, cancelledAt: null },
+      data: { cancelledAt: new Date(), cancelledBy: byName(by), cancelledById: by?.id ?? null, cancelReason: reason },
+    });
+    if (!done.count) return { error: "That mark has already been undone.", status: 409 };
+    return { ok: true as const };
   });
-  if (!done.count) return { error: "That mark has already been undone.", status: 409 };
-  return { ok: true };
 }

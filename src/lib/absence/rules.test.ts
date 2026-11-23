@@ -5,7 +5,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
   absenceCsvNotes, absenceViews, cancelRefusal, DUPLICATE_REFUSAL, LOCKED_WEEK_REFUSAL, markedButSignedIn, markedButSignedInText,
-  markRefusal, noSignInCount, parseCancel, parseMark, timesheetDayCell, unexplained, type AbsenceLine, type AbsenceRow,
+  markDateRefusal, markRefusal, noSignInCount, NOTE_HINT, onOfficeList, parseCancel, parseMark, timesheetDayCell, unexplained, whoRefusal,
+  withoutAbsenceNotes, type AbsenceLine, type AbsenceRow,
 } from "./rules";
 import { flagSummary } from "../signinFlags";
 import { peopleOf, timesheetCsv, type TimesheetLine } from "../timesheets";
@@ -20,12 +21,19 @@ const row = (o: Partial<AbsenceRow> = {}): AbsenceRow => ({
 });
 const src = (rel: string) => readFileSync(new URL(rel, import.meta.url), "utf8");
 
-test("input: Sick or Not in, today or earlier, a short note with no amount, bank or tax detail", () => {
+test("input: Sick or Not in, 14 days back to tomorrow, a short note with no amount, bank or tax detail", () => {
   const ok = parseMark({ resourceId: "r1", date: TODAY, reason: "SICK", note: "  rang in   at 6am " }, TODAY);
   assert.deepEqual(ok, { ok: true, value: { resourceId: "r1", date: TODAY, reason: "SICK", note: "rang in at 6am" } });
   assert.deepEqual(parseMark({ resourceId: "r1", date: "2026-11-20", reason: "NOT_IN" }, TODAY), { ok: true, value: { resourceId: "r1", date: "2026-11-20", reason: "NOT_IN", note: null } });
   const bad = (b: Record<string, unknown>) => { const r = parseMark({ resourceId: "r1", date: TODAY, reason: "SICK", ...b }, TODAY); return r.ok ? null : r.error; };
-  assert.match(bad({ date: "2026-11-24" })!, /today or an earlier day/, "a future day is refused");
+  // NI-002 (Ilies, "Yes, allow tomorrow"): 14 days back to tomorrow, Sydney days.
+  assert.equal(bad({ date: "2026-11-24" }), null, "tomorrow is allowed");
+  assert.match(bad({ date: "2026-11-25" })!, /up to tomorrow/, "the day after tomorrow is refused");
+  assert.equal(bad({ date: "2026-11-09" }), null, "14 days back is allowed");
+  assert.match(bad({ date: "2026-11-08" })!, /last 14 days/, "15 days back is refused");
+  assert.match(bad({ date: "2026-10-14" })!, /last 14 days/, "40 days back is refused");
+  assert.equal(markDateRefusal("2027-01-01", "2026-12-31"), null, "tomorrow across a year end");
+  assert.equal(markDateRefusal("2026-03-01", "2026-02-28"), null, "tomorrow across a month end");
   assert.match(bad({ date: "2026-02-30" })!, /Pick the day/);
   assert.match(bad({ reason: "HOLIDAY" })!, /Sick or Not in/);
   assert.match(bad({ resourceId: "" })!, /who/);
@@ -60,7 +68,34 @@ test("a locked (approved) week refuses marking and undoing", () => {
   assert.equal(cancelRefusal({ row: { cancelledAt: null }, lockedWeek: null }), null);
   assert.equal(cancelRefusal({ row: { cancelledAt: new Date() }, lockedWeek: null })?.status, 409, "already undone");
   assert.equal(cancelRefusal({ row: null, lockedWeek: null })?.status, 404);
-  assert.match(src("./store.ts"), /lockedWeekFor\(input\.date\)[\s\S]*lockedWeekFor\(row\.date\)/, "the store asks the timesheet lock for both");
+  // NI-004: checked first, then again INSIDE the locked transaction (after writeLock) for both mark and undo - an
+  // approval landing between the first check and the write is still refused.
+  const store = src("./store.ts");
+  assert.match(store, /lockedWeekFor\(input\.date\)/, "mark: a first check before the transaction");
+  assert.match(store, /const lockedInTx = async \(tx: Tx, date: string\) =>\s*\(await tx\.timesheetWeek\.findFirst\(\{ where: \{ weekStart: weekStartOf\(date\), reopenedAt: null \}/, "the in-transaction read uses tx");
+  const markFn = store.slice(store.indexOf("export async function markAbsence"), store.indexOf("export async function cancelAbsence"));
+  assert.match(markFn, /\$transaction\(async \(tx\) => \{\s*await writeLock\(tx\);[\s\S]*markRefusal\(\{ lockedWeek: await lockedInTx\(tx, input\.date\), active \}\)[\s\S]*tx\.attendanceAbsence\.create/, "mark: re-checked after writeLock, before the write");
+  const cancelFn = store.slice(store.indexOf("export async function cancelAbsence"));
+  assert.match(cancelFn, /\$transaction\(async \(tx\) => \{\s*await writeLock\(tx\);[\s\S]*cancelRefusal\(\{ row, lockedWeek: row \? await lockedInTx\(tx, row\.date\) : null \}\)[\s\S]*tx\.attendanceAbsence\.updateMany/, "undo: one transaction, lock read after writeLock");
+  assert.doesNotMatch(cancelFn, /prisma\.attendanceAbsence/, "undo reads and writes through the transaction only");
+});
+
+test("NI-002: only an active person on that day's board (or the Office list on a weekday), or a labour hire booking", () => {
+  assert.equal(whoRefusal({ type: "PERSONNEL", category: "Labourer", active: true }), null);
+  assert.equal(whoRefusal({ type: "HIRE", category: "LABOUR", active: true }), null, "a labour hire booking");
+  assert.match(whoRefusal({ type: "PERSONNEL", category: "Labourer", active: false })!, /switched off/, "an inactive person is refused");
+  assert.match(whoRefusal({ type: "EQUIPMENT", category: null, active: true })!, /Labour register/, "a machine is refused");
+  assert.match(whoRefusal(null)!, /Labour register/);
+  assert.equal(onOfficeList({ type: "PERSONNEL", category: "Office", active: true }, "2026-11-23"), true, "Office staff on a Monday");
+  assert.equal(onOfficeList({ type: "PERSONNEL", category: "Office", active: true }, "2026-11-22"), false, "not on a Sunday");
+  assert.equal(onOfficeList({ type: "PERSONNEL", category: "Labourer", active: true }, "2026-11-23"), false);
+  // The store refuses someone not allocated that day (the Sign-ins page's own jobs: ACTIVE, not cancelled).
+  const store = src("./store.ts");
+  assert.match(store, /if \(onOfficeList\(who, date\)\) return true;[\s\S]*prisma\.assignment\.count\(\{ where: \{ resourceId: who\.id, job: \{ date: new Date\(`\$\{date\}T00:00:00\.000Z`\), status: "ACTIVE", cancelledAt: null \} \} \}\)/);
+  assert.match(store, /if \(!\(await onBoard\(who!, input\.date\)\)\) return \{ error: NOT_ALLOCATED_REFUSAL, status: 400 \}/);
+  assert.match(store, /select: \{ id: true, type: true, category: true, active: true \}[\s\S]*whoRefusal\(who\)/);
+  // Tomorrow's page lists the crew to mark ahead - never counted as no-shows.
+  assert.match(src("../attendanceView.ts"), /const ahead: NoShow\[\] = j\.status === "ACTIVE" && date === tomorrow/);
 });
 
 test("a marked person stops counting as an unexplained no-show", () => {
@@ -117,21 +152,47 @@ test("the exports carry a text marker with no hours, and still pass the payroll 
   const csv = timesheetCsv("2026-11-16", [line(), line({ attendanceId: "a2", date: "2026-11-19" })], null, [], { absences: [mark(), mark({ absenceId: "m2", date: "2026-11-19", reason: "NOT_IN", label: "Not in", note: null })] });
   const rows = csv.split("\r\n");
   const sick = rows.find((r) => r.includes(",2026-11-18,"))!;
-  assert.equal(sick, "Sam Worker,Labourer,2026-11-18,Wed,Sick,,,,,,,Sick,Sick - no hours; Note: rang in; Marked by Alex");
+  // NI-001 b: the label, who marked it and the check - never the note.
+  assert.equal(sick, "Sam Worker,Labourer,2026-11-18,Wed,Sick,,,,,,,Sick,Sick - no hours; Marked by Alex");
+  assert.ok(!csv.includes("rang in"), "the note is not in the Managers' CSV");
   const notIn = rows.find((r) => r.includes(",2026-11-19,") && r.includes("Not in"))!;
   assert.match(notIn, /,Not in,,,,,,,Not in,Not in - no hours; Marked by Alex; Marked Not in but signed in - check$/);
   assert.ok(rows.some((r) => r.startsWith("Sam Worker,Labourer,,WEEK TOTAL,,,,,16,")), "the week total is the sign-ins only");
   assert.ok(fileIsSafe(csv));
   assert.equal(absenceCsvNotes(mark({ note: null }), false), "Sick - no hours; Marked by Alex");
   // Accounts' copy: the same marker; any amount that got into a note is taken out; fileIsSafe passes.
-  const acc = accountsTimesheetCsv("2026-11-16", [line()], null, [], [], [mark({ note: "owed $40" })])!;
+  const acc = accountsTimesheetCsv("2026-11-16", [line()], null, [], [], [mark({ note: "owed $40 - flu" })])!;
   assert.ok(acc && fileIsSafe(acc) && !acc.includes("$"));
-  assert.ok(acc.includes(",Sick,,,,,,,Sick,"));
+  assert.ok(acc.includes(",Sick,,,,,,,Sick,Sick - no hours; Marked by Alex"));
+  assert.ok(!acc.includes("flu") && !acc.includes("owed"), "the note is not in accounts' CSV either");
+  // The payroll summary CSV: label, marked by and check - no Note column.
+  const pay = src("../payroll/store.ts");
+  assert.match(pay, /\["Person", "Date", "Marked", "Marked by", "Check"\]/);
+  assert.doesNotMatch(pay.slice(pay.indexOf("Sick / Not in - marked by the office")), /a\.note/, "the summary rows never read the note");
   // The approval locks the marks into the week's snapshot; both exports pass them through.
   assert.match(src("../../app/api/timesheets/route.ts"), /const snapshot: TimesheetSnapshot = \{ weekStart, lines, travel, tipRuns, absences \}/);
   assert.match(src("../../app/api/timesheets/export/route.ts"), /timesheetCsv\(weekStart, lines, approval, travel, \{ tipRuns, absences \}\)/);
   assert.match(src("../../app/api/accounts/timesheets/export/route.ts"), /accountsTimesheetCsv\(weekStart, lines, approval, travel, tipRuns, absences\)/);
   assert.match(src("../timesheets.ts"), /const shownAbsences = snap \? snap\.absences \?\? \[\] : absencesNow/, "a locked week shows the marks it was approved with");
+});
+
+test("NI-001 a + c: the note hint, and the review-only TIMESHEETS login never sees a note", () => {
+  assert.equal(NOTE_HINT, "e.g. rang in at 6am - no medical details");
+  assert.match(src("../../components/attendance/NotInToday.tsx"), /placeholder=\{NOTE_HINT\}/);
+  const people = [{ resourceId: "r1", absences: { "2026-11-18": mark({ note: "flu" }) } }, { resourceId: "r2" }];
+  const out = withoutAbsenceNotes(people);
+  assert.equal(out[0].absences!["2026-11-18"].note, null, "the note is taken out");
+  assert.equal(out[0].absences!["2026-11-18"].label, "Sick", "the label stays");
+  assert.equal(people[0].absences?.["2026-11-18"].note, "flu", "the original isn't changed");
+  assert.match(src("../../app/api/timesheets/route.ts"), /if \(user\?\.role === "TIMESHEETS"\) week\.people = withoutAbsenceNotes\(week\.people\);/);
+});
+
+test("NI-003: an absence name or 'marked by' that trips the file check becomes 'Name to check' and is listed", () => {
+  const pay = src("../payroll/store.ts");
+  assert.match(pay, /name: payText\(m\.name, "Someone", m\.date, toCheck, "name"\)/);
+  assert.match(pay, /by: payText\(m\.by, "Office", m\.date, toCheck, "marked by"\)/);
+  assert.match(pay, /if \(toCheck\.length\) absenceChecks\.push\(/);
+  assert.match(pay, /namesToCheck: \[\.\.\.lines\.filter[\s\S]*\.\.\.absenceChecks\]/);
 });
 
 test("who may: Managers, Admins and the coordinator - never by loosening guard(); nothing is deleted", () => {

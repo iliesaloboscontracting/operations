@@ -14,7 +14,7 @@ import { flagsForJobRows, flagSummary, signedInEarlierIds, type SigninFlagSummar
 import { posterGpsFlags } from "./posterGuard/store";
 import { locationLabel, signInHow, signOutHow } from "./signinHow";
 import { overLimitNotes } from "./dayLimit/store";
-import { absenceViews, dayKey, markedButSignedIn, markedButSignedInText, type AbsenceView } from "./absence/rules";
+import { absenceViews, dayKey, markedButSignedIn, markedButSignedInText, tomorrowOf, type AbsenceView } from "./absence/rules";
 import { absencesForDates } from "./absence/store";
 
 export type AttendanceFlag =
@@ -154,6 +154,7 @@ export async function attendanceForDate(date: string) {
   const marks = absenceViews(await absencesForDates([date]), new Set([...signedAnywhere].map((id) => dayKey(id, date))));
   const markOf = (id: string): AbsenceView | null => marks.get(dayKey(id, date)) ?? null;
   const shown = new Set<string>(); // the people a card lists as not signed in (the rest of the marks are listed apart)
+  const tomorrow = tomorrowOf(today);
   type NoShow = { id: string; name: string; staff?: boolean; nowhere?: boolean; hireTile?: boolean; absence?: AbsenceView | null };
   const withMark = <T extends { id: string }>(n: T): T & { absence?: AbsenceView } => {
     shown.add(n.id);
@@ -210,6 +211,11 @@ export async function attendanceForDate(date: string) {
             ...tiles.filter((t) => !filled.has(t.id)).map((t) => withMark({ ...t, hireTile: true })),
           ]
         : [];
+      // NI-002 (Ilies, "Yes, allow tomorrow"): on tomorrow's page, the crew allocated - so the office can mark someone
+      // off ahead. Not no-shows (nobody is expected yet): never counted anywhere.
+      const ahead: NoShow[] = j.status === "ACTIVE" && date === tomorrow
+        ? [...staff.map((p) => withMark({ ...p })), ...tiles.map((t) => withMark({ ...t, hireTile: true }))]
+        : [];
       return {
         id: j.id,
         kind: "JOB" as const,
@@ -227,6 +233,7 @@ export async function attendanceForDate(date: string) {
         allocated: [...staff, ...tiles],
         rows,
         noShows,
+        ahead,
       };
     });
 
@@ -261,6 +268,7 @@ export async function attendanceForDate(date: string) {
       allocated: staff,
       rows: mine.map((a) => { const r = rowOf(a, { date, today, breakMin: POINT_BREAK_MINUTES, devices, point: true, day: dayMap, staff: staffAll }); markFlag(r); return r; }),
       noShows: (place === "OFFICE" && date <= today && day >= 1 && day <= 5 ? staff.filter((p) => !signedIn.has(p.id)) : []).map(withMark) as NoShow[],
+      ahead: (place === "OFFICE" && date === tomorrow && day >= 1 && day <= 5 ? staff : []).map(withMark) as NoShow[], // NI-002
     };
   };
   const trucks = new Map<string, string>();

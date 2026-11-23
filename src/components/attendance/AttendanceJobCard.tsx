@@ -357,6 +357,17 @@ export default function AttendanceJobCard({
           </div>
         );
       })()}
+
+      {/* NI-002 (Ilies, 23 Nov 2026: "Yes, allow tomorrow"): tomorrow's page lists the crew allocated, so the office can
+          mark someone off ahead ("Not in tomorrow"). Nobody is expected yet, so nothing here is counted. */}
+      {!!job.ahead?.length && (canMark || job.ahead.some((p) => p.absence?.active)) && (
+        <div className="border-t border-edge/70 bg-panel2/30 px-3.5 py-2 text-xs" data-testid="ahead">
+          <div className="mb-1 font-semibold text-gray-300">
+            Tomorrow&apos;s crew - mark someone not in ({job.ahead.filter((p) => p.absence?.active).length} marked)
+          </div>
+          <NoShowList noShows={job.ahead} date={date} canEdit={false} canMark={canMark} dayWord="tomorrow" onChanged={onChanged} />
+        </div>
+      )}
     </div>
   );
 }

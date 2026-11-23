@@ -22,7 +22,11 @@ export const ABSENCE_LIMITS = {
   /** The reason an undo needs. */
   cancelReasonMin: 3,
   cancelReasonMax: 300,
+  /** NI-002: how far back a mark may go (Sydney days before today). Up to tomorrow ahead. */
+  daysBack: 14,
 } as const;
+// NI-001 a: the note box's hint - the note is for the office; never medical details.
+export const NOTE_HINT = "e.g. rang in at 6am - no medical details";
 
 // What the database row holds (lib/absence/store.ts).
 export type AbsenceRow = {
@@ -58,6 +62,27 @@ export function textRefusal(s: string): string | null {
   return null;
 }
 
+const shiftDay = (d: string, n: number) => new Date(new Date(`${d}T12:00:00Z`).getTime() + n * 86_400_000).toISOString().slice(0, 10);
+export const tomorrowOf = (today: string) => shiftDay(today, 1);
+// NI-002: the days a mark may be for - today minus 14 days to tomorrow. Null = fine, else the words.
+export function markDateRefusal(date: string, today: string): string | null {
+  if (date > tomorrowOf(today)) return "You can only mark up to tomorrow.";
+  if (date < shiftDay(today, -ABSENCE_LIMITS.daysBack)) return `You can only mark the last ${ABSENCE_LIMITS.daysBack} days (or tomorrow).`;
+  return null;
+}
+// NI-002: only someone on that day's board (a job's allocation, or the Office list on a weekday) can be marked, and only
+// an active Labour-register person or a labour hire booking. Null = fine.
+export function whoRefusal(r: { type: string; category: string | null; active: boolean } | null): string | null {
+  if (!r || !(r.type === "PERSONNEL" || (r.type === "HIRE" && r.category === "LABOUR"))) return "Pick someone from the Labour register (or a labour hire booking).";
+  if (!r.active) return "That person is switched off on the register.";
+  return null;
+}
+export const isWeekday = (d: string) => { const w = new Date(`${d}T12:00:00Z`).getUTCDay(); return w >= 1 && w <= 5; };
+// The Office list (lib/signin.ts pointCrew("OFFICE")): active Labour-register staff in category Office, Monday to Friday.
+export const onOfficeList = (r: { type: string; category: string | null; active: boolean }, date: string) =>
+  r.type === "PERSONNEL" && r.active && r.category === "Office" && isWeekday(date);
+export const NOT_ALLOCATED_REFUSAL = "They aren't on the board that day - only someone allocated (or on the Office list) can be marked.";
+
 export type MarkInput = { resourceId: string; date: string; reason: AbsenceReason; note: string | null };
 export function parseMark(body: unknown, today: string): { ok: true; value: MarkInput } | { ok: false; error: string } {
   const b = (body && typeof body === "object" ? body : {}) as Record<string, unknown>;
@@ -65,8 +90,10 @@ export function parseMark(body: unknown, today: string): { ok: true; value: Mark
   const date = typeof b.date === "string" ? b.date.trim() : "";
   if (!resourceId) return { ok: false, error: "Pick who it is." };
   if (!validDay(date)) return { ok: false, error: "Pick the day." };
-  // The Sign-ins page only lists who's missing up to today; a future day isn't "not in today" yet.
-  if (date > today) return { ok: false, error: "You can only mark today or an earlier day." };
+  // NI-002 (Ilies approved 23 Nov 2026, "Yes, allow tomorrow"): from 14 days back up to tomorrow (Sydney) - nothing older
+  // (an old week is the office's to fix through the timesheet), nothing further ahead.
+  const r = markDateRefusal(date, today);
+  if (r) return { ok: false, error: r };
   if (!isAbsenceReason(b.reason)) return { ok: false, error: "Pick Sick or Not in." };
   const note = typeof b.note === "string" ? b.note.replace(/\s+/g, " ").trim() : "";
   if (note.length > ABSENCE_LIMITS.noteMax) return { ok: false, error: `Keep the note under ${ABSENCE_LIMITS.noteMax} characters.` };
@@ -144,6 +171,12 @@ export type AbsenceLine = {
   reason: AbsenceReason; label: string; note: string | null; by: string; at: string;
 };
 
+// NI-001 c: a timesheet's people with every mark's note taken out (the label, who and when stay) - for the review-only
+// TIMESHEETS login.
+export function withoutAbsenceNotes<P extends { absences?: Record<string, AbsenceLine> }>(people: P[]): P[] {
+  return people.map((p) => (p.absences ? { ...p, absences: Object.fromEntries(Object.entries(p.absences).map(([d, a]) => [d, { ...a, note: null }])) } : p));
+}
+
 // A day's cell: the marker, never any hours. warn = they signed in that day too (the sign-in's hours stand).
 export function timesheetDayCell(a: AbsenceLine | null | undefined, linesThatDay: { hours: number | null }[]): { label: string; hours: null; warn: boolean; text: string } | null {
   if (!a) return null;
@@ -151,11 +184,11 @@ export function timesheetDayCell(a: AbsenceLine | null | undefined, linesThatDay
   return { label: a.label, hours: null, warn, text: warn ? markedButSignedInText(a.label) : a.label };
 }
 
-// The CSV's notes for a mark: the note, who marked it, and the check when they signed in too.
-export function absenceCsvNotes(a: AbsenceLine, signedIn: boolean): string {
+// The CSV's notes for a mark: the label, who marked it, and the check when they signed in too. NI-001 b (Ilies
+// approved 23 Nov 2026): the note itself never goes in a file - it stays on screen for the office and accounts.
+export function absenceCsvNotes(a: Pick<AbsenceLine, "label" | "by">, signedIn: boolean): string {
   return [
     `${a.label} - no hours`,
-    ...(a.note ? [`Note: ${a.note}`] : []),
     `Marked by ${a.by}`,
     ...(signedIn ? [`${markedButSignedInText(a.label)} - check`] : []),
   ].join("; ");

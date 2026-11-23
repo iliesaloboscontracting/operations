@@ -53,6 +53,8 @@ export type AttendanceJob = {
   // staff: a Lobos (Personnel) no-show; nowhere: no sign-in anywhere that day (10 Nov 2026). Labour hire tiles: neither
   // (hireTile). absence (23 Nov 2026, "Not in today"): their Sick / Not in mark for the day - a live one isn't counted.
   noShows: NoShow[];
+  // NI-002 (23 Nov 2026): on tomorrow's page only, the crew allocated (with any mark) - to mark someone off ahead.
+  ahead?: NoShow[];
 };
 export type NoShow = { id: string; name: string; staff?: boolean; nowhere?: boolean; hireTile?: boolean; absence?: AbsenceView | null };
 export type AttendanceData = {

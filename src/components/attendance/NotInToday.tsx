@@ -9,7 +9,7 @@
 // Information only: a mark never adds hours, pay or cost. Names and words only - never a dollar figure.
 import { useState } from "react";
 import { apiFetch, serverErrorMessage } from "@/lib/apiFetch";
-import { ABSENCE_LABEL, ABSENCE_LIMITS, markedButSignedIn, markedButSignedInText, markWords, type AbsenceReason, type AbsenceView } from "@/lib/absence/rules";
+import { ABSENCE_LABEL, ABSENCE_LIMITS, markedButSignedIn, markedButSignedInText, markWords, NOTE_HINT, type AbsenceReason, type AbsenceView } from "@/lib/absence/rules";
 import type { NoShow } from "./types";
 
 const inp = "rounded-md border border-edge bg-panel2 px-2 py-1 text-xs text-gray-200";
@@ -42,10 +42,11 @@ type Open = { id: string; mode: "mark" | "detail" } | null;
 
 // The chips for a card's "Allocated, not signed in" list (or the office's "Not signed in", or the day's other marks).
 export function NoShowList({
-  noShows, date, canEdit, canMark, onAddMissed, onChanged,
+  noShows, date, canEdit, canMark, onAddMissed, onChanged, dayWord = "today",
 }: {
   noShows: NoShow[];
   date: string;
+  dayWord?: string; // "today" (and earlier days), or "tomorrow" - NI-002's list of tomorrow's crew
   canEdit: boolean; // Managers / Admins: "Add missed sign-in"
   canMark: boolean; // Managers / Admins / the coordinator: "Not in today" and Undo
   onAddMissed?: (id: string) => void;
@@ -91,7 +92,7 @@ export function NoShowList({
               )}
               {canMark && !marked && (
                 <button className={`${small} text-gray-200`} onClick={() => toggle(p.id, "mark")} aria-expanded={open?.id === p.id && open.mode === "mark"} data-testid="not-in-today">
-                  Not in today
+                  Not in {dayWord}
                 </button>
               )}
             </span>
@@ -100,7 +101,7 @@ export function NoShowList({
       </div>
       {error && <div className="mt-1.5 rounded-md bg-red-900/30 px-2 py-1 text-xs text-red-300">{error}</div>}
       {person && open?.mode === "mark" && (
-        <MarkForm key={person.id} name={person.name} onCancel={() => setOpen(null)} onSave={(reason, note) => post("/api/attendance/absence", { resourceId: person.id, date, reason, note })} />
+        <MarkForm key={person.id} name={person.name} dayWord={dayWord} onCancel={() => setOpen(null)} onSave={(reason, note) => post("/api/attendance/absence", { resourceId: person.id, date, reason, note })} />
       )}
       {person && open?.mode === "detail" && person.absence && (
         <MarkDetail name={person.name} view={person.absence} canMark={canMark} onClose={() => setOpen(null)} onUndo={(id, reason) => post(`/api/attendance/absence/${encodeURIComponent(id)}/cancel`, { reason })} />
@@ -109,13 +110,13 @@ export function NoShowList({
   );
 }
 
-function MarkForm({ name, onSave, onCancel }: { name: string; onSave: (reason: AbsenceReason, note: string) => Promise<boolean>; onCancel: () => void }) {
+function MarkForm({ name, dayWord, onSave, onCancel }: { name: string; dayWord: string; onSave: (reason: AbsenceReason, note: string) => Promise<boolean>; onCancel: () => void }) {
   const [reason, setReason] = useState<AbsenceReason | "">("");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   return (
     <div className="mt-2 flex flex-wrap items-end gap-2 rounded-md border border-edge bg-panel2/60 p-2 text-xs" data-testid="not-in-form">
-      <div className="w-full text-gray-300">{name} - not in today? This is information only: it adds no hours, and a sign-in still counts.</div>
+      <div className="w-full text-gray-300">{name} - not in {dayWord}? This is information only: it adds no hours, and a sign-in still counts.</div>
       <div className="flex gap-1.5" role="radiogroup" aria-label="Why">
         {(Object.keys(ABSENCE_LABEL) as AbsenceReason[]).map((r) => (
           <button
@@ -131,8 +132,9 @@ function MarkForm({ name, onSave, onCancel }: { name: string; onSave: (reason: A
         ))}
       </div>
       <label className="flex min-w-[12rem] flex-1 flex-col gap-0.5 text-gray-400">
-        Note (optional)
-        <input className={inp} value={note} maxLength={ABSENCE_LIMITS.noteMax} onChange={(e) => setNote(e.target.value)} placeholder="e.g. rang in at 6am" />
+        Note (optional - not in any export)
+        {/* NI-001 a: the note is for the office - never medical details */}
+        <input className={inp} value={note} maxLength={ABSENCE_LIMITS.noteMax} onChange={(e) => setNote(e.target.value)} placeholder={NOTE_HINT} title={NOTE_HINT} />
       </label>
       <button className={btn} disabled={!reason || busy} onClick={async () => { setBusy(true); await onSave(reason as AbsenceReason, note); setBusy(false); }}>Save</button>
       <button className={quiet} onClick={onCancel}>Cancel</button>

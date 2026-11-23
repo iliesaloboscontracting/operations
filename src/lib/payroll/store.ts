@@ -214,10 +214,19 @@ export async function payrollWeek(weekStart: string) {
   // Sick / Not in (23 Nov 2026): on the person's day when they're on the week; every mark is also listed apart
   // (absences, below) - someone off all week has no sign-in, so no row here. Never in hours or the pay-run file.
   const signedDays = new Set(lines.filter((l) => l.resourceId).map((l) => `${l.resourceId}|${l.date}`));
-  const absences: PayAbsence[] = marks.map((m) => ({
-    id: m.id, resourceId: m.resourceId, date: m.date, name: noAmounts(m.name, "Someone"), label: m.label, note: m.note ? noAmounts(m.note, "") || null : null,
-    by: m.by, at: m.at, signedIn: signedDays.has(`${m.resourceId}|${m.date}`), hireTile: m.hireTile,
-  }));
+  // NI-003 (Ilies approved 23 Nov 2026): the name and "marked by" go through payText, as the sign-in lines do - one that
+  // trips the file check becomes "Name to check" and is listed for the office (namesToCheck), so the summary still goes.
+  const absenceChecks: { attendanceId: string; date: string; site: string; fields: string[] }[] = [];
+  const absences: PayAbsence[] = marks.map((m) => {
+    const toCheck: string[] = [];
+    const a: PayAbsence = {
+      id: m.id, resourceId: m.resourceId, date: m.date, name: payText(m.name, "Someone", m.date, toCheck, "name"), label: m.label,
+      note: m.note ? noAmounts(m.note, "") || null : null, // on screen only - never in a file (NI-001 b)
+      by: payText(m.by, "Office", m.date, toCheck, "marked by"), at: m.at, signedIn: signedDays.has(`${m.resourceId}|${m.date}`), hireTile: m.hireTile,
+    };
+    if (toCheck.length) absenceChecks.push({ attendanceId: m.id, date: m.date, site: `${m.label} mark`, fields: toCheck });
+    return a;
+  });
   for (const a of absences) {
     const p = people.get(a.resourceId);
     if (p) (p.absences ??= {})[a.date] = a;
@@ -251,7 +260,7 @@ export async function payrollWeek(weekStart: string) {
     weekStart, weekEnd: weekEnd(weekStart), days: weekDates(weekStart), weekEnded: ended,
     managerLock: lock ? { by: lock.approvedBy, at: lock.approvedAt.toISOString() } : null,
     // TF-004: the lines whose name / company / site was swapped for "Name to check" - listed on the Payroll screen.
-    namesToCheck: lines.filter((l) => l.toCheck?.length).map((l) => ({ attendanceId: l.attendanceId, date: l.date, site: l.site, fields: l.toCheck! })),
+    namesToCheck: [...lines.filter((l) => l.toCheck?.length).map((l) => ({ attendanceId: l.attendanceId, date: l.date, site: l.site, fields: l.toCheck! })), ...absenceChecks],
     people: list, engagementUnset: list.filter((p) => p.group === "EMPLOYEE" && !p.engagementSet).length, summary: summarise(lines, new Map([...reviews].map(([k, r]) => [k, r.status]))), abnHints, travel: TRAVEL_HOOK,
     absences,
   };
@@ -306,12 +315,13 @@ export async function payrollFiles(weekStart: string, which: "payrun" | "summary
     [`Travel pay: ${TRAVEL_HOOK}`],
     ...Object.entries(s.bySite).sort((a, b) => b[1] - a[1]).map(([k, v]) => [`Site: ${k}`, v]),
     ...Object.entries(s.byAgency).map(([k, v]) => [`Labour hire: ${k}`, v]),
-    // Sick / Not in (23 Nov 2026): a text marker per person-day, no hours - only when there are any.
+    // Sick / Not in (23 Nov 2026): a text marker per person-day, no hours - only when there are any. NI-001 b: never the
+    // note (it stays on the Payroll screen).
     ...(week.absences.length ? [
       [],
       ["Sick / Not in - marked by the office, no hours"],
-      ["Person", "Date", "Marked", "Note", "Marked by", "Check"],
-      ...week.absences.map((a) => [a.hireTile ? `${a.name} (labour hire booking)` : a.name, a.date, a.label, a.note, a.by, a.signedIn ? `${markedButSignedInText(a.label)} - check` : ""]),
+      ["Person", "Date", "Marked", "Marked by", "Check"],
+      ...week.absences.map((a) => [a.hireTile ? `${a.name} (labour hire booking)` : a.name, a.date, a.label, a.by, a.signedIn ? `${markedButSignedInText(a.label)} - check` : ""]),
     ] : []),
   ]);
   // Still the last check: anything that looks like money, bank or tax details is refused - with a reason, never a 500.

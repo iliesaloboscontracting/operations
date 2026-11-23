@@ -13,6 +13,7 @@ import {
 import { flagSummaryForDays } from "@/lib/attendanceView";
 import { coordinatorOr, rankAtLeast } from "@/lib/roles";
 import { supervisorApprovals } from "@/lib/payroll/store";
+import { withoutAbsenceNotes } from "@/lib/absence/rules";
 
 // GET /api/timesheets?week=YYYY-MM-DD (any date in the week) -> Lobos staff
 // hours for that Monday-Sunday week from site sign-ins, the week's approval
@@ -33,7 +34,10 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
   // Supervisors' "Approve hours" per line (18 Nov 2026, Ilies: Managers and Admins only - not the coordinator or the
   // review-only logins). Information only: the week's approval rule is unchanged.
   const supervisor = user && rankAtLeast(user.role, "MANAGER") ? (await supervisorApprovals(weekStart)).byLine : undefined;
-  return viewJson({ ...(await timesheetWeek(weekStart, { dayLimit: !!signInFlags })), ...(signInFlags ? { signInFlags } : {}), ...(supervisor ? { supervisor } : {}) });
+  const week = await timesheetWeek(weekStart, { dayLimit: !!signInFlags });
+  // NI-001 c (Ilies approved 23 Nov 2026): the review-only TIMESHEETS login sees "Sick" / "Not in" but never the note.
+  if (user?.role === "TIMESHEETS") week.people = withoutAbsenceNotes(week.people);
+  return viewJson({ ...week, ...(signInFlags ? { signInFlags } : {}), ...(supervisor ? { supervisor } : {}) });
 });
 
 // POST /api/timesheets { week, action: "approve" | "reopen", reason? }

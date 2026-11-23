@@ -105,6 +105,12 @@ export default function AttendancePage() {
         {data && date !== data.today && (
           <button className="rounded-lg border border-edge px-2.5 py-1.5 text-xs text-gray-300 hover:bg-panel2" onClick={() => setDate(data.today)}>Today</button>
         )}
+        {/* NI-002 (23 Nov 2026): tomorrow's page lists each job's crew to mark someone off ahead */}
+        {data && canMark && date === data.today && (
+          <button className="rounded-lg border border-edge px-2.5 py-1.5 text-xs text-gray-300 hover:bg-panel2" onClick={() => setDate(shiftDate(data.today, 1))} data-testid="mark-tomorrow">
+            Mark someone off for tomorrow
+          </button>
+        )}
       </div>
       {error && <div className="mb-3 rounded-md bg-red-900/30 px-3 py-2 text-xs text-red-300">{error}</div>}
       {!data ? (
