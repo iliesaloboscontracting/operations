@@ -20,6 +20,10 @@ const LABEL: Record<string, string> = {
   cancelledAt: "Cancelled", cancelledBy: "Cancelled by", cancelReason: "Why cancelled", retiredAt: "Retired", retiredBy: "Retired by",
   retireReason: "Why retired", heldBy: "Held by", actualHours: "Hours", hoursSource: "Hours from", reopenReason: "Why re-opened",
   fullTime: "Full-time",
+  // Bins (23 Nov 2026)
+  use: "Client's / our bin", binId: "Bin", projectId: "Job", contents: "What's in it", contentsNote: "Note", tipReceiptId: "Tip docket",
+  tipConfirmedBy: "Tip docket confirmed by", tipConfirmedAt: "Tip docket confirmed", tipRejectedIds: "Dockets that aren't this bin's",
+  pickedUpAt: "Picked up", pickedUpBy: "Picked up by",
 };
 const label = (f: string) => LABEL[f] ?? f.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (c) => c.toUpperCase());
 const when = (iso: string) => new Date(iso).toLocaleString("en-AU", { timeZone: "Australia/Sydney", day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" });

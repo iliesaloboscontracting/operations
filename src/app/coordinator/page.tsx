@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { CalendarDays, ClipboardCheck, Clock, FileSearch, Mail, MessageSquare, ShoppingCart, Truck, UserCheck, Wrench } from "lucide-react";
+import { CalendarDays, ClipboardCheck, Clock, Container, FileSearch, Mail, MessageSquare, ShoppingCart, Truck, UserCheck, Wrench } from "lucide-react";
 import PageShell from "@/components/PageShell";
 import { useAuth } from "@/components/AuthProvider";
+import BinsOutCard from "@/components/bins/BinsOutCard";
 
 // The project coordinator's dashboard (Alex, 2 Nov 2026 - Ilies "approve phase 1"): his own screen, like the
 // Directors and Accounts screens - one tile per page he uses (lib/roles.ts COORDINATOR_PAGES). Every other
@@ -17,6 +18,7 @@ const TILES = [
   { href: "/calendar", label: "Calendar", what: "Every job coming up and running. View only.", icon: CalendarDays },
   { href: "/tools", label: "Tools & toolboxes", what: "The tool register, toolboxes, checks by photo, faults and Hilti swaps.", icon: Wrench },
   { href: "/hire", label: "Hire", what: "Add, extend and off-hire - suppliers, dates, status and the project it's for.", icon: Truck },
+  { href: "/bins", label: "Bins", what: "Bins on site and picked up, with the photos. Client's bins are the ones charged to the client. View only.", icon: Container },
   { href: "/purchases", label: "Purchase requests", what: "Buy or hire something, with suppliers' quotes - Ilies or a director approves.", icon: ShoppingCart },
   { href: "/messages", label: "Messages", what: "The office chat and your one-to-ones.", icon: MessageSquare },
   { href: "/documents", label: "Documents", what: "Search the site & safety folders - SWMS, scopes, drawings.", icon: FileSearch },
@@ -27,6 +29,8 @@ export default function CoordinatorPage() {
   if (!loading && !coordinatorOnly && !isAdmin) return <PageShell title="Coordinator"><p className="text-sm text-gray-400">This screen is for the project coordinator.</p></PageShell>;
   return (
     <PageShell title="Coordinator" subtitle={user ? `G'day ${user.name.split(" ")[0]} - everything you work on, in one place.` : undefined}>
+      {/* Bins out (Ilies, 23 Nov 2026) - view only; client's bins highlighted (variations). */}
+      <div className="mb-4 max-w-md"><BinsOutCard /></div>
       <div className="grid max-w-5xl gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {TILES.map(({ href, label, what, icon: Icon }) => (
           <Link key={href} href={href} className="group flex gap-3 rounded-xl border border-edge bg-panel p-4 shadow-soft hover:border-brand-500/60 hover:bg-panel2/60">

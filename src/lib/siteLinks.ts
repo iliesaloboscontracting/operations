@@ -78,6 +78,22 @@ export async function resolveReceiptLink(secret: unknown): Promise<ReceiptLink |
   return { id: link.id, kind: link.kind, person: { id: link.resource.id, name: link.resource.name } };
 }
 
+// Bins (23 Nov 2026, Ilies): delivered / picked up with a photo, from a supervisor's link or a DRIVER link - the same
+// two kinds as receipts (HANDOVER, OFFICE and POSTER links never). Its own resolver so the bins routes say exactly
+// who they let in; resolveLink above still never accepts DRIVER, so a driver's link gains receipts + bins only.
+export type BinLink = { id: string; kind: "SUPERVISOR" | "DRIVER"; person: { id: string; name: string } };
+export async function resolveBinLink(secret: unknown): Promise<BinLink | null> {
+  if (typeof secret !== "string" || !/^[A-Za-z0-9_-]{20,64}$/.test(secret)) return null;
+  const link = await prisma.siteLink.findUnique({
+    where: { tokenHash: hashSecret(secret) },
+    select: { id: true, kind: true, revokedAt: true, resource: { select: { id: true, name: true, active: true } } },
+  });
+  if (!link || link.revokedAt || (link.kind !== "SUPERVISOR" && link.kind !== "DRIVER")) return null;
+  if (!link.resource || !link.resource.active) return null;
+  await prisma.siteLink.update({ where: { id: link.id }, data: { lastUsedAt: new Date() } });
+  return { id: link.id, kind: link.kind, person: { id: link.resource.id, name: link.resource.name } };
+}
+
 export async function photosSentToday(linkId: string) {
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
   return prisma.toolPhoto.count({ where: { siteLinkId: linkId, createdAt: { gte: since } } });

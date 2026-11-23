@@ -11,6 +11,7 @@ export const HISTORY_MODELS = [
   "ProjectContact", "SiteAlias", "BugReport", "AccountsItem", "JobActual", "DayClose", "TimesheetWeek",
   "LabourHireCompanyAlias", // the labour hire timesheet's company-name mappings (11 Nov 2026)
   "LabourHireCompany", // the companies on the hire sign-in list (13 Nov 2026)
+  "Bin", "BinMovement", // the bin register and bin deliveries / pick-ups - office corrections, tip dockets (23 Nov 2026)
 ] as const;
 export type HistoryModel = (typeof HISTORY_MODELS)[number];
 export const isHistoryModel = (m: unknown): m is HistoryModel => typeof m === "string" && (HISTORY_MODELS as readonly string[]).includes(m);

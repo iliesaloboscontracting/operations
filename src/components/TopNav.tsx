@@ -24,6 +24,8 @@ const OPERATIONS = [
   { href: "/completed", label: "Completed" },
   { href: "/day-review", label: "Day Review" },
   { href: "/receipts", label: "Receipts" },
+  // Bins (23 Nov 2026): delivered / picked up from the links - Managers and Admins (the coordinator has it on his screen).
+  { href: "/bins", label: "Bins" },
   { href: "/attendance", label: "Sign-ins" },
   { href: "/timesheets", label: "Timesheets" },
   // Labour hire hours (11 Nov 2026, Ilies): the hire workers' week by company, to send to the labour hire company.
@@ -128,6 +130,7 @@ const COORDINATOR = [
   { href: "/tools", label: "Tools" },
   { href: "/faults", label: "Faults" }, // vehicle & plant faults, pre-start checks (8 Nov 2026)
   { href: "/hire", label: "Hire" },
+  { href: "/bins", label: "Bins" }, // view only (23 Nov 2026)
   { href: "/purchases", label: "Purchases" },
   { href: "/messages", label: "Messages" },
   { href: "/documents", label: "Documents" },
@@ -270,7 +273,7 @@ export default function TopNav() {
             <Divider />
           </>
         )}
-        {OPERATIONS.filter((i) => (i.href !== "/tracking" && i.href !== "/invoices" && i.href !== "/assistant" && i.href !== "/attendance" && i.href !== "/timesheets" && i.href !== "/timesheets/labour-hire" && i.href !== "/requests" && i.href !== "/office-requests" && i.href !== "/purchases" && i.href !== "/questions" && i.href !== "/messages" && i.href !== "/receipts" && i.href !== "/documents") || canEdit).filter((i) => i.href !== "/questions" || myQuestions >= 0).map((i) => (
+        {OPERATIONS.filter((i) => (i.href !== "/tracking" && i.href !== "/invoices" && i.href !== "/assistant" && i.href !== "/attendance" && i.href !== "/timesheets" && i.href !== "/timesheets/labour-hire" && i.href !== "/requests" && i.href !== "/office-requests" && i.href !== "/purchases" && i.href !== "/questions" && i.href !== "/messages" && i.href !== "/receipts" && i.href !== "/bins" && i.href !== "/documents") || canEdit).filter((i) => i.href !== "/questions" || myQuestions >= 0).map((i) => (
           <NavTab
             key={i.href}
             href={i.href}
