@@ -7,6 +7,7 @@ import { archiveMessage } from "@/lib/signinMessages/store";
 // POST /api/attendance/messages/:id/archive { reason? } - stop showing a message to crew (23 Nov 2026). The same people
 // who write (Managers, Admins, the coordinator). Nothing is deleted: the message, who it was for and every "Got it" stay.
 // There is no edit - archive and send a new one.
+// SM-002 - Ilies, 23 Nov 2026: Alex (COORDINATOR) can send and hide sign-in messages.
 export const POST = withErrorHandling(async (req: NextRequest, ctx: { params: Promise<{ id: string }> }) => {
   const denied = await guardOrCoordinator("MANAGER");
   if (denied) return denied;

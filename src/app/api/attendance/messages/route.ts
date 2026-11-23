@@ -19,6 +19,7 @@ export const GET = withErrorHandling(async () => {
 });
 
 // POST { text, audience: ALL | PEOPLE, resourceIds?, showUntil? } -> 201 { id }. 30 a day per login (429).
+// SM-002 - Ilies, 23 Nov 2026: Alex (COORDINATOR) can send and hide sign-in messages.
 export const POST = withErrorHandling(async (req: NextRequest) => {
   const denied = await guardOrCoordinator("MANAGER");
   if (denied) return denied;

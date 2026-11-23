@@ -14,6 +14,7 @@ const byName = (w: By) => ((w?.name && w.name.trim()) || "Office").slice(0, 120)
 
 // Write a message. People: active Labour-register people only. 30 a day per login - counted inside one locked
 // transaction, so two taps at once can't get past it.
+// SM-003 accepted by Ilies 23 Nov 2026: the Building Agent may send; it only sends text Ilies approved word-for-word in chat.
 export async function createMessage(input: MessageInput, by: By): Promise<{ id: string } | Problem> {
   if (!by?.id) return { error: "Not signed in", status: 401 };
   const people = input.audience === "PEOPLE"
