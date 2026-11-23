@@ -15,8 +15,9 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
   if ("denied" in g) return g.denied;
   const q = req.nextUrl.searchParams.get("week");
   const weekStart = weekStartOf(q && isISODate(q) ? q : todaySydney());
-  const { approval, lines, travel, tipRuns } = await exportLines(weekStart);
-  const csv = accountsTimesheetCsv(weekStart, lines, approval, travel, tipRuns);
+  const { approval, lines, travel, tipRuns, absences } = await exportLines(weekStart);
+  // Sick / Not in days (23 Nov 2026) ride along as a text marker with no hours.
+  const csv = accountsTimesheetCsv(weekStart, lines, approval, travel, tipRuns, absences);
   if (csv == null) return NextResponse.json({ error: "This week's timesheet has something that looks like bank, tax or rate details in a note - not sent. Ask the office to check it." }, { status: 409 });
   return new NextResponse("﻿" + csv, {
     headers: {

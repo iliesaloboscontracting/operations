@@ -13,8 +13,9 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
   if (denied) return denied;
   const q = req.nextUrl.searchParams.get("week");
   const weekStart = weekStartOf(q && isISODate(q) ? q : todaySydney());
-  const { approval, lines, travel, tipRuns } = await exportLines(weekStart);
-  const csv = timesheetCsv(weekStart, lines, approval, travel, { tipRuns });
+  const { approval, lines, travel, tipRuns, absences } = await exportLines(weekStart);
+  // Sick / Not in days (23 Nov 2026) ride along as a text marker with no hours.
+  const csv = timesheetCsv(weekStart, lines, approval, travel, { tipRuns, absences });
   return new NextResponse("﻿" + csv, {
     headers: {
       "Content-Type": "text/csv; charset=utf-8",

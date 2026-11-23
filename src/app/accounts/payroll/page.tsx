@@ -9,7 +9,8 @@ import MessageAbout from "@/components/messages/MessageAbout";
 import PageShell from "@/components/PageShell";
 import { useAuth } from "@/components/AuthProvider";
 import { apiFetch, serverErrorMessage } from "@/lib/apiFetch";
-import type { PayPersonDTO, PayDayLine } from "@/lib/payroll/store";
+import type { PayAbsence, PayPersonDTO, PayDayLine } from "@/lib/payroll/store";
+import { markedButSignedInText } from "@/lib/absence/rules";
 import type { DayState, Group } from "@/lib/payroll/rules";
 
 type Week = {
@@ -17,6 +18,7 @@ type Week = {
   people: PayPersonDTO[]; engagementUnset: number;
   namesToCheck?: { attendanceId: string; date: string; site: string; fields: string[] }[]; abnHints: { id: string; name: string }[]; travel: string;
   summary: { byItem: Record<string, number>; bySite: Record<string, number>; byAgency: Record<string, number>; total: number };
+  absences?: PayAbsence[]; // Sick / Not in marks this week (23 Nov 2026) - no hours
 };
 const GROUP: Record<Group, string> = { EMPLOYEE: "Employees", ABN: "ABN workers", HIRE: "Labour hire" };
 const STATE: Record<DayState, { mark: string; tone: string; title: string }> = {
@@ -31,10 +33,20 @@ const addDays = (d: string, n: number) => new Date(new Date(`${d}T00:00:00Z`).ge
 const btn = "rounded-md bg-brand-600 px-2.5 py-1 text-xs font-semibold text-white disabled:opacity-50";
 const quiet = "rounded-md border border-edge px-2.5 py-1 text-xs text-gray-300 hover:bg-panel2 disabled:opacity-50";
 
-function Day({ lines }: { lines: PayDayLine[] }) {
-  if (!lines.length) return <span className="text-gray-600">-</span>;
+// "Not in today" (23 Nov 2026): Sick / Not in on that day - the words only, no hours.
+function Absence({ a }: { a: PayAbsence }) {
+  return (
+    <div className={a.signedIn ? "text-amber-300" : "text-gray-400"} title={`${a.label}${a.note ? ` - ${a.note}` : ""} (marked by ${a.by})${a.signedIn ? "\nSigned in that day too - the sign-in's hours stand." : ""}`} data-testid="pay-absence">
+      {a.signedIn ? markedButSignedInText(a.label) : a.label}
+    </div>
+  );
+}
+
+function Day({ lines, absence }: { lines: PayDayLine[]; absence?: PayAbsence }) {
+  if (!lines.length) return absence ? <Absence a={absence} /> : <span className="text-gray-600">-</span>;
   return (
     <div className="space-y-0.5">
+      {absence && <Absence a={absence} />}
       {lines.map((l) => {
         const s = STATE[l.dayState];
         return (
@@ -122,7 +134,7 @@ export default function PayrollPage() {
                           {p.issues.map((i) => <div key={i} className="text-amber-300">{i}</div>)}
                           <MessageAbout type="PAY_WEEK" subjectKey={`${data.weekStart}|${p.personKey}`} label={`Pay week ${data.weekStart} · ${p.name}`} />
                         </td>
-                        {data.days.map((d) => <td key={d} className="px-2 py-1.5 tabular-nums"><Day lines={p.days[d] ?? []} /></td>)}
+                        {data.days.map((d) => <td key={d} className="px-2 py-1.5 tabular-nums"><Day lines={p.days[d] ?? []} absence={p.absences?.[d]} /></td>)}
                         <td className="px-2 py-1.5 text-sm font-semibold tabular-nums text-gray-100">{p.hours}</td>
                         <td className="px-2 py-1.5">
                           {p.review && <div className={p.review.status === "APPROVED" ? "text-emerald-300" : "text-amber-300"}>{p.review.status === "APPROVED" ? "Approved" : "Queried"}{p.review.note ? `: ${p.review.note}` : ""}<div className="text-gray-500">{p.review.by}</div></div>}
@@ -140,6 +152,20 @@ export default function PayrollPage() {
               </div>
             </section>
           ))}
+          {/* Sick / Not in (23 Nov 2026): everyone the office marked this week, someone off all week included - no hours. */}
+          {(data.absences ?? []).length > 0 && (
+            <section className="mb-4 rounded-xl border border-edge bg-panel p-3 text-xs" data-testid="pay-absences">
+              <div className="mb-1 text-sm font-semibold text-gray-100">Sick / Not in <span className="font-normal text-gray-500">· marked by the office · no hours · {data.absences!.length}</span></div>
+              <ul className="space-y-0.5 text-gray-300">
+                {data.absences!.map((a) => (
+                  <li key={a.id}>
+                    {dayHead(a.date)} · <b className="text-gray-100">{a.name}</b>{a.hireTile ? " (labour hire booking)" : ""} · {a.label}{a.note ? ` - ${a.note}` : ""} <span className="text-gray-500">(marked by {a.by})</span>
+                    {a.signedIn && <span className="ml-1 text-amber-300">{markedButSignedInText(a.label)} - the office checks it</span>}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
           <section className="mb-4 rounded-xl border border-edge bg-panel p-3 text-sm">
             <div className="mb-1 font-semibold text-gray-100">Week summary · {data.summary.total} h</div>
             <div className="grid gap-3 text-xs text-gray-300 md:grid-cols-3">

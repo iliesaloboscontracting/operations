@@ -67,7 +67,7 @@ test("the kill switch reads TIP_RUN", () => {
   assert.equal(tipRunOn({ TIP_RUN: " OFF " }), false);
   assert.equal(tipRunOn({ TIP_RUN: "on" }), true);
   const store = readFileSync(new URL("./store.ts", import.meta.url), "utf8");
-  assert.match(store, /startDecision\(\{\n\s+active: [^\n]*, on: tipRunOn\(\),/, "the start route refuses when off");
+  assert.match(store, /startDecision\(\{\r?\n\s+active: [^\n]*, on: tipRunOn\(\),/, "the start route refuses when off"); // \r?: CRLF checkouts too (KI-2)
   assert.match(store, /enabled: tipRunOn\(\)/, "the phone hides the button when off");
   assert.doesNotMatch(store.slice(store.indexOf("export async function finishTipRun"), store.indexOf("export async function endTipRunOnSignIn")), /tipRunOn/, "an open run can still be finished");
 });
@@ -125,7 +125,7 @@ test("approval: blocked by a run never ended, over 6h or still on the go - not b
   // The approval route locks them into the snapshot and counts them in the week's hours.
   const route = readFileSync(new URL("../../app/api/timesheets/route.ts", import.meta.url), "utf8");
   assert.match(route, /approvalBlockers\(lines, travel, tipRuns\)/);
-  assert.match(route, /const snapshot: TimesheetSnapshot = \{ weekStart, lines, travel, tipRuns \}/);
+  assert.match(route, /const snapshot: TimesheetSnapshot = \{ weekStart, lines, travel, tipRuns(, absences)? \}/); // + Sick / Not in marks (23 Nov 2026)
 });
 
 test("Day Review and every sign-in: a sign-in ends an open run; Day Review adds finished runs' hours", () => {
@@ -188,7 +188,7 @@ test("SR-003 (c): a run overlapping a sign-in (e.g. one the office added) counts
   assert.deepEqual(tipVerdict({ startAt: at(1), endAt: null }, shift, [{ in: at(6), out: at(16) }], at(20)), { hours: null, flag: "OVERLAPS_SIGN_IN" }, "inside its window");
   assert.equal(tipNeedsOffice("OVERLAPS_SIGN_IN"), true);
   // Every place hours are read uses the check: Sign-ins / Timesheets, Day Review and the payroll files.
-  assert.match(store, /const verdicts = await tipRunVerdicts\(runs\);\n  return runs\.map\(\(r\) => lineOf\(r, roles, verdicts\.get\(r\.id\)!\)\)/);
+  assert.match(store, /const verdicts = await tipRunVerdicts\(runs\);\r?\n  return runs\.map\(\(r\) => lineOf\(r, roles, verdicts\.get\(r\.id\)!\)\)/);
   assert.match(fn(store, "tipRunHoursForJobs"), /tipRunVerdicts\(runs, now\)/);
   assert.match(src("../payroll/store.ts"), /hours: verdicts\.get\(r\.id\)\?\.hours \?\? null/);
   assert.match(fn(store, "tipRunVerdicts"), /status: \{ not: "REJECTED" \}, removedAt: null/, "only sign-ins that still count");

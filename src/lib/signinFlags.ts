@@ -4,6 +4,7 @@
 // 10:47pm on a 7am-3:30pm job. These are information only: they never block anything and never change hours.
 // Plain rules, no server imports (the Sign-ins page and npm test use them too).
 import { fromSydneyLocal, jobFinish, parseClock } from "./shiftTimes";
+import { noSignInCount } from "./absence/rules";
 
 // Every threshold in one place, with plain names.
 export const SIGNIN_FLAG_LIMITS = {
@@ -159,14 +160,15 @@ export function signedInEarlierIds(rows: { id: string; key: string; signInAt: Da
 // The summary strip: "N to confirm · N late · N long day · N no sign-in".
 // location (11 Nov 2026): site poster sign-ins with no location shared, or far from the site.
 export type SigninFlagSummary = { toConfirm: number; late: number; longDay: number; noSignIn: number; location: number };
-export function flagSummary(groups: { rows: { flags: string[] }[]; noShows: { id: string; nowhere?: boolean }[] }[]): SigninFlagSummary {
+// noSignIn (23 Nov 2026, "Not in today"): someone marked Sick / Not in for the day (absence.active) isn't counted.
+export function flagSummary(groups: { rows: { flags: string[] }[]; noShows: { id: string; nowhere?: boolean; absence?: { active: unknown } | null }[] }[]): SigninFlagSummary {
   const rows = groups.flatMap((g) => g.rows);
   const has = (...f: string[]) => rows.filter((r) => f.some((x) => r.flags.includes(x))).length;
   return {
     toConfirm: has("TO_CONFIRM"),
     late: has("LATE_IN"),
     longDay: has("LONG_SHIFT", "LONG_DAY"), // LONG_DAY: office / yard / truck over 14h (unchanged)
-    noSignIn: groups.reduce((n, g) => n + g.noShows.filter((s) => s.nowhere).length, 0),
+    noSignIn: groups.reduce((n, g) => n + noSignInCount(g.noShows), 0),
     location: has("NO_LOCATION", "FAR_FROM_SITE"),
   };
 }

@@ -1058,6 +1058,32 @@ model AttendanceEdit {
   @@index([attendanceId])
 }
 
+// "Not in today" (23 Nov 2026, Ilies: "a button that can let the system know that someone is off sick today or not
+// in"; "alex can too"). The office (Managers, Admins, the coordinator) marks a person allocated on the Sign-ins page as
+// SICK or NOT_IN for one Sydney day - every job they were on that day. Information only: never hours, pay or cost; a
+// sign-in that day still counts (sign-ins are the record) and the mark is then flagged "marked ... but signed in".
+// At most one live mark per person per day (lib/absence/store.ts, in one locked transaction). Keep forever: a mark is
+// never deleted - undo = cancelledAt / By / Reason on the row, which stays as the history. A locked (approved)
+// timesheet week refuses marking and undoing, as it refuses every office sign-in change. Plain ids (no relation), like
+// TravelLeg. resourceId: a Labour-register person, or a labour hire tile (Resource type HIRE, category LABOUR).
+model AttendanceAbsence {
+  id            String    @id @default(cuid())
+  resourceId    String
+  date          String // YYYY-MM-DD, the Sydney day (the Sign-ins page's date)
+  reason        String // SICK | NOT_IN
+  note          String? // optional, short - never an amount, bank or tax detail (refused at entry)
+  createdBy     String
+  createdById   String?
+  createdAt     DateTime  @default(now())
+  cancelledAt   DateTime?
+  cancelledBy   String?
+  cancelledById String?
+  cancelReason  String?
+
+  @@index([date])
+  @@index([resourceId, date])
+}
+
 // Weekly timesheets (21 Oct 2026, Ilies): a Manager approves a week (Monday
 // to Sunday) of Lobos staff hours from site sign-ins before it goes to
 // accounts. `snapshot` is the JSON of every line exactly as approved - what

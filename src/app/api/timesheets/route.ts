@@ -7,12 +7,13 @@ import { isISODate } from "@/lib/dateRules";
 import { todaySydney } from "@/lib/today";
 import { updateTracked } from "@/lib/history/store";
 import {
-  activeApproval, approvalBlockers, liveTipRuns, liveTravel, timesheetLines, timesheetWeek, weekDates, weekHasEnded, weekStartOf,
+  activeApproval, approvalBlockers, liveAbsences, liveTipRuns, liveTravel, timesheetLines, timesheetWeek, weekDates, weekHasEnded, weekStartOf,
   type TimesheetSnapshot,
 } from "@/lib/timesheets";
 import { flagSummaryForDays } from "@/lib/attendanceView";
 import { coordinatorOr, rankAtLeast } from "@/lib/roles";
 import { supervisorApprovals } from "@/lib/payroll/store";
+import { withoutAbsenceNotes } from "@/lib/absence/rules";
 
 // GET /api/timesheets?week=YYYY-MM-DD (any date in the week) -> Lobos staff
 // hours for that Monday-Sunday week from site sign-ins, the week's approval
@@ -33,7 +34,10 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
   // Supervisors' "Approve hours" per line (18 Nov 2026, Ilies: Managers and Admins only - not the coordinator or the
   // review-only logins). Information only: the week's approval rule is unchanged.
   const supervisor = user && rankAtLeast(user.role, "MANAGER") ? (await supervisorApprovals(weekStart)).byLine : undefined;
-  return viewJson({ ...(await timesheetWeek(weekStart, { dayLimit: !!signInFlags })), ...(signInFlags ? { signInFlags } : {}), ...(supervisor ? { supervisor } : {}) });
+  const week = await timesheetWeek(weekStart, { dayLimit: !!signInFlags });
+  // NI-001 c (Ilies approved 23 Nov 2026): the review-only TIMESHEETS login sees "Sick" / "Not in" but never the note.
+  if (user?.role === "TIMESHEETS") week.people = withoutAbsenceNotes(week.people);
+  return viewJson({ ...week, ...(signInFlags ? { signInFlags } : {}), ...(supervisor ? { supervisor } : {}) });
 });
 
 // POST /api/timesheets { week, action: "approve" | "reopen", reason? }
@@ -52,7 +56,7 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   if (body.action === "approve") {
     if (current) return bad("This week is already approved.");
     if (!weekHasEnded(weekStart)) return bad("The week hasn't finished yet - approve it from Monday.");
-    const [lines, travel, tipRuns] = await Promise.all([timesheetLines(weekStart), liveTravel(weekStart), liveTipRuns(weekStart)]);
+    const [lines, travel, tipRuns, absences] = await Promise.all([timesheetLines(weekStart), liveTravel(weekStart), liveTipRuns(weekStart), liveAbsences(weekStart)]);
     // Sign-ins with no sign-out or waiting for the supervisor, and (Ilies, 2 Nov 2026) regional travel never ended,
     // over 8h or still on the way, and (19 Nov 2026) regional tip runs never ended, over 6h or still on the go - all
     // sorted on the Sign-ins page first (lib/timesheets.ts approvalBlockers).
@@ -60,8 +64,9 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
     if (blockers.length) {
       return bad(`Sort these out first on the Sign-ins page: ${blockers.slice(0, 6).join(", ")}${blockers.length > 6 ? "…" : ""}`);
     }
-    // Regional travel (2 Nov 2026) and tip runs (19 Nov 2026) are locked in with the week, like the sign-ins.
-    const snapshot: TimesheetSnapshot = { weekStart, lines, travel, tipRuns };
+    // Regional travel (2 Nov 2026) and tip runs (19 Nov 2026) are locked in with the week, like the sign-ins - and the
+    // Sick / Not in marks (23 Nov 2026, information only: never in the hours, never a blocker).
+    const snapshot: TimesheetSnapshot = { weekStart, lines, travel, tipRuns, absences };
     await prisma.timesheetWeek.create({
       data: {
         weekStart,

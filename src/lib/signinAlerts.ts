@@ -9,6 +9,7 @@ import { jobSiteLinks, pushToAdmins, pushToSiteLinks } from "./push";
 import { sydneyDay } from "./signinFlags";
 import { effectiveTimes, fromSydneyLocal, parseClock } from "./shiftTimes";
 import { todaySydney } from "./today";
+import { activeAbsenceKeys } from "./absence/store";
 
 const RUNNING = { notIn: ["COMPLETED", "INACTIVE", "STOOD_DOWN", "CANCELLED"] };
 const addDays = (day: string, n: number) => { const d = new Date(`${day}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
@@ -89,13 +90,16 @@ export async function notSignedInToday(now = new Date()) {
     },
   });
   const out: { jobId: string; site: string; missing: { id: string; name: string }[]; crewIds: string[] }[] = [];
+  // "Not in today" (23 Nov 2026): someone the office marked Sick / Not in for that day isn't "not signed in yet".
+  const marked = await activeAbsenceKeys([addDays(today, -1), today]);
   for (const j of jobs) {
     const t = effectiveTimes(j, j.project);
     const s = parseClock(t.start);
     const start = s == null ? null : fromSydneyLocal(`${j.date.toISOString().slice(0, 10)}T${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`);
     if (!notSignedInWindow(start, now)) continue;
     const signed = new Set(j.attendances.map((a) => a.resourceId));
-    const missing = j.assignments.map((a) => a.resource).filter((r) => !signed.has(r.id));
+    const day = j.date.toISOString().slice(0, 10);
+    const missing = j.assignments.map((a) => a.resource).filter((r) => !signed.has(r.id) && !marked.has(`${r.id}|${day}`));
     if (missing.length) out.push({ jobId: j.id, site: j.project?.name ?? j.title, missing, crewIds: j.assignments.map((a) => a.resource.id) });
   }
   return out;

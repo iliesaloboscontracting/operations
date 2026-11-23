@@ -14,6 +14,8 @@ import { flagsForJobRows, flagSummary, signedInEarlierIds, type SigninFlagSummar
 import { posterGpsFlags } from "./posterGuard/store";
 import { locationLabel, signInHow, signOutHow } from "./signinHow";
 import { overLimitNotes } from "./dayLimit/store";
+import { absenceViews, dayKey, markedButSignedIn, markedButSignedInText, tomorrowOf, type AbsenceView } from "./absence/rules";
+import { absencesForDates } from "./absence/store";
 
 export type AttendanceFlag =
   | "NO_SIGN_IN" // allocated, never signed in
@@ -37,7 +39,9 @@ export type AttendanceFlag =
   | "NO_LOCATION" // the phone shared no position
   | "FAR_FROM_SITE" // further than 500 m (+ the fix's accuracy) from where the site's crew sign in
   // 12 Nov 2026 (Ilies, lib/dayLimit) - information only: a sign-in date past the person's days-a-week limit.
-  | "OVER_DAY_LIMIT"; // "Over 3-day limit (4th day this week)" - never blocks approval, hours unchanged
+  | "OVER_DAY_LIMIT" // "Over 3-day limit (4th day this week)" - never blocks approval, hours unchanged
+  // 23 Nov 2026 ("Not in today", lib/absence) - information only: marked Sick / Not in for the day, but signed in.
+  | "MARKED_NOT_IN"; // "Marked Sick but signed in" - the sign-in and its hours stand; someone checks the mark
 
 type AttendanceWithEdits = Prisma.SiteAttendanceGetPayload<{ include: { edits: true } }>;
 
@@ -145,6 +149,23 @@ export async function attendanceForDate(date: string) {
     (await prisma.siteAttendance.findMany({ where: { date, removedAt: null, status: { not: "REJECTED" }, resourceId: { not: null } }, select: { resourceId: true } }))
       .map((a) => a.resourceId!),
   );
+  // "Not in today" (23 Nov 2026, lib/absence): this day's Sick / Not in marks (live and undone), per person. A marked
+  // person stops counting as an unexplained no-show; one who signed in anyway is flagged so someone checks.
+  const marks = absenceViews(await absencesForDates([date]), new Set([...signedAnywhere].map((id) => dayKey(id, date))));
+  const markOf = (id: string): AbsenceView | null => marks.get(dayKey(id, date)) ?? null;
+  const shown = new Set<string>(); // the people a card lists as not signed in (the rest of the marks are listed apart)
+  const tomorrow = tomorrowOf(today);
+  type NoShow = { id: string; name: string; staff?: boolean; nowhere?: boolean; hireTile?: boolean; absence?: AbsenceView | null };
+  const withMark = <T extends { id: string }>(n: T): T & { absence?: AbsenceView } => {
+    shown.add(n.id);
+    const m = markOf(n.id);
+    return m ? { ...n, absence: m } : n;
+  };
+  // A sign-in line of someone marked Sick / Not in that day: the line and its hours stand; the mark is flagged.
+  const markFlag = (r: { resourceId: string | null; status: string; flags: string[]; notes: Record<string, string> }) => {
+    const m = r.resourceId && r.status !== "REJECTED" ? markOf(r.resourceId) : null;
+    if (m && markedButSignedIn(m)) { r.flags.push("MARKED_NOT_IN"); r.notes.MARKED_NOT_IN = markedButSignedInText(m.active!.label); }
+  };
 
   // 11 Nov 2026: site poster sign-ins with no location / far from the site (lib/posterGuard), and the stand-ins whose
   // hand-over link ran a job's sign-in (so the line says "Hand-over QR" / "Hand-over tick").
@@ -176,17 +197,24 @@ export async function attendanceForDate(date: string) {
         if (x) { r.flags.push(...x.flags); Object.assign(r.notes, x.notes); }
         const p = gps?.get(a.id);
         if (p) { r.flags.push(p.flag); r.notes[p.flag] = p.note; }
+        markFlag(r);
         return r;
       });
       const signedIn = new Set(j.attendances.filter((a) => a.status !== "REJECTED").map((a) => a.resourceId));
       const filled = new Set([...slots.values()].map((t) => t.id));
       // staff: a Lobos (Personnel) no-show - nowhere: no sign-in anywhere that day (10 Nov 2026, "On the board, no
       // sign-in"); a labour hire tile is neither.
-      const noShows: { id: string; name: string; staff?: boolean; nowhere?: boolean }[] = j.status === "ACTIVE" && date <= today
+      // absence (23 Nov 2026): their Sick / Not in mark for the day, if any - a live one takes them out of the counts.
+      const noShows: NoShow[] = j.status === "ACTIVE" && date <= today
         ? [
-            ...staff.filter((p) => !signedIn.has(p.id)).map((p) => ({ ...p, staff: true, nowhere: !signedAnywhere.has(p.id) })),
-            ...tiles.filter((t) => !filled.has(t.id)),
+            ...staff.filter((p) => !signedIn.has(p.id)).map((p) => withMark({ ...p, staff: true, nowhere: !signedAnywhere.has(p.id) })),
+            ...tiles.filter((t) => !filled.has(t.id)).map((t) => withMark({ ...t, hireTile: true })),
           ]
+        : [];
+      // NI-002 (Ilies, "Yes, allow tomorrow"): on tomorrow's page, the crew allocated - so the office can mark someone
+      // off ahead. Not no-shows (nobody is expected yet): never counted anywhere.
+      const ahead: NoShow[] = j.status === "ACTIVE" && date === tomorrow
+        ? [...staff.map((p) => withMark({ ...p })), ...tiles.map((t) => withMark({ ...t, hireTile: true }))]
         : [];
       return {
         id: j.id,
@@ -205,6 +233,7 @@ export async function attendanceForDate(date: string) {
         allocated: [...staff, ...tiles],
         rows,
         noShows,
+        ahead,
       };
     });
 
@@ -237,8 +266,9 @@ export async function attendanceForDate(date: string) {
       endTime: null as string | null,
       breakMinutes: POINT_BREAK_MINUTES,
       allocated: staff,
-      rows: mine.map((a) => rowOf(a, { date, today, breakMin: POINT_BREAK_MINUTES, devices, point: true, day: dayMap, staff: staffAll })),
-      noShows: place === "OFFICE" && date <= today && day >= 1 && day <= 5 ? staff.filter((p) => !signedIn.has(p.id)) : [],
+      rows: mine.map((a) => { const r = rowOf(a, { date, today, breakMin: POINT_BREAK_MINUTES, devices, point: true, day: dayMap, staff: staffAll }); markFlag(r); return r; }),
+      noShows: (place === "OFFICE" && date <= today && day >= 1 && day <= 5 ? staff.filter((p) => !signedIn.has(p.id)) : []).map(withMark) as NoShow[],
+      ahead: (place === "OFFICE" && date === tomorrow && day >= 1 && day <= 5 ? staff : []).map(withMark) as NoShow[], // NI-002
     };
   };
   const trucks = new Map<string, string>();
@@ -259,8 +289,15 @@ export async function attendanceForDate(date: string) {
       }
     }
   }
+  // Marks for people no card lists today (taken off the board since, or signed in after all) - shown apart so they can
+  // still be seen and undone. Names only.
+  const others = [...marks.entries()].map(([k, v]) => ({ resourceId: k.split("|")[0], view: v })).filter((m) => !shown.has(m.resourceId) && m.view.active);
+  const names = others.length
+    ? new Map((await prisma.resource.findMany({ where: { id: { in: others.map((o) => o.resourceId) } }, select: { id: true, name: true } })).map((r) => [r.id, r.name]))
+    : new Map<string, string>();
+  const otherMarks = others.map((o) => ({ id: o.resourceId, name: names.get(o.resourceId) ?? "Someone", absence: o.view }));
   // The Sign-ins page's strip (10 Nov 2026): "N to confirm · N late · N long day · N no sign-in".
-  return { jobs: jobGroups, points, summary: flagSummary([...points, ...jobGroups]) };
+  return { jobs: jobGroups, points, summary: flagSummary([...points, ...jobGroups]), otherMarks };
 }
 
 // The Sign-ins page's strip added up over several days (10 Nov 2026 - the Timesheets page's "need sorting" banner).

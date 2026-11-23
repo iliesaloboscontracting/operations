@@ -9,6 +9,8 @@ import { FLAG_LABEL, METHOD_LABEL, type AttendanceData, type AttendanceJob, type
 import { jobFinish, parseClock } from "@/lib/shiftTimes";
 import { LOCATION_LABEL, locationKind, type LocationKind } from "@/lib/signinHow";
 import { breakRuleFor } from "@/lib/dayHours";
+import { unexplained } from "@/lib/absence/rules";
+import { NoShowList } from "./NotInToday";
 
 // The break rule for the page's date, in a few words (lib/dayHours.ts; Ilies 12 Nov 2026: over 4 h from 2 Nov, none for
 // salaried staff; 26 Oct - 1 Nov over 5 h; earlier, a break off each sign-in).
@@ -37,7 +39,7 @@ const fmt = (iso: string | null) =>
 
 // The 10 Nov 2026 flags (late sign-in, long day, signed out together) stand out a little more - they're where hours
 // went missing that week. Information only.
-const HOURS_FLAGS = new Set(["LATE_IN", "LONG_SHIFT", "BULK_OUT", "OVER_DAY_LIMIT"]); // + over the days-a-week limit (12 Nov 2026)
+const HOURS_FLAGS = new Set(["LATE_IN", "LONG_SHIFT", "BULK_OUT", "OVER_DAY_LIMIT", "MARKED_NOT_IN"]); // + over the days-a-week limit (12 Nov 2026), marked not in but signed in (23 Nov 2026)
 // 11 Nov 2026: a site poster sign-in with no location, or far from the site - the most serious, so red.
 const SERIOUS_FLAGS = new Set(["NO_LOCATION", "FAR_FROM_SITE"]);
 const flagTone = (f: string) =>
@@ -74,6 +76,7 @@ export default function AttendanceJobCard({
   job,
   date,
   canEdit,
+  canMark = canEdit,
   canRemove = false,
   people,
   handover,
@@ -86,6 +89,7 @@ export default function AttendanceJobCard({
   date: string;
   filtered?: boolean; // the page's summary strip is filtering - only the matching lines are passed in
   canEdit: boolean;
+  canMark?: boolean; // "Not in today" (23 Nov 2026): Managers, Admins and the coordinator
   canRemove?: boolean; // Admins: remove a sign-in (e.g. signed in twice)
   people: ResourceDTO[];
   handover: { name: string; expiresAt: string } | null;
@@ -332,34 +336,38 @@ export default function AttendanceJobCard({
         </div>
       )}
 
-      {job.noShows.length > 0 && (point ? (
-        <div className="border-t border-edge/70 px-3.5 py-2 text-xs text-amber-500">
-          Not signed in: {job.noShows.map((p) => p.name).join(", ")}
-        </div>
-      ) : (
+      {job.noShows.length > 0 && (() => {
         // "On the board, no sign-in" (10 Nov 2026): who was allocated here and didn't sign in here; "No sign-in
         // anywhere" when they have none that day at all (0 hours). One tap opens the missed sign-in form for them.
-        <div className="border-t border-amber-500/40 bg-amber-500/10 px-3.5 py-2 text-xs">
-          <div className="mb-1 font-semibold text-amber-300">Allocated, not signed in here ({job.noShows.length})</div>
-          <div className="flex flex-wrap gap-1.5">
-            {job.noShows.map((p) => (
-              <span key={p.id} className="flex items-center gap-1.5 rounded-lg border border-amber-500/40 bg-panel px-2 py-1 text-gray-200">
-                {p.name}
-                {p.nowhere && <span className="rounded-full bg-orange-500/20 px-1.5 py-0.5 text-[10px] font-semibold text-orange-300">No sign-in anywhere</span>}
-                {p.staff && !p.nowhere && <span className="text-[10px] text-gray-400">signed in elsewhere</span>}
-                {canEdit && p.staff && (
-                  <button
-                    className="rounded-md border border-edge px-1.5 py-0.5 text-[10px] text-brand-300 hover:bg-panel2"
-                    onClick={() => { setAddWho(p.id); setAdding(true); }}
-                  >
-                    Add missed sign-in
-                  </button>
-                )}
-              </span>
-            ))}
+        // "Not in today" (23 Nov 2026): Sick / Not in - a marked person is listed in grey and not counted.
+        const open = unexplained(job.noShows).length;
+        const marked = job.noShows.length - open;
+        const counts = `${open}${marked ? ` · ${marked} marked not in` : ""}`;
+        return (
+          <div className={`border-t px-3.5 py-2 text-xs ${open ? "border-amber-500/40 bg-amber-500/10" : "border-edge/70 bg-panel2/30"}`}>
+            <div className={`mb-1 font-semibold ${open ? "text-amber-300" : "text-gray-400"}`}>{point ? `Not signed in (${counts})` : `Allocated, not signed in here (${counts})`}</div>
+            <NoShowList
+              noShows={job.noShows}
+              date={date}
+              canEdit={canEdit}
+              canMark={canMark}
+              onAddMissed={point ? undefined : (id) => { setAddWho(id); setAdding(true); }}
+              onChanged={onChanged}
+            />
           </div>
+        );
+      })()}
+
+      {/* NI-002 (Ilies, 23 Nov 2026: "Yes, allow tomorrow"): tomorrow's page lists the crew allocated, so the office can
+          mark someone off ahead ("Not in tomorrow"). Nobody is expected yet, so nothing here is counted. */}
+      {!!job.ahead?.length && (canMark || job.ahead.some((p) => p.absence?.active)) && (
+        <div className="border-t border-edge/70 bg-panel2/30 px-3.5 py-2 text-xs" data-testid="ahead">
+          <div className="mb-1 font-semibold text-gray-300">
+            Tomorrow&apos;s crew - mark someone not in ({job.ahead.filter((p) => p.absence?.active).length} marked)
+          </div>
+          <NoShowList noShows={job.ahead} date={date} canEdit={false} canMark={canMark} dayWord="tomorrow" onChanged={onChanged} />
         </div>
-      ))}
+      )}
     </div>
   );
 }

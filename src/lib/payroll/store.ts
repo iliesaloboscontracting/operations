@@ -14,6 +14,8 @@ import { todaySydney } from "../today";
 import type { ResolvedLink } from "../siteLinks";
 import { legHours, type TravelFlag } from "../travel/rules";
 import { tipRunVerdicts } from "../tipRun/store";
+import { absencesForWeek } from "../absence/store";
+import { markedButSignedInText } from "../absence/rules";
 import {
   canAccountsApprove, dayState, fileIsSafe, groupOf, inPayRun, payRunRows, personKeyOf, summarise, toCsv, TRAVEL_HOOK, travelKey,
   type ApprovalSnapshotLine, type DayState, type Group, type PayLine,
@@ -175,10 +177,14 @@ export type PayPersonDTO = {
   reviewHours?: number | null; // the hours her latest review was made on
   travel: PayTravel[]; // regional travel legs (2 Nov 2026) - its own hours, never in `hours`
   travelHours: number;
+  absences?: Record<string, PayAbsence>; // "Not in today" (23 Nov 2026): Sick / Not in on that day - no hours
 };
+// A Sick / Not in mark for accounts (23 Nov 2026): the words only - never hours, pay or cost. signedIn: they signed in
+// that day too (the sign-in's hours stand; the office checks the mark). hireTile: a labour hire booking on the board.
+export type PayAbsence = { id: string; resourceId: string; date: string; name: string; label: string; note: string | null; by: string; at: string; signedIn: boolean; hireTile: boolean };
 
 export async function payrollWeek(weekStart: string) {
-  const [lines, lock, reviews, travel] = await Promise.all([payLines(weekStart), activeApproval(weekStart), latestReviews(weekStart), payTravel(weekStart)]);
+  const [lines, lock, reviews, travel, marks] = await Promise.all([payLines(weekStart), activeApproval(weekStart), latestReviews(weekStart), payTravel(weekStart), absencesForWeek(weekStart)]);
   const approvals = await latestApprovals(lines.filter((l) => l.jobId).map((l) => ({ jobId: l.jobId!, date: l.date })));
   const ended = weekHasEnded(weekStart);
   const people = new Map<string, PayPersonDTO>();
@@ -204,6 +210,26 @@ export async function payrollWeek(weekStart: string) {
     if (!p) continue;
     p.travel.push(t);
     p.travelHours += t.hours ?? 0;
+  }
+  // Sick / Not in (23 Nov 2026): on the person's day when they're on the week; every mark is also listed apart
+  // (absences, below) - someone off all week has no sign-in, so no row here. Never in hours or the pay-run file.
+  const signedDays = new Set(lines.filter((l) => l.resourceId).map((l) => `${l.resourceId}|${l.date}`));
+  // NI-003 (Ilies approved 23 Nov 2026): the name and "marked by" go through payText, as the sign-in lines do - one that
+  // trips the file check becomes "Name to check" and is listed for the office (namesToCheck), so the summary still goes.
+  const absenceChecks: { attendanceId: string; date: string; site: string; fields: string[] }[] = [];
+  const absences: PayAbsence[] = marks.map((m) => {
+    const toCheck: string[] = [];
+    const a: PayAbsence = {
+      id: m.id, resourceId: m.resourceId, date: m.date, name: payText(m.name, "Someone", m.date, toCheck, "name"), label: m.label,
+      note: m.note ? noAmounts(m.note, "") || null : null, // on screen only - never in a file (NI-001 b)
+      by: payText(m.by, "Office", m.date, toCheck, "marked by"), at: m.at, signedIn: signedDays.has(`${m.resourceId}|${m.date}`), hireTile: m.hireTile,
+    };
+    if (toCheck.length) absenceChecks.push({ attendanceId: m.id, date: m.date, site: `${m.label} mark`, fields: toCheck });
+    return a;
+  });
+  for (const a of absences) {
+    const p = people.get(a.resourceId);
+    if (p) (p.absences ??= {})[a.date] = a;
   }
   for (const p of people.values()) {
     p.travelHours = Math.round(p.travelHours * 4) / 4;
@@ -234,8 +260,9 @@ export async function payrollWeek(weekStart: string) {
     weekStart, weekEnd: weekEnd(weekStart), days: weekDates(weekStart), weekEnded: ended,
     managerLock: lock ? { by: lock.approvedBy, at: lock.approvedAt.toISOString() } : null,
     // TF-004: the lines whose name / company / site was swapped for "Name to check" - listed on the Payroll screen.
-    namesToCheck: lines.filter((l) => l.toCheck?.length).map((l) => ({ attendanceId: l.attendanceId, date: l.date, site: l.site, fields: l.toCheck! })),
+    namesToCheck: [...lines.filter((l) => l.toCheck?.length).map((l) => ({ attendanceId: l.attendanceId, date: l.date, site: l.site, fields: l.toCheck! })), ...absenceChecks],
     people: list, engagementUnset: list.filter((p) => p.group === "EMPLOYEE" && !p.engagementSet).length, summary: summarise(lines, new Map([...reviews].map(([k, r]) => [k, r.status]))), abnHints, travel: TRAVEL_HOOK,
+    absences,
   };
 }
 
@@ -288,6 +315,14 @@ export async function payrollFiles(weekStart: string, which: "payrun" | "summary
     [`Travel pay: ${TRAVEL_HOOK}`],
     ...Object.entries(s.bySite).sort((a, b) => b[1] - a[1]).map(([k, v]) => [`Site: ${k}`, v]),
     ...Object.entries(s.byAgency).map(([k, v]) => [`Labour hire: ${k}`, v]),
+    // Sick / Not in (23 Nov 2026): a text marker per person-day, no hours - only when there are any. NI-001 b: never the
+    // note (it stays on the Payroll screen).
+    ...(week.absences.length ? [
+      [],
+      ["Sick / Not in - marked by the office, no hours"],
+      ["Person", "Date", "Marked", "Marked by", "Check"],
+      ...week.absences.map((a) => [a.hireTile ? `${a.name} (labour hire booking)` : a.name, a.date, a.label, a.by, a.signedIn ? `${markedButSignedInText(a.label)} - check` : ""]),
+    ] : []),
   ]);
   // Still the last check: anything that looks like money, bank or tax details is refused - with a reason, never a 500.
   const csv = which === "summary" ? summary() : payRun();
