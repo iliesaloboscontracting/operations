@@ -34,6 +34,8 @@ export const HISTORY_RULES: Record<HistoryModel, Rule> = {
   TimesheetWeek: { canRead: managerUp },
   LabourHireCompanyAlias: { canRead: managerUp }, // Managers / Admins map them; the coordinator only sees the list on the page
   LabourHireCompany: { canRead: managerUp }, // the hire sign-in list - Managers / Admins add or switch off a company
+  Bin: { canRead: managerUp }, // the bin register (23 Nov 2026) - Managers / Admins; the coordinator only views the Bins page
+  BinMovement: { canRead: managerUp }, // bin deliveries / pick-ups: office corrections and tip docket decisions
 };
 
 export const canReadHistory = (model: HistoryModel, role: string | null | undefined) => !!role && HISTORY_RULES[model].canRead(role);

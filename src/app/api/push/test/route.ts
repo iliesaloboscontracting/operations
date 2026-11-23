@@ -5,13 +5,14 @@ import { pushPublicKey, pushToUsers } from "@/lib/push";
 
 // POST /api/push/test - a test notification to the caller's phones.
 // The accounts login (26 Oct 2026) tests its own due-date alerts; the yard computer (4 Nov 2026) its yard-job alerts;
-// a DIRECTOR login (10 Nov 2026) its Monday "waiting on you" alert.
+// a DIRECTOR login (10 Nov 2026) its Monday "waiting on you" alert; the coordinator (23 Nov 2026) its client's bin alert.
 export const POST = withErrorHandling(async () => {
   const user = await getCurrentUser();
   const accounts = user?.role === "ACCOUNTS";
   const yard = user?.role === "YARD";
   const director = user?.role === "DIRECTOR";
-  if (!accounts && !yard && !director) {
+  const coordinator = user?.role === "COORDINATOR";
+  if (!accounts && !yard && !director && !coordinator) {
     const denied = await guard("ADMIN");
     if (denied) return denied;
   }
@@ -24,6 +25,8 @@ export const POST = withErrorHandling(async () => {
         ? { title: "Test alert - Yard", body: "This is how a new yard job will look.", url: "/yard", tag: "test", sticky: false }
         : director
           ? { title: "Test alert - Directors", body: "This is how the Monday \"waiting on you\" alert will look.", url: "/directors/waiting", tag: "test", sticky: false }
+          : coordinator
+            ? { title: "Test alert - Coordinator", body: "This is how a client's bin delivered alert will look.", url: "/coordinator", tag: "test", sticky: false }
           : { title: "🔴 Test alert - Operations", body: "This is how an Urgent site request will look.", url: "/requests", tag: "test", sticky: false },
     "high",
   );
