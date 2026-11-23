@@ -110,9 +110,9 @@ test("timesheets: worked hours in the total, their own Tip run column; a flagged
   assert.equal(p.tipRuns!["2026-11-16"].length, 2, "on the shift's date");
   assert.equal(p.travelTotal, 0, "not travel");
   const csv = timesheetCsv("2026-11-16", [line], null, [], { tipRuns: [tr({})] });
-  assert.ok(csv.includes("Unpaid break (min),Hours,Of which tip run (h),Travel (h),Status,Notes"));
-  assert.ok(csv.includes("Tip run - Calwell (night),8:15 am,9:45 am,0,1.5,1.5,,Tip run"), "Hours and Tip run (h)");
-  assert.ok(csv.includes("WEEK TOTAL,,,,,9,1.5,0,,"));
+  assert.ok(csv.includes("Unpaid break (min),Hours,Of which tip run (h),Travel (h),Travel paid (h),Status,Notes"));
+  assert.ok(csv.includes("Tip run - Calwell (night),8:15 am,9:45 am,0,1.5,1.5,,,Tip run"), "Hours and Tip run (h)");
+  assert.ok(csv.includes("WEEK TOTAL,,,,,9,1.5,0,0,,"));
   assert.ok(fileIsSafe(csv));
 });
 
@@ -230,10 +230,10 @@ test("SR-006 (h): the columns say 'Of which tip run' - staff, labour hire and pa
   assert.ok(csv.includes(",Hours,Of which tip run (h),Travel (h),"));
   assert.ok(timesheetCsv("2026-11-16", [], null, [], { head: ["Labour hire", "x"] }).includes(",Hours,Of which tip run (h),Travel (h),"), "labour hire: the same header");
   assert.ok(fileIsSafe(csv));
-  assert.deepEqual(EXPORT_COLUMNS.slice(-2), ["Travel hours", "Of which tip run hours"]);
+  assert.deepEqual(EXPORT_COLUMNS.slice(-3), ["Travel hours", "Travel paid hours", "Of which tip run hours"]);
   const run = toCsv(payRunRows([], new Set(), new Map()));
   assert.ok(run.includes("Of which tip run hours") && fileIsSafe(run));
-  assert.match(src("../payroll/store.ts"), /"Travel hours", "Of which tip run hours"\]/, "the summary file");
+  assert.match(src("../payroll/store.ts"), /"Travel hours", "Travel paid hours", "Of which tip run hours"\]/, "the summary file");
 });
 
 test("SR-008: office corrections - not a time is 400 (never a 500), no future end, no overlap with their other tip runs", () => {

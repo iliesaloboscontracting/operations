@@ -116,11 +116,17 @@ export default function AccountsTimesheetsPage() {
           <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-6">
             <Tile label="People" value={data.people.length} />
             <Tile label="Total hours" value={hrs(data.totalHours)} />
-            <Tile label="Travel (regional)" value={hrs(data.travelHours ?? 0)} tone={data.travelIssues ? "text-amber-400" : "text-sky-200"} />
+            <Tile label={`Travel (regional) · paid ${hrs(data.travelPaidHours ?? 0)}`} value={hrs(data.travelHours ?? 0)} tone={data.travelIssues || data.travelModeMissing ? "text-amber-400" : "text-sky-200"} />
             <Tile label="Tip runs (in total)" value={hrs(data.tipRunHours ?? 0)} tone={data.tipRunIssues ? "text-amber-400" : "text-violet-200"} />
             <Tile label="Need sorting" value={data.issues + (data.travelIssues ?? 0) + (data.tipRunIssues ?? 0)} tone={data.issues + (data.travelIssues ?? 0) + (data.tipRunIssues ?? 0) ? "text-amber-400" : ""} />
             <Tile label="Status" value={data.approval ? "Locked" : "Draft"} tone={data.approval ? "text-emerald-400" : "text-gray-300"} />
           </div>
+          {/* Travel pay (23-24 Nov 2026): legs recorded before the phone asked "own car/ute or passenger" have no paid figure. */}
+          {(data.travelModeMissing ?? 0) > 0 && (
+            <p className="-mt-2 mb-4 text-xs text-amber-400" data-testid="travel-mode-missing">
+              {data.travelModeMissing} travel leg{data.travelModeMissing === 1 ? "" : "s"}: mode not recorded (own car/ute or passenger) - no paid travel figure until the office sets it on the Sign-ins page.
+            </p>
+          )}
 
           <div className="mb-3 flex flex-wrap items-center gap-3">
             <ViewToggle view={view} setView={setView} />

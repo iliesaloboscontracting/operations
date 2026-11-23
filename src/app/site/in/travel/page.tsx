@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Car, Home, Loader2, MapPin } from "lucide-react";
+import { Car, Home, Loader2, MapPin, Users } from "lucide-react";
 import SiteBrand from "@/components/site/SiteBrand";
 import { serverErrorMessage } from "@/lib/apiFetch";
 import { deviceId, PASS_KEY, store, useQuietGps } from "@/lib/signinDevice";
+import { MODE_BUTTON, type TravelMode } from "@/lib/travel/rules";
 
 // Travel to and from regional jobs (2 Nov 2026, Ilies): the worker's own phone, no scan needed. The phone has to
 // have signed in on site once (that gives it its travel pass). "Start travel" before leaving for a regional job -
@@ -52,11 +53,16 @@ export default function TravelPage() {
   const canStart = !!status && !status.open && (status.outJobs.some((j) => !j.leg) || !!status.home);
   const take = useQuietGps(canStart || !!status?.open);
 
-  async function act(action: "START_OUT" | "START_HOME" | "ARRIVED") {
+  // Travel pay (23-24 Nov 2026): Start travel / Travelling home first asks how they're travelling - one tap on a big
+  // button starts the leg. Nothing else in the flow changes.
+  const [picking, setPicking] = useState<"START_OUT" | "START_HOME" | null>(null);
+
+  async function act(action: "START_OUT" | "START_HOME" | "ARRIVED", mode?: TravelMode) {
     setBusy(true);
     setError(null);
     try {
-      const r = await call(action, { jobId, gps: await take() });
+      const r = await call(action, { jobId, gps: await take(), ...(mode ? { mode } : {}) });
+      setPicking(null);
       setDone(r.message);
     } catch (e) {
       setError((e as Error).message);
@@ -64,6 +70,21 @@ export default function TravelPage() {
       setBusy(false);
     }
   }
+
+  // The two big buttons, in place of Start travel / Travelling home once tapped.
+  const modePicker = (action: "START_OUT" | "START_HOME") => (
+    <div className="space-y-3" data-testid="travel-mode-picker">
+      <p className="text-center text-base font-semibold text-gray-100">How are you travelling?</p>
+      <button className={`${big} bg-brand-600`} disabled={busy} onClick={() => act(action, "DRIVER_OWN_VEHICLE")}>
+        {busy ? <Loader2 className="animate-spin" /> : <Car />} {MODE_BUTTON.DRIVER_OWN_VEHICLE}
+      </button>
+      <button className={`${big} bg-sky-700`} disabled={busy} onClick={() => act(action, "PASSENGER")}>
+        {busy ? <Loader2 className="animate-spin" /> : <Users />} {MODE_BUTTON.PASSENGER}
+      </button>
+      <p className="text-center text-xs text-gray-500">Driving the company truck? Sign in on the truck QR instead - that counts your drive.</p>
+      <button className="w-full text-center text-sm text-gray-400 underline" disabled={busy} onClick={() => setPicking(null)}>Back</button>
+    </div>
+  );
 
   const startable = status?.outJobs.filter((j) => !j.leg) ?? [];
   return (
@@ -106,9 +127,16 @@ export default function TravelPage() {
           ) : status.home ? (
             <div className="space-y-3">
               <p className="text-sm text-gray-400">Signed out of {status.home.label}.</p>
-              <button className={`${big} bg-brand-600`} disabled={busy} onClick={() => act("START_HOME")}>
-                {busy ? <Loader2 className="animate-spin" /> : <Home />} Travelling home
-              </button>
+              {picking === "START_HOME" ? modePicker("START_HOME") : (
+                <button className={`${big} bg-brand-600`} disabled={busy} onClick={() => setPicking("START_HOME")}>
+                  <Home /> Travelling home
+                </button>
+              )}
+            </div>
+          ) : startable.length > 0 && picking === "START_OUT" ? (
+            <div className="space-y-3">
+              <p className="text-base text-gray-200">{startable.find((j) => j.jobId === jobId)?.label}</p>
+              {modePicker("START_OUT")}
             </div>
           ) : startable.length > 0 ? (
             <div className="space-y-3">
@@ -123,8 +151,8 @@ export default function TravelPage() {
                 </>
               )}
               {startable.length === 1 && <p className="text-base text-gray-200">{startable[0].label}</p>}
-              <button className={`${big} bg-brand-600`} disabled={busy || !jobId} onClick={() => act("START_OUT")}>
-                {busy ? <Loader2 className="animate-spin" /> : <Car />} Start travel
+              <button className={`${big} bg-brand-600`} disabled={busy || !jobId} onClick={() => setPicking("START_OUT")}>
+                <Car /> Start travel
               </button>
             </div>
           ) : (

@@ -3,14 +3,15 @@
 // and hours only (assertNoMoney before they leave).
 import { Prisma } from "@prisma/client";
 import { prisma } from "../prisma";
-import { jobDateWhere, jobLabel, sydneyTime } from "../signin";
+import { jobDateWhere, jobLabel, STILL_ON_HOURS, sydneyTime } from "../signin";
 import { parseGps } from "../payroll/rules";
 import { assertNoMoney } from "../moneyGuard";
 import { linkLabel } from "../dailyLog/money";
 import { lockedWeekFor, weekEnd } from "../timesheets";
 import {
-  correctionError, DIRECTION_LABEL, homeFrom, HOME_OFFER_HOURS, legHours, outRefusal, stillOpen, TRAVEL_CAP_HOURS,
-  type Direction, type TravelFlag,
+  correctionError, DIRECTION_LABEL, homeFrom, HOME_OFFER_HOURS, isTravelMode, legHours, MODE_LABEL, MODE_NOT_RECORDED, modeOf, modeRefusal,
+  outRefusal, paidTravelHours, stillOpen, TRAVEL_CAP_HOURS, truckRefusal,
+  type Direction, type TravelFlag, type TravelMode,
 } from "./rules";
 import { TIP_CAP_HOURS } from "../tipRun/rules";
 
@@ -20,6 +21,12 @@ const HOUR = 3_600_000;
 export const TIP_RUN_OPEN = "You've got a tip run on the go - tap Tipped – finished first.";
 const tipRunOpen = async (resourceId: string) =>
   (await prisma.tipRun.count({ where: { resourceId, endAt: null, startAt: { gte: new Date(Date.now() - TIP_CAP_HOURS * HOUR) } } })) > 0;
+// Travel pay (Ilies, 23-24 Nov 2026): signed in on a truck QR and not out yet (within the "on site now" window, so a
+// forgotten sign-out from days ago doesn't stop travel for good) - that sign-in already counts the drive.
+const onTruckNow = async (resourceId: string) =>
+  (await prisma.siteAttendance.count({
+    where: { resourceId, place: "VEHICLE", signOutAt: null, removedAt: null, status: { not: "REJECTED" }, signInAt: { gte: new Date(Date.now() - STILL_ON_HOURS * HOUR) } },
+  })) > 0;
 const label = (j: { title: string; shift: string; project: { name: string } | null }) => linkLabel(jobLabel(j), "Regional job");
 const gpsOf = (prefix: "start" | "end", v: unknown) => {
   const g = parseGps(v);
@@ -92,7 +99,8 @@ export async function travelStatus(resourceId: string): Promise<TravelStatus | P
 const dup = (e: unknown) => e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002";
 
 // "Start travel" to a regional job. A second tap shows the leg already started - never a second one.
-export async function startOut(resourceId: string, b: { jobId?: unknown; gps?: unknown; deviceId?: string | null }): Promise<{ ok: true; message: string; leg: LegView } | Problem> {
+// mode (travel pay, 23-24 Nov 2026): "I'm driving my own car/ute" or "I'm a passenger" - required before a leg starts.
+export async function startOut(resourceId: string, b: { jobId?: unknown; mode?: unknown; gps?: unknown; deviceId?: string | null }): Promise<{ ok: true; message: string; leg: LegView } | Problem> {
   const jobId = typeof b.jobId === "string" ? b.jobId : "";
   const [person, jobs] = await Promise.all([
     prisma.resource.findUnique({ where: { id: resourceId }, select: { name: true } }),
@@ -108,6 +116,11 @@ export async function startOut(resourceId: string, b: { jobId?: unknown; gps?: u
   if (existing) return { ok: true, message: `Travel already started at ${sydneyTime(existing.startAt)}.`, leg: viewOf(existing) };
   const why = outRefusal(job ? { jobId, regional: !!job.project?.regional, signedIn: signedIn > 0, existingLeg: false } : undefined);
   if (why) return { error: why, status: job ? 409 : 403 };
+  const noMode = modeRefusal(b.mode);
+  if (noMode) return { error: noMode, status: 400 };
+  // A truck driver's drive is on their truck sign-in - never a travel leg on top of it.
+  const onTruck = truckRefusal(await onTruckNow(resourceId));
+  if (onTruck) return { error: onTruck, status: 409 };
   if (anyOpen) return { error: `You've already got ${DIRECTION_LABEL[anyOpen.direction as Direction].toLowerCase()} on the go since ${sydneyTime(anyOpen.startAt)}.`, status: 409 };
   // SR-003 (19 Nov 2026): a tip run on the go is worked time - travel never starts on top of it.
   if (await tipRunOpen(resourceId)) return { error: TIP_RUN_OPEN, status: 409 };
@@ -116,7 +129,7 @@ export async function startOut(resourceId: string, b: { jobId?: unknown; gps?: u
     const leg = await prisma.travelLeg.create({
       data: {
         direction: "OUT", resourceId, workerName: person?.name ?? "Unknown", jobId: job!.id, projectId: job!.project!.id, siteLabel: jobLabel(job!),
-        date: job!.date.toISOString().slice(0, 10), startAt: now, deviceId: b.deviceId ?? null, ...gpsOf("start", b.gps),
+        date: job!.date.toISOString().slice(0, 10), startAt: now, mode: b.mode as TravelMode, deviceId: b.deviceId ?? null, ...gpsOf("start", b.gps),
       },
     });
     return { ok: true, message: `Travel started at ${sydneyTime(now)} - ${label(job!)}. Sign in on site when you get there.`, leg: viewOf(leg) };
@@ -128,12 +141,16 @@ export async function startOut(resourceId: string, b: { jobId?: unknown; gps?: u
 }
 
 // "Travelling home" after signing out of a regional job.
-export async function startHome(resourceId: string, b: { gps?: unknown; deviceId?: string | null }): Promise<{ ok: true; message: string; leg: LegView } | Problem> {
+export async function startHome(resourceId: string, b: { mode?: unknown; gps?: unknown; deviceId?: string | null }): Promise<{ ok: true; message: string; leg: LegView } | Problem> {
   const s = await travelStatus(resourceId);
   if ("error" in s) return s;
   if (s.open?.direction === "HOME") return { ok: true, message: `Travelling home since ${s.open.since}.`, leg: s.open };
   if (s.open) return { error: `You've already got travel on the go since ${s.open.since}.`, status: 409 };
   if (!s.home) return { error: "Travelling home is for after you sign out of a regional job.", status: 409 };
+  const noMode = modeRefusal(b.mode);
+  if (noMode) return { error: noMode, status: 400 };
+  const onTruck = truckRefusal(await onTruckNow(resourceId));
+  if (onTruck) return { error: onTruck, status: 409 };
   // A tip run on the go (19 Nov 2026) is worked time - travel home starts once it's finished, never on top of it.
   if (await tipRunOpen(resourceId)) return { error: TIP_RUN_OPEN, status: 409 };
   const a = await prisma.siteAttendance.findUnique({
@@ -146,7 +163,7 @@ export async function startHome(resourceId: string, b: { gps?: unknown; deviceId
     const leg = await prisma.travelLeg.create({
       data: {
         direction: "HOME", resourceId, workerName: a.workerName, jobId: a.job.id, projectId: a.job.project.id, siteLabel: jobLabel(a.job),
-        date: a.date, startAt: now, startAttendanceId: a.id, deviceId: b.deviceId ?? null, ...gpsOf("start", b.gps),
+        date: a.date, startAt: now, startAttendanceId: a.id, mode: b.mode as TravelMode, deviceId: b.deviceId ?? null, ...gpsOf("start", b.gps),
       },
     });
     return { ok: true, message: `Travelling home from ${sydneyTime(now)}. Tap Arrived when you get there.`, leg: viewOf(leg) };
@@ -203,17 +220,23 @@ export async function hasRegionalWork(resourceId: string | null, today: string) 
 export type TravelLine = {
   legId: string; direction: Direction; date: string; resourceId: string; name: string; role: string | null; jobId: string; site: string;
   start: string; end: string | null; startAt: string; endAt: string | null; hours: number | null; flag: TravelFlag | null; changedByOffice: string | null;
+  // Travel pay (23-24 Nov 2026): how they travelled and the paid hours (lib/travel/rules.ts paidTravelHours). Weeks
+  // approved before this have neither in their snapshot - read as null ("mode not recorded").
+  mode?: TravelMode | null; paidHours?: number | null;
 };
 
-const EDIT_FIELD: Record<string, string> = { startAt: "start", endAt: "end" };
+const EDIT_FIELD: Record<string, string> = { startAt: "start", endAt: "end", mode: "travelled as" };
 const timeOrNone = (v: string | null) => (v ? sydneyTime(new Date(v)) ?? v : "none");
+const editValue = (field: string, v: string | null) => (field === "mode" ? (isTravelMode(v) ? MODE_LABEL[v] : MODE_NOT_RECORDED) : timeOrNone(v));
 type LegRow = Prisma.TravelLegGetPayload<{ include: { edits: true } }>;
 function lineOf(l: LegRow, roles: Map<string, string | null>, now = new Date()): TravelLine {
   const { hours, flag } = legHours(l.startAt, l.endAt, now);
+  const mode = modeOf(l.mode);
   return {
     legId: l.id, direction: l.direction as Direction, date: l.date, resourceId: l.resourceId, name: l.workerName, role: roles.get(l.resourceId) ?? null,
     jobId: l.jobId, site: l.siteLabel, start: sydneyTime(l.startAt)!, end: sydneyTime(l.endAt), startAt: l.startAt.toISOString(), endAt: l.endAt?.toISOString() ?? null, hours, flag,
-    changedByOffice: l.edits.length ? l.edits.map((e) => `${EDIT_FIELD[e.field] ?? e.field} ${timeOrNone(e.before)} -> ${timeOrNone(e.after)} (${e.reason})`).join("; ") : null,
+    changedByOffice: l.edits.length ? l.edits.map((e) => `${EDIT_FIELD[e.field] ?? e.field} ${editValue(e.field, e.before)} -> ${editValue(e.field, e.after)} (${e.reason})`).join("; ") : null,
+    mode, paidHours: paidTravelHours(hours, mode),
   };
 }
 
@@ -225,7 +248,8 @@ async function linesWhere(where: Prisma.TravelLegWhereInput): Promise<TravelLine
 export const travelLinesForWeek = (weekStart: string) => linesWhere({ date: { gte: weekStart, lte: weekEnd(weekStart) } });
 export const travelLinesForDate = (date: string) => linesWhere({ date });
 
-// An office correction (Manager+): start / end with a reason, kept in TravelEdit. Locked weeks refuse it.
+// An office correction (Manager+): start / end and (travel pay, 23-24 Nov 2026) how they travelled - "mode":
+// DRIVER_OWN_VEHICLE | PASSENGER - with a reason, kept in TravelEdit. Locked weeks refuse it.
 export async function editTravelLeg(id: string, b: Record<string, unknown>, reason: string, by: string): Promise<{ ok: true; changed: boolean } | Problem> {
   const leg = await prisma.travelLeg.findUnique({ where: { id } });
   if (!leg) return { error: "not found", status: 404 };
@@ -236,13 +260,17 @@ export async function editTravelLeg(id: string, b: Record<string, unknown>, reas
   if (!startAt) return { error: "The start time isn't valid.", status: 400 };
   const bad = correctionError(startAt, endAt);
   if (bad) return { error: bad, status: 400 };
+  // A mode can be set or changed, never cleared (null is only for legs from before it was asked).
+  if ("mode" in b && !isTravelMode(b.mode)) return { error: "Pick how they travelled: driving their own car/ute, or a passenger.", status: 400 };
+  const mode = "mode" in b ? (b.mode as TravelMode) : leg.mode;
   const edits: { field: string; before: string | null; after: string | null }[] = [];
   if (startAt.getTime() !== leg.startAt.getTime()) edits.push({ field: "startAt", before: leg.startAt.toISOString(), after: startAt.toISOString() });
   if ((endAt?.getTime() ?? null) !== (leg.endAt?.getTime() ?? null)) edits.push({ field: "endAt", before: leg.endAt?.toISOString() ?? null, after: endAt?.toISOString() ?? null });
+  if (mode !== leg.mode) edits.push({ field: "mode", before: leg.mode, after: mode });
   if (!edits.length) return { ok: true, changed: false };
   await prisma.travelLeg.update({
     where: { id },
-    data: { startAt, endAt, ...(endAt && edits.some((e) => e.field === "endAt") ? { endMethod: "OFFICE" } : {}), edits: { create: edits.map((e) => ({ ...e, reason, editedBy: by })) } },
+    data: { startAt, endAt, mode, ...(endAt && edits.some((e) => e.field === "endAt") ? { endMethod: "OFFICE" } : {}), edits: { create: edits.map((e) => ({ ...e, reason, editedBy: by })) } },
   });
   return { ok: true, changed: true };
 }

@@ -3,8 +3,9 @@ import { guard, getCurrentUser } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { editTravelLeg } from "@/lib/travel/store";
 
-// PATCH /api/attendance/travel/:id { startAt?, endAt? (null = clear), reason } - the office corrects a regional travel
-// leg (2 Nov 2026), like a sign-in: Manager+, a reason, kept in TravelEdit; a locked (approved) week refuses it.
+// PATCH /api/attendance/travel/:id { startAt?, endAt? (null = clear), mode? (DRIVER_OWN_VEHICLE | PASSENGER), reason } -
+// the office corrects a regional travel leg (2 Nov 2026) or sets how they travelled (travel pay, 23-24 Nov 2026), like a
+// sign-in: Manager+, a reason, kept in TravelEdit; a locked (approved) week refuses it.
 export const PATCH = withErrorHandling(async (req: NextRequest, { params: paramsP }: { params: Promise<{ id: string }> }) => {
   const params = await paramsP;
   const denied = await guard("MANAGER");

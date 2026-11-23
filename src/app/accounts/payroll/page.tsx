@@ -12,6 +12,7 @@ import { apiFetch, serverErrorMessage } from "@/lib/apiFetch";
 import type { PayAbsence, PayPersonDTO, PayDayLine } from "@/lib/payroll/store";
 import { markedButSignedInText } from "@/lib/absence/rules";
 import type { DayState, Group } from "@/lib/payroll/rules";
+import { FLAG_LABEL, modeMissing, paidText } from "@/lib/travel/rules";
 
 type Week = {
   weekStart: string; weekEnd: string; days: string[]; weekEnded: boolean; managerLock: { by: string; at: string } | null;
@@ -63,6 +64,25 @@ function Day({ lines, absence }: { lines: PayDayLine[]; absence?: PayAbsence }) 
   );
 }
 
+// Regional travel (travel pay, 23-24 Nov 2026): the week's travel and paid travel - "Travel 2h · paid 1h" - then each
+// leg: "Tue 3 out 2h · paid 1h (passenger)". Never in Hours.
+function Travel({ p }: { p: PayPersonDTO }) {
+  if (!p.travel.length) return <span className="text-gray-600">-</span>;
+  return (
+    <div className="space-y-0.5" data-testid="pay-travel">
+      <div className="tabular-nums text-sky-200">Travel {p.travelHours}h · paid {p.travelPaidHours}h</div>
+      {p.travel.map((t) => {
+        const paid = paidText(t);
+        return (
+          <div key={t.legId} className={modeMissing(t) || t.flag === "NOT_ENDED" || t.flag === "OVER_CAP" ? "text-amber-300" : "text-gray-400"} title={`${t.site} · ${t.start}-${t.end ?? "not ended"}`}>
+            {dayHead(t.date)} {t.direction === "OUT" ? "out" : "home"} {t.hours == null ? (t.flag ? FLAG_LABEL[t.flag] : "-") : `${t.hours}h`}{paid ? ` · ${paid}` : ""}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function PayrollPage() {
   const { accountsOnly, isAdmin, loading } = useAuth();
   const [week, setWeek] = useState<string>(addDays(new Date().toLocaleDateString("en-CA", { timeZone: "Australia/Sydney" }), -7));
@@ -104,7 +124,7 @@ export default function PayrollPage() {
         <p className="mb-3 text-xs text-gray-500">
           {data.managerLock ? `Timesheet locked by ${data.managerLock.by}.` : data.weekEnded ? "The Manager hasn't locked this week's timesheet yet - staff can be approved once it is." : "This week isn't over yet."}
           {data.engagementUnset > 0 && ` Engagement (Employee / ABN) isn't set on the Labour register yet for ${data.engagementUnset} of this week's staff - they count as employees until it is.`}
-          {" "}✓ supervisor approved · ⚑ flagged · ≠ changed since approved · · not approved · – office / yard / truck · 📍 location at sign-in. Travel / regional: {data.travel} with Victoria.
+          {" "}✓ supervisor approved · ⚑ flagged · ≠ changed since approved · · not approved · – office / yard / truck · 📍 location at sign-in. Travel (regional) is its own column, never in Hours - paid travel: {data.travel}.
         </p>
       )}
       {/* TF-004: a name, company or site that looked like bank / tax details is shown as "Name to check" - the office fixes it on Sign-ins. */}
@@ -123,7 +143,7 @@ export default function PayrollPage() {
               <div className="overflow-x-auto rounded-xl border border-edge bg-panel">
                 <table className="w-full min-w-[860px] text-xs">
                   <thead><tr className="border-b border-edge text-left text-[11px] uppercase tracking-wide text-gray-500">
-                    <th className="px-2 py-1.5">Person</th>{data.days.map((d) => <th key={d} className="px-2 py-1.5">{dayHead(d)}</th>)}<th className="px-2 py-1.5">Hours</th><th className="px-2 py-1.5">Accounts</th>
+                    <th className="px-2 py-1.5">Person</th>{data.days.map((d) => <th key={d} className="px-2 py-1.5">{dayHead(d)}</th>)}<th className="px-2 py-1.5">Hours</th><th className="px-2 py-1.5">Travel</th><th className="px-2 py-1.5">Accounts</th>
                   </tr></thead>
                   <tbody className="divide-y divide-edge/60">
                     {ps.map((p) => (
@@ -136,6 +156,7 @@ export default function PayrollPage() {
                         </td>
                         {data.days.map((d) => <td key={d} className="px-2 py-1.5 tabular-nums"><Day lines={p.days[d] ?? []} absence={p.absences?.[d]} /></td>)}
                         <td className="px-2 py-1.5 text-sm font-semibold tabular-nums text-gray-100">{p.hours}</td>
+                        <td className="px-2 py-1.5"><Travel p={p} /></td>
                         <td className="px-2 py-1.5">
                           {p.review && <div className={p.review.status === "APPROVED" ? "text-emerald-300" : "text-amber-300"}>{p.review.status === "APPROVED" ? "Approved" : "Queried"}{p.review.note ? `: ${p.review.note}` : ""}<div className="text-gray-500">{p.review.by}</div></div>}
                           <div className="mt-1 flex flex-wrap gap-1">

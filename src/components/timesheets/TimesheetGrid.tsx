@@ -6,6 +6,7 @@ import type { SupervisorLine } from "@/lib/payroll/store";
 import { allPlaces, mondayOf } from "@/lib/timesheetView";
 import { TIP_FLAG_LABEL, tipNeedsOffice } from "@/lib/tipRun/rules";
 import { markWords, timesheetDayCell, type AbsenceLine } from "@/lib/absence/rules";
+import { modeMissing, modeOf, paidText, paidTravelHours } from "@/lib/travel/rules";
 
 // The weekly timesheet grids (21 Oct 2026), shared by the Operations Timesheets page (/timesheets) and the
 // read-only copy on the Accounts screen (/accounts/timesheets, 2 Nov 2026). Display only - no actions in here.
@@ -20,6 +21,8 @@ export type TimesheetData = {
   totalHours: number;
   travelHours?: number; // regional travel (2 Nov 2026) - its own total, never in totalHours
   travelIssues?: number;
+  travelPaidHours?: number; // travel pay (23-24 Nov 2026): the paid part of travelHours
+  travelModeMissing?: number; // legs with hours but no mode (recorded before it was asked) - no paid figure
   tipRunHours?: number; // regional tip runs (19 Nov 2026) - worked hours, the part of totalHours that is tip runs
   tipRunIssues?: number;
   absenceDays?: number; // Sick / Not in days marked this week (23 Nov 2026) - information only, no hours
@@ -110,21 +113,27 @@ function Entry({ l, today, showSite = true, sup }: { l: TimesheetLine; today: st
   );
 }
 
-// Regional travel (2 Nov 2026): one leg - out (to site) or home - with its own hours.
+// Regional travel (2 Nov 2026): one leg - out (to site) or home - with its own hours. Travel pay (23-24 Nov 2026): the
+// paid hours under it - "paid 1h (passenger)" / "paid 2h (own vehicle)" - or "mode not recorded" (amber, for the office).
 const TRAVEL_FLAG: Record<string, string> = { ON_THE_WAY: "on the way", NOT_ENDED: "never ended - no hours", OVER_CAP: "over 8h - not counted" };
 function TravelChip({ t }: { t: TravelLine }) {
   const warn = t.flag === "NOT_ENDED" || t.flag === "OVER_CAP";
+  const noMode = modeMissing({ hours: t.hours, mode: modeOf(t.mode) });
+  const paid = paidText({ hours: t.hours, mode: modeOf(t.mode), paidHours: t.paidHours });
   return (
-    <div className={`rounded-md border px-1.5 py-1 ${warn ? "border-amber-500/50 bg-amber-500/10" : "border-sky-500/40 bg-sky-500/10"}`} title={[t.site, t.changedByOffice ? "Office changed: " + t.changedByOffice : null].filter(Boolean).join("\n")}>
+    <div className={`rounded-md border px-1.5 py-1 ${warn ? "border-amber-500/50 bg-amber-500/10" : "border-sky-500/40 bg-sky-500/10"}`} title={[t.site, t.changedByOffice ? "Office changed: " + t.changedByOffice : null].filter(Boolean).join("\n")} data-testid="travel-leg">
       <div className="flex items-baseline justify-between gap-1">
         <span className="whitespace-nowrap text-[10px] text-sky-300">{t.direction === "OUT" ? "Travel out" : "Travel home"}</span>
         <span className="text-xs font-semibold text-sky-200">{hrs(t.hours)}</span>
       </div>
       <div className="whitespace-nowrap text-[10px] text-gray-500">{t.start}–{t.end ?? "?"}</div>
+      {paid && <div className={`text-[10px] leading-tight ${noMode ? "text-amber-400" : "text-sky-300"}`} data-testid="travel-paid">{paid}</div>}
       {(t.flag || t.changedByOffice) && <div className="text-[10px] leading-tight text-amber-400">{[t.flag && TRAVEL_FLAG[t.flag], t.changedByOffice && "office changed"].filter(Boolean).join(" · ")}</div>}
     </div>
   );
 }
+// "2h · paid 1h" for a travel total cell.
+const travelCell = (total: number, paid: number | undefined) => (total ? `${hrs(total)} · paid ${hrs(paid ?? 0)}` : "");
 
 // Regional tip run (19 Nov 2026): worked hours on the shift's day, in its own box.
 const TIP_FLAG: Record<string, string> = TIP_FLAG_LABEL;
@@ -234,7 +243,7 @@ export function SiteView({ data, search, emptyText = "No staff sign-ins this wee
             const pt = tl.filter((t) => t.resourceId === id);
             const pr = rl.filter((r) => r.resourceId === id);
             const tipTotal = q4(pr.reduce((n, r) => n + (r.hours ?? 0), 0));
-            return { id, name: pl[0]?.name ?? names.get(id)!.name, role: pl[0]?.role ?? names.get(id)!.role, lines: pl, travel: pt, tips: pr, tipTotal, total: q4(pl.reduce((n, l) => n + (l.hours ?? 0), 0) + tipTotal), travelTotal: q4(pt.reduce((n, t) => n + (t.hours ?? 0), 0)) };
+            return { id, name: pl[0]?.name ?? names.get(id)!.name, role: pl[0]?.role ?? names.get(id)!.role, lines: pl, travel: pt, tips: pr, tipTotal, total: q4(pl.reduce((n, l) => n + (l.hours ?? 0), 0) + tipTotal), travelTotal: q4(pt.reduce((n, t) => n + (t.hours ?? 0), 0)), travelPaid: q4(pt.reduce((n, t) => n + (t.paidHours ?? paidTravelHours(t.hours, modeOf(t.mode)) ?? 0), 0)) };
           })
           .filter((p) => !search || p.name.toLowerCase().includes(search.toLowerCase()))
           .sort((a, b) => a.name.localeCompare(b.name)),
@@ -290,7 +299,7 @@ export function SiteView({ data, search, emptyText = "No staff sign-ins this wee
                         {p.travel.filter((t) => t.date === d).map((t) => <TravelChip key={t.legId} t={t} />)}
                       </td>
                     ))}
-                    <td className="px-3 py-2 text-right text-sky-200">{p.travelTotal ? hrs(p.travelTotal) : ""}</td>
+                    <td className="px-3 py-2 text-right text-sky-200">{travelCell(p.travelTotal, p.travelPaid)}</td>
                     <td className="px-3 py-2 text-right text-violet-200">{p.tipTotal ? hrs(p.tipTotal) : ""}</td>
                     <td className="px-3 py-2 text-right font-bold text-gray-100">{hrs(p.total)}</td>
                   </tr>
@@ -366,7 +375,7 @@ export function PersonView({ data, search, emptyText = "No staff sign-ins this w
                   {p.absences?.[d] && <AbsenceChip a={p.absences[d]} linesThatDay={p.days[d] ?? []} />}
                 </td>
               ))}
-              <td className="px-3 py-2 text-right text-sm text-sky-200">{p.travelTotal ? hrs(p.travelTotal) : ""}</td>
+              <td className="px-3 py-2 text-right text-sm text-sky-200">{travelCell(p.travelTotal, p.travelPaidTotal)}</td>
               <td className="px-3 py-2 text-right text-sm text-violet-200">{p.tipRunTotal ? hrs(p.tipRunTotal) : ""}</td>
               <td className={`px-3 py-2 text-right text-base font-bold ${p.issues ? "text-amber-400" : "text-gray-100"}`}>{hrs(p.total)}</td>
             </tr>
@@ -378,7 +387,7 @@ export function PersonView({ data, search, emptyText = "No staff sign-ins this w
             {dayTotals.map((t, i) => (
               <td key={i} className="px-2 py-2 font-semibold">{t ? hrs(Math.round(t * 4) / 4) : ""}</td>
             ))}
-            <td className="px-3 py-2 text-right text-sm font-semibold text-sky-200">{data.travelHours ? hrs(data.travelHours) : ""}</td>
+            <td className="px-3 py-2 text-right text-sm font-semibold text-sky-200">{travelCell(data.travelHours ?? 0, data.travelPaidHours)}</td>
             <td className="px-3 py-2 text-right text-sm font-semibold text-violet-200">{data.tipRunHours ? hrs(data.tipRunHours) : ""}</td>
             <td className="px-3 py-2 text-right text-sm font-bold text-gray-100">{hrs(data.totalHours)}</td>
           </tr>

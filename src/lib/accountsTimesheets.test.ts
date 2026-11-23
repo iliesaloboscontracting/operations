@@ -6,7 +6,7 @@ import { fileIsSafe } from "./payroll/rules";
 import { rankAtLeast } from "./roleRank";
 import { POINT_BREAK_MINUTES, STILL_ON_HOURS } from "./signin";
 import type { TimesheetLine } from "./timesheets";
-import { HOME_OFFER_HOURS, TRAVEL_CAP_HOURS } from "./travel/rules";
+import { HOME_OFFER_HOURS, MODE_BUTTON, TRAVEL_CAP_HOURS } from "./travel/rules";
 import { TIP_CAP_HOURS, TIP_OFFER_HOURS } from "./tipRun/rules";
 
 // Timesheets on the Accounts screen (2 Nov 2026): view + export for the ACCOUNTS login, every write refused.
@@ -80,7 +80,7 @@ test("the export is hours only - fileIsSafe passes and no $ gets through", () =>
   assert.ok(csv!.includes(AMOUNT_REMOVED));
   assert.ok(csv!.includes("12 Grand Pde job"), "ordinary words that look like money stay");
   // Same columns as the Managers' export (timesheetCsv).
-  assert.ok(csv!.includes("Employee,Role,Date,Day,Site / place,Sign in,Sign out,Unpaid break (min),Hours,Of which tip run (h),Travel (h),Status,Notes"));
+  assert.ok(csv!.includes("Employee,Role,Date,Day,Site / place,Sign in,Sign out,Unpaid break (min),Hours,Of which tip run (h),Travel (h),Travel paid (h),Status,Notes"));
   assert.ok(csv!.includes("APPROVED by Alex"));
   assert.ok(csv!.includes("WEEK TOTAL"));
 });
@@ -92,7 +92,15 @@ test("an export that still looks like bank / tax details is refused, not sent", 
 
 test("the explainer says the rules the code uses, and no money", () => {
   const text = JSON.stringify(TIMESHEETS_EXPLAINER);
-  assert.equal(TIMESHEETS_NOTICE, "ACCOUNTS_TIMESHEETS_V6", "bumped with the Sick / Not in marks (23 Nov 2026)");
+  assert.equal(TIMESHEETS_NOTICE, "ACCOUNTS_TIMESHEETS_V7", "bumped with travel pay (24 Nov 2026)");
+  // Travel pay (Ilies, 23-24 Nov 2026): the rule, in the phone's own button words.
+  assert.ok(text.includes(MODE_BUTTON.PASSENGER) && text.includes(MODE_BUTTON.DRIVER_OWN_VEHICLE), "the phone's two buttons, word for word");
+  assert.match(text, /paid 1 hour less than the leg takes, once each way/);
+  assert.match(text, /a 2-hour leg is paid 1 hour; a leg of 1 hour or less is paid nothing/);
+  assert.match(text, /counts as a driver - the leg is paid in full/);
+  assert.match(text, /signs in on the truck QR for the drive/);
+  assert.match(text, /Travel paid/);
+  assert.doesNotMatch(text, /still to be agreed/, "no longer 'to be agreed'");
   // NI-001 a / b (Ilies approved 23 Nov 2026): the note's hint, and that it never goes in an export.
   assert.ok(text.includes("e.g. rang in at 6am - no medical details"), "the note hint");
   assert.match(text, /The note shows on screen only - never in an export/);
@@ -130,7 +138,8 @@ test("every note on the timesheet grid is explained, word for word", () => {
     "Travel out", "Travel home", "on the way", "never ended - no hours", "over 8h - not counted", "Approved by accounts", "Accounts query", "Week, all places",
     "Tip run", "on the go", "over 6h - not counted",
     "Draft", "Locked", "Need sorting", "differ from what was approved",
-    "Sick", "Not in", "no hours", "but signed in"]) { // AbsenceChip (23 Nov 2026)
+    "Sick", "Not in", "no hours", "but signed in", // AbsenceChip (23 Nov 2026)
+    "paid 1h (passenger)", "mode not recorded"]) { // TravelChip's paid line (travel pay, 24 Nov 2026)
     assert.ok(text.includes(note), note);
   }
 });

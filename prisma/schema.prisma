@@ -2433,6 +2433,11 @@ model TravelLeg {
   endGpsLng         Float?
   endGpsAccuracyM   Float?
   endGpsStatus      String?
+  // How they travelled (travel pay, Ilies 23-24 Nov 2026), picked on the phone before the leg starts:
+  // DRIVER_OWN_VEHICLE (own car / ute - paid in full) | PASSENGER (paid 1 hour less, never below 0). null = a leg
+  // recorded before this was asked - no paid figure, "mode not recorded" for the office. The office can set or change
+  // it with a reason (TravelEdit field "mode"). A truck driver uses the truck QR sign-in instead - never a travel leg.
+  mode              String?
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
   edits             TravelEdit[]
@@ -2447,7 +2452,7 @@ model TravelEdit {
   id          String    @id @default(cuid())
   travelLegId String
   travelLeg   TravelLeg @relation(fields: [travelLegId], references: [id], onDelete: Restrict)
-  field       String // startAt | endAt
+  field       String // startAt | endAt | mode
   before      String?
   after       String?
   reason      String

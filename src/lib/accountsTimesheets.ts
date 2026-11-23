@@ -7,7 +7,7 @@ import { prisma } from "./prisma";
 import { POINT_BREAK_MINUTES, STILL_ON_HOURS } from "./signin";
 import { timesheetCsv, type AbsenceLine, type TimesheetLine, type TipRunLine, type TravelLine } from "./timesheets";
 import { fileIsSafe } from "./payroll/rules";
-import { HOME_OFFER_HOURS, TRAVEL_CAP_HOURS } from "./travel/rules";
+import { HOME_OFFER_HOURS, MODE_BUTTON, PASSENGER_LESS_HOURS, TRAVEL_CAP_HOURS } from "./travel/rules";
 import { TIP_CAP_HOURS, TIP_OFFER_HOURS } from "./tipRun/rules";
 import { BREAK_OVER_MINUTES, BREAK_OVER_MINUTES_4H, break4hFrom, breakRuleFrom } from "./dayHours";
 
@@ -27,7 +27,9 @@ const dayBefore = (d: string) => new Date(new Date(d + "T12:00:00Z").getTime() -
 // V5 (19 Nov 2026, Ilies: shift rollover): night shifts count to their start day, the same-shift question, and
 // regional tip runs (worked hours, their own column) - she sees it again.
 // V6 (23 Nov 2026, "Not in today"): the Sick / Not in marks on the timesheet and in the export - she sees it again.
-export const TIMESHEETS_NOTICE = "ACCOUNTS_TIMESHEETS_V6";
+// V7 (24 Nov 2026, Ilies: travel pay - truck driver / passenger / own car or ute, "yes show it"): how travel is paid and
+// the "Travel paid" figures - she sees it again.
+export const TIMESHEETS_NOTICE = "ACCOUNTS_TIMESHEETS_V7";
 
 // New projects start with a 30-minute unpaid break (prisma/schema.prisma Project.unpaidBreakMinutes @default(30);
 // the project form's placeholder, lib/projectFormFields.ts). Not importable from the schema, so it is stated here.
@@ -81,7 +83,18 @@ export const TIMESHEETS_EXPLAINER: Explainer = {
         "Travel out: the worker taps Start travel on their phone; it ends when they sign in on site at that project. A phone can start travel after its owner signs in on a supervisor's QR on a regional job they're allocated to.",
         `Travel home: after signing out of a regional job they tap Travelling home (offered for ${HOME_OFFER_HOURS} hours after the sign-out), then Arrived.`,
         `Travel hours = start to end, to the nearest quarter hour, with no break taken off. A leg never ended, or longer than ${TRAVEL_CAP_HOURS} hours, counts no hours and is flagged - only the office can correct it, with a reason. Until it's fixed, the Manager can't approve that week.`,
-        "How travel is paid is still to be agreed - the exports show the travel hours only.",
+      ],
+    },
+    {
+      // lib/travel/rules.ts (paidTravelHours, PASSENGER_LESS_HOURS, MODE_BUTTON, truckRefusal, modeMissing); lib/travel/store.ts
+      // (startOut / startHome need the mode; onTruckNow; editTravelLeg "mode"); lib/timesheets.ts / lib/payroll/store.ts (Travel paid)
+      heading: "How travel is paid",
+      bullets: [
+        "Truck driver: whoever drives the company truck signs in on the truck QR for the drive. That sign-in already counts their hours, so they don't use Start travel - the phone refuses travel while they're signed in on a truck.",
+        `Passenger: before the leg starts the worker taps "${MODE_BUTTON.PASSENGER}". Their travel is paid ${PASSENGER_LESS_HOURS} hour less than the leg takes, once each way (out and home on their own): a 2-hour leg is paid 1 hour; a leg of 1 hour or less is paid nothing.`,
+        `Own car or ute: the worker taps "${MODE_BUTTON.DRIVER_OWN_VEHICLE}". That counts as a driver - the leg is paid in full.`,
+        "Each travel box, Payroll and the exports show both: e.g. \"Travel 2h · paid 1h (passenger)\". The exports have a \"Travel paid\" column next to \"Travel\". Hours only - never a dollar figure.",
+        "\"mode not recorded\" (amber) is a leg from before the phone asked - it has no paid figure until the office sets it on Sign-ins (Fix, with a reason). A leg never ended or over 8 hours is still paid nothing.",
       ],
     },
     {
@@ -155,7 +168,7 @@ export const TIMESHEETS_EXPLAINER: Explainer = {
       // components/timesheets/TimesheetGrid.tsx (TravelChip TRAVEL_FLAG, AccountsNote, WholeWeek); app/accounts/timesheets/page.tsx (tiles, banner)
       heading: "Travel boxes and the week",
       bullets: [
-        "A blue box is regional travel (\"Travel out\" or \"Travel home\"). \"on the way\" = still travelling; \"never ended - no hours\" and \"over 8h - not counted\" turn it amber and need the office.",
+        "A blue box is regional travel (\"Travel out\" or \"Travel home\") with its paid hours under it (\"paid 1h (passenger)\"). \"on the way\" = still travelling; \"never ended - no hours\" and \"over 8h - not counted\" turn it amber and need the office.",
         "A purple \"Tip run\" box is a regional tip run (worked hours). \"on the go\" = not finished yet; \"never ended - no hours\" and \"over 6h - not counted\" turn it amber and need the office.",
         "\"Draft\" means a Manager hasn't approved the week yet; \"Locked\" means they have. \"Need sorting\" counts the amber sign-ins, travel legs and tip runs.",
         "On a locked week, \"N sign-ins differ from what was approved\" means a time changed after the lock - the office would need to reopen the week.",
@@ -166,7 +179,7 @@ export const TIMESHEETS_EXPLAINER: Explainer = {
       // app/api/accounts/timesheets/export/route.ts; lib/timesheets.ts timesheetCsv
       heading: "Export",
       bullets: [
-        "Export downloads the week as a spreadsheet - hours only, one line per sign-in, tip run and travel leg, plus each person's week total. A tip run's hours are in Hours and again in \"Of which tip run (h)\".",
+        "Export downloads the week as a spreadsheet - hours only, one line per sign-in, tip run and travel leg, plus each person's week total. A tip run's hours are in Hours and again in \"Of which tip run (h)\". A travel leg's hours are in \"Travel (h)\" and its paid hours in \"Travel paid (h)\", with Passenger / Own vehicle in Notes.",
         "A locked week exports exactly what the Manager approved. A week not locked yet is marked DRAFT.",
       ],
     },

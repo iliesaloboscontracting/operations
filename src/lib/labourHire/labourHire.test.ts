@@ -128,7 +128,10 @@ test("the export: the staff timesheet's columns, that company only, no $ and for
   assert.ok(csv, "the file passes the no-money check");
   const staffHeader = timesheetCsv(WEEK, [], null).split("\r\n")[3];
   assert.equal(csv.split("\r\n")[3], staffHeader, "the same header row as the staff timesheet");
-  assert.equal(staffHeader, "Employee,Role,Date,Day,Site / place,Sign in,Sign out,Unpaid break (min),Hours,Of which tip run (h),Travel (h),Status,Notes");
+  assert.equal(staffHeader, "Employee,Role,Date,Day,Site / place,Sign in,Sign out,Unpaid break (min),Hours,Of which tip run (h),Travel (h),Travel paid (h),Status,Notes");
+  const cols = staffHeader.split(",").length;
+  const total = csv.split("\r\n").find((r) => r.includes("COMPANY TOTAL"))!;
+  assert.equal(total.split(",").length, cols, "the company total sits under the same columns (Notes last)");
   assert.match(csv.split("\r\n")[0], /labour hire timesheet, Advanced Labour Hire, week 2026-11-09 to 2026-11-15/);
   assert.ok(!csv.includes("$"), "no dollar sign anywhere");
   assert.ok(csv.includes(`"'=HYPERLINK(""http://x"")"`), "a name like a formula is quoted and made text");

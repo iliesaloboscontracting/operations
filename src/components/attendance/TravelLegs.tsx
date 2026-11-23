@@ -4,10 +4,13 @@ import { useState } from "react";
 import { Car, Home } from "lucide-react";
 import { apiFetch, serverErrorMessage } from "@/lib/apiFetch";
 import type { TravelLine } from "@/lib/travel/store";
+import { modeMissing, modeOf, paidText, TRAVEL_MODES, type TravelMode } from "@/lib/travel/rules";
 
 // Regional travel legs on the Sign-ins page (2 Nov 2026), under the job they belong to: travel out (Start travel ->
 // their site sign-in) and travel home (Travelling home -> Arrived). Hours are their own - never site hours. The office
 // corrects a time with a reason (kept), like a sign-in. No GPS here (accounts / Admins only).
+// Travel pay (23-24 Nov 2026): how they travelled and the paid hours - "paid 1h (passenger)" - or "mode not recorded"
+// (amber) on a leg from before the phone asked; the office sets or changes it in Fix, with a reason.
 const FLAG: Record<string, string> = { ON_THE_WAY: "on the way", NOT_ENDED: "never ended - no hours", OVER_CAP: "over 8h - not counted" };
 
 // ISO -> the value a datetime-local input wants, in the browser's (Sydney) time.
@@ -33,9 +36,10 @@ export default function TravelLegs({ legs, canEdit, onChanged }: { legs: TravelL
               <span className="text-gray-400">{l.direction === "OUT" ? "Travel out" : "Travel home"}</span>
               <span className="text-gray-300">{l.start}–{l.end ?? "?"}</span>
               <span className="font-semibold text-gray-100">{l.hours == null ? "–" : `${l.hours}h`}</span>
+              <Paid l={l} />
               {l.flag && <span className={l.flag === "ON_THE_WAY" ? "text-xs text-emerald-400" : "text-xs text-amber-400"}>{FLAG[l.flag]}</span>}
               {l.changedByOffice && <span className="text-xs text-amber-400" title={l.changedByOffice}>office changed</span>}
-              {canEdit && <button className="ml-auto text-xs text-brand-300 hover:underline" onClick={() => setEditing(editing === l.legId ? null : l.legId)}>Fix time</button>}
+              {canEdit && <button className="ml-auto text-xs text-brand-300 hover:underline" onClick={() => setEditing(editing === l.legId ? null : l.legId)}>Fix</button>}
             </div>
             {editing === l.legId && <Fix leg={l} onDone={() => { setEditing(null); onChanged(); }} />}
           </li>
@@ -45,9 +49,20 @@ export default function TravelLegs({ legs, canEdit, onChanged }: { legs: TravelL
   );
 }
 
+// "paid 1h (passenger)", "paid 2h (own vehicle)" or "mode not recorded" (amber) - nothing for a leg with no hours.
+function Paid({ l }: { l: TravelLine }) {
+  const t = { hours: l.hours, mode: modeOf(l.mode), paidHours: l.paidHours };
+  const text = paidText(t);
+  if (!text) return null;
+  return <span className={`text-xs ${modeMissing(t) ? "text-amber-400" : "text-sky-300"}`} data-testid="travel-paid">{text}</span>;
+}
+
+const MODE_OPTION: Record<TravelMode, string> = { DRIVER_OWN_VEHICLE: "Driving own car/ute", PASSENGER: "Passenger" };
+
 function Fix({ leg, onDone }: { leg: TravelLine; onDone: () => void }) {
   const [start, setStart] = useState(local(leg.startAt));
   const [end, setEnd] = useState(local(leg.endAt));
+  const [mode, setMode] = useState<TravelMode | "">(modeOf(leg.mode) ?? "");
   const [reason, setReason] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -57,7 +72,7 @@ function Fix({ leg, onDone }: { leg: TravelLine; onDone: () => void }) {
     const res = await apiFetch(`/api/attendance/travel/${leg.legId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ startAt: start ? new Date(start).toISOString() : null, endAt: end ? new Date(end).toISOString() : null, reason }),
+      body: JSON.stringify({ startAt: start ? new Date(start).toISOString() : null, endAt: end ? new Date(end).toISOString() : null, ...(mode && mode !== modeOf(leg.mode) ? { mode } : {}), reason }),
     });
     setBusy(false);
     if (!res.ok) return setError(await serverErrorMessage(res, "Couldn't save."));
@@ -68,6 +83,12 @@ function Fix({ leg, onDone }: { leg: TravelLine; onDone: () => void }) {
     <div className="mt-1.5 flex flex-wrap items-end gap-2 rounded-md border border-edge bg-panel p-2">
       <label className="text-[11px] text-gray-400">Start<br /><input type="datetime-local" className={input} value={start} onChange={(e) => setStart(e.target.value)} /></label>
       <label className="text-[11px] text-gray-400">{leg.direction === "OUT" ? "Arrived on site" : "Arrived home"}<br /><input type="datetime-local" className={input} value={end} onChange={(e) => setEnd(e.target.value)} /></label>
+      <label className="text-[11px] text-gray-400">Travelled as<br />
+        <select className={input} value={mode} onChange={(e) => setMode(e.target.value as TravelMode | "")} data-testid="travel-mode">
+          {!modeOf(leg.mode) && <option value="">Not recorded</option>}
+          {TRAVEL_MODES.map((m) => <option key={m} value={m}>{MODE_OPTION[m]}</option>)}
+        </select>
+      </label>
       <label className="min-w-[12rem] flex-1 text-[11px] text-gray-400">Reason (kept)<br /><input className={`${input} w-full`} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. forgot to tap Arrived" /></label>
       <button disabled={busy || reason.trim().length < 3} onClick={save} className="rounded-md bg-brand-600 px-3 py-1 text-xs font-medium text-white disabled:opacity-40">Save</button>
       {error && <div className="w-full text-xs text-red-400">{error}</div>}

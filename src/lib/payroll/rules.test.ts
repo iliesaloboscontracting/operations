@@ -50,23 +50,24 @@ test("the pay-run file: approved employees only, hours per person, pay item and 
     L({ attendanceId: "a5", hours: null, out: null }), // no sign-out - nothing to pay
   ];
   const rows = payRunRows(lines, new Set(["r1"]), new Map([["r1", "sam@example.com"]]));
-  assert.deepEqual(rows[0], ["Employee", "Email", "Earnings Rate", "Date", "Hours", "Site", "Travel hours", "Of which tip run hours"]);
+  assert.deepEqual(rows[0], ["Employee", "Email", "Earnings Rate", "Date", "Hours", "Site", "Travel hours", "Travel paid hours", "Of which tip run hours"]);
   assert.deepEqual(rows.slice(1), [
-    ["Sam Smith", "sam@example.com", "Ordinary Hours", "2026-10-27", 7.5, "Myers / Bronte", "", ""],
-    ["Sam Smith", "sam@example.com", "Saturday Hours", "2026-10-31", 6, "Myers", "", ""],
+    ["Sam Smith", "sam@example.com", "Ordinary Hours", "2026-10-27", 7.5, "Myers / Bronte", "", "", ""],
+    ["Sam Smith", "sam@example.com", "Saturday Hours", "2026-10-31", 6, "Myers", "", "", ""],
   ]);
   // Regional travel (2 Nov 2026): on the person's first row of the day; a travel-only day gets its own row; never
-  // for someone not approved; never added into Hours.
+  // for someone not approved; never added into Hours. Travel pay (23-24 Nov 2026): the paid hours next to it; a day
+  // with a leg that has no mode says "not recorded".
   const travel = new Map([
-    ["r1|2026-10-27", { hours: 2.5, site: "Orange", name: "Sam Smith" }],
-    ["r1|2026-10-28", { hours: 3, site: "Orange", name: "Sam Smith" }],
-    ["r2|2026-10-27", { hours: 4, site: "Orange", name: "Not Approved" }],
+    ["r1|2026-10-27", { hours: 2.5, paid: 1.5, modeMissing: false, site: "Orange", name: "Sam Smith" }],
+    ["r1|2026-10-28", { hours: 3, paid: 0, modeMissing: true, site: "Orange", name: "Sam Smith" }],
+    ["r2|2026-10-27", { hours: 4, paid: 4, modeMissing: false, site: "Orange", name: "Not Approved" }],
   ]);
   const withTravel = payRunRows(lines, new Set(["r1"]), new Map([["r1", "sam@example.com"]]), travel);
   assert.deepEqual(withTravel.slice(1), [
-    ["Sam Smith", "sam@example.com", "Ordinary Hours", "2026-10-27", 7.5, "Myers / Bronte", 2.5, ""],
-    ["Sam Smith", "sam@example.com", "", "2026-10-28", 0, "Orange", 3, ""],
-    ["Sam Smith", "sam@example.com", "Saturday Hours", "2026-10-31", 6, "Myers", "", ""],
+    ["Sam Smith", "sam@example.com", "Ordinary Hours", "2026-10-27", 7.5, "Myers / Bronte", 2.5, 1.5, ""],
+    ["Sam Smith", "sam@example.com", "", "2026-10-28", 0, "Orange", 3, "not recorded", ""],
+    ["Sam Smith", "sam@example.com", "Saturday Hours", "2026-10-31", 6, "Myers", "", "", ""],
   ]);
   assert.ok(fileIsSafe(toCsv(withTravel)));
   // Regional tip runs (19 Nov 2026): worked hours on the shift's pay item (night shift -> Night Hours), shown again
@@ -77,7 +78,7 @@ test("the pay-run file: approved employees only, hours per person, pay item and 
     L({ attendanceId: "tiprun:t2", date: "2026-10-28", shift: "NIGHT", hours: 1.5, site: "Tip run - Calwell (night)", tipRun: true }),
     L({ attendanceId: "tiprun:t3", personKey: "r2", resourceId: "r2", personName: "Not Approved", hours: 2, tipRun: true }),
   ], new Set(["r1"]), new Map([["r1", "sam@example.com"]]));
-  assert.deepEqual(withTip.find((r) => r[3] === "2026-10-28"), ["Sam Smith", "sam@example.com", "Night Hours", "2026-10-28", 8.5, "Calwell (night) / Tip run - Calwell (night)", "", 1.5]);
+  assert.deepEqual(withTip.find((r) => r[3] === "2026-10-28"), ["Sam Smith", "sam@example.com", "Night Hours", "2026-10-28", 8.5, "Calwell (night) / Tip run - Calwell (night)", "", "", 1.5]);
   assert.ok(!withTip.some((r) => r[0] === "Not Approved"));
   const csv = toCsv(rows);
   assert.ok(fileIsSafe(csv));

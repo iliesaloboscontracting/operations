@@ -153,17 +153,17 @@ test("the exports carry a text marker with no hours, and still pass the payroll 
   const rows = csv.split("\r\n");
   const sick = rows.find((r) => r.includes(",2026-11-18,"))!;
   // NI-001 b: the label, who marked it and the check - never the note.
-  assert.equal(sick, "Sam Worker,Labourer,2026-11-18,Wed,Sick,,,,,,,Sick,Sick - no hours; Marked by Alex");
+  assert.equal(sick, "Sam Worker,Labourer,2026-11-18,Wed,Sick,,,,,,,,Sick,Sick - no hours; Marked by Alex");
   assert.ok(!csv.includes("rang in"), "the note is not in the Managers' CSV");
   const notIn = rows.find((r) => r.includes(",2026-11-19,") && r.includes("Not in"))!;
-  assert.match(notIn, /,Not in,,,,,,,Not in,Not in - no hours; Marked by Alex; Marked Not in but signed in - check$/);
+  assert.match(notIn, /,Not in,,,,,,,,Not in,Not in - no hours; Marked by Alex; Marked Not in but signed in - check$/);
   assert.ok(rows.some((r) => r.startsWith("Sam Worker,Labourer,,WEEK TOTAL,,,,,16,")), "the week total is the sign-ins only");
   assert.ok(fileIsSafe(csv));
   assert.equal(absenceCsvNotes(mark({ note: null }), false), "Sick - no hours; Marked by Alex");
   // Accounts' copy: the same marker; any amount that got into a note is taken out; fileIsSafe passes.
   const acc = accountsTimesheetCsv("2026-11-16", [line()], null, [], [], [mark({ note: "owed $40 - flu" })])!;
   assert.ok(acc && fileIsSafe(acc) && !acc.includes("$"));
-  assert.ok(acc.includes(",Sick,,,,,,,Sick,Sick - no hours; Marked by Alex"));
+  assert.ok(acc.includes(",Sick,,,,,,,,Sick,Sick - no hours; Marked by Alex"));
   assert.ok(!acc.includes("flu") && !acc.includes("owed"), "the note is not in accounts' CSV either");
   // The payroll summary CSV: label, marked by and check - no Note column.
   const pay = src("../payroll/store.ts");

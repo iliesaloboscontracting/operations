@@ -4,6 +4,7 @@
 import { tierFor, type RateTier } from "../labourCost";
 import { assertNoMoney } from "../moneyGuard";
 import { personKeyFor } from "../dayHours";
+import { TRAVEL_PAY_RULE } from "../travel/rules";
 
 export type Group = "EMPLOYEE" | "ABN" | "HIRE";
 export type DayState = "APPROVED" | "FLAGGED" | "CHANGED" | "NOT_APPROVED" | "NO_SUPERVISOR";
@@ -54,12 +55,19 @@ export const inPayRun = (group: Group, reviewStatus: string | null) => group ===
 
 // ---------- files (hours only) ----------
 
-export const TRAVEL_HOOK = "rule to be agreed"; // how travel is PAID (driver / passenger, regional) - waits on a session with Victoria
+// How travel is PAID (Ilies, 23-24 Nov 2026 - lib/travel/rules.ts paidTravelHours): shown on the Payroll screen and in
+// the summary file.
+export const TRAVEL_HOOK = TRAVEL_PAY_RULE;
 // Draft: match Xero's import template. "Travel hours" (2 Nov 2026): regional travel legs (lib/travel/), hours only - not
-// a pay item; whether and how travel is paid is still to be agreed (TRAVEL_HOOK).
+// a pay item. "Travel paid hours" (23-24 Nov 2026): the paid part (passenger 1 h less each way, own car / ute in full);
+// "not recorded" when a leg that day has hours but no mode (recorded before the question was asked).
 // "Of which tip run hours" (19 Nov 2026, SR-006): the part of Hours that is regional tip runs (lib/tipRun/) - they are worked hours on the
 // shift's pay item, shown again here so accounts can see them.
-export const EXPORT_COLUMNS = ["Employee", "Email", "Earnings Rate", "Date", "Hours", "Site", "Travel hours", "Of which tip run hours"] as const;
+export const EXPORT_COLUMNS = ["Employee", "Email", "Earnings Rate", "Date", "Hours", "Site", "Travel hours", "Travel paid hours", "Of which tip run hours"] as const;
+// A person's travel on one day for the pay-run file: hours, the paid hours, and whether a leg had no mode.
+export type DayTravel = { hours: number; paid: number; modeMissing: boolean; site: string; name: string };
+export const TRAVEL_PAID_NOT_RECORDED = "not recorded";
+const paidCell = (t: DayTravel) => (t.modeMissing ? TRAVEL_PAID_NOT_RECORDED : q4(t.paid));
 export const csvCell = (v: string | number | null | undefined) => {
   const s = v == null ? "" : String(v);
   // No spreadsheet formulas: a cell starting with = + - @ (or a tab / CR, SEC-012) is quoted and prefixed with '.
@@ -73,7 +81,7 @@ const q4 = (n: number) => Math.round(n * 4) / 4;
 // "<personKey>|<date>") go on that person's first row of the day; a day with travel and no site hours gets its own row
 // (no earnings rate, 0 hours).
 export const travelKey = (personKey: string, date: string) => `${personKey}|${date}`;
-export function payRunRows(lines: PayLine[], approved: Set<string>, emails: Map<string, string | null>, travel: Map<string, { hours: number; site: string; name: string }> = new Map()): (string | number | null)[][] {
+export function payRunRows(lines: PayLine[], approved: Set<string>, emails: Map<string, string | null>, travel: Map<string, DayTravel> = new Map()): (string | number | null)[][] {
   const acc = new Map<string, { key: string; name: string; email: string | null; item: string; date: string; hours: number; tip: number; sites: Set<string> }>();
   for (const l of lines) {
     if (!approved.has(l.personKey) || l.hours == null || l.hours <= 0) continue;
@@ -91,12 +99,12 @@ export function payRunRows(lines: PayLine[], approved: Set<string>, emails: Map<
     const k = travelKey(v.key, v.date);
     const t = !used.has(k) ? travel.get(k) : undefined;
     used.add(k);
-    out.push([v.name, v.email, v.item, v.date, q4(v.hours), [...v.sites].join(" / "), t && t.hours > 0 ? q4(t.hours) : "", v.tip > 0 ? q4(v.tip) : ""]);
+    out.push([v.name, v.email, v.item, v.date, q4(v.hours), [...v.sites].join(" / "), t && t.hours > 0 ? q4(t.hours) : "", t && t.hours > 0 ? paidCell(t) : "", v.tip > 0 ? q4(v.tip) : ""]);
   }
   for (const [k, t] of travel) {
     const [personKey, date] = k.split("|");
     if (used.has(k) || !approved.has(personKey) || !(t.hours > 0)) continue;
-    out.push([t.name, emails.get(personKey) ?? null, "", date, 0, t.site, q4(t.hours), ""]);
+    out.push([t.name, emails.get(personKey) ?? null, "", date, 0, t.site, q4(t.hours), paidCell(t), ""]);
   }
   out.sort((a, b) => String(a[0]).localeCompare(String(b[0])) || String(a[3]).localeCompare(String(b[3])));
   return [[...EXPORT_COLUMNS], ...out];

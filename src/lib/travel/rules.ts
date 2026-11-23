@@ -2,8 +2,8 @@
 // Two legs, regional projects only:
 //   OUT  - the worker taps "Start travel" on their phone; their site sign-in on that project ends it.
 //   HOME - after signing out of a regional job they tap "Travelling home"; "Arrived" ends it.
-// Travel hours are their own column: never site hours, never a JobActual, never a cost, and no pay rule here
-// (whether and how travel is paid is a separate decision with accounts).
+// Travel hours are their own column: never site hours, never a JobActual, never a cost.
+// Travel pay (Ilies, 23-24 Nov 2026): see paidTravelHours below - hours only, never a dollar figure.
 
 export type Direction = "OUT" | "HOME";
 export const DIRECTION_LABEL: Record<Direction, string> = { OUT: "Travel out", HOME: "Travel home" };
@@ -66,6 +66,55 @@ export function homeFrom(candidates: HomeCandidate[], now = new Date()): HomeCan
     .sort((a, b) => b.signOutAt!.getTime() - a.signOutAt!.getTime());
   return ok[0] && !ok[0].existingLeg ? ok[0] : null;
 }
+
+// ---------- travel pay (Ilies, 23-24 Nov 2026) ----------
+// 1. Truck driver: signs in on the truck QR for the drive - that sign-in already counts the hours. Never a travel leg
+//    (Start travel is refused while they're signed in on a truck - truckRefusal).
+// 2. Passenger: paid 1 hour less than the leg takes, once each way - max(0, leg hours - 1) per leg (out and home apart).
+// 3. Own car or ute: a driver - the leg is paid in full.
+// The worker picks 2 or 3 on the phone before the leg starts. Legs recorded before this was asked have no mode: no
+// paid figure, "mode not recorded" for the office (who can set it with a reason).
+
+export type TravelMode = "DRIVER_OWN_VEHICLE" | "PASSENGER";
+export const TRAVEL_MODES: readonly TravelMode[] = ["DRIVER_OWN_VEHICLE", "PASSENGER"];
+// The two big buttons on the phone.
+export const MODE_BUTTON: Record<TravelMode, string> = { DRIVER_OWN_VEHICLE: "I'm driving my own car/ute", PASSENGER: "I'm a passenger" };
+// Short words for the office screens and the exports.
+export const MODE_LABEL: Record<TravelMode, string> = { DRIVER_OWN_VEHICLE: "own vehicle", PASSENGER: "passenger" };
+export const MODE_NOT_RECORDED = "mode not recorded";
+export const PASSENGER_LESS_HOURS = 1;
+// The rule in one line, for the payroll screen and the summary file.
+export const TRAVEL_PAY_RULE = `passenger: ${PASSENGER_LESS_HOURS} hour less each way; driving own car/ute: in full; truck driver: the truck sign-in counts the drive`;
+
+export const isTravelMode = (v: unknown): v is TravelMode => typeof v === "string" && (TRAVEL_MODES as readonly string[]).includes(v);
+// A mode as stored (anything else - an old leg, a bad value - is "not recorded").
+export const modeOf = (v: unknown): TravelMode | null => (isTravelMode(v) ? v : null);
+
+// The paid travel hours of one leg. hours = legHours(...).hours (already to the quarter hour); null = the leg counts
+// nothing (on the way, never ended, over the cap) - still nothing paid. No mode = no paid figure (null).
+export function paidTravelHours(hours: number | null | undefined, mode: TravelMode | null | undefined): number | null {
+  if (hours == null || !mode) return null;
+  if (mode === "DRIVER_OWN_VEHICLE") return hours;
+  return Math.max(0, q4(hours - PASSENGER_LESS_HOURS));
+}
+
+// A leg the office should look at for pay: it has hours but no mode (recorded before the question was asked).
+export const modeMissing = (t: { hours: number | null; mode?: TravelMode | null }) => t.hours != null && !t.mode;
+
+// "Travel 2h · paid 1h (passenger)" - the words on the office screens. hours null = counts nothing.
+export function paidText(t: { hours: number | null; mode?: TravelMode | null; paidHours?: number | null }): string {
+  if (t.hours == null) return "";
+  if (!t.mode) return MODE_NOT_RECORDED;
+  return `paid ${t.paidHours ?? paidTravelHours(t.hours, t.mode)}h (${MODE_LABEL[t.mode]})`;
+}
+
+// Start travel / Travelling home needs the choice first.
+export const MODE_REQUIRED = "Tap one first: I'm driving my own car/ute, or I'm a passenger.";
+export const modeRefusal = (mode: unknown): string | null => (isTravelMode(mode) ? null : MODE_REQUIRED);
+
+// Signed in on a truck (truck QR, not signed out): that sign-in already counts the drive - no travel on top of it.
+export const TRUCK_REFUSAL = "You're signed in on the truck - that already counts your drive. No need to start travel.";
+export const truckRefusal = (openTruckSignIn: boolean): string | null => (openTruckSignIn ? TRUCK_REFUSAL : null);
 
 // ---------- office corrections ----------
 
