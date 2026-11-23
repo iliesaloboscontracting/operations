@@ -8,6 +8,7 @@ import AttendanceJobCard from "@/components/attendance/AttendanceJobCard";
 import PosterPanel from "@/components/attendance/PosterPanel";
 import TravelLegs from "@/components/attendance/TravelLegs";
 import TipRuns from "@/components/attendance/TipRuns";
+import SigninMessagesPanel from "@/components/attendance/SigninMessagesPanel";
 import type { AttendanceData, AttendanceJob } from "@/components/attendance/types";
 import { flagSummary, type SigninFlagSummary } from "@/lib/signinFlags";
 import { isMarked, unexplained } from "@/lib/absence/rules";
@@ -202,7 +203,11 @@ export default function AttendancePage() {
                 </div>
               )}
             </div>
-            <PosterPanel projects={projects} vehicles={vehicles} posters={data.posters} canEdit={canEdit} onChanged={load} />
+            <div className="min-w-0 space-y-6">
+              {/* Message at sign-in (23 Nov 2026): Managers, Admins and the coordinator, as "Not in today". */}
+              {canMark && <SigninMessagesPanel />}
+              <PosterPanel projects={projects} vehicles={vehicles} posters={data.posters} canEdit={canEdit} onChanged={load} />
+            </div>
           </div>
         </>
       )}
