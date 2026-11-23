@@ -63,9 +63,10 @@ export function parseMessage(body: unknown, today: string): { ok: true; value: M
   if (b.audience !== "ALL" && b.audience !== "PEOPLE") return { ok: false, error: "Pick who it's for - everyone, or people." };
   const audience: Audience = b.audience;
   const raw = Array.isArray(b.resourceIds) ? b.resourceIds : [];
-  const ids = [...new Set(raw.filter((x): x is string => typeof x === "string" && /^[A-Za-z0-9_-]{1,40}$/.test(x)))];
+  const good = raw.filter((x): x is string => typeof x === "string" && /^[A-Za-z0-9_-]{1,40}$/.test(x));
+  const ids = [...new Set(good)];
   if (audience === "PEOPLE") {
-    if (ids.length === 0 || ids.length !== raw.length) return { ok: false, error: "Pick the people it's for." };
+    if (ids.length === 0 || good.length !== raw.length) return { ok: false, error: "Pick the people it's for." };
     if (ids.length > MESSAGE_LIMITS.maxRecipients) return { ok: false, error: `At most ${MESSAGE_LIMITS.maxRecipients} people on one message - or send it to everyone.` };
   } else if (raw.length) return { ok: false, error: "A message to everyone has no people picked." };
   let showUntil = addDays(today, MESSAGE_LIMITS.defaultDays);
