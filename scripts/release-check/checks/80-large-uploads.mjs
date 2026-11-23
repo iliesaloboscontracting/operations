@@ -14,13 +14,30 @@
 // never send don't use up the company's day; a 4th upload on its way from one link is 429; the company ceiling never
 // waives a pre-start photo (the phone falls back to the old route, which still works); no version -> REJECTED.
 // WRITES on the test copy: a project + job today, links, a truck, two drivers, sign-ins, a check + fault, media rows, a
-// daily log; one seeded ceiling row (removed again).
+// daily log; one seeded ceiling row (removed again). Live-data independence (Ilies 23 Nov 2026: fix it first): today's
+// "*media" notices that live already sent are cleared before the steps that count them (and only today's are counted),
+// and for the usage watch steps the copy's own upload rows (objects in the real bucket, not the fake) count 0 bytes -
+// their storedBytes is put back afterwards.
 import { execFileSync } from "node:child_process";
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { randomBytes } from "node:crypto";
 import { noMoney } from "../lib/context.mjs";
 import { makeLink } from "../lib/setup.mjs";
+import { sydneyDate } from "../lib/util.mjs";
+
+// The keys the local fake bucket holds (an object with any version, or an open multipart upload) - read from its folder.
+function fakeKeys(dir) {
+  const keys = new Set();
+  for (const sub of ["objects", "uploads"]) {
+    let names = [];
+    try { names = readdirSync(path.join(dir, sub)); } catch { /* nothing there yet */ }
+    for (const n of names) {
+      try { const k = JSON.parse(readFileSync(path.join(dir, sub, n, "meta.json"), "utf8"))?.key; if (k) keys.add(k); } catch { /* not an entry */ }
+    }
+  }
+  return keys;
+}
 
 const MB = 1024 * 1024;
 const ascii = (s) => Buffer.from(s, "latin1");
@@ -50,6 +67,13 @@ export default {
     const env = c.childEnv ?? {};
     if (env.MEDIA_STORE !== "fake" || !env.MEDIA_FAKE_DIR) return t.block("the test server has no local fake bucket (MEDIA_STORE=fake) - the release check's setup must set it");
     const tag = Date.now().toString(36);
+    // The test copy is a snapshot of live data: it carries live's MediaObject rows (whose objects are in the REAL bucket,
+    // not this fake one) and live's own once-a-day media notices (PhotoCapNotice "*media"), today's included. The steps
+    // that count notices or compare the bucket with what was recorded are scoped to this check's own run (below).
+    const preIds = new Set((await db.mediaObject.findMany({ select: { id: true } })).map((r) => r.id));
+    // Clears today's notice of one kind in the TEST COPY only, so the step after it sees its own; counts today's.
+    const clearNotice = (cap) => db.photoCapNotice.deleteMany({ where: { resourceId: "*media", cap, day: sydneyDate() } });
+    const todayNotices = (cap) => db.photoCapNotice.count({ where: { resourceId: "*media", cap, day: sydneyDate() } });
     const bodies = [];
     const keep = async (r) => {
       const text = await r.text().catch(() => "");
@@ -291,10 +315,11 @@ export default {
     const extra = [];
     for (let i = 0; i < 11; i++) extra.push((await db.mediaObject.create({ data: { area: "DAILY_LOG", kind: "VIDEO", mime: "video/mp4", bytes: 2147483647, storedBytes: 2147483647, objectKey: `rc80/${tag}/seed-${i}.mp4`, state: "REJECTED", rejectReason: "RC_SEED" } })).id);
     const [seed, seed2] = [{ id: extra[0] }, { id: extra[1] }];
+    await clearNotice("MEDIA_DAY"); // a ceiling notice live already sent today (if any) - the test copy only
     const c1 = await op(link, "start", { area: "DAILY_LOG", jobId: job.id, kind: "PHOTO", mime: "image/jpeg", size: 1000 });
     const c2 = await op(link, "start", { area: "DAILY_LOG", jobId: job.id, kind: "PHOTO", mime: "image/jpeg", size: 1000 });
     const c3 = await pop(tokB, "start", { kind: "PHOTO", mime: "image/jpeg", size: 1000 });
-    const notices = await db.photoCapNotice.count({ where: { resourceId: "*media", cap: "MEDIA_DAY" } });
+    const notices = await todayNotices("MEDIA_DAY");
     t.ok(c1.status === 429 && c2.status === 429 && notices === 1, "over the company's 20 GB today: refused, ONE notice for the day", JSON.stringify({ c1: c1.status, c2: c2.status, notices }));
     t.ok(c3.status === 429 && !c3.body.capFull && c3.body.fallback === true, "PS-044: a pre-start photo is NOT told capFull - it's told to fall back to the old route", JSON.stringify(c3.body));
     const urgent = Object.fromEntries(items.map((k) => [k, k === "brakes" ? "FAULT" : "OK"]));
@@ -360,11 +385,12 @@ export default {
         try { out = execFileSync(process.execPath, [tsxCli, file], { cwd: c.p.appDir, env: e, encoding: "utf8", timeout: 120_000 }); } catch (x) { out = String(x?.stdout ?? ""); }
         try { return JSON.parse(out.match(/RESULT (.*)/)?.[1] ?? "null"); } catch { return null; }
       };
+      await clearNotice("MEDIA_NO_VERSION"); // one live already sent today (if any) - the test copy only
       const nvr = runFile(nv, { MEDIA_FAKE_VERSIONING: "off" }) ?? [];
       const nvRows = await db.mediaObject.findMany({ where: { siteLinkId: src } });
       t.ok(nvr.length === 2 && nvr.every((r) => r.start === 201 && r.put === 200 && r.done === 422) && nvRows.length === 2 && nvRows.every((r) => r.state === "REJECTED" && r.rejectReason === "NO_VERSION"),
         "PS-045: versioning off - no version from the bucket -> REJECTED NO_VERSION (kept, never shown)", JSON.stringify(nvr));
-      t.ok((await db.photoCapNotice.count({ where: { resourceId: "*media", cap: "MEDIA_NO_VERSION" } })) === 1, "...ONE Admin notice for the day, not one per upload");
+      t.ok((await todayNotices("MEDIA_NO_VERSION")) === 1, "...ONE Admin notice for the day, not one per upload");
 
       // PS-043: the usage watch - every version and unfinished upload against what was recorded. The photo's extra
       // version (above) -> ONE Admin notice; a second run the same day adds nothing; MEDIA_USAGE_WATCH=off skips.
@@ -372,10 +398,23 @@ export default {
       const usage = proto.replace("protocol.ts", "usage.ts");
       writeFileSync(uw, [`import { watchBucketUsage } from ${JSON.stringify(usage)};`, `const a = await watchBucketUsage({ force: true });`, `const b = await watchBucketUsage({ force: true });`,
         `console.log("RESULT " + JSON.stringify({ a, b }));`, `process.exit(0);`].join("\n"));
+      // The watch compares the bucket with every MediaObject row. In the test copy the rows that were there before this
+      // check (live's uploads, ~GBs) recorded objects that are in the real bucket, not this fake one - so the fake bucket
+      // looks far smaller than recorded and OVER could never show. For the watch steps those rows count 0 bytes (their
+      // storedBytes is set to 0 in the TEST COPY and put back after); rows this check made - the 60 old never-sent
+      // declarations of PS-049 (b) included - are untouched, so the watch still decides on its own figures.
+      const held = fakeKeys(env.MEDIA_FAKE_DIR);
+      const aside = (await db.mediaObject.findMany({ select: { id: true, objectKey: true, storedBytes: true } })).filter((r) => preIds.has(r.id) && !held.has(r.objectKey));
+      const setBytes = async (ids, storedBytes) => { for (let i = 0; i < ids.length; i += 400) await db.mediaObject.updateMany({ where: { id: { in: ids.slice(i, i + 400) } }, data: { storedBytes } }); };
+      await setBytes(aside.map((r) => r.id), 0);
+      t.note(`usage watch steps: ${aside.length} upload rows from the copy's own data (objects in the real bucket, not this fake) count 0, put back after`);
+      try {
       const offW = runFile(uw, { MEDIA_USAGE_WATCH: "off" });
       t.ok(offW?.a?.skipped === "OFF", "MEDIA_USAGE_WATCH=off: the watch skips", JSON.stringify(offW));
+      // Live's own watch already sent today's notice (it runs just after midnight Sydney) - the test copy carries it.
+      await clearNotice("MEDIA_USAGE");
       const w = runFile(uw, {});
-      const uNotices = await db.photoCapNotice.count({ where: { resourceId: "*media", cap: "MEDIA_USAGE" } });
+      const uNotices = await todayNotices("MEDIA_USAGE");
       t.ok(w?.a?.ran && w.a.reasons?.includes("EXTRA_VERSION") && w.a.extraVersionKeys >= 1 && w.a.notified === true && w.b?.notified === false && uNotices === 1,
         "PS-043: the usage watch finds the READY photo's extra version - ONE Admin notice, none on a second run", JSON.stringify({ a: w?.a && { ...w.a }, b: w?.b?.notified, uNotices }));
       t.ok(!w?.a?.reasons?.includes("OVERSIZE_KEY"), "PS-049: 2 versions (a retry after a dropped signal) is not over 2x - no OVERSIZE_KEY", JSON.stringify(w?.a?.reasons));
@@ -407,6 +446,12 @@ export default {
         "PS-049: old never-sent declarations don't hide an over-stored PENDING key (OVER + OVERSIZE_KEY; recorded counts fresh ones only)", JSON.stringify({ ok5, a: w3?.a }));
       t.ok((await db.photoCapNotice.count({ where: { resourceId: "*media", cap: "MEDIA_USAGE" } })) === 1, "...still one notice for the day");
       await db.mediaObject.deleteMany({ where: { id: { in: ghosts2 } } }); // the test copy's own seed only
+      } finally {
+        // Put the set-aside rows' storedBytes back exactly as they were (null stays null).
+        const byValue = new Map();
+        for (const r of aside) { const k = r.storedBytes ?? "null"; if (!byValue.has(k)) byValue.set(k, []); byValue.get(k).push(r.id); }
+        for (const [k, ids] of byValue) await setBytes(ids, k === "null" ? null : k);
+      }
     } else t.note("tsx not found - the OFF / kill switch / abort checks were not run");
 
     // (14) No dollar figure in anything a link was sent.
