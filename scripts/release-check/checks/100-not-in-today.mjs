@@ -10,7 +10,7 @@
 //       hours; the exports pass the payroll file check. Approving the week locks the marks into its snapshot.
 //   (5) A locked week refuses marking and undoing; an Admin reopens it first.
 //   (6) Undo needs a reason; the undone mark is kept (history) - nothing is deleted. No $ in any reply; no outbound call.
-// WRITES (tagged "RC100 <tag>", test copy only): four people, a labour hire booking, a machine, a project, two jobs on
+// WRITES (tagged "RC100 <tag>", test copy only): four people, a labour hire booking, a machine, two projects, two jobs on
 // 7 Jul 2020 (a week no other check uses), one sign-in, the marks, and one approval of that week (reopened at the end).
 import { readFileSync } from "node:fs";
 import { noMoney } from "../lib/context.mjs";
@@ -48,7 +48,9 @@ export default {
     const M = await mk("Machine M", { type: "EQUIPMENT", category: null, role: null });
     const P = await db.project.create({ data: { name: `RC100 Site ${tag}`, status: "ACTIVE" } });
     const J = await db.job.create({ data: { projectId: P.id, title: P.name, date: at(DAY), shift: "DAY", status: "ACTIVE", startTime: "7am", endTime: "3:30pm" } });
-    const K = await db.job.create({ data: { projectId: P.id, title: `${P.name} other`, date: at(DAY), shift: "DAY", status: "ACTIVE", startTime: "7am", endTime: "3:30pm" } });
+    // A second project for K: one job per project, day and shift (Job's unique key).
+    const P2 = await db.project.create({ data: { name: `RC100 Other site ${tag}`, status: "ACTIVE" } });
+    const K = await db.job.create({ data: { projectId: P2.id, title: P2.name, date: at(DAY), shift: "DAY", status: "ACTIVE", startTime: "7am", endTime: "3:30pm" } });
     for (const r of [A, B, C, H]) await db.assignment.create({ data: { jobId: J.id, resourceId: r.id } });
     await db.assignment.create({ data: { jobId: K.id, resourceId: B.id } });
     const signIn = await db.siteAttendance.create({ data: { jobId: K.id, date: DAY, resourceId: B.id, workerName: B.name, allocated: true, signInMethod: "SUPERVISOR_QR", status: "CONFIRMED",
