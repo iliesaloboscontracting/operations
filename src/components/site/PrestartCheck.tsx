@@ -6,7 +6,9 @@ import { serverErrorMessage } from "@/lib/apiFetch";
 import { resizePhoto } from "@/lib/imageResize";
 import { deviceId } from "@/lib/signinDevice";
 import { answerLabel, type Answer, type ChecklistItem } from "@/lib/prestart/checklists";
-import { LIMITS, PRIORITIES, PRIORITY_HINT, PRIORITY_LABEL, PRIORITY_TONE, type FaultPriority } from "@/lib/prestart/rules";
+import {
+  LIMITS, PRIORITIES, PRIORITY_HINT, PRIORITY_LABEL, PRIORITY_TONE, TRUCK_TIMED_OUT, prestartSkippable, requiredTimeoutMessage, type FaultPriority,
+} from "@/lib/prestart/rules";
 import { FAULT_MEDIA, type PhoneMediaConfig } from "@/lib/media/rules";
 import { uploadMedia, UploadError, type MediaEndpoints, type UploadResult } from "@/lib/media/client";
 import MediaUpload from "./MediaUpload";
@@ -16,6 +18,9 @@ import MediaUpload from "./MediaUpload";
 // wrong, how bad (Low / High / Urgent / Do not use) and at least one photo - camera or gallery. The truck's open faults
 // are at the top with "Still there", so the next driver confirms one instead of reporting it again. "Do it later"
 // skips it - the sign-in is already saved either way. No money anywhere on this screen.
+// Ilies, 23 Nov 2026: a driver can't skip the truck pre-start - while the truck has no pre-start yet today (view.required,
+// the server's say) there is no "Do it later", only "Sign out" (sign-out is never blocked). A photo limit never traps
+// anyone: once a photo is refused for a limit (429) "Do it later" comes back (rules.ts prestartSkippable).
 // Stage 1b (10 Nov 2026): a truck pre-start has five walk-around photos (camera only) - needed on the truck's first
 // pre-start of the day, with the odometer photo; optional after that ("This morning's photos were taken at ... by ...").
 // PS-010: when the day's photo limit is full, an Urgent / Do-not-use fault can go without a photo and the walk-around
@@ -29,7 +34,8 @@ type KnownFault = { id: string; itemKey: string | null; itemLabel: string | null
 type Walk = { required: boolean; slots: { key: string; label: string }[]; earlier: { at: string | null; by: string; limit: boolean } | null };
 type View = {
   kind: "PRE" | "POST"; machine: string; title: string; checklist: { id: string; items: ChecklistItem[] }; done: boolean; openFaults: KnownFault[];
-  walkaround: Walk | null; odometer: "SENT" | "MISSING" | null;
+  walkaround: Walk | null; odometer: "SENT" | "MISSING" | "LIMIT" | null;
+  required?: boolean; // the truck's first pre-start of the day - can't be skipped (23 Nov 2026)
   // Stage 2 (plant QR stickers): "truck" or "machine", and every plant check's hour meter (photo + hours, last as a hint).
   noun?: "truck" | "machine"; hourMeter?: { required: boolean; last: number | null } | null;
   media?: PhoneMediaConfig | null; // large uploads on (10 Nov 2026)
@@ -44,7 +50,7 @@ const input =
 const ANSWER_ON: Record<Answer, string> = { OK: "border-emerald-500 bg-emerald-600 text-white", FAULT: "border-red-500 bg-red-600 text-white", NA: "border-gray-500 bg-gray-600 text-white" };
 const emptyDraft = (): Draft => ({ description: "", priority: null, photos: [], open: true });
 
-export default function PrestartCheck({ token, banner, odometerToken, onDone, onSkip }: { token: string; banner?: string; odometerToken?: string | null; onDone: (r: PrestartResult) => void; onSkip: () => void }) {
+export default function PrestartCheck({ token, banner, odometerToken, onDone, onSkip, onSignOut }: { token: string; banner?: string; odometerToken?: string | null; onDone: (r: PrestartResult) => void; onSkip: () => void; onSignOut?: () => void }) {
   const [view, setView] = useState<View | null>(null);
   const [dead, setDead] = useState<string | null>(null);
   const [answers, setAnswers] = useState<Record<string, Answer>>({});
@@ -62,13 +68,20 @@ export default function PrestartCheck({ token, banner, odometerToken, onDone, on
   const [meterPhoto, setMeterPhoto] = useState<Photo | null>(null);
   const [hours, setHours] = useState("");
   const [meterFull, setMeterFull] = useState(false);
-  const [odo, setOdo] = useState<"SENT" | "MISSING" | null>(null);
+  const [odo, setOdo] = useState<"SENT" | "MISSING" | "LIMIT" | null>(null);
+  // A photo was refused for a limit (429) - on a required pre-start "Do it later" comes back (never trapped on a cap).
+  const [capped, setCapped] = useState(false);
   // Large uploads: the bucket routes (the token in its header, never the address - PS-005) and the boxes still sending.
   const mediaApi: MediaEndpoints = { start: "/api/site/in/prestart/media/start", parts: "/api/site/in/prestart/media/parts", complete: "/api/site/in/prestart/media/complete", headers: { "x-prestart-token": token } };
   const [faultSending, setFaultSending] = useState<Record<string, boolean>>({});
   const faultBusy = Object.values(faultSending).some(Boolean);
   const busyFor = useCallback((k: string) => (b: boolean) => setFaultSending((s) => (s[k] === b ? s : { ...s, [k]: b })), []);
-  const capFrom = useCallback((j: Record<string, unknown>) => {
+  // PT-005 (23 Nov 2026): on a required screen a 401 (the token ran out) says to scan the truck QR again.
+  const required = useRef(false);
+  const timedOut = (status: number) => requiredTimeoutMessage(required.current, status);
+  const capFrom = useCallback((j: Record<string, unknown>, status?: number) => {
+    if (j.capFull || status === 429) setCapped(true);
+    if (status === 401 && required.current) setError(TRUCK_TIMED_OUT);
     if (!j.capFull) return;
     if (j.cap === "WALKAROUND" || j.cap === "ALL") setWalkFull(true);
     if (j.cap === "FAULT" || j.cap === "ALL") setFaultFull(true);
@@ -81,6 +94,7 @@ export default function PrestartCheck({ token, banner, odometerToken, onDone, on
       if (!res.ok) return setDead(await serverErrorMessage(res, "The checklist didn't load - check your signal."));
       const v: View = await res.json();
       if (v.done) return setDead("That check is already in - thanks.");
+      required.current = v.required === true;
       setView(v);
       setOdo(v.odometer);
     }, () => setDead("The checklist didn't load - check your signal."));
@@ -105,7 +119,9 @@ export default function PrestartCheck({ token, banner, odometerToken, onDone, on
   const notReady = view.checklist.items.filter((i) => needsDraft(i.key) && !draftReady(draftOf(i.key)));
   const w = view.walkaround;
   const walkMissing = w && w.required && !walkFull ? w.slots.filter((s) => !walk[s.key]) : [];
-  const odoMissing = !!w?.required && view.odometer !== null && odo !== "SENT"; // trucks only - plant has the hour meter
+  // Trucks only - plant has the hour meter. LIMIT: the truck's odometer photos for the day are used up - not needed.
+  const odoMissing = !!w?.required && view.odometer !== null && odo !== "SENT" && odo !== "LIMIT";
+  const skippable = prestartSkippable({ required: !!view.required, capped });
   const hm = view.hourMeter;
   const hoursOk = /^\d{1,6}(\.\d)?$/.test(hours.trim()) && Number(hours) > 0;
   const meterMissing = !!hm?.required && (!hoursOk || (!meterPhoto && !meterFull));
@@ -141,8 +157,8 @@ export default function PrestartCheck({ token, banner, odometerToken, onDone, on
       } catch (e) {
         // PS-044: the bucket's company day is full - the photo goes the old way (shrunk, the same caps).
         if (!(e instanceof UploadError && e.body.fallback)) {
-          if (e instanceof UploadError) capFrom(e.body);
-          throw new Error(e instanceof Error ? e.message : "The photo didn't send - try again.");
+          if (e instanceof UploadError) capFrom(e.body, e.status);
+          throw new Error((e instanceof UploadError && timedOut(e.status)) || (e instanceof Error ? e.message : "The photo didn't send - try again."));
         }
       }
     }
@@ -154,12 +170,13 @@ export default function PrestartCheck({ token, banner, odometerToken, onDone, on
     const res = await fetch("/api/site/in/prestart/photo", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token, photo: preview, deviceId: deviceId(), ...(slot ? { slot } : {}) }) });
     const j = await res.json().catch(() => ({}));
     if (!res.ok) {
+      if (res.status === 429) setCapped(true);
       if (j.capFull) {
         if (j.cap === "WALKAROUND" || j.cap === "ALL") setWalkFull(true);
         if (j.cap === "FAULT" || j.cap === "ALL") setFaultFull(true);
         if (j.cap === "METER" || j.cap === "ALL") setMeterFull(true);
       }
-      throw new Error(typeof j.error === "string" ? j.error : "The photo didn't send - try again.");
+      throw new Error(timedOut(res.status) || (typeof j.error === "string" ? j.error : "The photo didn't send - try again."));
     }
     return { id: j.id, preview };
   }
@@ -180,7 +197,8 @@ export default function PrestartCheck({ token, banner, odometerToken, onDone, on
   const addMeter = (file: File | undefined) => file && busyWith(async () => { setMeterPhoto(await upload(file, "HOUR_METER")); });
   const addOdometer = (file: File | undefined) => file && odometerToken && busyWith(async () => {
     const res = await fetch("/api/site/in/odometer", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: odometerToken, dataUrl: await resizePhoto(file) }) });
-    if (!res.ok) throw new Error(await serverErrorMessage(res, "The odometer photo didn't send - try again."));
+    if (res.status === 429) { setCapped(true); setOdo("LIMIT"); } // used up today - the server lets the pre-start go without it
+    if (!res.ok) throw new Error(timedOut(res.status) || (await serverErrorMessage(res, "The odometer photo didn't send - try again.")));
     setOdo("SENT");
   });
   async function send() {
@@ -197,7 +215,7 @@ export default function PrestartCheck({ token, banner, odometerToken, onDone, on
         body: JSON.stringify({ token, answers, faults, stillThere: [...still], deviceId: deviceId(), walkaround: Object.fromEntries(Object.entries(walk).map(([k, p]) => [k, p.id])),
           ...(hm ? { hourMeter: { value: hours.trim(), mediaId: meterPhoto?.id ?? null } } : {}) }),
       });
-      if (!res.ok) throw new Error(await serverErrorMessage(res, "Couldn't send - check your signal and try again."));
+      if (!res.ok) throw new Error(timedOut(res.status) || (await serverErrorMessage(res, "Couldn't send - check your signal and try again.")));
       const r = await res.json();
       onDone({ message: r.message, sent: r.sent ?? [] });
     } catch (e) {
@@ -269,6 +287,7 @@ export default function PrestartCheck({ token, banner, odometerToken, onDone, on
               <div className={`rounded-xl border p-2 ${odo === "SENT" ? "border-emerald-500/50" : "border-edge"}`}>
                 <div className="text-sm text-gray-200">Odometer</div>
                 {odo === "SENT" ? <div className="mt-1 text-sm text-emerald-300">✓ Sent</div>
+                  : odo === "LIMIT" ? <div className="mt-1 text-xs text-amber-200">Today&apos;s odometer photo limit is reached - send without it.</div>
                   : odometerToken ? <CameraButton busy={uploading > 0} label="Take photo" onPhoto={addOdometer} />
                   : <div className="mt-1 text-xs text-gray-400">Sign in again to take it.</div>}
               </div>
@@ -337,7 +356,17 @@ export default function PrestartCheck({ token, banner, odometerToken, onDone, on
           {uploading || faultBusy ? "Sending..." : meterMissing ? "The hour meter is still to do - its photo and the hours." : walkMissing.length ? `Walk-around photos still to take: ${walkMissing.map((s) => s.label).join(", ")}.` : odoMissing ? "The odometer photo is still to take." : unanswered ? `${unanswered} item${unanswered > 1 ? "s" : ""} still to answer.` : notReady.length ? `Finish the fault on "${notReady[0].label}" - what's wrong, how bad, and a photo.` : ""}
         </p>
       )}
-      <button className="w-full py-2 text-sm text-gray-400" disabled={busy} onClick={onSkip}>Do it later</button>
+      {skippable ? (
+        <>
+          {view.required && <p className="text-center text-xs text-amber-200">A photo limit was reached - you can leave the pre-start for now. The office sees it as not done.</p>}
+          <button className="w-full py-2 text-sm text-gray-400" disabled={busy} onClick={onSkip}>Do it later</button>
+        </>
+      ) : (
+        <div className="space-y-1 text-center" data-testid="prestart-required">
+          <p className="text-xs text-gray-400">First pre-start of the day on this {noun} - send it before you drive. Your sign-in time is already saved.</p>
+          {onSignOut && <button className="w-full py-2 text-sm text-gray-400" disabled={busy} onClick={onSignOut}>Not driving after all? Sign out</button>}
+        </div>
+      )}
     </div>
   );
 }
@@ -367,7 +396,7 @@ function CameraButton({ busy, label, onPhoto }: { busy: boolean; label: string; 
   );
 }
 
-type FaultMedia = { api: MediaEndpoints; deviceId: string; onBusy: (b: boolean) => void; onCap: (j: Record<string, unknown>) => void; onAdded: (p: Photo) => void; fallback: (f: File) => Promise<UploadResult> };
+type FaultMedia = { api: MediaEndpoints; deviceId: string; onBusy: (b: boolean) => void; onCap: (j: Record<string, unknown>, status?: number) => void; onAdded: (p: Photo) => void; fallback: (f: File) => Promise<UploadResult> };
 // PS-062 (Ilies, 12 Nov 2026, option a - full names as built): on a plant QR the builder can scan the sticker and read
 // the checks, so the operator is told before writing a fault.
 function FaultForm({ draft, busy, capFull, builderReads = false, onChange, onPhoto, media }: { draft: Draft; busy: boolean; capFull: boolean; builderReads?: boolean; onChange: (p: Partial<Draft>) => void; onPhoto: (f: File | undefined) => void; media?: FaultMedia | null }) {
@@ -409,7 +438,7 @@ function FaultForm({ draft, busy, capFull, builderReads = false, onChange, onPho
         {media && (
           <MediaUpload compact api={media.api} fields={{ deviceId: media.deviceId }} kinds={["PHOTO", "VIDEO"]} busyChange={media.onBusy}
             room={{ items: LIMITS.photosPerFault - draft.photos.length, videos: FAULT_MEDIA.videosPerSignIn - draft.photos.filter((p) => p.video).length }}
-            onError={(e) => media.onCap(e.body)} fallback={media.fallback}
+            onError={(e) => media.onCap(e.body, e.status)} fallback={media.fallback}
             onDone={(r) => media.onAdded({ id: String(r.body.id), preview: null, video: r.kind === "VIDEO" })} />
         )}
         {!media && draft.photos.length < LIMITS.photosPerFault && (

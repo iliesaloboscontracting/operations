@@ -96,6 +96,7 @@ export const FLAG_LABEL: Record<string, string> = {
   FAR_FROM_SITE: "Far from site",
   OVER_DAY_LIMIT: "Over days-a-week limit", // 12 Nov 2026 - the words: "Over 3-day limit (4th day this week)"
   MARKED_NOT_IN: "Marked not in but signed in", // 23 Nov 2026 - the words: "Marked Sick but signed in"
+  PRESTART_NOT_DONE: "Pre-start not done", // 23 Nov 2026 - a truck QR sign-in with the truck's pre-start not sent (red)
 };
 export const METHOD_LABEL: Record<string, string> = {
   SUPERVISOR_QR: "Supervisor QR",

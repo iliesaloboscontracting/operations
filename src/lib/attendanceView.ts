@@ -16,6 +16,7 @@ import { locationLabel, signInHow, signOutHow } from "./signinHow";
 import { overLimitNotes } from "./dayLimit/store";
 import { absenceViews, dayKey, markedButSignedIn, markedButSignedInText, tomorrowOf, type AbsenceView } from "./absence/rules";
 import { absencesForDates } from "./absence/store";
+import { preNotDoneIds } from "./prestart/today";
 
 export type AttendanceFlag =
   | "NO_SIGN_IN" // allocated, never signed in
@@ -41,7 +42,10 @@ export type AttendanceFlag =
   // 12 Nov 2026 (Ilies, lib/dayLimit) - information only: a sign-in date past the person's days-a-week limit.
   | "OVER_DAY_LIMIT" // "Over 3-day limit (4th day this week)" - never blocks approval, hours unchanged
   // 23 Nov 2026 ("Not in today", lib/absence) - information only: marked Sick / Not in for the day, but signed in.
-  | "MARKED_NOT_IN"; // "Marked Sick but signed in" - the sign-in and its hours stand; someone checks the mark
+  | "MARKED_NOT_IN" // "Marked Sick but signed in" - the sign-in and its hours stand; someone checks the mark
+  // 23 Nov 2026 (Ilies: the truck pre-start can't be skipped) - information only: a truck QR sign-in whose truck had no
+  // pre-start by its end (or by now). Hours unchanged, never blocks anything (lib/prestart/today.ts).
+  | "PRESTART_NOT_DONE";
 
 type AttendanceWithEdits = Prisma.SiteAttendanceGetPayload<{ include: { edits: true } }>;
 
@@ -296,6 +300,9 @@ export async function attendanceForDate(date: string) {
     ? new Map((await prisma.resource.findMany({ where: { id: { in: others.map((o) => o.resourceId) } }, select: { id: true, name: true } })).map((r) => [r.id, r.name]))
     : new Map<string, string>();
   const otherMarks = others.map((o) => ({ id: o.resourceId, name: names.get(o.resourceId) ?? "Someone", absence: o.view }));
+  // Truck QR sign-ins with the pre-start not done (23 Nov 2026) - red on the Sign-ins page. Never fails the page.
+  const notDone = await preNotDoneIds(pointRows).catch(() => new Set<string>());
+  if (notDone.size) for (const g of points) for (const r of g.rows) if (notDone.has(r.id)) r.flags.push("PRESTART_NOT_DONE");
   // The Sign-ins page's strip (10 Nov 2026): "N to confirm · N late · N long day · N no sign-in".
   return { jobs: jobGroups, points, summary: flagSummary([...points, ...jobGroups]), otherMarks };
 }

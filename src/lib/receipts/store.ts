@@ -197,12 +197,23 @@ export async function docketsSentFor(jobIds: string[]): Promise<Map<string, numb
 
 // ---------- the odometer photo after a truck sign-in ----------
 
+// The odometer photos of a truck count against its truck QR (the latest one; or a stand-in id) - 60 a day.
+const odometerLinkId = async (vehicleId: string) =>
+  (await prisma.siteLink.findFirst({ where: { kind: "POSTER", place: "VEHICLE", resourceId: vehicleId }, orderBy: { createdAt: "desc" }, select: { id: true } }))?.id ?? `vehicle:${vehicleId}`;
+// Ilies, 23 Nov 2026 (the truck pre-start can't be skipped): never trap a driver on a limit - when the truck's odometer
+// photos for the day are used up, a required pre-start may go without the odometer (counted here, never from the phone).
+export async function odometerCapFull(attendanceId: string): Promise<boolean> {
+  const a = await prisma.siteAttendance.findUnique({ where: { id: attendanceId }, select: { place: true, vehicleId: true } });
+  if (!a || a.place !== "VEHICLE" || !a.vehicleId) return false;
+  const sent = await prisma.receiptPhoto.count({ where: { siteLinkId: await odometerLinkId(a.vehicleId), createdAt: { gte: since24h() } } });
+  return sent >= LIMITS.photosPerLinkPerDay;
+}
+
 // One reading per truck sign-in: a photo (a retake replaces it), or "Can't now".
 export async function odometerFor(attendanceId: string, body: Record<string, unknown>): Promise<{ id: string; message: string } | Problem> {
   const a = await prisma.siteAttendance.findUnique({ where: { id: attendanceId }, select: { id: true, place: true, vehicleId: true, resourceId: true, workerName: true, signInAt: true } });
   if (!a || a.place !== "VEHICLE" || !a.vehicleId) return { error: "That sign-in isn't on a truck.", status: 400 };
-  const poster = await prisma.siteLink.findFirst({ where: { kind: "POSTER", place: "VEHICLE", resourceId: a.vehicleId }, orderBy: { createdAt: "desc" }, select: { id: true } });
-  const linkId = poster?.id ?? `vehicle:${a.vehicleId}`;
+  const linkId = await odometerLinkId(a.vehicleId);
   const existing = await prisma.odometerReading.findUnique({ where: { siteAttendanceId: a.id }, include: { photos: { select: { id: true } } } });
   if (body.skip === true) {
     if (existing) return { id: existing.id, message: existing.status === "SKIPPED" ? "No problem." : "Already sent - thanks." };

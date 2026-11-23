@@ -4,7 +4,8 @@
 // post-check, worked Open -> In hand -> Fixed; and the Checks tab - each day's truck sign-ins with their pre-start and
 // post-check ("No pre-start" when it was skipped). Managers, Admins, the coordinator and the yard computer (the routes
 // refuse everyone else). No money here. Tool faults stay on Tools -> Faults & Hilti swaps.
-import { useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { ChevronDown, ChevronRight, Truck } from "lucide-react";
 import PageShell from "@/components/PageShell";
 import { useAuth } from "@/components/AuthProvider";
@@ -12,7 +13,7 @@ import { PriorityBadge } from "@/components/site/PrestartCheck";
 import MediaTile from "@/components/media/MediaTile";
 import { apiFetch, serverErrorMessage } from "@/lib/apiFetch";
 import { localISODate } from "@/lib/resource";
-import { LIMITS, PRIORITIES, PRIORITY_LABEL, type FaultPriority } from "@/lib/prestart/rules";
+import { LIMITS, PRESTART_NOT_DONE, PRIORITIES, PRIORITY_LABEL, type FaultPriority } from "@/lib/prestart/rules";
 import { CHECKLISTS, answerLabel, type Answer } from "@/lib/prestart/checklists";
 import type { FaultDTO, checksForDay } from "@/lib/prestart/store";
 
@@ -27,20 +28,47 @@ const ACTION: Record<string, string> = { REPORTED: "Reported", SEEN: "Still ther
 const labelOf = (list: string, key: string, a: string) => { const i = CHECKLISTS[list]?.items.find((x) => x.key === key); return i ? answerLabel(i, a as Answer) : a === "FAULT" ? "Fault" : a === "NA" ? "N/A" : "OK"; };
 const word = (v: string | null) => (v ? (PRIORITY_LABEL as Record<string, string>)[v] ?? ({ OPEN: "Open", IN_HAND: "In hand", FIXED: "Fixed", DOWN: "Down", AVAILABLE: "Available" } as Record<string, string>)[v] ?? v : "");
 
-export default function FaultsPage() {
+// The address may say which tab, day and row (23 Nov 2026 - the "Pre-starts" link and the board's "Pre-starts today"
+// card): /faults?tab=checks&date=YYYY-MM-DD&row=<sign-in or machine id>. Without it the page opens on Faults, as before.
+type Start = { tab: "faults" | "checks"; date: string | null; row: string | null };
+function startFromAddress(q: URLSearchParams): Start {
+  const date = q.get("date");
+  const row = q.get("row");
+  return {
+    tab: q.get("tab") === "checks" ? "checks" : "faults",
+    date: date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : null,
+    row: row && /^[A-Za-z0-9_-]{1,40}$/.test(row) ? row : null,
+  };
+}
+
+// useSearchParams needs a Suspense boundary in the App Router (the nav link changes only the address's ?tab=).
+export default function FaultsPageWithAddress() {
+  return <Suspense fallback={<PageShell title="Vehicle & plant faults"><p className="text-sm text-gray-500">Loading...</p></PageShell>}><FaultsPage /></Suspense>;
+}
+
+function FaultsPage() {
   const { user, loading, canEdit, coordinatorOnly, yardOnly } = useAuth();
   const allowed = canEdit || coordinatorOnly || yardOnly;
+  const params = useSearchParams();
+  const query = params?.toString() ?? "";
+  const [start, setStart] = useState<Start | null>(null);
   const [tab, setTab] = useState<"faults" | "checks">("faults");
+  useEffect(() => { const s = startFromAddress(new URLSearchParams(query)); setStart(s); setTab(s.tab); }, [query]);
+  // Switching tabs keeps the address in step, so a reload (or the nav link) lands on the same tab.
+  const pick = (t: "faults" | "checks") => {
+    setTab(t);
+    try { window.history.replaceState(null, "", t === "checks" ? "/faults?tab=checks" : "/faults"); } catch { /* not allowed - fine */ }
+  };
   const tabBtn = (on: boolean) => `rounded-md px-3 py-1 text-xs font-semibold uppercase tracking-wide ${on ? "bg-brand-600 text-white" : "bg-panel2 text-gray-400 hover:text-gray-200"}`;
-  if (loading || !user) return <PageShell title="Vehicle & plant faults"><p className="text-sm text-gray-500">Loading...</p></PageShell>;
+  if (loading || !user || !start) return <PageShell title="Vehicle & plant faults"><p className="text-sm text-gray-500">Loading...</p></PageShell>;
   if (!allowed) return <PageShell title="Vehicle & plant faults"><p className="text-sm text-gray-500">Managers, Admins, the coordinator and the yard only.</p></PageShell>;
   return (
     <PageShell title="Vehicle & plant faults" subtitle="Faults from the truck pre-starts and post-checks, and each day's checks. Tool faults are under Tools.">
       <div className="mb-3 flex gap-1">
-        <button className={tabBtn(tab === "faults")} onClick={() => setTab("faults")}>Faults</button>
-        <button className={tabBtn(tab === "checks")} onClick={() => setTab("checks")}>Checks</button>
+        <button className={tabBtn(tab === "faults")} onClick={() => pick("faults")}>Faults</button>
+        <button className={tabBtn(tab === "checks")} onClick={() => pick("checks")}>Checks</button>
       </div>
-      {tab === "faults" ? <FaultsTab /> : <ChecksTab />}
+      {tab === "faults" ? <FaultsTab /> : <ChecksTab key={`${start.date}|${start.row}`} initialDay={start.date} focusRow={start.row} />}
     </PageShell>
   );
 }
@@ -174,21 +202,28 @@ function FaultCard({ f, patch }: { f: FaultDTO; patch: (id: string, body: Record
   );
 }
 
-function ChecksTab() {
-  const [day, setDay] = useState(localISODate());
+function ChecksTab({ initialDay, focusRow }: { initialDay: string | null; focusRow: string | null }) {
+  const [day, setDay] = useState(initialDay ?? localISODate());
   const [data, setData] = useState<Checks | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [openRow, setOpenRow] = useState<string | null>(null);
+  // Opened from the board's card: that row starts open and is scrolled to (a truck sign-in, or a machine below).
+  const [openRow, setOpenRow] = useState<string | null>(focusRow);
   useEffect(() => {
     setData(null);
     apiFetch(`/api/faults/checks?date=${day}`).then(async (r) => (r.ok ? (setError(null), setData(await r.json())) : setError(await serverErrorMessage(r, "Couldn't load the checks."))));
   }, [day]);
-  const tone = (s: string) => (s.startsWith("No ") ? "bg-red-500/15 text-red-300" : s.includes("fault") ? "bg-amber-500/15 text-amber-300" : s === "Done" ? "bg-emerald-500/15 text-emerald-300" : "bg-gray-700/50 text-gray-300");
+  useEffect(() => {
+    if (!data || !focusRow) return;
+    document.getElementById(`check-row-${focusRow}`)?.scrollIntoView({ block: "center" });
+  }, [data, focusRow]);
+  // "Pre-start not done" (23 Nov 2026) is red like "No pre-start".
+  const tone = (s: string) => (s.startsWith("No ") || s === PRESTART_NOT_DONE ? "bg-red-500/15 text-red-300" : s.includes("fault") ? "bg-amber-500/15 text-amber-300" : s === "Done" ? "bg-emerald-500/15 text-emerald-300" : "bg-gray-700/50 text-gray-300");
+  const notDone = data ? data.signIns.filter((s) => s.preStatus === PRESTART_NOT_DONE).length : 0;
   return (
     <>
       <div className="mb-3 flex items-center gap-2">
         <input type="date" className={field} value={day} onChange={(e) => e.target.value && setDay(e.target.value)} aria-label="Day" />
-        {data && <span className="text-xs text-gray-500">{data.signIns.length} truck sign-in{data.signIns.length === 1 ? "" : "s"} · {data.signIns.filter((s) => !s.pre).length} with no pre-start</span>}
+        {data && <span className="text-xs text-gray-500">{data.signIns.length} truck sign-in{data.signIns.length === 1 ? "" : "s"} · {data.signIns.filter((s) => !s.pre).length} with no pre-start{notDone ? <> · <span className="font-semibold text-red-300">{notDone} pre-start not done</span></> : null}</span>}
       </div>
       {error && <p className="text-sm text-red-400">{error}</p>}
       <h2 className="mb-2 text-sm font-semibold text-gray-200">Trucks</h2>
@@ -197,7 +232,7 @@ function ChecksTab() {
         : (
           <ul className="divide-y divide-edge/60 rounded-xl border border-edge bg-panel">
             {data.signIns.map((s) => (
-              <li key={s.id} className="px-4 py-3">
+              <li key={s.id} id={`check-row-${s.id}`} className={`px-4 py-3 ${focusRow === s.id ? "bg-brand-600/10" : ""}`}>
                 <button className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 text-left" onClick={() => setOpenRow(openRow === s.id ? null : s.id)}>
                   {openRow === s.id ? <ChevronDown size={14} className="text-gray-500" /> : <ChevronRight size={14} className="text-gray-500" />}
                   <span className="font-medium text-gray-100">{s.machine}</span>
@@ -260,7 +295,7 @@ function ChecksTab() {
             ))}
           </ul>
         )}
-      {data && <PlantSection plant={data.plant} tone={tone} reload={async () => {
+      {data && <PlantSection plant={data.plant} tone={tone} focusRow={focusRow} reload={async () => {
         const r = await apiFetch(`/api/faults/checks?date=${day}`); if (r.ok) setData(await r.json());
       }} />}
     </>
@@ -270,10 +305,10 @@ function ChecksTab() {
 // Stage 2 (plant QR stickers, 10 Nov 2026): owned plant booked on the board that day ("No pre-start" when none), and any
 // machine checked that day - who did each check, the walk-around and hour-meter photos, the hours (flagged when lower
 // than before) and the answers. Click a photo for the full size (behind the same login as the rest of this page).
-function PlantSection({ plant, tone, reload }: { plant: Checks["plant"]; tone: (s: string) => string; reload: () => Promise<void> }) {
+function PlantSection({ plant, tone, focusRow, reload }: { plant: Checks["plant"]; tone: (s: string) => string; focusRow: string | null; reload: () => Promise<void> }) {
   // "Reading wrong" is Managers and Admins only (Ilies, 10 Nov 2026) - the coordinator and the yard see the tab without it.
   const { canEdit: canMarkWrong } = useAuth();
-  const [open, setOpen] = useState<string | null>(null);
+  const [open, setOpen] = useState<string | null>(focusRow);
   const [err, setErr] = useState<string | null>(null);
   // PS-019: "Reading wrong" - kept, struck through with the reason, left out of "the last reading".
   async function markWrong(checkId: string) {
@@ -291,7 +326,7 @@ function PlantSection({ plant, tone, reload }: { plant: Checks["plant"]; tone: (
       {plant.length === 0 ? <p className="rounded-lg border border-dashed border-edge py-6 text-center text-sm text-gray-500">No owned plant booked or checked that day.</p> : (
         <ul className="divide-y divide-edge/60 rounded-xl border border-edge bg-panel">
           {plant.map((m) => (
-            <li key={m.machineId} className="px-4 py-3">
+            <li key={m.machineId} id={`check-row-${m.machineId}`} className={`px-4 py-3 ${focusRow === m.machineId ? "bg-brand-600/10" : ""}`}>
               <button className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 text-left" onClick={() => setOpen(open === m.machineId ? null : m.machineId)}>
                 {open === m.machineId ? <ChevronDown size={14} className="text-gray-500" /> : <ChevronRight size={14} className="text-gray-500" />}
                 <span className="font-medium text-gray-100">{m.machine}</span>

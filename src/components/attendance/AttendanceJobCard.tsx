@@ -41,7 +41,8 @@ const fmt = (iso: string | null) =>
 // went missing that week. Information only.
 const HOURS_FLAGS = new Set(["LATE_IN", "LONG_SHIFT", "BULK_OUT", "OVER_DAY_LIMIT", "MARKED_NOT_IN"]); // + over the days-a-week limit (12 Nov 2026), marked not in but signed in (23 Nov 2026)
 // 11 Nov 2026: a site poster sign-in with no location, or far from the site - the most serious, so red.
-const SERIOUS_FLAGS = new Set(["NO_LOCATION", "FAR_FROM_SITE"]);
+// 23 Nov 2026: a truck QR sign-in with the truck's pre-start not done - red too.
+const SERIOUS_FLAGS = new Set(["NO_LOCATION", "FAR_FROM_SITE", "PRESTART_NOT_DONE"]);
 const flagTone = (f: string) =>
   SERIOUS_FLAGS.has(f) ? "bg-red-500/20 text-red-300 ring-1 ring-red-500/40"
   : f === "STILL_ON" ? "bg-emerald-500/15 text-emerald-400" : f === "REJECTED" ? "bg-gray-700 text-gray-300" : HOURS_FLAGS.has(f) ? "bg-orange-500/20 text-orange-300" : "bg-amber-500/15 text-amber-500";
