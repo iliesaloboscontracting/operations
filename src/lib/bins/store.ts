@@ -11,8 +11,9 @@ import { fromSydneyLocal } from "../shiftTimes";
 import { saveReceiptPhoto } from "../receipts/files";
 import { recordChanges, writeChanges, writeLock, type Who } from "../history/store";
 import type { BinLink } from "../siteLinks";
+import { pushToUsers } from "../push";
 import {
-  BIN_CONTENTS, BIN_SIZES, BIN_USES, CONFIRM_WINDOW, LIMITS, STATUS_LABEL, binLabel, canMove, chooseBin, contentsLabel, dayText, daysOut, daysText,
+  BIN_CONTENTS, BIN_SIZES, BIN_USES, CONFIRM_WINDOW, binAlertsOn, clientBinAlert, clientBinCounts, LIMITS, STATUS_LABEL, binLabel, canMove, chooseBin, contentsLabel, dayText, daysOut, daysText,
   defaultLabel, inWindow, isBinSize, overFleet, parseCorrection, parseDelivery, parsePickup, rejectedOf, sizeLabel, tidy, tipCandidates, useLabel,
   type BinLinkOptionsDTO, type BinLinkRowDTO, type BinStatus, type FleetWarning,
 } from "./rules";
@@ -140,10 +141,26 @@ export async function deliverBin(link: BinLink, body: Record<string, unknown>): 
     if (e instanceof BinError) return { error: e.message, status: e.status };
     throw e;
   }
+  // A client's bin: one quiet alert to the coordinator (Alex) - never for our bin; never holds up the reply.
+  if (input.use === "CLIENT") void alertClientBin(id).catch(() => {});
   const after = await onSiteRows();
   const warning = overFleet(after, bins).find((w) => w.size === input.size)?.text ?? null;
   const row = (await linkRows(after.filter((m) => m.id === id)))[0];
   return { row, message: `${row?.bin ?? sizeLabel(input.size)} delivered to ${row?.project ?? "the job"} - thanks.`, warning: warning ? "The office will check the bin register." : null };
+}
+
+// The phone alert to Alex (Ilies, 23 Nov 2026: "Yes, alert Alex"): to every active COORDINATOR login's own phones (the
+// devices it turned alerts on for - none, nothing sent), through lib/push.ts like the other single-person alerts.
+// Kill switch BIN_ALERTS=off. Words only (clientBinAlert): the job and the size. Returns how many phones it reached.
+export async function alertClientBin(movementId: string): Promise<number> {
+  if (!binAlertsOn()) return 0;
+  const m = await prisma.binMovement.findUnique({ where: { id: movementId }, select: { id: true, use: true, size: true, projectId: true } });
+  if (!m) return 0;
+  const project = await prisma.project.findUnique({ where: { id: m.projectId }, select: { name: true } });
+  const msg = clientBinAlert({ id: m.id, use: m.use, size: m.size, project: project?.name ?? "a job" });
+  if (!msg) return 0;
+  const coordinators = await prisma.user.findMany({ where: { role: "COORDINATOR", active: true }, select: { id: true } });
+  return pushToUsers(coordinators.map((u) => u.id), msg, "normal");
 }
 
 export async function pickUpBin(link: BinLink, body: Record<string, unknown>): Promise<{ row: BinLinkRowDTO; message: string } | Problem> {
@@ -186,7 +203,9 @@ export type BinFilters = { projectId?: string; use?: string; from?: string; to?:
 export type BinsOfficeDTO = {
   out: BinOfficeRowDTO[]; history: BinOfficeRowDTO[]; register: BinRegisterDTO[]; warnings: FleetWarning[];
   projects: { id: string; label: string }[]; pickProjects: { id: string; label: string }[]; sizes: { key: string; label: string }[]; uses: { key: string; label: string }[]; contents: { key: string; label: string }[];
-  clientByJob: { projectId: string; project: string; jobNo: string | null; client: string | null; out: number; pickedUp: number; binDays: number }[];
+  // Client's bins are charged per bin (Ilies, 23 Nov 2026) - counted per job: delivered in the range, of which on site now
+  // and picked up. No days figure here.
+  clientByJob: { projectId: string; project: string; jobNo: string | null; client: string | null; delivered: number; onSite: number; pickedUp: number }[];
   range: { from: string; to: string };
 };
 
@@ -247,7 +266,7 @@ export async function officeBins(f: BinFilters): Promise<BinsOfficeDTO> {
   const fromAt = fromSydneyLocal(`${from}T00:00`)!, toAt = new Date(fromSydneyLocal(`${to}T00:00`)!.getTime() + 86_400_000);
   const scope = { ...(f.projectId ? { projectId: f.projectId.slice(0, 40) } : {}), ...(f.use === "CLIENT" || f.use === "OURS" ? { use: f.use } : {}) };
   const historyStatus = f.status === "CANCELLED" ? ["CANCELLED"] : f.status === "PICKED_UP" ? ["PICKED_UP"] : ["PICKED_UP", "CANCELLED"];
-  const [outRows, histRows, bins, everProjects] = await Promise.all([
+  const [outRows, histRows, bins, everProjects, clientRows] = await Promise.all([
     prisma.binMovement.findMany({ where: { status: "ON_SITE", ...scope }, include: moveInclude, orderBy: { deliveredAt: "asc" }, take: 500 }),
     prisma.binMovement.findMany({
       where: { status: { in: historyStatus }, ...scope, OR: [{ pickedUpAt: { gte: fromAt, lt: toAt } }, { pickedUpAt: null, deliveredAt: { gte: fromAt, lt: toAt } }] },
@@ -255,6 +274,11 @@ export async function officeBins(f: BinFilters): Promise<BinsOfficeDTO> {
     }),
     prisma.bin.findMany({ orderBy: [{ retiredAt: "asc" }, { size: "asc" }, { label: "asc" }] }),
     prisma.binMovement.findMany({ select: { projectId: true }, distinct: ["projectId"] }),
+    // Client's bins delivered in the range (the job filter applies; the client / ours filter doesn't - these are all client's).
+    prisma.binMovement.findMany({
+      where: { use: "CLIENT", deliveredAt: { gte: fromAt, lt: toAt }, ...(scope.projectId ? { projectId: scope.projectId } : {}) },
+      select: { projectId: true, use: true, status: true }, take: 5000,
+    }),
   ]);
   const allOut = scope.projectId || scope.use ? await prisma.binMovement.findMany({ where: { status: "ON_SITE" }, select: { size: true, binId: true, projectId: true } }) : outRows;
   const [out, history, projects, pickProjects] = await Promise.all([
@@ -265,14 +289,10 @@ export async function officeBins(f: BinFilters): Promise<BinsOfficeDTO> {
     prisma.project.findMany({ where: { archived: false }, select: { id: true, name: true, jobNo: true, status: true }, orderBy: { name: "asc" }, take: 1000 }),
   ]);
   const projectName = new Map(projects.map((p) => [p.id, p.name]));
-  // Client bins by job (Alex tracks them as variations): on site now, picked up in the range, and bin-days.
-  const clientByJob = new Map<string, BinsOfficeDTO["clientByJob"][number]>();
-  for (const r of [...out, ...history].filter((x) => x.useKey === "CLIENT" && x.statusKey !== "CANCELLED")) {
-    const c = clientByJob.get(r.projectId) ?? { projectId: r.projectId, project: r.project, jobNo: r.jobNo, client: r.client, out: 0, pickedUp: 0, binDays: 0 };
-    if (r.statusKey === "ON_SITE") c.out++; else c.pickedUp++;
-    c.binDays += r.days;
-    clientByJob.set(r.projectId, c);
-  }
+  // Client's bins by job (Alex tracks them as variations; charged per bin - Ilies, 23 Nov 2026): how many were delivered.
+  const counts = clientBinCounts(clientRows);
+  const countProjects = await prisma.project.findMany({ where: { id: { in: [...counts.keys()] } }, select: { id: true, name: true, jobNo: true, client: true } });
+  const clientByJob = countProjects.map((p) => ({ projectId: p.id, project: p.name, jobNo: p.jobNo, client: p.client, ...counts.get(p.id)! }));
   const active = bins.filter((b) => !b.retiredAt);
   return {
     out, history,
@@ -286,32 +306,30 @@ export async function officeBins(f: BinFilters): Promise<BinsOfficeDTO> {
     pickProjects: [...pickProjects].sort((a, b) => Number(b.status === "ACTIVE") - Number(a.status === "ACTIVE") || a.name.localeCompare(b.name))
       .map((p) => ({ id: p.id, label: `${p.jobNo ? `${p.name} (${p.jobNo})` : p.name}${p.status === "ACTIVE" ? "" : ` - ${p.status.toLowerCase()}`}` })),
     sizes: BIN_SIZES.map((s) => ({ key: s.key, label: s.label })), uses: BIN_USES.map((u) => ({ key: u.key, label: u.label })), contents: BIN_CONTENTS.map((c) => ({ ...c })),
-    clientByJob: [...clientByJob.values()].sort((a, b) => b.out - a.out || b.pickedUp - a.pickedUp || a.project.localeCompare(b.project)),
+    clientByJob: clientByJob.sort((a, b) => b.delivered - a.delivered || b.onSite - a.onSite || a.project.localeCompare(b.project)),
     range: { from, to },
   };
 }
 
-// The compact "Bins out" card (Ilies's board, the coordinator's dashboard): counts and the jobs, no money.
-export type BinsSummaryDTO = { out: number; client: number; ours: number; longest: number; warnings: FleetWarning[]; jobs: { projectId: string; project: string; client: number; ours: number; days: number }[] };
+// The compact "Bins out" card (Ilies's board, the coordinator's dashboard): how many bins are on site, by job - counts
+// only (client's bins are charged per bin), no days and no money.
+export type BinsSummaryDTO = { out: number; client: number; ours: number; warnings: FleetWarning[]; jobs: { projectId: string; project: string; client: number; ours: number }[] };
 export async function binsSummary(): Promise<BinsSummaryDTO> {
   const [rows, bins] = await Promise.all([
-    prisma.binMovement.findMany({ where: { status: "ON_SITE" }, select: { projectId: true, use: true, size: true, deliveredAt: true } }),
+    prisma.binMovement.findMany({ where: { status: "ON_SITE" }, select: { projectId: true, use: true, size: true } }),
     prisma.bin.findMany({ where: { retiredAt: null }, select: { size: true } }),
   ]);
   const projects = await prisma.project.findMany({ where: { id: { in: [...new Set(rows.map((r) => r.projectId))] } }, select: { id: true, name: true } });
-  const now = new Date();
   const jobs = new Map<string, BinsSummaryDTO["jobs"][number]>();
   for (const r of rows) {
-    const j = jobs.get(r.projectId) ?? { projectId: r.projectId, project: projects.find((p) => p.id === r.projectId)?.name ?? "a job", client: 0, ours: 0, days: 0 };
+    const j = jobs.get(r.projectId) ?? { projectId: r.projectId, project: projects.find((p) => p.id === r.projectId)?.name ?? "a job", client: 0, ours: 0 };
     if (r.use === "CLIENT") j.client++; else j.ours++;
-    j.days = Math.max(j.days, daysOut(r.deliveredAt, now));
     jobs.set(r.projectId, j);
   }
   return {
     out: rows.length, client: rows.filter((r) => r.use === "CLIENT").length, ours: rows.filter((r) => r.use !== "CLIENT").length,
-    longest: Math.max(0, ...rows.map((r) => daysOut(r.deliveredAt, now))),
     warnings: overFleet(rows, bins),
-    jobs: [...jobs.values()].sort((a, b) => b.client - a.client || b.days - a.days),
+    jobs: [...jobs.values()].sort((a, b) => b.client - a.client || b.ours - a.ours || a.project.localeCompare(b.project)),
   };
 }
 

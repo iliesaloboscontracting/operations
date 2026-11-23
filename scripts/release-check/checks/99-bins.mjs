@@ -219,6 +219,22 @@ export default {
     t.ok((await db.recordChange.count({ where: { model: "Bin", recordId: hook } })) >= 4, "rename and retire are in its history");
     t.status(await c.patch(`/api/bins/register/${hook}`, "MANAGER", { action: "restore" }), 200, "and brought back");
 
+    // (9b) Client's bins are charged per bin (Ilies, 23 Nov 2026): the by-job view counts bins delivered (on site now /
+    // picked up), in the date range, and carries no days figure; the Bins out card has no days either.
+    const clientWant = await db.binMovement.count({ where: { projectId: P.id, use: "CLIENT", status: { not: "CANCELLED" } } });
+    const cj = (await c.json(`/api/bins?from=${c.today}&to=${c.today}`, "COORDINATOR")).body;
+    const row = cj?.clientByJob?.find?.((x) => x.projectId === P.id);
+    t.ok(row && row.delivered === clientWant && row.onSite + row.pickedUp === row.delivered, "client's bins by job: the count of client's bins delivered today, split on site / picked up", JSON.stringify(row ?? null));
+    t.ok(clientWant >= 2, "there were client's bins to count", `${clientWant}`);
+    t.ok(!(await c.json("/api/bins?from=2001-01-01&to=2001-01-02", "MANAGER")).body?.clientByJob?.some?.((x) => x.projectId === P.id), "a date range with no deliveries counts none for the job");
+    t.ok(!/binDays|bin-days/i.test(JSON.stringify(cj?.clientByJob ?? [])) && !Object.keys(row ?? {}).some((k) => /day/i.test(k)), "no days figure in the client's bins by job view");
+    const card = (await c.json("/api/bins?summary=1", "MANAGER")).body;
+    t.ok(card && !("longest" in card) && !(card.jobs ?? []).some((j) => "days" in j), "the Bins out card counts bins - no days figure");
+    // The alert to Alex: client's bins only, words only, kill switch BIN_ALERTS (unit tests prove the payload); the test
+    // server has no push keys, so nothing leaves it (the no-outbound guard below).
+    const storeSrc = readFileSync(path.join(c.p.appDir, "src", "lib", "bins", "store.ts"), "utf8");
+    t.ok(/if \(input\.use === "CLIENT"\) void alertClientBin\(/.test(storeSrc) && /binAlertsOn\(\)/.test(storeSrc) && /role: "COORDINATOR", active: true/.test(storeSrc) && /pushToUsers\(/.test(storeSrc), "a client's bin delivery alerts the active coordinator login(s) only, behind BIN_ALERTS");
+
     // (10) Nothing is deleted: no DELETE handler, no delete in the source, the counts never went down.
     for (const pth of [`/api/bins/${mA.id}`, `/api/bins/register/${binA}`, "/api/bins", c.site(L.sup, "/bins")]) t.status(await c.del(pth, "ADMIN"), [404, 405], `DELETE ${pth.replace(L.sup.secret, "<link>")}`);
     const srcFiles = [...filesUnder(path.join(c.p.appDir, "src", "lib", "bins")), ...filesUnder(path.join(c.p.appDir, "src", "app", "api", "bins")), ...binRoutes];

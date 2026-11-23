@@ -1,15 +1,14 @@
 "use client";
 
 // "Bins out" (Ilies, 23 Nov 2026): a compact card of the bins on site now - client's bins (charged to the client, a
-// variation) highlighted. On Ilies's board (floating, so the board doesn't move) and on the coordinator's dashboard
-// (view only). Counts, jobs and days only - no money. Nothing shows for a login the API refuses.
+// variation, charged per bin) highlighted. On Ilies's board (floating, so the board doesn't move) and on the
+// coordinator's dashboard (view only). How many bins, by job - no days and no money. Nothing shows for a login the API refuses.
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { AlertTriangle, Container, X } from "lucide-react";
 import { useAutoRefresh } from "@/lib/useAutoRefresh";
 import type { BinsSummaryDTO } from "@/lib/bins/store";
 
-const days = (n: number) => (n === 0 ? "today" : n === 1 ? "1 day" : `${n} days`);
 
 export function useBinsSummary() {
   const [data, setData] = useState<BinsSummaryDTO | null>(null);
@@ -27,7 +26,6 @@ function Body({ s }: { s: BinsSummaryDTO }) {
       <div className="mb-2 flex flex-wrap gap-2 text-xs">
         <span className="rounded-full bg-amber-500/20 px-2 py-0.5 font-semibold text-amber-200">{s.client} client&apos;s</span>
         <span className="rounded-full bg-panel2 px-2 py-0.5 text-gray-300">{s.ours} ours</span>
-        {s.out > 0 && <span className="text-gray-500">longest out {days(s.longest)}</span>}
       </div>
       {s.warnings.map((w) => (
         <p key={w.size} className="mb-2 flex items-start gap-1.5 text-xs text-amber-300"><AlertTriangle size={13} className="mt-0.5 shrink-0" />{w.text}</p>
@@ -42,7 +40,7 @@ function Body({ s }: { s: BinsSummaryDTO }) {
               <span className="shrink-0 text-xs text-gray-400">
                 {j.client > 0 && <span className="font-semibold text-amber-300">{j.client} client&apos;s</span>}
                 {j.client > 0 && j.ours > 0 && " · "}
-                {j.ours > 0 && `${j.ours} ours`} · {days(j.days)}
+                {j.ours > 0 && `${j.ours} ours`}
               </span>
             </li>
           ))}

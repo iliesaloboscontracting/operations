@@ -76,17 +76,21 @@ export default function BinsPage() {
         <button className={tabBtn(tab === "client")} onClick={() => setTab("client")}>Client&apos;s bins by job</button>
         <button className={tabBtn(tab === "register")} onClick={() => setTab("register")}>Register</button>
       </div>
-      {(tab === "out" || tab === "history") && (
+      {(tab === "out" || tab === "history" || tab === "client") && (
         <div className="mb-3 flex flex-wrap items-center gap-2">
           <select className={select} value={f.projectId ?? ""} onChange={set("projectId")} aria-label="Job">
             <option value="">All jobs</option>{data?.projects.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
           </select>
-          <select className={select} value={f.use ?? ""} onChange={set("use")} aria-label="Client's or ours">
-            <option value="">Client&apos;s and ours</option><option value="CLIENT">Client&apos;s bins</option><option value="OURS">Our bins</option>
-          </select>
-          {tab === "history" && (<>
-            <label className="text-xs text-gray-400">From <input type="date" className={select} value={f.from ?? data?.range.from ?? ""} onChange={set("from")} /></label>
+          {tab !== "client" && (
+            <select className={select} value={f.use ?? ""} onChange={set("use")} aria-label="Client's or ours">
+              <option value="">Client&apos;s and ours</option><option value="CLIENT">Client&apos;s bins</option><option value="OURS">Our bins</option>
+            </select>
+          )}
+          {tab !== "out" && (<>
+            <label className="text-xs text-gray-400">{tab === "client" ? "Delivered from" : "From"} <input type="date" className={select} value={f.from ?? data?.range.from ?? ""} onChange={set("from")} /></label>
             <label className="text-xs text-gray-400">To <input type="date" className={select} value={f.to ?? data?.range.to ?? ""} onChange={set("to")} /></label>
+          </>)}
+          {tab === "history" && (<>
             <select className={select} value={f.status ?? ""} onChange={set("status")} aria-label="Status">
               <option value="">Picked up and cancelled</option><option value="PICKED_UP">Picked up</option><option value="CANCELLED">Cancelled</option>
             </select>
@@ -117,7 +121,7 @@ export default function BinsPage() {
           <ul className="divide-y divide-edge/60 rounded-xl border border-edge bg-panel">{data.history.map((r) => <MoveRow key={r.id} r={r} canEdit={canEdit} onModal={setModal} onTip={tip} showJob />)}</ul>
         )
       ) : tab === "client" ? (
-        <ClientByJob data={data} onOpen={(pid) => { setF({ projectId: pid, use: "CLIENT" }); setTab("history"); }} />
+        <ClientByJob data={data} onOpen={(pid) => { setF((x) => ({ from: x.from, to: x.to, projectId: pid, use: "CLIENT" })); setTab("history"); }} />
       ) : (
         <Register data={data} canEdit={canEdit} onModal={setModal} onChanged={done} />
       )}
@@ -212,20 +216,21 @@ function MoveRow({ r, canEdit, onModal, onTip, showJob }: { r: BinOfficeRowDTO; 
 }
 
 function ClientByJob({ data, onOpen }: { data: BinsOfficeDTO; onOpen: (projectId: string) => void }) {
-  if (!data.clientByJob.length) return <Empty text="No client's bins on site, or picked up in the last 90 days." />;
+  if (!data.clientByJob.length) return <Empty text="No client's bins delivered in that range." />;
+  const total = data.clientByJob.reduce((n, c) => n + c.delivered, 0);
   return (
     <div className="overflow-x-auto rounded-xl border border-edge bg-panel">
-      <p className="px-4 pt-3 text-xs text-gray-500">Client&apos;s bins are charged to the client. On site now, and picked up from {day(data.range.from)} to {day(data.range.to)}. Bin-days = days on site, added up.</p>
+      <p className="px-4 pt-3 text-xs text-gray-500">Client&apos;s bins are charged per bin. Bins delivered from {day(data.range.from)} to {day(data.range.to)}: {total} - of each job&apos;s, how many are on site now and how many have been picked up. Cancelled entries don&apos;t count.</p>
       <table className="w-full text-sm">
-        <thead className="text-left text-xs text-gray-500"><tr><th className="px-4 py-2">Job</th><th className="px-2">Client</th><th className="px-2">On site</th><th className="px-2">Picked up</th><th className="px-2">Bin-days</th><th /></tr></thead>
+        <thead className="text-left text-xs text-gray-500"><tr><th className="px-4 py-2">Job</th><th className="px-2">Client</th><th className="px-2">Client&apos;s bins delivered</th><th className="px-2">On site now</th><th className="px-2">Picked up</th><th /></tr></thead>
         <tbody className="divide-y divide-edge/60">
           {data.clientByJob.map((c) => (
             <tr key={c.projectId}>
               <td className="px-4 py-2 text-gray-100">{c.project}{c.jobNo ? <span className="text-xs text-gray-500"> ({c.jobNo})</span> : null}</td>
               <td className="px-2 text-gray-400">{c.client ?? "-"}</td>
-              <td className="px-2 font-semibold text-amber-200">{c.out}</td>
+              <td className="px-2 font-semibold text-amber-200">{c.delivered}</td>
+              <td className="px-2 text-gray-300">{c.onSite}</td>
               <td className="px-2 text-gray-300">{c.pickedUp}</td>
-              <td className="px-2 text-gray-300">{c.binDays}</td>
               <td className="px-2 text-right"><button className={btn} onClick={() => onOpen(c.projectId)}>See them</button></td>
             </tr>
           ))}

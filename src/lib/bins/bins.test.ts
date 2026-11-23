@@ -3,10 +3,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  BIN_CONTENTS, BIN_SIZES, BIN_USES, LIMITS, OTHER, canMove, chooseBin, contentsLabel, daysOut, defaultLabel, binLabel, linkSafe, overFleet,
+  BIN_CONTENTS, BIN_SIZES, BIN_USES, LIMITS, OTHER, binAlertsOn, canMove, clientBinAlert, clientBinCounts, chooseBin, contentsLabel, daysOut, defaultLabel, binLabel, linkSafe, overFleet,
   parseCorrection, parseDelivery, parsePickup, tipCandidates, type BinLinkOptionsDTO, type TipReceipt,
 } from "./rules";
 import { COORDINATOR_PAGES, isCoordinatorPage } from "../roles";
+import { assertNoMoney } from "../moneyGuard";
 
 const id = (n: number) => `cm${String(n).padStart(23, "0")}`;
 const deliver = (x: Record<string, unknown> = {}) => ({ photoIds: [id(1)], projectId: id(2), use: "CLIENT", size: "M15", contents: "Mixed C&D", ...x });
@@ -158,4 +159,44 @@ test("a link's options carry no dollar figure, and the lists the phone shows are
 
 test("the coordinator has the Bins page (view only - every write is guard('MANAGER'))", () => {
   assert.ok((COORDINATOR_PAGES as readonly string[]).includes("/bins") && isCoordinatorPage("/bins?use=CLIENT"));
+});
+
+// ---------- client's bins are charged per bin (Ilies, 23 Nov 2026: "price per bin not days bins onsite") ----------
+
+test("client's bins by job: a count of bins delivered, split on site / picked up - our bins and cancelled ones don't count", () => {
+  const c = clientBinCounts([
+    { projectId: "a", use: "CLIENT", status: "ON_SITE" },
+    { projectId: "a", use: "CLIENT", status: "PICKED_UP" },
+    { projectId: "a", use: "CLIENT", status: "PICKED_UP" },
+    { projectId: "a", use: "CLIENT", status: "CANCELLED" },
+    { projectId: "a", use: "OURS", status: "ON_SITE" },
+    { projectId: "b", use: "OURS", status: "PICKED_UP" },
+    { projectId: "c", use: "CLIENT", status: "PICKED_UP" },
+  ]);
+  assert.deepEqual(Object.fromEntries(c), { a: { delivered: 3, onSite: 1, pickedUp: 2 }, c: { delivered: 1, onSite: 0, pickedUp: 1 } });
+  assert.ok(![...c.values()].some((x) => Object.keys(x).some((k) => /day/i.test(k))), "no days figure");
+});
+
+// ---------- the phone alert to Alex ----------
+
+test("a client's bin delivered: one quiet alert, words only - the job and the size, no amount", () => {
+  const a = clientBinAlert({ id: id(50), use: "CLIENT", size: "M15", project: "Bondi Rd strip-out" });
+  assert.ok(a);
+  assert.equal(a!.title, "Client's bin delivered");
+  assert.equal(a!.body, "Bondi Rd strip-out, 15 m³");
+  assert.equal(a!.url, "/bins");
+  assert.equal(a!.silent, true, "quiet");
+  assert.ok(assertNoMoney(JSON.stringify(a)), "passes the money guard");
+  const priced = clientBinAlert({ id: id(51), use: "CLIENT", size: "HOOK", project: "$450 Coogee job" });
+  assert.ok(priced && assertNoMoney(JSON.stringify(priced)) && !priced.body.includes("$"), "a dollar figure in the job name is taken out");
+  assert.equal(priced!.body, "Coogee job, Hook bin");
+});
+
+test("our bin sends nothing; the kill switch BIN_ALERTS=off stops the alert", () => {
+  assert.equal(clientBinAlert({ id: id(52), use: "OURS", size: "M15", project: "Bondi Rd" }), null);
+  assert.equal(clientBinAlert({ id: id(53), use: "", size: "M15", project: "Bondi Rd" }), null);
+  assert.equal(binAlertsOn({}), true);
+  assert.equal(binAlertsOn({ BIN_ALERTS: "on" }), true);
+  assert.equal(binAlertsOn({ BIN_ALERTS: "off" }), false);
+  assert.equal(binAlertsOn({ BIN_ALERTS: " OFF " }), false);
 });

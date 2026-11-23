@@ -13,6 +13,7 @@
 // - Never a dollar figure: charging the client is done elsewhere.
 import { WASTE_CLASSES } from "../activityCodes";
 import { assertNoMoney } from "../moneyGuard";
+import { linkLabel } from "../dailyLog/money";
 
 // The bin sizes Lobos has (Ilies, 23 Nov 2026: 2 x 15 m³, 2 x 11 m³, 1 x 9 m³, 1 x 8 m³ and hook bin(s) - the bins
 // themselves go in the register through the API; only the sizes are code).
@@ -144,6 +145,36 @@ export function parseCorrection(b: Record<string, unknown>): CorrectionInput | {
   if (Object.keys(fields).length === 0) return { error: "Nothing to change." };
   if (!assertNoMoney(reason)) return { error: "Leave amounts out of the reason." };
   return { fields, reason };
+}
+
+// ---------- client's bins: charged per bin (Ilies, 23 Nov 2026: "price per bin not days bins onsite") ----------
+
+// How many client's bins each job had delivered: of which on site now and picked up. Our bins and cancelled entries
+// don't count. No days figure - days out is information on the Out now list only, never what's charged.
+export type ClientBinCount = { delivered: number; onSite: number; pickedUp: number };
+export function clientBinCounts(rows: { projectId: string; use: string; status: string }[]): Map<string, ClientBinCount> {
+  const out = new Map<string, ClientBinCount>();
+  for (const r of rows) {
+    if (r.use !== "CLIENT" || r.status === "CANCELLED") continue;
+    const c = out.get(r.projectId) ?? { delivered: 0, onSite: 0, pickedUp: 0 };
+    c.delivered++;
+    if (r.status === "ON_SITE") c.onSite++; else if (r.status === "PICKED_UP") c.pickedUp++;
+    out.set(r.projectId, c);
+  }
+  return out;
+}
+
+// ---------- the phone alert to Alex when a client's bin is delivered (Ilies, 23 Nov 2026: "Yes, alert Alex") ----------
+
+// Kill switch: BIN_ALERTS=off.
+export const binAlertsOn = (env: Record<string, string | undefined> = process.env) => (env.BIN_ALERTS ?? "").trim().toLowerCase() !== "off";
+export type BinAlert = { title: string; body: string; url: string; tag: string; silent: boolean };
+// One quiet alert per client's bin delivered: words only - the job and the size. Our bin: nothing. Anything that
+// would carry a dollar figure is never sent (the job name has any "$" amount taken out first).
+export function clientBinAlert(m: { id: string; use: string; size: string; project: string }): BinAlert | null {
+  if (m.use !== "CLIENT") return null;
+  const msg = { title: "Client's bin delivered", body: `${linkLabel(m.project, "a job")}, ${sizeLabel(m.size)}`, url: "/bins", tag: `bin-${m.id}`.slice(0, 40), silent: true };
+  return assertNoMoney(JSON.stringify(msg)) ? msg : null;
 }
 
 // ---------- the tip docket for a picked-up bin ----------
