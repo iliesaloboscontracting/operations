@@ -104,6 +104,21 @@ export function readPrestartToken(token: unknown, now = Date.now()): { attendanc
   return k === "S" && attendanceId && (kind === "PRE" || kind === "POST") && Number(exp) >= now ? { attendanceId, kind } : null;
 }
 
+// --- messages after a sign-in (Message at sign-in, 23 Nov 2026) --------------
+// A sign-in's reply carries this token, tied to that sign-in; the phone then asks for the person's messages with it
+// (header / body only, never the address) and sends "Got it" with it. So the messages come after - and apart from -
+// the sign-in, and only someone whose sign-in was actually saved sees them. 3 hours (a pre-start can come first).
+const MESSAGE_MS = 3 * 3_600_000;
+export function makeMessageToken(attendanceId: string, now = Date.now()) {
+  return sign(`M|${attendanceId}|${now + MESSAGE_MS}`);
+}
+export function readMessageToken(token: unknown, now = Date.now()): string | null {
+  const p = unsign(token);
+  if (!p) return null;
+  const [kind, attendanceId, exp] = p.split("|");
+  return kind === "M" && attendanceId && Number(exp) >= now ? attendanceId : null;
+}
+
 // --- plant QR stickers (stage 2, Ilies 10 Nov 2026) - never a sign-in ----------
 // Scanning a machine's PLANT QR gives the phone a 15-minute ticket tied to that QR (its link) and machine - only for
 // picking a name and starting a check, never for signing in (readTicket wants "T"). Starting a check makes a check

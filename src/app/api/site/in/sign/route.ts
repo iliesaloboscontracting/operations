@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { JOB_CANCELLED_SIGN_IN, createSignIn } from "@/lib/signInCreate";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { nameWithoutAmounts } from "@/lib/dailyLog/money";
-import { makeOdometerToken, makePrestartToken, makeTravelPass, openJob, pointOf, readTicket, shiftLabel, sydneyTime } from "@/lib/signin";
+import { makeMessageToken, makeOdometerToken, makePrestartToken, makeTravelPass, openJob, pointOf, readTicket, shiftLabel, sydneyTime } from "@/lib/signin";
 import { askText, decideSignIn, recentNightShift, type ShiftAnswer, type ShiftAsk } from "@/lib/shiftRollover";
 import { tipRunOn } from "@/lib/tipRun/rules";
 import { endOutOnSignIn, hasRegionalWork, homeOffered } from "@/lib/travel/store";
@@ -177,6 +177,9 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
       // Ilies, 23 Nov 2026: with no pre-start on the truck yet today the driver can't skip it ("Do it later" is gone) -
       // the sign-in time above is already saved; reopening the QR on this phone comes back to it (STATUS below).
       ...(where.place === "VEHICLE" ? { prestartRequired: await truckPrestartPending(signedIn.id).catch(() => false) } : {}),
+      // Message at sign-in (23 Nov 2026): a token for this saved sign-in - the phone asks for its messages with it
+      // afterwards (/api/site/in/messages). No message is looked up here, so nothing about them can hold the sign-in up.
+      ...messageTokenFor(signedIn.id),
     });
   }
 
@@ -209,6 +212,14 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
 });
 
 const bad = (error: string, status = 400) => NextResponse.json({ error }, { status });
+// Never lets a failure reach the sign-in's reply.
+function messageTokenFor(attendanceId: string): { messages?: string } {
+  try {
+    return { messages: makeMessageToken(attendanceId) };
+  } catch {
+    return {};
+  }
+}
 
 // Reopening the truck QR with a required pre-start still to send (Ilies, 23 Nov 2026): the phone is taken straight back
 // into it. Only for the phone that signed in (its device id), only while the sign-in is open (PS-006: a PRE token is never
