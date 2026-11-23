@@ -132,9 +132,9 @@ test("source: the sign-in never waits on messages; the routes keep to the agreed
     const s = src(f);
     assert.ok((s.match(/guardOrCoordinator\("MANAGER"\)/g) ?? []).length >= 1 && !/guard\("VIEWER"\)/.test(s), f);
   }
-  const qr = src("../../app/api/site/in/messages/route.ts");
+  const qr = src("../../app/api/site/in/office-notes/route.ts");
   assert.ok(/x-message-token/.test(qr) && !/searchParams/.test(qr), "the QR token never travels in the address");
-  assert.ok(/resolveReceiptLink/.test(src("../../app/api/site/[token]/messages/route.ts")), "the link route: SUPERVISOR / DRIVER only");
+  assert.ok(/resolveReceiptLink/.test(src("../../app/api/site/[token]/office-notes/route.ts")), "the link route: SUPERVISOR / DRIVER only");
   const card = src("../../components/site/CrewMessages.tsx");
   assert.ok(!/dangerouslySetInnerHTML/.test(card) && !/dangerouslySetInnerHTML/.test(src("../../components/attendance/SigninMessagesPanel.tsx")));
   const page = src("../../app/site/in/[code]/page.tsx");

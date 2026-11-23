@@ -40,10 +40,10 @@ export default {
     const office = async (who = "MANAGER") => keep(await c.get("/api/attendance/messages", who));
     const scan = async (point) => { const s = await c.json(`/api/site/in/${encodeURIComponent(point.secret)}`, null); phone.push(JSON.stringify(s.body ?? {})); return s.body?.ticket; };
     const sign = async (point, action, who, deviceId) => keep(await c.post("/api/site/in/sign", null, { ticket: await scan(point), jobId: point.id, action, deviceId, gps: { status: "DENIED" }, ...who }), phone);
-    const inbox = async (token) => keep(await c.req("GET", "/api/site/in/messages", null, undefined, token ? { "x-message-token": token } : {}), phone);
-    const gotIt = async (token, messageId, deviceId = `rc102-${tag}`) => keep(await c.post("/api/site/in/messages", null, { token, messageId, deviceId }), phone);
-    const linkInbox = async (l) => keep(await c.get(c.site(l, "/messages"), null), phone);
-    const linkGotIt = async (l, messageId) => keep(await c.post(c.site(l, "/messages"), null, { messageId, deviceId: `rc102-link-${tag}` }), phone);
+    const inbox = async (token) => keep(await c.req("GET", "/api/site/in/office-notes", null, undefined, token ? { "x-message-token": token } : {}), phone);
+    const gotIt = async (token, messageId, deviceId = `rc102-${tag}`) => keep(await c.post("/api/site/in/office-notes", null, { token, messageId, deviceId }), phone);
+    const linkInbox = async (l) => keep(await c.get(c.site(l, "/office-notes"), null), phone);
+    const linkGotIt = async (l, messageId) => keep(await c.post(c.site(l, "/office-notes"), null, { messageId, deviceId: `rc102-link-${tag}` }), phone);
     const ids = (r) => (r.body?.messages ?? []).map((m) => m.id);
     const has = (r, ...want) => want.every((id) => ids(r).includes(id));
     const lacks = (r, ...not) => not.every((id) => !ids(r).includes(id));
@@ -113,7 +113,7 @@ export default {
     t.ok(!boxA.text.includes(Cc.name) && !boxA.text.includes(B.name) && !boxA.text.includes("Release check"), "...and no other person's name, nor who wrote it");
     t.ok((boxA.body?.messages ?? []).every((m) => Object.keys(m).sort().join() === "id,sent,text"), "each message is just its words and day");
     t.status(await inbox(null), 401, "no token: refused");
-    t.status(await keep(await c.get(`/api/site/in/messages?token=${encodeURIComponent(inA.body.messages)}`, null)), 401, "the token in the address is not accepted");
+    t.status(await keep(await c.get(`/api/site/in/office-notes?token=${encodeURIComponent(inA.body.messages)}`, null)), 401, "the token in the address is not accepted");
 
     // (5) Got it.
     t.status(await gotIt(inA.body.messages, mA), 200, "A: Got it");

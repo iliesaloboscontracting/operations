@@ -20,7 +20,7 @@ export default function CrewMessages({ source, className = "" }: { source: Sourc
 
   useEffect(() => {
     let off = false;
-    const url = "token" in source ? "/api/site/in/messages" : `${source.api}/messages`;
+    const url = "token" in source ? "/api/site/in/office-notes" : `${source.api}/office-notes`;
     const headers: Record<string, string> = "token" in source ? { "x-message-token": source.token } : {};
     fetch(url, { headers })
       .then(async (r) => (r.ok ? ((await r.json()).messages as Msg[]) : []))
@@ -34,7 +34,7 @@ export default function CrewMessages({ source, className = "" }: { source: Sourc
     setBusy(id);
     setError(null);
     try {
-      const url = "token" in source ? "/api/site/in/messages" : `${source.api}/messages`;
+      const url = "token" in source ? "/api/site/in/office-notes" : `${source.api}/office-notes`;
       const body = { ...("token" in source ? { token: source.token } : {}), messageId: id, deviceId: deviceId() };
       const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       if (!res.ok && res.status !== 404) throw new Error(await serverErrorMessage(res, "Couldn't send - check your signal and try again."));

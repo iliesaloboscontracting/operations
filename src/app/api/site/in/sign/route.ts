@@ -178,7 +178,7 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
       // the sign-in time above is already saved; reopening the QR on this phone comes back to it (STATUS below).
       ...(where.place === "VEHICLE" ? { prestartRequired: await truckPrestartPending(signedIn.id).catch(() => false) } : {}),
       // Message at sign-in (23 Nov 2026): a token for this saved sign-in - the phone asks for its messages with it
-      // afterwards (/api/site/in/messages). No message is looked up here, so nothing about them can hold the sign-in up.
+      // afterwards (/api/site/in/office-notes). No message is looked up here, so nothing about them can hold the sign-in up.
       ...messageTokenFor(signedIn.id),
     });
   }
