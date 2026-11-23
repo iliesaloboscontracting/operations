@@ -60,14 +60,14 @@ export const inPayRun = (group: Group, reviewStatus: string | null) => group ===
 export const TRAVEL_HOOK = TRAVEL_PAY_RULE;
 // Draft: match Xero's import template. "Travel hours" (2 Nov 2026): regional travel legs (lib/travel/), hours only - not
 // a pay item. "Travel paid hours" (23-24 Nov 2026): the paid part (passenger 1 h less each way, own car / ute in full);
-// "not recorded" when a leg that day has hours but no mode (recorded before the question was asked).
+// Left blank when a leg that day has hours but no mode (recorded before the question was asked): the import file's number
+// columns are numbers or blank, never text. Those legs are counted in the summary file and shown on the Payroll screen.
 // "Of which tip run hours" (19 Nov 2026, SR-006): the part of Hours that is regional tip runs (lib/tipRun/) - they are worked hours on the
 // shift's pay item, shown again here so accounts can see them.
 export const EXPORT_COLUMNS = ["Employee", "Email", "Earnings Rate", "Date", "Hours", "Site", "Travel hours", "Travel paid hours", "Of which tip run hours"] as const;
 // A person's travel on one day for the pay-run file: hours, the paid hours, and whether a leg had no mode.
 export type DayTravel = { hours: number; paid: number; modeMissing: boolean; site: string; name: string };
-export const TRAVEL_PAID_NOT_RECORDED = "not recorded";
-const paidCell = (t: DayTravel) => (t.modeMissing ? TRAVEL_PAID_NOT_RECORDED : q4(t.paid));
+const paidCell = (t: DayTravel) => (t.modeMissing ? "" : q4(t.paid));
 export const csvCell = (v: string | number | null | undefined) => {
   const s = v == null ? "" : String(v);
   // No spreadsheet formulas: a cell starting with = + - @ (or a tab / CR, SEC-012) is quoted and prefixed with '.

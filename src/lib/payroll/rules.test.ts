@@ -57,7 +57,7 @@ test("the pay-run file: approved employees only, hours per person, pay item and 
   ]);
   // Regional travel (2 Nov 2026): on the person's first row of the day; a travel-only day gets its own row; never
   // for someone not approved; never added into Hours. Travel pay (23-24 Nov 2026): the paid hours next to it; a day
-  // with a leg that has no mode says "not recorded".
+  // with a leg that has no mode leaves it blank (the import file's number columns are numbers or blank, never text).
   const travel = new Map([
     ["r1|2026-10-27", { hours: 2.5, paid: 1.5, modeMissing: false, site: "Orange", name: "Sam Smith" }],
     ["r1|2026-10-28", { hours: 3, paid: 0, modeMissing: true, site: "Orange", name: "Sam Smith" }],
@@ -66,9 +66,11 @@ test("the pay-run file: approved employees only, hours per person, pay item and 
   const withTravel = payRunRows(lines, new Set(["r1"]), new Map([["r1", "sam@example.com"]]), travel);
   assert.deepEqual(withTravel.slice(1), [
     ["Sam Smith", "sam@example.com", "Ordinary Hours", "2026-10-27", 7.5, "Myers / Bronte", 2.5, 1.5, ""],
-    ["Sam Smith", "sam@example.com", "", "2026-10-28", 0, "Orange", 3, "not recorded", ""],
+    ["Sam Smith", "sam@example.com", "", "2026-10-28", 0, "Orange", 3, "", ""],
     ["Sam Smith", "sam@example.com", "Saturday Hours", "2026-10-31", 6, "Myers", "", "", ""],
   ]);
+  // Every number column of the import file is a number or blank - never text (Hours, Travel hours, Travel paid hours, tip run).
+  for (const r of withTravel.slice(1)) for (const i of [4, 6, 7, 8]) assert.ok(r[i] === "" || typeof r[i] === "number", `column ${i}: ${r[i]}`);
   assert.ok(fileIsSafe(toCsv(withTravel)));
   // Regional tip runs (19 Nov 2026): worked hours on the shift's pay item (night shift -> Night Hours), shown again
   // in "Tip run hours"; never for someone not approved.
