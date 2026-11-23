@@ -2887,3 +2887,82 @@ model SigninMessageSeen {
   @@unique([messageId, personKey])
   @@index([personKey])
 }
+
+// Bins (Ilies, 23 Nov 2026: "when a client asks us for a bin we deliver, take a photo of it delivered and same when
+// its picked up ... which job and whether it was a clients bin (were charging them) or it our bin for our jobs").
+// Lobos's own bins - a small register (size + label, e.g. "15 m³ (1)"). Managers and Admins add, rename and retire a
+// bin; nothing is deleted, every change is in RecordChange. The bins themselves are added through the API after
+// deploy (never seeded in code). Rules: src/lib/bins/rules.ts.
+model Bin {
+  id           String        @id @default(cuid())
+  size         String // M15 | M11 | M9 | M8 | HOOK (lib/bins/rules.ts BIN_SIZES)
+  label        String // "15 m³ (1)"
+  createdBy    String
+  createdById  String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  retiredAt    DateTime?
+  retiredBy    String?
+  retireReason String?
+  movements    BinMovement[]
+
+  @@index([size])
+}
+
+// One delivery of a bin to a project, and its pick-up: photo, job (a project), client's bin (charged to the client)
+// or our bin (for our job), the size / which bin, what's going in it. Sent from a SUPERVISOR or DRIVER link. Status
+// ON_SITE -> PICKED_UP (a conditional update - two phones can't both pick it up); a wrong entry is CANCELLED with a
+// reason, never deleted. onSiteKey = the bin's id while it's on site (unique - the same bin can't be delivered twice
+// while it's out). Office corrections and the tip docket decision are in RecordChange (model "BinMovement").
+// No money anywhere - charging is done elsewhere.
+model BinMovement {
+  id                    String     @id @default(cuid())
+  projectId             String
+  binId                 String?
+  bin                   Bin?       @relation(fields: [binId], references: [id], onDelete: Restrict)
+  size                  String // as BIN_SIZES - kept even when no bin was picked (not in the register yet)
+  use                   String // CLIENT | OURS
+  contents              String // one of lib/activityCodes.ts WASTE_CLASSES, or OTHER
+  contentsNote          String? // what it is when OTHER (and any note)
+  status                String     @default("ON_SITE") // ON_SITE | PICKED_UP | CANCELLED
+  onSiteKey             String?    @unique
+  deliveredAt           DateTime   @default(now())
+  deliveredBy           String // the person's name on the link
+  deliveredByResourceId String?
+  deliveredLinkId       String
+  pickedUpAt            DateTime?
+  pickedUpBy            String?
+  pickedUpByResourceId  String?
+  pickedUpLinkId        String?
+  // The tip docket (a TIP Receipt) a Manager+ confirmed for this pick-up - never set automatically.
+  tipReceiptId          String?
+  tipConfirmedBy        String?
+  tipConfirmedAt        DateTime?
+  tipRejectedIds        String? // JSON list of receipt ids a person said aren't this bin's
+  cancelledAt           DateTime?
+  cancelledBy           String?
+  cancelReason          String?
+  photos                BinPhoto[]
+
+  @@index([projectId])
+  @@index([status])
+  @@index([deliveredAt])
+  @@index([pickedUpAt])
+  @@index([tipReceiptId])
+}
+
+// A bin photo from a link (delivered / picked up). The file is stored like receipt photos (lib/receipts/files.ts,
+// RECEIPT_FILE_DIR - in the nightly backup); the office reads it through GET /api/bins/photos/:id behind a login.
+model BinPhoto {
+  id         String       @id @default(cuid())
+  fileName   String       @unique
+  siteLinkId String
+  takenBy    String
+  createdAt  DateTime     @default(now())
+  movementId String?
+  movement   BinMovement? @relation(fields: [movementId], references: [id], onDelete: Restrict)
+  stage      String? // DELIVERED | PICKED_UP
+
+  @@index([siteLinkId, createdAt])
+  @@index([movementId])
+}

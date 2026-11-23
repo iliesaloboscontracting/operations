@@ -36,6 +36,8 @@ export const MAY_ANSWER = {
     /^\/api\/day-review\/site-logs(\/photo|\/before-after)?$/, /^\/api\/calendar(\/spans)?$/, /^\/api\/projects$/, /^\/api\/resources$/,
     /^\/api\/hire-(alerts|checks)$/, /^\/api\/tools$/, /^\/api\/toolboxes$/, /^\/api\/tool-issues$/, /^\/api\/stock-takes$/, /^\/api\/purchases$/,
     /^\/api\/messages(\/|$)/, /^\/api\/documents(\/|$)/, /^\/api\/queries$/, /^\/api\/inventory$/,
+    /^\/api\/bins$/, // bins out and picked up, view only (23 Nov 2026, guardOrCoordinator; checks/99-bins.mjs)
+    /^\/api\/push$/, // his own phone alerts - client's bin delivered (Ilies, 23 Nov 2026; checks/99-bins.mjs)
     /^\/api\/faults(\/(checks|flags|today))?$/], // vehicle & plant faults + pre-start checks (8 Nov 2026, guardFaults; checks/74-prestart.mjs) + "Pre-starts today" (23 Nov 2026, 101-prestart-today)
   // Both: the yard stock take list (/api/stock-takes, Yard Stage B 4 Nov 2026 - Tools access; checks/71-stock-take.mjs)
   // and the consumables inventory (/api/inventory, Yard Stage C 4 Nov 2026 - Tools access; checks/72-inventory.mjs).

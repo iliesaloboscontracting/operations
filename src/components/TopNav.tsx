@@ -25,6 +25,8 @@ const OPERATIONS = [
   { href: "/completed", label: "Completed" },
   { href: "/day-review", label: "Day Review" },
   { href: "/receipts", label: "Receipts" },
+  // Bins (23 Nov 2026): delivered / picked up from the links - Managers and Admins (the coordinator has it on his screen).
+  { href: "/bins", label: "Bins" },
   { href: "/attendance", label: "Sign-ins" },
   // The truck and plant pre-starts (23 Nov 2026, Ilies couldn't find them under Registers -> Faults): the Checks tab
   // straight away. The same people as before - Managers and Admins here (filtered below), the coordinator and the yard
@@ -134,6 +136,7 @@ const COORDINATOR = [
   { href: "/faults", label: "Faults" }, // vehicle & plant faults, pre-start checks (8 Nov 2026)
   { href: PRESTARTS_HREF, label: "Pre-starts" }, // the Checks tab (23 Nov 2026)
   { href: "/hire", label: "Hire" },
+  { href: "/bins", label: "Bins" }, // view only (23 Nov 2026)
   { href: "/purchases", label: "Purchases" },
   { href: "/messages", label: "Messages" },
   { href: "/documents", label: "Documents" },
@@ -278,7 +281,7 @@ export default function TopNav() {
             <Divider />
           </>
         )}
-        {OPERATIONS.filter((i) => (i.href !== "/tracking" && i.href !== "/invoices" && i.href !== "/assistant" && i.href !== "/attendance" && i.href !== PRESTARTS_HREF && i.href !== "/timesheets" && i.href !== "/timesheets/labour-hire" && i.href !== "/requests" && i.href !== "/office-requests" && i.href !== "/purchases" && i.href !== "/questions" && i.href !== "/messages" && i.href !== "/receipts" && i.href !== "/documents") || canEdit).filter((i) => i.href !== "/questions" || myQuestions >= 0).map((i) => (
+        {OPERATIONS.filter((i) => (i.href !== "/tracking" && i.href !== "/invoices" && i.href !== "/assistant" && i.href !== "/attendance" && i.href !== PRESTARTS_HREF && i.href !== "/timesheets" && i.href !== "/timesheets/labour-hire" && i.href !== "/requests" && i.href !== "/office-requests" && i.href !== "/purchases" && i.href !== "/questions" && i.href !== "/messages" && i.href !== "/receipts" && i.href !== "/bins" && i.href !== "/documents") || canEdit).filter((i) => i.href !== "/questions" || myQuestions >= 0).map((i) => (
           <NavTab
             key={i.href}
             href={i.href}
