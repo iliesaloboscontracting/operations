@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { Check, Loader2, MessageSquare } from "lucide-react";
 import { serverErrorMessage } from "@/lib/apiFetch";
-import { deviceId } from "@/lib/signinDevice";
+import { deviceId, PASS_KEY, store } from "@/lib/signinDevice";
 
 // Message at sign-in (23 Nov 2026): the office's notes for this person - after a QR sign-in (the sign-in's own token)
 // or on their own SUPERVISOR / DRIVER link home. Each one: the words, the day, and "Got it" (seen once overall). Shown
@@ -21,7 +21,9 @@ export default function CrewMessages({ source, className = "" }: { source: Sourc
   useEffect(() => {
     let off = false;
     const url = "token" in source ? "/api/site/in/office-notes" : `${source.api}/office-notes`;
-    const headers: Record<string, string> = "token" in source ? { "x-message-token": source.token } : {};
+    // SM-001: the phone's travel pass (if it has one) helps show it's this person's phone - the server checks it.
+    const pass = "token" in source ? store<string>(PASS_KEY) : null;
+    const headers: Record<string, string> = "token" in source ? { "x-message-token": source.token, ...(pass ? { "x-travel-pass": pass } : {}) } : {};
     fetch(url, { headers })
       .then(async (r) => (r.ok ? ((await r.json()).messages as Msg[]) : []))
       .then((m) => { if (!off) setMessages(Array.isArray(m) ? m : []); })
@@ -35,7 +37,8 @@ export default function CrewMessages({ source, className = "" }: { source: Sourc
     setError(null);
     try {
       const url = "token" in source ? "/api/site/in/office-notes" : `${source.api}/office-notes`;
-      const body = { ...("token" in source ? { token: source.token } : {}), messageId: id, deviceId: deviceId() };
+      const pass = "token" in source ? store<string>(PASS_KEY) : null;
+      const body = { ...("token" in source ? { token: source.token, ...(pass ? { pass } : {}) } : {}), messageId: id, deviceId: deviceId() };
       const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       if (!res.ok && res.status !== 404) throw new Error(await serverErrorMessage(res, "Couldn't send - check your signal and try again."));
       setMessages((m) => m.filter((x) => x.id !== id));

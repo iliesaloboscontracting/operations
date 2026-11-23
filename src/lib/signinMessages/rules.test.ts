@@ -4,10 +4,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
-  MESSAGE_LIMITS, addDays, hireKey, mayMark, messagesFor, officeView, parseArchive, parseMessage, personKeyOf, rateRefusal,
+  MESSAGE_LIMITS, addDays, hireKey, isKnownDevice, mayMark, messagesFor, officeView, parseArchive, parseMessage, personKeyOf, rateRefusal,
   statusOf, textRefusal, toCrew, type MessageRow,
 } from "./rules";
-import { makeMessageToken, readMessageToken } from "../signin";
+import { makeMessageToken, makeTravelPass, readMessageToken, readTravelPass, readTravelPassIssued } from "../signin";
 
 const TODAY = "2026-11-23";
 const src = (rel: string) => readFileSync(new URL(rel, import.meta.url), "utf8");
@@ -75,7 +75,7 @@ test("who sees which: own + everyone; never another person's; not archived, fini
     msg({ id: "seen" }),
   ];
   const recipients = new Map([["mine", new Set(["r1"])], ["theirs", new Set(["r2"])]]);
-  const ids = (who: Parameters<typeof personKeyOf>[0], seen = new Set(["seen"])) => messagesFor({ messages, recipients, seen, who, today: TODAY }).map((m) => m.id).sort().join();
+  const ids = (who: Parameters<typeof personKeyOf>[0], seen = new Set(["seen"])) => messagesFor({ messages, recipients, seen, who, today: TODAY, knownDevice: true }).map((m) => m.id).sort().join();
   assert.equal(ids({ resourceId: "r1" }), "all,lastday,mine");
   assert.equal(ids({ resourceId: "r2" }), "all,lastday,theirs");
   assert.equal(ids({ resourceId: "r3" }), "all,lastday");
@@ -85,15 +85,56 @@ test("who sees which: own + everyone; never another person's; not archived, fini
   assert.equal(statusOf(msg({ id: "x", showUntil: TODAY }), addDays(TODAY, 1)), "EXPIRED");
   assert.equal(statusOf(msg({ id: "x", archivedAt: new Date() }), TODAY), "ARCHIVED");
   const lots = Array.from({ length: 9 }, (_, i) => msg({ id: `m${i}`, createdAt: new Date(Date.UTC(2026, 10, 20, i)) }));
-  const shown = messagesFor({ messages: lots, recipients: new Map(), seen: new Set(), who: { resourceId: "r1" }, today: TODAY });
+  const shown = messagesFor({ messages: lots, recipients: new Map(), seen: new Set(), who: { resourceId: "r1" }, today: TODAY, knownDevice: true });
   assert.equal(shown.length, MESSAGE_LIMITS.showMax);
   assert.equal(shown[0].id, "m8", "newest first");
   // "Got it": only on a live message that is theirs to see.
-  assert.equal(mayMark(msg({ id: "a" }), undefined, { hire: { name: "Sam", company: "A" } }, TODAY), true);
-  assert.equal(mayMark(msg({ id: "p", audience: "PEOPLE" }), new Set(["r2"]), { resourceId: "r1" }, TODAY), false);
-  assert.equal(mayMark(msg({ id: "p", audience: "PEOPLE" }), new Set(["r1"]), { resourceId: "r1" }, TODAY), true);
-  assert.equal(mayMark(msg({ id: "p", audience: "PEOPLE" }), undefined, { hire: { name: "r1", company: "x" } }, TODAY), false);
-  assert.equal(mayMark(msg({ id: "x", archivedAt: new Date() }), undefined, { resourceId: "r1" }, TODAY), false);
+  assert.equal(mayMark(msg({ id: "a" }), undefined, { hire: { name: "Sam", company: "A" } }, TODAY, false), true);
+  assert.equal(mayMark(msg({ id: "p", audience: "PEOPLE" }), new Set(["r2"]), { resourceId: "r1" }, TODAY, true), false);
+  assert.equal(mayMark(msg({ id: "p", audience: "PEOPLE" }), new Set(["r1"]), { resourceId: "r1" }, TODAY, true), true);
+  assert.equal(mayMark(msg({ id: "p", audience: "PEOPLE" }), undefined, { hire: { name: "r1", company: "x" } }, TODAY, true), false);
+  assert.equal(mayMark(msg({ id: "x", archivedAt: new Date() }), undefined, { resourceId: "r1" }, TODAY, true), false);
+});
+
+test("SM-001 B: a person's messages show after a QR sign-in only on a phone already known to be theirs", () => {
+  const messages = [msg({ id: "all" }), msg({ id: "mine", audience: "PEOPLE" }), msg({ id: "theirs", audience: "PEOPLE" })];
+  const recipients = new Map([["mine", new Set(["r1"])], ["theirs", new Set(["r2"])]]);
+  const ids = (knownDevice: boolean) => messagesFor({ messages, recipients, seen: new Set(), who: { resourceId: "r1" }, today: TODAY, knownDevice }).map((m) => m.id).sort().join();
+  assert.equal(ids(true), "all,mine", "a known device: their own + everyone");
+  assert.equal(ids(false), "all", "an unknown device: everyone only");
+  // "Got it" on their own message from an unknown phone: refused (the route answers 404, as for a missing message).
+  assert.equal(mayMark(msg({ id: "mine", audience: "PEOPLE" }), new Set(["r1"]), { resourceId: "r1" }, TODAY, false), false);
+  assert.equal(mayMark(msg({ id: "all" }), undefined, { resourceId: "r1" }, TODAY, false), true, "an everyone message is still fine");
+
+  const at = new Date("2026-11-23T20:00:00Z");
+  const base = { resourceId: "r1", deviceId: "dev1", earlierSameDevice: 0, pass: null, signInAt: at };
+  assert.equal(isKnownDevice(base), false, "first time on this phone");
+  assert.equal(isKnownDevice({ ...base, earlierSameDevice: 1 }), true, "a confirmed sign-in of theirs on this phone on an earlier day");
+  assert.equal(isKnownDevice({ ...base, earlierSameDevice: 1, deviceId: null }), false, "no device id: never known");
+  assert.equal(isKnownDevice({ ...base, earlierSameDevice: 1, resourceId: null }), false, "a hire worker: never");
+  assert.equal(isKnownDevice({ ...base, pass: { resourceId: "r1", issuedAt: at.getTime() - 86_400_000 } }), true, "their travel pass, made before this sign-in");
+  assert.equal(isKnownDevice({ ...base, pass: { resourceId: "r2", issuedAt: at.getTime() - 86_400_000 } }), false, "someone else's pass");
+  assert.equal(isKnownDevice({ ...base, pass: { resourceId: "r1", issuedAt: at.getTime() + 1_000 } }), false, "a pass this very sign-in made proves nothing yet");
+
+  // The pass reader: tied to the phone, made-at time recovered.
+  process.env.AUTH_SECRET ??= "test-secret-test-secret-test-secret";
+  const pass = makeTravelPass("r1", "dev1", 5_000);
+  assert.deepEqual(readTravelPassIssued(pass, "dev1", 6_000), { resourceId: "r1", issuedAt: 5_000 });
+  assert.equal(readTravelPassIssued(pass, "dev2", 6_000), null, "another phone can't use it");
+  assert.equal(readTravelPass(pass, "dev1", 6_000), "r1", "the travel page's reader is unchanged");
+});
+
+test("SM-001 B, source: the QR path asks whether the phone is known; the link path always shows their own", () => {
+  const qr = src("../../app/api/site/in/office-notes/route.ts");
+  assert.ok(/crewMessages\(who\.who, \{ knownDevice: who\.knownDevice \}\)/.test(qr), "QR list: restricted by the sign-in's device");
+  assert.ok(/knownDevice: who\.knownDevice, attendanceId/.test(qr), "QR Got it: restricted the same way");
+  const link = src("../../app/api/site/[token]/office-notes/route.ts");
+  assert.ok(/crewMessages\(\{ resourceId: link\.person\.id \}, \{ knownDevice: true \}\)/.test(link) && /knownDevice: true, siteLinkId/.test(link), "the person's own link: their own messages too");
+  const store = src("./store.ts");
+  assert.ok(/status: "CONFIRMED", removedAt: null, date: \{ lt: a\.date \}/.test(store), "known = a confirmed, not removed sign-in on an earlier day");
+  assert.ok(/readTravelPassIssued\(opts\.pass, deviceId\)/.test(store), "the pass is checked against the sign-in's own device id");
+  assert.ok(/isKnownDevice\(/.test(store) && /"resourceId" in who && knownDevice \? who\.resourceId : null/.test(store), "an unknown device never reads their recipient rows");
+  assert.ok(/Messages to a person show on their own phone or link only\./.test(src("../../components/attendance/SigninMessagesPanel.tsx")), "the office is told");
 });
 
 test("the phone gets the words and the day only - never who else, never the writer's login", () => {

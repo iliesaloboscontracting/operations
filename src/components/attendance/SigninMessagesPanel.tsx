@@ -96,6 +96,8 @@ function Compose({ data, onCancel, onSent }: { data: Data; onCancel: () => void;
           {found.map((p) => (
             <button key={p.id} className="block w-full rounded-md px-2 py-1 text-left text-gray-200 hover:bg-panel2" onClick={() => { setPicked([...picked, p]); setQ(""); }}>{p.name}</button>
           ))}
+          {/* SM-001 option B (Ilies, 23 Nov 2026): a person's messages show on their own phone or link only. */}
+          <p className="text-gray-500">Messages to a person show on their own phone or link only.</p>
         </div>
       )}
       {everyone && <p className="text-gray-500">Everyone who signs in - staff and labour hire workers - sees it once.</p>}

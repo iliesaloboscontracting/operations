@@ -115,22 +115,42 @@ export const statusOf = (m: Pick<MessageRow, "archivedAt" | "showUntil">, today:
   m.archivedAt ? "ARCHIVED" : m.showUntil < today ? "EXPIRED" : "LIVE";
 export const STATUS_LABEL: Record<MessageStatus, string> = { LIVE: "Showing", EXPIRED: "Finished", ARCHIVED: "Archived" };
 
+// SM-001, option B (Ilies, 23 Nov 2026: "B: Only their own phone"). Anyone can pick a name at a QR, so a message to a
+// person (PEOPLE) shows after a QR sign-in only when the phone is already known to be that person's: the sign-in's
+// device id was on a CONFIRMED sign-in of theirs on an earlier day (not removed, not REJECTED), or the phone holds a
+// valid travel pass for them made before this sign-in (lib/signin.ts makeTravelPass - tied to them and this phone).
+// Otherwise the QR shows "everyone" messages only. Their own SUPERVISOR / DRIVER link is personal (its secret is
+// theirs), so it always counts as known. The office view is unchanged.
+export function isKnownDevice(o: {
+  resourceId: string | null; deviceId: string | null;
+  /** CONFIRMED, not removed sign-ins by this person on this device on an earlier day. */
+  earlierSameDevice: number;
+  /** Who the phone's travel pass names (checked against this sign-in's device), and when it was made (ms). */
+  pass: { resourceId: string; issuedAt: number } | null;
+  signInAt: Date;
+}): boolean {
+  if (!o.resourceId || !o.deviceId) return false;
+  if (o.earlierSameDevice > 0) return true;
+  return !!o.pass && o.pass.resourceId === o.resourceId && o.pass.issuedAt < o.signInAt.getTime();
+}
+
 // The messages this person should see now: live (not archived, not past its day), for everyone or naming them (a
-// Labour-register person only), and not seen by them yet. Newest first, at most showMax. recipients: messageId -> the
-// resourceIds it names. seen: the ids of messages this person has already seen.
-export function messagesFor<M extends MessageRow>(o: { messages: M[]; recipients: Map<string, Set<string>>; seen: Set<string>; who: Who; today: string }): M[] {
-  const rid = "resourceId" in o.who ? o.who.resourceId : null;
+// Labour-register person on a known device or their own link only - SM-001), and not seen by them yet. Newest first,
+// at most showMax. recipients: messageId -> the resourceIds it names. seen: the ids of messages this person has seen.
+export function messagesFor<M extends MessageRow>(o: { messages: M[]; recipients: Map<string, Set<string>>; seen: Set<string>; who: Who; today: string; knownDevice: boolean }): M[] {
+  const rid = "resourceId" in o.who && o.knownDevice ? o.who.resourceId : null;
   return o.messages
     .filter((m) => statusOf(m, o.today) === "LIVE" && !o.seen.has(m.id))
     .filter((m) => m.audience === "ALL" || (m.audience === "PEOPLE" && !!rid && !!o.recipients.get(m.id)?.has(rid)))
     .sort((a, b) => String(iso(b.createdAt)).localeCompare(String(iso(a.createdAt))))
     .slice(0, MESSAGE_LIMITS.showMax);
 }
-// Whether this person may mark this message seen (it's theirs to see - seen or not).
-export function mayMark(m: MessageRow, recipients: Set<string> | undefined, who: Who, today: string): boolean {
+// Whether this person may mark this message seen (it's theirs to see - seen or not). A PEOPLE message needs a known
+// device (or their own link) - from an unknown phone it's the same as a message that isn't there.
+export function mayMark(m: MessageRow, recipients: Set<string> | undefined, who: Who, today: string, knownDevice: boolean): boolean {
   if (statusOf(m, today) !== "LIVE") return false;
   if (m.audience === "ALL") return true;
-  return "resourceId" in who && !!recipients?.has(who.resourceId);
+  return knownDevice && "resourceId" in who && !!recipients?.has(who.resourceId);
 }
 
 const iso = (d: Date | string | null) => (d == null ? null : typeof d === "string" ? d : d.toISOString());

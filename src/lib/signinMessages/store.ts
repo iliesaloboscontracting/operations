@@ -4,8 +4,9 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../prisma";
 import { writeLock, type Who as By } from "../history/store";
 import { todaySydney } from "../today";
+import { readTravelPassIssued } from "../signin";
 import {
-  mayMark, messagesFor, officeView, personKeyOf, rateRefusal, toCrew,
+  isKnownDevice, mayMark, messagesFor, officeView, personKeyOf, rateRefusal, toCrew,
   type CrewMessage, type MessageInput, type OfficeMessage, type SeenWhere, type Who,
 } from "./rules";
 
@@ -49,10 +50,11 @@ export async function archiveMessage(id: string, reason: string | null, by: By):
   return { ok: true };
 }
 
-// Live messages and what this person has seen of them.
-async function liveFor(who: Who, today: string) {
+// Live messages and what this person has seen of them. An unknown device (SM-001) never reads their recipient rows -
+// it gets the "everyone" messages only.
+async function liveFor(who: Who, today: string, knownDevice: boolean) {
   const key = personKeyOf(who);
-  const rid = "resourceId" in who ? who.resourceId : null;
+  const rid = "resourceId" in who && knownDevice ? who.resourceId : null;
   // Only their own rows are read - never another person's recipients or "Got it".
   const recips = rid ? await prisma.signinMessageRecipient.findMany({ where: { resourceId: rid }, select: { messageId: true, resourceId: true } }) : [];
   const messages = await prisma.signinMessage.findMany({
@@ -69,22 +71,25 @@ async function liveFor(who: Who, today: string) {
   return { messages, recipients, seen: new Set(seen.map((s) => s.messageId)) };
 }
 
-// What this person's phone shows: their own unseen messages and the "everyone" ones - only the words and the day.
-export async function crewMessages(who: Who, today = todaySydney()): Promise<CrewMessage[]> {
-  const live = await liveFor(who, today);
-  return messagesFor({ ...live, who, today }).map(toCrew).filter((m): m is CrewMessage => !!m);
+// What this person's phone shows: their own unseen messages (known device / own link only - SM-001) and the
+// "everyone" ones - only the words and the day.
+export async function crewMessages(who: Who, opts: { knownDevice: boolean }, today = todaySydney()): Promise<CrewMessage[]> {
+  const live = await liveFor(who, today, opts.knownDevice);
+  return messagesFor({ ...live, who, today, knownDevice: opts.knownDevice }).map(toCrew).filter((m): m is CrewMessage => !!m);
 }
 
 // "Got it": one row per message per person (a second tap, or the other screen, finds it already there).
 export async function markSeen(
-  messageId: string, who: Who, ctx: { deviceId: string | null; where: SeenWhere; attendanceId?: string | null; siteLinkId?: string | null }, today = todaySydney(),
+  messageId: string, who: Who,
+  ctx: { deviceId: string | null; where: SeenWhere; knownDevice: boolean; attendanceId?: string | null; siteLinkId?: string | null }, today = todaySydney(),
 ): Promise<{ ok: true } | Problem> {
   const m = await prisma.signinMessage.findUnique({ where: { id: messageId } });
-  const rids = m?.audience === "PEOPLE" && "resourceId" in who
+  const rids = m?.audience === "PEOPLE" && "resourceId" in who && ctx.knownDevice
     ? new Set((await prisma.signinMessageRecipient.findMany({ where: { messageId, resourceId: who.resourceId }, select: { resourceId: true } })).map((r) => r.resourceId))
     : undefined;
-  // Not theirs, archived or finished: the same answer as a message that isn't there - nothing about other people's.
-  if (!m || !mayMark(m, rids, who, today)) return { error: "That message isn't there.", status: 404 };
+  // Not theirs, a person's message from an unknown phone (SM-001), archived or finished: the same answer as a message
+  // that isn't there - nothing about other people's.
+  if (!m || !mayMark(m, rids, who, today, ctx.knownDevice)) return { error: "That message isn't there.", status: 404 };
   try {
     await prisma.signinMessageSeen.create({
       data: {
@@ -102,13 +107,27 @@ export async function markSeen(
   return { ok: true };
 }
 
-// Who a sign-in was: the person on it (a Labour-register person, or the hire worker's typed name and company).
-export async function whoSignedIn(attendanceId: string): Promise<{ who: Who; attendanceId: string } | null> {
-  const a = await prisma.siteAttendance.findUnique({ where: { id: attendanceId }, select: { id: true, resourceId: true, workerName: true, company: true, status: true } });
+// Who a sign-in was: the person on it (a Labour-register person, or the hire worker's typed name and company), and
+// whether the phone is already known to be theirs (SM-001, rules.ts isKnownDevice): the sign-in's own device id on a
+// CONFIRMED, not removed sign-in of theirs on an earlier day, or the travel pass the phone sent - checked against the
+// sign-in's device id (never one the phone names), and made before this sign-in.
+export async function whoSignedIn(attendanceId: string, opts: { pass?: unknown } = {}): Promise<{ who: Who; attendanceId: string; knownDevice: boolean } | null> {
+  const a = await prisma.siteAttendance.findUnique({
+    where: { id: attendanceId },
+    select: { id: true, resourceId: true, workerName: true, company: true, status: true, deviceId: true, date: true, signInAt: true },
+  });
   if (!a || a.status === "REJECTED") return null;
-  if (a.resourceId) return { who: { resourceId: a.resourceId }, attendanceId: a.id };
+  if (a.resourceId) {
+    const deviceId = a.deviceId || null;
+    const earlierSameDevice = deviceId
+      ? await prisma.siteAttendance.count({ where: { resourceId: a.resourceId, deviceId, status: "CONFIRMED", removedAt: null, date: { lt: a.date }, id: { not: a.id } } })
+      : 0;
+    const pass = deviceId && opts.pass ? readTravelPassIssued(opts.pass, deviceId) : null;
+    const knownDevice = isKnownDevice({ resourceId: a.resourceId, deviceId, earlierSameDevice, pass, signInAt: a.signInAt });
+    return { who: { resourceId: a.resourceId }, attendanceId: a.id, knownDevice };
+  }
   if (!a.workerName || !a.company) return null;
-  return { who: { hire: { name: a.workerName, company: a.company } }, attendanceId: a.id };
+  return { who: { hire: { name: a.workerName, company: a.company } }, attendanceId: a.id, knownDevice: false };
 }
 
 // The office's list: the newest messages (live, finished and archived), each with seen / not seen yet.

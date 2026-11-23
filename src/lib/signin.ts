@@ -153,10 +153,15 @@ export function makeTravelPass(resourceId: string, deviceId: string, now = Date.
   return sign(`P|${resourceId}|${deviceId}|${now + PASS_MS}`);
 }
 export function readTravelPass(pass: unknown, deviceId: unknown, now = Date.now()): string | null {
+  return readTravelPassIssued(pass, deviceId, now)?.resourceId ?? null;
+}
+// The same check, plus when the pass was made (Message at sign-in, SM-001: a pass made before a sign-in shows the phone
+// was already this person's).
+export function readTravelPassIssued(pass: unknown, deviceId: unknown, now = Date.now()): { resourceId: string; issuedAt: number } | null {
   const p = unsign(pass);
   if (!p || typeof deviceId !== "string" || !deviceId) return null;
   const [kind, resourceId, dev, exp] = p.split("|");
-  return kind === "P" && resourceId && dev === deviceId.slice(0, 64) && Number(exp) >= now ? resourceId : null;
+  return kind === "P" && resourceId && dev === deviceId.slice(0, 64) && Number(exp) >= now ? { resourceId, issuedAt: Number(exp) - PASS_MS } : null;
 }
 
 // --- which jobs are open for sign-in -----------------------------------------
