@@ -7,6 +7,9 @@
 //      reopening the QR on the same phone hands the pre-start back (STATUS, body only - PS-005; never after sign-out -
 //      PS-006), sign-out is never blocked, a later sign-in the same day stays optional, and a full odometer photo limit
 //      never traps a driver.
+//   Security fixes (Ilies approved 23 Nov 2026, "yes i approve"): PT-002 - a resumed screen gets no odometer token once
+//   the odometer is in; PT-003 - "required" counts from midnight of the sign-in's date; PT-005 - a 401 on a required
+//   screen says to scan the truck QR again. Hook bins are left out of "no QR sticker yet" (Ilies, 23 Nov 2026).
 // WRITES on the test copy: two trucks (+ QR links), four drivers, two owned machines (one with a plant QR), sign-ins,
 // odometer readings and photos, walk-around photos, checks, seeded receipt-photo rows (removed again); everyone signed
 // out, trucks / drivers / machines switched off and the links revoked at the end.
@@ -97,6 +100,8 @@ export default {
       t.ok(/noSkip=\{prestartRequired\}/.test(page) && /noSkip \? \(/.test(page), "the phone's odometer step shows no skip when required");
       t.ok(/prestartSkippable\(\{ required: !!view\.required, capped \}\)/.test(check) && /skippable \? \(/.test(check), "the checklist hides Do it later while required (only a photo limit brings it back)");
       t.ok(/onSignOut/.test(check) && /signOutInstead/.test(page), "the required screens still offer Sign out");
+      t.ok(/requiredTimeoutMessage\(noSkip, res\.status\)/.test(page) && (check.match(/timedOut\(/g) ?? []).length >= 4,
+        "PT-005: a 401 on a required odometer / pre-start screen says to scan the truck QR again");
     }
 
     // (2) Until it's sent: red "Pre-start not done" on the Checks tab, Sign-ins and the card.
@@ -133,6 +138,10 @@ export default {
 
     // (5) A sends it (odometer + walk-around): Done everywhere, nothing more to resume.
     t.status(await odometer(stA.body?.odometer, { dataUrl: uniqPng() }), 201, "the odometer photo (resumed token)");
+    // PT-002: once the odometer is in, a resumed screen gets the pre-start but no odometer token (it can't be replaced).
+    const stA1 = await sign(T, "STATUS", A);
+    t.ok(typeof stA1.body?.prestart === "string" && stA1.body?.prestartRequired === true && stA1.body?.odometer === undefined && stA1.body?.odometerSent === true,
+      "PT-002: STATUS after the odometer is sent (pre-start still pending) - pre-start token, NO odometer token, odometerSent", JSON.stringify({ o: stA1.body?.odometer ?? null, s: stA1.body?.odometerSent }));
     const walk = await walkAll(stA.body?.prestart);
     const sent = await submit(stA.body?.prestart, { answers: allOk(PRE), walkaround: walk });
     t.ok(sent.status === 201 && sent.body?.walkaround === "DONE", "A's pre-start is sent (from the resumed screen)", sent.status);
@@ -177,6 +186,36 @@ export default {
       await db.receiptPhoto.deleteMany({ where: { id: { in: seeded } } });
     }
 
+    // (7b) PT-003: "required" counts the truck's pre-starts from midnight of the SIGN-IN's date - a sign-in dated yesterday,
+    // still open after midnight, on a truck checked yesterday evening by someone else stays optional; with no pre-start on
+    // that truck that day it's still required. (Rows written straight to the test copy - a sign-in can't be back-dated.)
+    {
+      const sydHour = new Intl.DateTimeFormat("en-CA", { timeZone: "Australia/Sydney", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", hourCycle: "h23" });
+      const midnight = [10, 11].map((h) => new Date(Date.parse(`${c.today}T00:00:00Z`) - h * 3_600_000)).find((d) => sydHour.format(d).replace(",", "") === `${c.today} 00`)
+        ?? new Date(Date.now() - 3_600_000);
+      const y = new Date(`${c.today}T12:00:00Z`); y.setUTCDate(y.getUTCDate() - 1);
+      const yesterday = y.toISOString().slice(0, 10);
+      const lastEvening = new Date(midnight.getTime() - 6 * 3_600_000); // 6pm yesterday, Sydney
+      const [E, F, G] = [await mkPerson("e"), await mkPerson("f"), await mkPerson("g")];
+      const backDated = (tr, who, o = {}) => db.siteAttendance.create({
+        data: {
+          place: "VEHICLE", vehicleId: tr.id, placeLabel: tr.name, date: yesterday, resourceId: who.id, workerName: who.name, allocated: true,
+          deviceId: `rc101-${who.id}`, signInAt: new Date(Date.now() - 2 * 3_600_000), signInMethod: "POINT", status: "CONFIRMED", ...o,
+        },
+      });
+      const T3 = await mkTruck(), T4 = await mkTruck();
+      const fAtt = await backDated(T3, F, { signInAt: new Date(lastEvening.getTime() - 3_600_000), signOutAt: new Date(lastEvening.getTime() + 3_600_000), signOutMethod: "POINT" });
+      await db.prestartCheck.create({ data: { resourceId: T3.id, resourceName: T3.name, resourceType: "VEHICLE", kind: "PRE", attendanceId: fAtt.id, personId: F.id, personName: F.name, checklist: "truck-pre.v1", answers: "[]", walkaround: "DONE", createdAt: lastEvening } });
+      await backDated(T3, E);
+      const stE = await sign(T3, "STATUS", E);
+      t.ok(stE.status === 200 && stE.body?.signedIn === true && !stE.body?.prestart && !stE.body?.prestartRequired,
+        "PT-003: a sign-in dated yesterday, still open after midnight, on a truck checked yesterday by someone else - not required (no pre-start handed back)", JSON.stringify({ s: stE.status, r: stE.body?.prestartRequired ?? null }));
+      await backDated(T4, G);
+      const stG = await sign(T4, "STATUS", G);
+      t.ok(stG.status === 200 && stG.body?.prestartRequired === true && typeof stG.body?.prestart === "string",
+        "PT-003: a sign-in dated yesterday on a truck with no pre-start that day - still required (handed back)", JSON.stringify({ s: stG.status, r: stG.body?.prestartRequired ?? null }));
+    }
+
     // (8) Machines: an owned machine with a sticker is listed; one with none counts in "no QR sticker yet".
     {
       const noneBefore = (await card()).body?.noSticker ?? -1;
@@ -190,6 +229,11 @@ export default {
       t.ok(m1?.status === "NOT_DONE" && m1.label === "No pre-start" && m1.needed === false && m1.href === `/faults?tab=checks&date=${c.today}&row=${M1.id}`, "the card: a stickered machine not booked today - 'No pre-start', not counted as missing", JSON.stringify(m1 ?? null));
       t.ok(!cm?.machines?.some((x) => x.id === M2.id), "a machine with no sticker and no booking isn't listed");
       t.ok(cm?.noSticker === noneBefore + 1 && /^\d+ machines? (has|have) no QR sticker yet$/.test(cm?.noStickerText ?? ""), "...but counts in 'N machines have no QR sticker yet'", `${noneBefore} -> ${cm?.noSticker}`);
+      // Hook bins never get a sticker (Ilies, 23 Nov 2026) - category "Bins" / role "Bin" / "Hook Bin" in the name.
+      const HB = await db.resource.create({ data: { type: "EQUIPMENT", category: "Bins", role: "Bin", name: `Hook Bin RC101 ${tag}`, ownership: "OWNED", status: "AVAILABLE" } });
+      machines.push(HB.id);
+      const cb = (await card()).body;
+      t.ok(cb?.noSticker === noneBefore + 1 && !cb?.machines?.some((x) => x.id === HB.id), "a hook bin isn't counted in 'no QR sticker yet' and isn't listed", `${noneBefore + 1} -> ${cb?.noSticker}`);
     }
 
     // (9) Who sees it: exactly the Checks tab's people; the nav link only for them.

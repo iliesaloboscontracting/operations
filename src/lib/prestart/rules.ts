@@ -169,6 +169,10 @@ export function truckPrestartRequired(s: { fromQr: boolean; signedOut: boolean; 
 // Every photo limit lets a driver through (PS-010 / PS-012) - and on a REQUIRED pre-start nothing may trap them: once a
 // photo is refused for a limit (429), the phone offers "Do it later" again (`capped`). The office still sees it red.
 export const prestartSkippable = (o: { required: boolean; capped: boolean }) => !o.required || o.capped;
+// PT-005 (Ilies approved 23 Nov 2026): on a required screen a 401 (the 2-hour pre-start / 30-minute odometer token ran
+// out) says how to carry on - scanning the truck QR again resumes it (STATUS hands a fresh token back).
+export const TRUCK_TIMED_OUT = "That's timed out - scan the truck QR again to carry on.";
+export const requiredTimeoutMessage = (required: boolean, status: number) => (required && status === 401 ? TRUCK_TIMED_OUT : null);
 
 // The office's word for one truck sign-in's pre-start (Checks tab, Sign-ins, the card). A truck QR sign-in with no
 // pre-start of its own while the truck had none by the time it ended (or by now, still open) = "Pre-start not done"
@@ -203,9 +207,15 @@ export function cardCounts(rows: { status: CardStatus; needed?: boolean }[]) {
     faults: needed.filter((r) => r.status === "FAULT").length,
   };
 }
-// "9 machines have no QR sticker yet": Lobos-owned plant (plantQrAllowed) with no switched-on PLANT QR.
-export const noStickerCount = (machines: { id: string; type: string; ownership: string | null; active: boolean }[], stickered: Set<string>) =>
-  machines.filter((m) => plantQrAllowed(m) && !stickered.has(m.id)).length;
+// Hook bins are owned EQUIPMENT on the register but never get a QR sticker (Ilies, 23 Nov 2026: stickers for the real
+// machines only). On the register they're category "Bins", role "Bin", named "Hook Bin #n" - any one of the three.
+export const isHookBin = (r: { name?: string | null; category?: string | null; role?: string | null }) =>
+  (r.category ?? "").trim().toLowerCase() === "bins" || (r.role ?? "").trim().toLowerCase() === "bin" || /\bhook\s*bins?\b/i.test(r.name ?? "");
+// "9 machines have no QR sticker yet": Lobos-owned plant (plantQrAllowed) with no switched-on PLANT QR - hook bins left out.
+export const noStickerCount = (
+  machines: { id: string; type: string; ownership: string | null; active: boolean; name?: string | null; category?: string | null; role?: string | null }[],
+  stickered: Set<string>,
+) => machines.filter((m) => plantQrAllowed(m) && !isHookBin(m) && !stickered.has(m.id)).length;
 export const noStickerText = (n: number) => (n === 0 ? null : `${n} machine${n === 1 ? " has" : "s have"} no QR sticker yet`);
 
 // Walk-around, fault and hour-meter photos - truck and plant - are kept forever (Ilies, 10 Nov 2026): nothing is removed by age.

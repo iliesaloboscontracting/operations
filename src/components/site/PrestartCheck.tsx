@@ -6,7 +6,9 @@ import { serverErrorMessage } from "@/lib/apiFetch";
 import { resizePhoto } from "@/lib/imageResize";
 import { deviceId } from "@/lib/signinDevice";
 import { answerLabel, type Answer, type ChecklistItem } from "@/lib/prestart/checklists";
-import { LIMITS, PRIORITIES, PRIORITY_HINT, PRIORITY_LABEL, PRIORITY_TONE, prestartSkippable, type FaultPriority } from "@/lib/prestart/rules";
+import {
+  LIMITS, PRIORITIES, PRIORITY_HINT, PRIORITY_LABEL, PRIORITY_TONE, TRUCK_TIMED_OUT, prestartSkippable, requiredTimeoutMessage, type FaultPriority,
+} from "@/lib/prestart/rules";
 import { FAULT_MEDIA, type PhoneMediaConfig } from "@/lib/media/rules";
 import { uploadMedia, UploadError, type MediaEndpoints, type UploadResult } from "@/lib/media/client";
 import MediaUpload from "./MediaUpload";
@@ -74,8 +76,12 @@ export default function PrestartCheck({ token, banner, odometerToken, onDone, on
   const [faultSending, setFaultSending] = useState<Record<string, boolean>>({});
   const faultBusy = Object.values(faultSending).some(Boolean);
   const busyFor = useCallback((k: string) => (b: boolean) => setFaultSending((s) => (s[k] === b ? s : { ...s, [k]: b })), []);
+  // PT-005 (23 Nov 2026): on a required screen a 401 (the token ran out) says to scan the truck QR again.
+  const required = useRef(false);
+  const timedOut = (status: number) => requiredTimeoutMessage(required.current, status);
   const capFrom = useCallback((j: Record<string, unknown>, status?: number) => {
     if (j.capFull || status === 429) setCapped(true);
+    if (status === 401 && required.current) setError(TRUCK_TIMED_OUT);
     if (!j.capFull) return;
     if (j.cap === "WALKAROUND" || j.cap === "ALL") setWalkFull(true);
     if (j.cap === "FAULT" || j.cap === "ALL") setFaultFull(true);
@@ -88,6 +94,7 @@ export default function PrestartCheck({ token, banner, odometerToken, onDone, on
       if (!res.ok) return setDead(await serverErrorMessage(res, "The checklist didn't load - check your signal."));
       const v: View = await res.json();
       if (v.done) return setDead("That check is already in - thanks.");
+      required.current = v.required === true;
       setView(v);
       setOdo(v.odometer);
     }, () => setDead("The checklist didn't load - check your signal."));
@@ -151,7 +158,7 @@ export default function PrestartCheck({ token, banner, odometerToken, onDone, on
         // PS-044: the bucket's company day is full - the photo goes the old way (shrunk, the same caps).
         if (!(e instanceof UploadError && e.body.fallback)) {
           if (e instanceof UploadError) capFrom(e.body, e.status);
-          throw new Error(e instanceof Error ? e.message : "The photo didn't send - try again.");
+          throw new Error((e instanceof UploadError && timedOut(e.status)) || (e instanceof Error ? e.message : "The photo didn't send - try again."));
         }
       }
     }
@@ -169,7 +176,7 @@ export default function PrestartCheck({ token, banner, odometerToken, onDone, on
         if (j.cap === "FAULT" || j.cap === "ALL") setFaultFull(true);
         if (j.cap === "METER" || j.cap === "ALL") setMeterFull(true);
       }
-      throw new Error(typeof j.error === "string" ? j.error : "The photo didn't send - try again.");
+      throw new Error(timedOut(res.status) || (typeof j.error === "string" ? j.error : "The photo didn't send - try again."));
     }
     return { id: j.id, preview };
   }
@@ -191,7 +198,7 @@ export default function PrestartCheck({ token, banner, odometerToken, onDone, on
   const addOdometer = (file: File | undefined) => file && odometerToken && busyWith(async () => {
     const res = await fetch("/api/site/in/odometer", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: odometerToken, dataUrl: await resizePhoto(file) }) });
     if (res.status === 429) { setCapped(true); setOdo("LIMIT"); } // used up today - the server lets the pre-start go without it
-    if (!res.ok) throw new Error(await serverErrorMessage(res, "The odometer photo didn't send - try again."));
+    if (!res.ok) throw new Error(timedOut(res.status) || (await serverErrorMessage(res, "The odometer photo didn't send - try again.")));
     setOdo("SENT");
   });
   async function send() {
@@ -208,7 +215,7 @@ export default function PrestartCheck({ token, banner, odometerToken, onDone, on
         body: JSON.stringify({ token, answers, faults, stillThere: [...still], deviceId: deviceId(), walkaround: Object.fromEntries(Object.entries(walk).map(([k, p]) => [k, p.id])),
           ...(hm ? { hourMeter: { value: hours.trim(), mediaId: meterPhoto?.id ?? null } } : {}) }),
       });
-      if (!res.ok) throw new Error(await serverErrorMessage(res, "Couldn't send - check your signal and try again."));
+      if (!res.ok) throw new Error(timedOut(res.status) || (await serverErrorMessage(res, "Couldn't send - check your signal and try again.")));
       const r = await res.json();
       onDone({ message: r.message, sent: r.sent ?? [] });
     } catch (e) {

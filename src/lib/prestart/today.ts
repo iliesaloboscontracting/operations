@@ -9,7 +9,7 @@ import { fromSydneyLocal } from "../shiftTimes";
 import { todaySydney } from "../today";
 import { plantChecksForDay } from "./plant";
 import {
-  OPEN_STATUSES, PRESTART_NOT_DONE, PRIORITY_LABEL, cardCounts, machineCardStatus, noStickerCount, noStickerText, plantQrAllowed, signInPreStatus,
+  OPEN_STATUSES, PRESTART_NOT_DONE, PRIORITY_LABEL, cardCounts, isHookBin, machineCardStatus, noStickerCount, noStickerText, plantQrAllowed, signInPreStatus,
   truckCardStatus, truckPrestartRequired, worstPriority, type CardStatus, type FaultPriority,
 } from "./rules";
 
@@ -17,16 +17,18 @@ const midnightOf = (day: string) => fromSydneyLocal(`${day}T00:00`)!;
 const nextDay = (day: string) => { const d = new Date(`${day}T12:00:00Z`); d.setUTCDate(d.getUTCDate() + 1); return d.toISOString().slice(0, 10); };
 
 // Is this sign-in's pre-start still required? Only a truck QR sign-in (POINT, VEHICLE), still open, not removed, with no
-// pre-start of its own, on a truck with no pre-start yet today (Sydney). Any doubt (not found) = not required.
+// pre-start of its own, on a truck with no pre-start yet on the sign-in's day (Sydney). Any doubt (not found) = not
+// required. PT-003 (Ilies approved 23 Nov 2026): counted from midnight of the SIGN-IN's date (as preStatusFor does), not
+// today's - a night sign-in still open after midnight on a truck checked that evening stays optional.
 export async function truckPrestartPending(attendanceId: string): Promise<boolean> {
   const a = await prisma.siteAttendance.findUnique({
     where: { id: attendanceId },
-    select: { id: true, place: true, vehicleId: true, signInMethod: true, signOutAt: true, removedAt: true, status: true },
+    select: { id: true, place: true, vehicleId: true, signInMethod: true, signOutAt: true, removedAt: true, status: true, date: true },
   });
   if (!a || a.place !== "VEHICLE" || !a.vehicleId || a.removedAt || a.status === "REJECTED") return false;
   const [own, truckPreToday] = await Promise.all([
     prisma.prestartCheck.count({ where: { attendanceId: a.id, kind: "PRE" } }),
-    prisma.prestartCheck.count({ where: { resourceId: a.vehicleId, kind: "PRE", createdAt: { gte: midnightOf(todaySydney()) } } }),
+    prisma.prestartCheck.count({ where: { resourceId: a.vehicleId, kind: "PRE", createdAt: { gte: midnightOf(a.date) } } }),
   ]);
   return truckPrestartRequired({ fromQr: a.signInMethod === "POINT", signedOut: !!a.signOutAt, ownPreDone: own > 0, truckPreToday });
 }
@@ -90,14 +92,27 @@ export async function prestartToday(day = todaySydney()): Promise<PrestartTodayC
     }),
     plantChecksForDay(day),
     prisma.siteLink.findMany({ where: { kind: "PLANT", revokedAt: null, resourceId: { not: null } }, select: { resourceId: true } }),
-    prisma.resource.findMany({ where: { type: "EQUIPMENT", ownership: "OWNED", active: true }, select: { id: true, name: true, type: true, ownership: true, active: true } }),
+    prisma.resource.findMany({
+      where: { type: "EQUIPMENT", ownership: "OWNED", active: true },
+      select: { id: true, name: true, type: true, ownership: true, active: true, category: true, role: true },
+    }),
   ]);
   const stickered = new Set(stickers.map((s) => s.resourceId!));
   const checks = signIns.length
     ? await prisma.prestartCheck.findMany({ where: { attendanceId: { in: signIns.map((s) => s.id) } }, select: { attendanceId: true, kind: true } })
     : [];
   const truckIds = [...new Set(signIns.map((s) => s.vehicleId!))];
-  const machineIds = new Set<string>([...plant.map((m) => m.machineId), ...owned.filter((m) => plantQrAllowed(m) && stickered.has(m.id)).map((m) => m.id)]);
+  // Hook bins (rules.ts isHookBin, 23 Nov 2026) never get a sticker or a pre-start: a booked one isn't listed - only if it
+  // somehow has a sticker or a check today.
+  const plantIds = plant.map((m) => m.machineId);
+  const bins = new Set(
+    (await (plantIds.length ? prisma.resource.findMany({ where: { id: { in: plantIds } }, select: { id: true, name: true, category: true, role: true } }) : Promise.resolve([])))
+      .filter(isHookBin).map((r) => r.id),
+  );
+  const machineIds = new Set<string>([
+    ...plant.filter((m) => !bins.has(m.machineId) || m.checks.length > 0 || stickered.has(m.machineId)).map((m) => m.machineId),
+    ...owned.filter((m) => plantQrAllowed(m) && stickered.has(m.id)).map((m) => m.id),
+  ]);
   const faults = await prisma.assetFault.findMany({
     where: {
       resourceId: { in: [...truckIds, ...machineIds] }, status: { in: OPEN_STATUSES },

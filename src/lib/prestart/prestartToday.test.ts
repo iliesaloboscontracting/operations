@@ -5,8 +5,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import {
-  PRESTART_NOT_DONE, cardCounts, machineCardStatus, noStickerCount, noStickerText, prestartSkippable, signInPreStatus, truckCardStatus,
-  truckPrestartRequired,
+  PRESTART_NOT_DONE, TRUCK_TIMED_OUT, cardCounts, isHookBin, machineCardStatus, noStickerCount, noStickerText, prestartSkippable,
+  requiredTimeoutMessage, signInPreStatus, truckCardStatus, truckPrestartRequired,
 } from "./rules";
 import { assertNoMoney } from "../moneyGuard";
 import { faultsWorker } from "../roles";
@@ -70,6 +70,28 @@ test("the card: machines with no QR sticker - owned, active plant only", () => {
   assert.equal(noStickerText(1), "1 machine has no QR sticker yet");
   assert.equal(noStickerText(0), null);
 });
+test("hook bins never count as machines without a sticker (Ilies, 23 Nov 2026)", () => {
+  const m = (id: string, o: Partial<{ name: string; category: string | null; role: string | null }> = {}) =>
+    ({ id, type: "EQUIPMENT", ownership: "OWNED", active: true, name: "15t Excavator", category: "Plant", role: "Plant", ...o });
+  assert.equal(isHookBin({ name: "Hook Bin #1", category: "Bins", role: "Bin" }), true);
+  assert.equal(isHookBin({ name: "Hook Bin #4", category: null, role: null }), true, "by name alone");
+  assert.equal(isHookBin({ name: "Something", category: "bins ", role: null }), true, "by category alone");
+  assert.equal(isHookBin({ name: "Something", category: null, role: "Bin" }), true, "by role alone");
+  assert.equal(isHookBin({ name: "15t Excavator", category: "Plant", role: "Plant" }), false);
+  assert.equal(isHookBin({ name: "Scissor lift", category: "Plant", role: "Plant" }), false);
+  // The register on 23 Nov 2026: 11 machines (2 with stickers) and 5 hook bins -> 9.
+  const list = [...Array.from({ length: 11 }, (_, i) => m(`p${i}`)), ...Array.from({ length: 5 }, (_, i) => m(`b${i}`, { name: `Hook Bin #${i + 1}`, category: "Bins", role: "Bin" }))];
+  assert.equal(noStickerCount(list, new Set(["p0", "p1"])), 9);
+  assert.equal(noStickerText(noStickerCount(list, new Set(["p0", "p1"]))), "9 machines have no QR sticker yet");
+});
+
+test("PT-005: a required screen's 401 says to scan the truck QR again; nothing else changes", () => {
+  assert.equal(requiredTimeoutMessage(true, 401), "That's timed out - scan the truck QR again to carry on.");
+  assert.equal(requiredTimeoutMessage(true, 401), TRUCK_TIMED_OUT);
+  assert.equal(requiredTimeoutMessage(false, 401), null, "an optional screen keeps the server's words");
+  for (const s of [400, 403, 404, 409, 429, 500]) assert.equal(requiredTimeoutMessage(true, s), null, String(s));
+});
+
 test("no money in the card's words", () => {
   assert.ok(assertNoMoney(JSON.stringify({ a: truckCardStatus({ preDone: true, postDone: true, worstFault: "URGENT" }), b: noStickerText(9), c: PRESTART_NOT_DONE })));
 });

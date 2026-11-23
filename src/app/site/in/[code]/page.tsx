@@ -9,6 +9,7 @@ import { resizePhoto } from "@/lib/imageResize";
 import { deviceId, ME_KEY, PASS_KEY, store, useQuietGps } from "@/lib/signinDevice";
 import { looksLikeLobos } from "@/lib/staffMatch";
 import { OTHER_COMPANY } from "@/lib/labourHire/rules";
+import { requiredTimeoutMessage } from "@/lib/prestart/rules";
 
 // Crew sign-in: the page a worker's phone opens after scanning the
 // supervisor's QR or the site poster. First time they pick their name (or
@@ -338,6 +339,9 @@ function Odometer({ token, signedIn, required, noSkip, busyOut, onDone, onSkipAl
     try {
       const res = await fetch("/api/site/in/odometer", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token, ...body }) });
       if (res.status === 429) setFull(true);
+      // PT-005: the token ran out on the required screen - scanning the truck QR again resumes it.
+      const timedOut = requiredTimeoutMessage(noSkip, res.status);
+      if (timedOut) throw new Error(timedOut);
       if (!res.ok) throw new Error(await serverErrorMessage(res, "Couldn't send - check your signal and try again."));
       const m = (await res.json()).message;
       if (all) onSkipAll(m); else onDone(m);

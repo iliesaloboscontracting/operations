@@ -219,13 +219,16 @@ async function resumePrestart(open: { id: string; place: string | null; vehicleI
   try {
     if (!(await truckPrestartPending(open.id))) return {};
     const odo = await prisma.odometerReading.findUnique({ where: { siteAttendanceId: open.id }, select: { status: true } });
+    // PT-002 (Ilies approved 23 Nov 2026): an odometer token only while the photo isn't in (none yet, or SKIPPED - let
+    // through on a full limit) - a sent reading can't be replaced from a resumed screen.
+    const odometerSent = !!odo && odo.status !== "SKIPPED";
     return {
       prestartRequired: true,
       prestart: makePrestartToken(open.id, "PRE"),
       walkaroundRequired: await walkaroundRequiredFor(open.vehicleId, "VEHICLE").catch(() => true),
       // The odometer step again when it isn't in yet (the pre-start screen can also take it).
-      odometer: makeOdometerToken(open.id),
-      odometerSent: !!odo && odo.status !== "SKIPPED",
+      ...(!odometerSent ? { odometer: makeOdometerToken(open.id) } : {}),
+      odometerSent,
     };
   } catch {
     return {};
