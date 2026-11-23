@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState, use } from "react";
 import SiteBrand from "@/components/site/SiteBrand";
 import PrestartCheck, { type PrestartResult } from "@/components/site/PrestartCheck";
+import CrewMessages from "@/components/site/CrewMessages";
 import { Camera, Car, Home, Loader2, LogIn, LogOut, Truck } from "lucide-react";
 import { serverErrorMessage } from "@/lib/apiFetch";
 import { resizePhoto } from "@/lib/imageResize";
@@ -57,6 +58,9 @@ export default function CrewSignInPage({ params: paramsP }: { params: Promise<{ 
   const [travel, setTravel] = useState<{ link: boolean; home: boolean; tip: boolean }>({ link: false, home: false, tip: false });
   // The same-shift question (19 Nov 2026), when the server asked it.
   const [ask, setAsk] = useState<ShiftAsk | null>(null);
+  // Message at sign-in (23 Nov 2026): the token a saved sign-in hands back; the office's notes for this person are
+  // fetched with it on the final screen - after the odometer and any pre-start, so they never get in the way.
+  const [msgToken, setMsgToken] = useState<string | null>(null);
   // Accounts stage 2 (Ilies: GPS "with sign in", "do not change the way the current sign in works"): the
   // phone's position is asked for once, quietly, while the Sign in button shows, and sent with the sign-in
   // only. Never tracked; a refusal or no fix never holds the sign-in up.
@@ -139,6 +143,7 @@ export default function CrewSignInPage({ params: paramsP }: { params: Promise<{ 
       setPrestart(typeof r.prestart === "string" ? r.prestart : typeof r.postcheck === "string" ? r.postcheck : null);
       if (typeof r.travelPass === "string") store(PASS_KEY, r.travelPass);
       setTravel({ link: !!r.travelLink, home: !!r.travelHome, tip: !!r.tipRun });
+      if (typeof r.messages === "string") setMsgToken(r.messages); // a sign-in only; kept through a later sign-out
       return null;
     } catch (e) {
       if (e instanceof AskError) { setAsk(e.ask); return e.message; }
@@ -178,6 +183,8 @@ export default function CrewSignInPage({ params: paramsP }: { params: Promise<{ 
       ) : done ? (
         <div className="space-y-4 text-center">
           <div className="rounded-2xl bg-emerald-500/15 px-4 py-6 text-lg font-semibold text-emerald-300">✓ {done}</div>
+          {/* Message at sign-in (23 Nov 2026): only now - the sign-in is saved and any pre-start is behind them. */}
+          {msgToken && <CrewMessages source={{ token: msgToken }} />}
           {checkSent.length > 0 && (
             <div className="rounded-xl border border-edge bg-panel p-3 text-left text-sm text-gray-300">
               <div className="mb-1 font-semibold text-gray-100">Sent to the office:</div>

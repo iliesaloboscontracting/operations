@@ -2839,6 +2839,60 @@ model MediaObject {
   @@index([state, createdAt])
 }
 
+// Message at sign-in (Ilies, 23 Nov 2026: "yes build it, deploy once passes"). The office (Managers, Admins, the
+// coordinator) writes a short plain-text note - "well done on your pre-starts", "please do your pre-start" - to one
+// person, several, or everyone who signs in. It shows on the person's phone right after a QR sign-in (never holding the
+// sign-in up, and after any truck pre-start) and on their own SUPERVISOR / DRIVER link home; "Got it" records it seen.
+// Keep forever: nothing is deleted or edited - archive (hidden from crew) keeps the row; re-send instead of editing, so
+// what someone saw is never rewritten. No money, no TFN / bank (refused at entry). Plain ids, no relations, like
+// TravelLeg. Rules in lib/signinMessages/rules.ts.
+model SigninMessage {
+  id            String    @id @default(cuid())
+  text          String // plain text, at most 300 characters
+  audience      String // ALL | PEOPLE
+  showUntil     String // YYYY-MM-DD, the last Sydney day it shows (inclusive)
+  createdBy     String
+  createdById   String?
+  createdAt     DateTime  @default(now())
+  archivedAt    DateTime?
+  archivedBy    String?
+  archivedById  String?
+  archiveReason String?
+
+  @@index([createdAt])
+  @@index([createdById, createdAt])
+}
+
+// The people a PEOPLE message is for (active Labour-register people when it was written). name = as written then.
+model SigninMessageRecipient {
+  id         String @id @default(cuid())
+  messageId  String
+  resourceId String
+  name       String
+
+  @@unique([messageId, resourceId])
+  @@index([resourceId])
+}
+
+// "Got it" - append-only, one row per message per person. personKey: the Labour-register resourceId, or for a hire
+// worker (named at sign-in) "hire:<company key>|<name key>" (lib/signinMessages/rules.ts hireKey). where: QR | LINK.
+model SigninMessageSeen {
+  id           String   @id @default(cuid())
+  messageId    String
+  personKey    String
+  resourceId   String?
+  hireName     String?
+  hireCompany  String?
+  deviceId     String?
+  where        String // QR (after a sign-in) | LINK (their SUPERVISOR / DRIVER link)
+  attendanceId String? // QR: the sign-in it followed
+  siteLinkId   String? // LINK: the link it was seen on
+  seenAt       DateTime @default(now())
+
+  @@unique([messageId, personKey])
+  @@index([personKey])
+}
+
 // Bins (Ilies, 23 Nov 2026: "when a client asks us for a bin we deliver, take a photo of it delivered and same when
 // its picked up ... which job and whether it was a clients bin (were charging them) or it our bin for our jobs").
 // Lobos's own bins - a small register (size + label, e.g. "15 m³ (1)"). Managers and Admins add, rename and retire a

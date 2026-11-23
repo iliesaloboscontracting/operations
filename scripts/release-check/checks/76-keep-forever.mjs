@@ -13,7 +13,8 @@
 //   - no automatic deletion is left in the code (the pre-start photo cleanups are gone; every remaining delete is on
 //     the allowed list).
 // WRITES on the test copy: a project, four resources, jobs on two past days (one closed, re-opened and closed again -
-// with the copy's own jobs that day) and two months ahead, allocations, invoices, an upload + drafts, a service record, a contact, a wording,
+// with the copy's own jobs that day; if the copy has fewer than two open past days after the cut-off, closed ones are
+// re-opened on the copy first) and two months ahead, allocations, invoices, an upload + drafts, a service record, a contact, a wording,
 // a bug report, a tool. Prints no figure from the copy's own data - only this check's own test amounts.
 import { readFileSync, readdirSync, writeFileSync, existsSync } from "node:fs";
 import { execFileSync, spawn } from "node:child_process";
@@ -52,11 +53,27 @@ export default {
     // ---------- (1) frozen ledger: close, re-open, close again - superseded rows kept, the current set counted once ----------
     // Two past days after the labour backfill cut-off (Tracking only reads the ledger for those) that aren't closed on
     // the copy: the first is closed here, the second stays open.
+    // The days are at least 35 days back (clear of this check's hire item and hire invoice periods, today-20..today-10),
+    // and after the cut-off. Live data closes days as time goes on, so the copy may not have two open ones: look back to
+    // the cut-off, and if there still aren't two, re-open closed ones on the copy (an Admin, with a reason - the normal
+    // re-open; the frozen ledger is kept, superseded) so the real assertions below always run.
+    const CUTOFF = "2026-09-26";
     const closedOnCopy = new Set((await db.dayClose.findMany({ where: { status: "CLOSED" }, select: { date: true } })).map((d) => d.date));
-    const free = [];
-    for (let n = 35; n <= 44 && free.length < 2; n++) { const d = addDays(c.today, -n); if (d > "2026-09-26" && !closedOnCopy.has(d)) free.push(d); }
-    if (free.length < 2) return t.block("no two open past days after the backfill cut-off on the copy");
-    const [CLOSED, OPEN] = free;
+    const candidates = [];
+    for (let n = 35; addDays(c.today, -n) > CUTOFF; n++) candidates.push(addDays(c.today, -n));
+    const free = candidates.filter((d) => !closedOnCopy.has(d)).slice(0, 2);
+    for (const d of candidates) {
+      if (free.length >= 2) break;
+      if (free.includes(d)) continue;
+      const r = await c.post("/api/day-close", "ADMIN", { date: d, action: "reopen", reason: `${note}: setup - a closed day on the copy re-opened for the test` });
+      if (r.status !== 200) return t.block(`couldn't re-open ${d} on the copy for the test (${r.status})`);
+      t.note(`the copy had fewer than two open past days after the cut-off - re-opened ${d} on the copy for this check`);
+      free.push(d);
+    }
+    if (free.length < 2) return t.block("no two past days after the backfill cut-off at least 35 days back (today is too close to the cut-off)");
+    const st = await db.dayClose.findMany({ where: { date: { in: free } }, select: { date: true, status: true } });
+    t.ok(st.every((s) => s.status !== "CLOSED"), "setup: two open past days after the cut-off on the copy", free.join(", "));
+    const [CLOSED, OPEN] = [...free].sort().reverse();
     const jClosed = await db.job.create({ data: { projectId: pid, title: project.name, date: new Date(`${CLOSED}T00:00:00.000Z`), shift: "DAY", startTime: "7am", endTime: "3pm" } });
     const jOpen = await db.job.create({ data: { projectId: pid, title: project.name, date: new Date(`${OPEN}T00:00:00.000Z`), shift: "DAY", startTime: "7am", endTime: "3pm" } });
     await db.assignment.create({ data: { jobId: jClosed.id, resourceId: machine.id } });

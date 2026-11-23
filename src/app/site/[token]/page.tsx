@@ -17,6 +17,7 @@ import Reimburse from "@/components/site/Reimburse";
 import Bins from "@/components/site/Bins";
 import ApproveHours from "@/components/site/ApproveHours";
 import SiteQuestions from "@/components/site/SiteQuestions";
+import CrewMessages from "@/components/site/CrewMessages";
 import CheckResultView from "@/components/tools/CheckResultView";
 import InstallApp from "@/components/InstallApp";
 import SiteBrand from "@/components/site/SiteBrand";
@@ -155,6 +156,8 @@ export default function SitePhotosPage({ params: paramsP }: { params: Promise<{ 
             </div>
           )}
           {flash && <div className="mb-4 rounded-xl bg-emerald-500/15 px-4 py-3 text-sm text-emerald-300">✓ {flash}</div>}
+          {/* Message at sign-in (23 Nov 2026): the office's notes for this link's own person - SUPERVISOR / DRIVER links only. */}
+          {(info.kind === "SUPERVISOR" || driver) && <CrewMessages source={{ api }} className="mb-4" />}
           {!info.shared && info.kind !== "HANDOVER" && !driver && <SiteQuestions api={api} />}
           <div className="space-y-3">
             {sendsReceipts && (<>

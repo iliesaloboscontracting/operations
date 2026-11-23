@@ -41,6 +41,42 @@ export default {
   async run(t, c) {
     const db = c.db;
     if (!db) return t.block("no test database handle");
+    const aside = await setAside(db);
+    if (aside.bins || aside.moves) t.note(`the copy's own register was set aside for this check (${aside.bins} bin(s), ${aside.moves} on site) and is put back afterwards`);
+    try {
+      await checks(t, c);
+    } finally {
+      const back = await aside.restore();
+      t.ok(back, "the copy's own bins and on-site entries are put back exactly as they were");
+    }
+  },
+};
+
+// Live data (bins went into the register on 23 Nov 2026): the copy may already hold real bins and real bins on site.
+// This check needs a known register ("the only free 9 m³", "2 x 9 m³ out, 1 in the register", "two 15s free -> which
+// one?"), so for the run the copy's own active bins are retired and its own on-site entries marked CANCELLED (every
+// count and view leaves CANCELLED out) - directly, on the throwaway copy only - and afterwards put back exactly as they
+// were. Nothing is deleted; the check's own bins and entries stay.
+async function setAside(db) {
+  const bins = await db.bin.findMany({ where: { retiredAt: null }, select: { id: true } });
+  const moves = await db.binMovement.findMany({ where: { status: "ON_SITE" }, select: { id: true, onSiteKey: true } });
+  const binIds = bins.map((b) => b.id), moveIds = moves.map((m) => m.id);
+  if (moveIds.length) await db.binMovement.updateMany({ where: { id: { in: moveIds } }, data: { status: "CANCELLED", onSiteKey: null } });
+  if (binIds.length) await db.bin.updateMany({ where: { id: { in: binIds } }, data: { retiredAt: new Date(), retiredBy: "release check (set aside)", retireReason: "release check: set aside for the run" } });
+  return {
+    bins: binIds.length, moves: moveIds.length,
+    async restore() {
+      if (binIds.length) await db.bin.updateMany({ where: { id: { in: binIds } }, data: { retiredAt: null, retiredBy: null, retireReason: null } });
+      for (const m of moves) await db.binMovement.update({ where: { id: m.id }, data: { status: "ON_SITE", onSiteKey: m.onSiteKey } });
+      const b = await db.bin.count({ where: { id: { in: binIds }, retiredAt: null } });
+      const back = await db.binMovement.findMany({ where: { id: { in: moveIds } }, select: { id: true, status: true, onSiteKey: true } });
+      return b === binIds.length && back.length === moves.length && moves.every((m) => back.some((x) => x.id === m.id && x.status === "ON_SITE" && x.onSiteKey === m.onSiteKey));
+    },
+  };
+}
+
+async function checks(t, c) {
+    const db = c.db;
     const net0 = netLines(c);
     const tag = Date.now().toString(36);
     const counts = async () => ({ bins: await db.bin.count(), moves: await db.binMovement.count(), photos: await db.binPhoto.count() });
@@ -331,7 +367,10 @@ export default {
       try { res = JSON.parse(out.split("\n").find((l) => l.startsWith("RESULT "))?.slice(7) ?? "null"); } catch { /* checked below */ }
       t.ok(!!res && res.a >= 1 && res.afterClient >= 1, "a client's bin alert reached a coordinator phone (through the stub push host)", res ? JSON.stringify({ a: res.a, n: res.afterClient }) : out.slice(0, 200));
       const toCoord = (res?.seen ?? []).filter((s) => s.path === new URL(coEp).pathname);
-      t.ok(toCoord.length === 1 && (res?.seen ?? []).every((s) => s.host === "fcm.googleapis.com" && s.path !== new URL(adEp).pathname), "...to the coordinator's phone only - never the Admin's", JSON.stringify((res?.seen ?? []).map((s) => s.path.slice(-12))));
+      // The copy can hold real coordinator phones too (live data): every send must be to a phone of an active
+      // coordinator login on the copy (stubbed - nothing leaves), exactly one to this check's own, none to the Admin's.
+      const coordPhones = new Set((await db.pushDevice.findMany({ where: { user: { role: "COORDINATOR", active: true } }, select: { endpoint: true } })).map((d) => { try { const u = new URL(d.endpoint); return `${u.hostname}${u.pathname}`; } catch { return ""; } }));
+      t.ok(toCoord.length === 1 && toCoord[0].host === "fcm.googleapis.com" && (res?.seen ?? []).every((s) => coordPhones.has(`${s.host}${s.path}`) && s.path !== new URL(adEp).pathname), "...to coordinator phones only (this check's coordinator once) - never the Admin's", JSON.stringify((res?.seen ?? []).map((s) => s.path.slice(-12))));
       let payload = null;
       try {
         const ece = createRequire(path.join(c.p.appDir, "package.json"))("http_ece");
@@ -355,5 +394,4 @@ export default {
     // (11) Nothing was called outside during this check.
     const net1 = netLines(c);
     t.ok(net1 === net0, "no outbound connection attempted during this check", `${net1 - net0} new blocked attempt(s)`);
-  },
-};
+}
