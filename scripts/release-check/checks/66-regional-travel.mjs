@@ -1,6 +1,9 @@
 // Regional travel (2 Nov 2026, Ilies): the Regional flag on a project (board badge + toggle), travel out (Start travel
 // -> site sign-in) and travel home (Travelling home -> Arrived) from the worker's own phone, the Travel column on
 // timesheets and the payroll files, office corrections with a reason, locked weeks refused, no $ on the link.
+// Travel pay (Ilies, 23-24 Nov 2026): the phone's mode (own car/ute or passenger) is required, Start travel is refused on
+// an open truck sign-in, paid hours (passenger 1h less each way, own vehicle in full) on the screens, exports and the
+// approved snapshot, office mode corrections (Manager+, reason, TravelEdit, locked weeks refuse).
 // WRITES on the test copy: two projects ("RC regional" / "RC local") with a job today each, an allocation, two site
 // posters, sign-ins, travel legs and one approved far-past week (for the lock check).
 import { noMoney } from "../lib/context.mjs";
@@ -9,7 +12,7 @@ import { makeLink } from "../lib/setup.mjs";
 const HOUR = 3_600_000;
 
 export default {
-  id: "regional-travel", title: "Regional travel: flag + badge, out / home legs, refusals, Travel column, corrections, no $ on links",
+  id: "regional-travel", title: "Regional travel: flag + badge, out / home legs, refusals, Travel + paid travel columns, mode, corrections, no $ on links",
   writes: true, timeoutMs: 240_000,
   applies: (c) => c.hasPath("src/app/api/site/in/travel/route.ts") || "needs the travel routes",
   async run(t, c) {
@@ -90,9 +93,20 @@ export default {
     // (3) Travel out: only the regional job is offered; the local one is refused; a second tap is the same leg.
     const st = await travel({ pass, action: "STATUS" });
     t.ok(st.status === 200 && st.body.outJobs?.some((j) => j.jobId === regJob.id) && !st.body.outJobs?.some((j) => j.jobId === locJob.id), "only the regional job is offered", JSON.stringify(st.body).slice(0, 200));
-    t.status((await travel({ pass, action: "START_OUT", jobId: locJob.id })).status, 403, "Start travel on a local job is refused");
-    const s1 = await travel({ pass, action: "START_OUT", jobId: regJob.id, gps: { status: "OK", lat: -33.28, lng: 149.1, accuracy: 20 } });
-    t.ok(s1.status === 200 && s1.body.leg?.id, "Start travel on the regional job", s1.status);
+    t.status((await travel({ pass, action: "START_OUT", jobId: locJob.id, mode: "PASSENGER" })).status, 403, "Start travel on a local job is refused");
+    // Travel pay (Ilies, 23-24 Nov 2026): the phone's "own car/ute or passenger" is required before a leg starts.
+    const noMode = await travel({ pass, action: "START_OUT", jobId: regJob.id });
+    t.ok(noMode.status === 400 && /I'm driving my own car\/ute, or I'm a passenger/.test(noMode.body.error ?? ""), "travel pay: Start travel with no mode picked is refused", `${noMode.status} ${noMode.body.error ?? ""}`);
+    t.status((await travel({ pass, action: "START_OUT", jobId: regJob.id, mode: "DRIVER" })).status, 400, "travel pay: only the two modes are taken");
+    // A truck driver's drive is their truck-QR sign-in: travel is refused while that sign-in is open.
+    const onTruck = await db.siteAttendance.create({ data: { place: "VEHICLE", vehicleId: `rc-truck-${tag}`, placeLabel: "RC Tipper", date: today, resourceId: person.id, workerName: person.name, signInAt: new Date(), signInMethod: "POINT", status: "CONFIRMED" } });
+    const truckOut = await travel({ pass, action: "START_OUT", jobId: regJob.id, mode: "PASSENGER" });
+    t.ok(truckOut.status === 409 && truckOut.body.error === "You're signed in on the truck - that already counts your drive. No need to start travel.", "travel pay: Start travel refused while signed in on a truck", `${truckOut.status} ${truckOut.body.error ?? ""}`);
+    t.ok((await db.travelLeg.count({ where: { resourceId: person.id, jobId: regJob.id } })) === 0, "travel pay: no leg made by a refused start (no mode / on a truck)");
+    await db.siteAttendance.update({ where: { id: onTruck.id }, data: { removedAt: new Date(), removedBy: "release-check", status: "REJECTED" } }); // out of the way for the rest
+    const s1 = await travel({ pass, action: "START_OUT", jobId: regJob.id, mode: "PASSENGER", gps: { status: "OK", lat: -33.28, lng: 149.1, accuracy: 20 } });
+    t.ok(s1.status === 200 && s1.body.leg?.id, "Start travel on the regional job (as a passenger)", s1.status);
+    t.ok((await db.travelLeg.findUnique({ where: { id: s1.body.leg?.id ?? "-" } }))?.mode === "PASSENGER", "travel pay: the leg keeps the mode picked on the phone");
     const s2 = await travel({ pass, action: "START_OUT", jobId: regJob.id });
     t.ok(s2.status === 200 && s2.body.leg?.id === s1.body.leg?.id, "a second tap shows the same leg");
     t.ok((await db.travelLeg.count({ where: { resourceId: person.id, jobId: regJob.id, direction: "OUT" } })) === 1, "no duplicate leg");
@@ -108,8 +122,10 @@ export default {
     // (5) Travel home: offered after a regional sign-out, once; Arrived ends it.
     const outReg = await sign(regPoster.secret, regJob.id, "OUT");
     t.ok(outReg.status === 200 && outReg.body.travelHome === true, "a regional sign-out offers Travelling home", outReg.status);
-    const h1 = await travel({ pass, action: "START_HOME", gps: { status: "TIMEOUT" } });
-    t.ok(h1.status === 200 && h1.body.leg?.direction === "HOME", "Travelling home starts", h1.status);
+    t.status((await travel({ pass, action: "START_HOME" })).status, 400, "travel pay: Travelling home with no mode picked is refused");
+    const h1 = await travel({ pass, action: "START_HOME", mode: "DRIVER_OWN_VEHICLE", gps: { status: "TIMEOUT" } });
+    t.ok(h1.status === 200 && h1.body.leg?.direction === "HOME", "Travelling home starts (driving own car/ute)", h1.status);
+    t.ok((await db.travelLeg.findUnique({ where: { id: h1.body.leg?.id ?? "-" } }))?.mode === "DRIVER_OWN_VEHICLE", "travel pay: the home leg keeps its own mode");
     const h2 = await travel({ pass, action: "START_HOME" });
     t.ok(h2.status === 200 && h2.body.leg?.id === h1.body.leg?.id, "a second tap shows the same home leg");
     t.status((await travel({ pass, action: "ARRIVED", gps: { status: "DENIED" } })).status, 200, "Arrived ends the home leg");
@@ -134,30 +150,66 @@ export default {
         const siteHours = Object.values(p.days).flat().reduce((n, l) => n + (l.hours ?? 0), 0);
         t.ok(Math.abs(siteHours - p.total) < 0.01, "site hours total is the sign-ins only (travel not added)");
         t.ok(!/"gps[a-z]*"\s*:/i.test(JSON.stringify(w)), "no GPS in the Managers' timesheets");
+        const o = legs.find((l) => l.legId === s1.body.leg.id), h = legs.find((l) => l.legId === h1.body.leg.id), n = legs.find((l) => l.legId === never.id);
+        t.ok(o?.mode === "PASSENGER" && o.paidHours === Math.max(0, Math.round(((o.hours ?? 0) - 1) * 4) / 4) && h?.mode === "DRIVER_OWN_VEHICLE" && h.paidHours === h.hours, "travel pay: each leg carries its mode and paid hours (passenger 1h less, own vehicle in full)", JSON.stringify([o?.mode, o?.paidHours, h?.mode, h?.paidHours]));
+        t.ok(n?.paidHours == null && typeof w.travelPaidHours === "number" && typeof p.travelPaidTotal === "number", "travel pay: a never-ended leg is still paid nothing; week and person paid totals");
       }
     }
     for (const [who, path] of [["MANAGER", `/api/timesheets/export?week=${week}`], ["ACCOUNTS", `/api/accounts/timesheets/export?week=${week}`]]) {
       const csv = (await c.text(path, who)).text;
-      t.ok(csv.includes("Hours,Of which tip run (h),Travel (h),Status") && csv.includes("Travel out to") && csv.includes("Travel home from") && noMoney(csv), `${who} timesheet export has the Travel column and legs, no $`);
+      t.ok(csv.includes("Hours,Of which tip run (h),Travel (h),Travel paid (h),Status") && csv.includes("Travel out to") && csv.includes("Travel home from") && noMoney(csv), `${who} timesheet export has the Travel and Travel paid columns and legs, no $`);
     }
-    // Payroll files (accounts): a Travel hours column, still hours only. On a week of its own (2020-02-03), because
-    // earlier checks seed "$5 Labour" sign-ins this week and the payroll files refuse a week with a $ in a name.
+    // Payroll files (accounts): Travel hours and Travel paid hours columns, still hours only. On a week of its own
+    // (2020-02-03), because earlier checks seed "$5 Labour" sign-ins this week and the payroll files refuse a week with
+    // a $ in a name. Travel pay (23-24 Nov 2026): a passenger's 2h leg is paid 1h, an own-vehicle 2h leg is paid 2h.
     const payWeek = "2020-02-03";
     await db.siteAttendance.create({ data: { place: "OFFICE", placeLabel: "Office", date: "2020-02-04", resourceId: person.id, workerName: person.name, signInAt: new Date("2020-02-03T21:00:00Z"), signOutAt: new Date("2020-02-04T05:30:00Z"), signInMethod: "OFFICE", status: "CONFIRMED" } });
-    await db.travelLeg.create({ data: { direction: "HOME", resourceId: person.id, workerName: person.name, jobId: `rc-pay-${tag}`, projectId: reg.id, siteLabel: reg.name, date: "2020-02-04", startAt: new Date("2020-02-04T05:40:00Z"), endAt: new Date("2020-02-04T07:40:00Z"), endMethod: "ARRIVED" } });
+    const ownLeg = await db.travelLeg.create({ data: { direction: "HOME", resourceId: person.id, workerName: person.name, jobId: `rc-pay-${tag}`, projectId: reg.id, siteLabel: reg.name, date: "2020-02-04", startAt: new Date("2020-02-04T05:40:00Z"), endAt: new Date("2020-02-04T07:40:00Z"), endMethod: "ARRIVED", mode: "DRIVER_OWN_VEHICLE" } });
+    const passLeg = await db.travelLeg.create({ data: { direction: "OUT", resourceId: person.id, workerName: person.name, jobId: `rc-pay-out-${tag}`, projectId: reg.id, siteLabel: reg.name, date: "2020-02-04", startAt: new Date("2020-02-03T19:00:00Z"), endAt: new Date("2020-02-03T21:00:00Z"), endMethod: "SIGN_IN", mode: "PASSENGER" } });
+    const pw = (await c.json(`/api/timesheets?week=${payWeek}`, "MANAGER")).body;
+    const pwP = pw?.people?.find((x) => x.resourceId === person.id);
+    const pwLegs = Object.values(pwP?.travel ?? {}).flat();
+    t.ok(pwLegs.find((l) => l.legId === passLeg.id)?.paidHours === 1 && pwLegs.find((l) => l.legId === passLeg.id)?.hours === 2, "travel pay: a passenger's 2h leg shows paid 1h", JSON.stringify(pwLegs.map((l) => [l.mode, l.hours, l.paidHours])));
+    t.ok(pwLegs.find((l) => l.legId === ownLeg.id)?.paidHours === 2, "travel pay: an own-vehicle 2h leg shows paid 2h");
+    t.ok(pwP?.travelTotal === 4 && pwP?.travelPaidTotal === 3 && pwP?.travelModeMissing === 0 && typeof pw?.travelPaidHours === "number", "travel pay: the person's week shows 4h travel, 3h paid", `${pwP?.travelTotal} / ${pwP?.travelPaidTotal}`);
+    for (const [who, path] of [["MANAGER", `/api/timesheets/export?week=${payWeek}`], ["ACCOUNTS", `/api/accounts/timesheets/export?week=${payWeek}`]]) {
+      const r = await c.text(path, who);
+      // The accounts route refuses (rather than sends) a file that fails fileIsSafe - a 200 is a file that passed it.
+      t.ok(r.status === 200 && /Travel out to [^,\r\n]+,[^,]*,[^,]*,,,,2,1,Travel,Passenger/.test(r.text) && /Travel home from [^,\r\n]+,[^,]*,[^,]*,,,,2,2,Travel,Own vehicle/.test(r.text) && noMoney(r.text) && !/\bBSB\b|\bTFN\b|\bABA\b/i.test(r.text), `travel pay: ${who} timesheet export shows Travel 2 / paid 1 (passenger) and 2 / 2 (own vehicle), no $`, `${r.status}`);
+    }
     for (const f of ["payrun", "summary"]) {
       const r = await c.text(`/api/accounts/payroll/export?week=${payWeek}&file=${f}`, "ACCOUNTS");
       const csv = r.text;
-      t.ok(r.status === 200 && /Travel hours/.test(csv) && noMoney(csv) && !/\bBSB\b|\bTFN\b|\bABA\b/i.test(csv), `payroll ${f} file: Travel hours column, no money`, `${r.status} ${csv.slice(0, 160)}`);
-      if (f === "summary") t.ok(csv.split("\n").some((l) => l.startsWith(person.name) && /,2,0\r?$/.test(l)), "summary: the person's 2h travel in Travel hours (then 0 Tip run hours)", csv.slice(0, 300));
+      t.ok(r.status === 200 && /Travel hours,Travel paid hours/.test(csv) && noMoney(csv) && !/\bBSB\b|\bTFN\b|\bABA\b/i.test(csv), `payroll ${f} file: Travel hours and Travel paid hours columns, no money (fileIsSafe passed - the route refuses otherwise)`, `${r.status} ${csv.slice(0, 160)}`);
+      if (f === "summary") t.ok(csv.split("\n").some((l) => l.startsWith(person.name) && /,4,3,0\r?$/.test(l)), "summary: the person's 4h travel, 3h paid (then 0 Tip run hours)", csv.slice(0, 400));
     }
+    const pay2 = (await c.json(`/api/accounts/payroll?week=${payWeek}`, "ACCOUNTS")).body;
+    const payP = pay2?.people?.find((x) => x.personKey === person.id);
+    t.ok(payP?.travelHours === 4 && payP?.travelPaidHours === 3 && payP?.travel?.some((l) => l.mode === "PASSENGER" && l.paidHours === 1), "travel pay: accounts' Payroll shows travel 4h · paid 3h, leg by leg", JSON.stringify([payP?.travelHours, payP?.travelPaidHours]));
     // (7b) Ilies (2 Nov 2026): a leg never ended blocks the week's approval until the office fixes it with a reason.
     const blockLeg = await db.travelLeg.create({ data: { direction: "OUT", resourceId: person.id, workerName: person.name, jobId: `rc-block-${tag}`, projectId: reg.id, siteLabel: reg.name, date: "2020-02-05", startAt: new Date("2020-02-04T19:00:00Z") } });
     const refused = await c.post("/api/timesheets", "MANAGER", { week: payWeek, action: "approve" });
     const refusedBody = await refused.json().catch(() => ({}));
     t.ok(refused.status === 400 && /travel never ended/.test(refusedBody.error ?? ""), "approve refused while a travel leg was never ended", `${refused.status} ${refusedBody.error ?? ""}`);
     t.status(await c.patch(`/api/attendance/travel/${blockLeg.id}`, "MANAGER", { endAt: "2020-02-04T21:30:00.000Z", reason: "Release check - arrival time from the supervisor" }), 200, "the office ends it with a reason");
+    // Travel pay: the office sets a leg's mode through the same correction - Manager+, a reason, kept in TravelEdit.
+    t.status(await c.patch(`/api/attendance/travel/${blockLeg.id}`, "ACCOUNTS", { mode: "PASSENGER", reason: "rc" }), 403, "travel pay: ACCOUNTS can't set a leg's mode");
+    t.status(await c.patch(`/api/attendance/travel/${blockLeg.id}`, "VIEWER", { mode: "PASSENGER", reason: "rc" }), 403, "travel pay: a Viewer can't set a leg's mode");
+    if (c.users.COORDINATOR) t.status(await c.patch(`/api/attendance/travel/${blockLeg.id}`, "COORDINATOR", { mode: "PASSENGER", reason: "rc" }), 403, "travel pay: the COORDINATOR can't set a leg's mode");
+    t.status(await c.patch(`/api/attendance/travel/${blockLeg.id}`, "MANAGER", { mode: "PASSENGER" }), 400, "travel pay: a mode change needs a reason");
+    t.status(await c.patch(`/api/attendance/travel/${blockLeg.id}`, "MANAGER", { mode: "BUS", reason: "Release check" }), 400, "travel pay: only the two modes");
+    t.status(await c.patch(`/api/attendance/travel/${blockLeg.id}`, "MANAGER", { mode: "PASSENGER", reason: "Release check - rode with the supervisor" }), 200, "travel pay: a Manager sets the mode with a reason");
+    const modeEdit = await db.travelEdit.findFirst({ where: { travelLegId: blockLeg.id, field: "mode" } });
+    t.ok(modeEdit?.before === null && modeEdit?.after === "PASSENGER" && modeEdit.reason.startsWith("Release check"), "travel pay: the mode change, from 'not recorded', and its reason are kept (TravelEdit)", JSON.stringify(modeEdit));
     t.status(await c.post("/api/timesheets", "MANAGER", { week: payWeek, action: "approve" }), 200, "approve allowed once the leg is fixed");
+    // The approved week's snapshot keeps each leg's mode and paid hours (block leg: 2.5h as a passenger = paid 1.5h).
+    const approvedRow = await db.timesheetWeek.findFirst({ where: { weekStart: payWeek, reopenedAt: null }, orderBy: { approvedAt: "desc" } });
+    const snapTravel = JSON.parse(approvedRow?.snapshot ?? "{}").travel ?? [];
+    t.ok(snapTravel.find((l) => l.legId === passLeg.id)?.paidHours === 1 && snapTravel.find((l) => l.legId === ownLeg.id)?.mode === "DRIVER_OWN_VEHICLE" && snapTravel.find((l) => l.legId === blockLeg.id)?.paidHours === 1.5, "travel pay: the approved-week snapshot has the mode and paid hours", JSON.stringify(snapTravel.map((l) => [l.mode, l.hours, l.paidHours])));
+    t.status(await c.patch(`/api/attendance/travel/${ownLeg.id}`, "MANAGER", { mode: "PASSENGER", reason: "Release check - locked" }), 400, "travel pay: a locked (approved) week refuses a mode change");
+    t.ok((await db.travelEdit.count({ where: { travelLegId: ownLeg.id } })) === 0 && (await db.travelLeg.findUnique({ where: { id: ownLeg.id } }))?.mode === "DRIVER_OWN_VEHICLE", "travel pay: nothing changed or logged on the locked leg");
+    const lockedCsv = await c.text(`/api/accounts/timesheets/export?week=${payWeek}`, "ACCOUNTS");
+    t.ok(lockedCsv.status === 200 && /APPROVED by/.test(lockedCsv.text) && /,2\.5,1\.5,Travel,Passenger/.test(lockedCsv.text) && noMoney(lockedCsv.text), "travel pay: the locked week's export shows the approved paid hours");
     const thisWeekPay = await c.get(`/api/accounts/payroll/export?week=${week}&file=summary`, "ACCOUNTS");
     if (thisWeekPay.status !== 200) t.note(`this week's payroll summary answers ${thisWeekPay.status} on the copy - earlier checks seed $ names this week (pre-existing fileIsSafe refusal, not travel)`);
     // GPS: accounts / Admins only (the payroll week), never the Sign-ins page.
@@ -189,7 +241,7 @@ export default {
     // (9) Turning regional off keeps every leg; travel is no longer offered for it.
     const before = await db.travelLeg.count({ where: { projectId: reg.id } });
     t.status(await c.patch(`/api/projects/${reg.id}`, "MANAGER", { regional: false }), 200, "a Manager marks it local again");
-    t.ok((await db.travelLeg.count({ where: { projectId: reg.id } })) === before && before === 4, "its travel legs are all kept (out, home, the payroll-week one, the approval-block one)", `${before}`);
+    t.ok((await db.travelLeg.count({ where: { projectId: reg.id } })) === before && before === 5, "its travel legs are all kept (out, home, the two payroll-week ones, the approval-block one)", `${before}`);
     const st2 = await travel({ pass, action: "STATUS" });
     t.ok(st2.status === 200 && !st2.body.outJobs?.some((j) => j.jobId === regJob.id && !j.leg), "not offered once it's local");
 
