@@ -9,9 +9,14 @@
 // - Office corrections, cancels, the tip docket decision and register changes are Manager+ only (the coordinator is
 //   refused every write) and are kept in RecordChange with the reason; nothing is ever deleted (no DELETE handler, no
 //   delete in the source, row counts never go down); the tip docket's own figures are never changed.
-// WRITES (tagged "RC ... <tag>", on the test copy only): three people, two projects, one job today, links of every kind,
-// bins in the register, bin deliveries / pick-ups with 1x1 photos, one tip docket receipt.
-import { readFileSync, readdirSync } from "node:fs";
+// WRITES (tagged "RC ... <tag>", on the test copy only): three people, three projects, one job today, links of every
+// kind, bins in the register, bin deliveries / pick-ups with 1x1 photos, one tip docket receipt, test phone-alert devices
+// (fake fcm addresses) for the coordinator and an Admin. The alert test runs in a child process with throwaway VAPID keys
+// and a stub push host (https.request answered in-process) - nothing leaves the machine.
+import { execFileSync } from "node:child_process";
+import { createECDH, randomBytes } from "node:crypto";
+import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { noMoney } from "../lib/context.mjs";
 import { makeLink } from "../lib/setup.mjs";
@@ -248,6 +253,95 @@ export default {
     // server has no push keys, so nothing leaves it (the no-outbound guard below).
     const storeSrc = readFileSync(path.join(c.p.appDir, "src", "lib", "bins", "store.ts"), "utf8");
     t.ok(/if \(input\.use === "CLIENT"\) void alertClientBin\(/.test(storeSrc) && /binAlertsOn\(\)/.test(storeSrc) && /role: "COORDINATOR", active: true/.test(storeSrc) && /pushToUsers\(/.test(storeSrc), "a client's bin delivery alerts the active coordinator login(s) only, behind BIN_ALERTS");
+    // BN-009: the per-job counts come from the database's own count (groupBy) - every job's figure matches a direct count
+    // over the whole range; no days and no money in the view.
+    const wide = (await c.json(`/api/bins?from=2000-01-01&to=${c.today}`, "MANAGER")).body;
+    let countsOk = Array.isArray(wide?.clientByJob) && wide.clientByJob.length > 0;
+    for (const r of wide?.clientByJob ?? []) {
+      const n = await db.binMovement.count({ where: { projectId: r.projectId, use: "CLIENT", status: { not: "CANCELLED" } } });
+      if (r.delivered !== n || r.onSite + r.pickedUp !== r.delivered) countsOk = false;
+    }
+    t.ok(countsOk, "client's bins by job: every job's count equals a direct count of its client's bins (BN-009)", JSON.stringify(wide?.clientByJob ?? null).slice(0, 200));
+    t.ok(noMoney(JSON.stringify(wide?.clientByJob ?? [])) && !(wide?.clientByJob ?? []).some((r) => Object.keys(r).some((k) => /day|price|amount|rate|cost/i.test(k))), "no days and no money in client's bins by job");
+
+    // (9c) The coordinator's own phone alerts (Ilies, 23 Nov 2026: "all fine for alex"): register, list and delete his own
+    // devices only; another login's device is invisible to him and can't be deleted by him; the other logins unchanged.
+    const sub = () => {
+      const ecdh = createECDH("prime256v1"); ecdh.generateKeys();
+      return { ecdh, auth: randomBytes(16), keys: { p256dh: ecdh.getPublicKey().toString("base64url") } };
+    };
+    const endpoint = (who) => `https://fcm.googleapis.com/fcm/send/rc-bins-${who}-${tag}-${randomBytes(6).toString("hex")}`;
+    const co = sub(), coEp = endpoint("coord"), adEp = endpoint("admin"), co2Ep = endpoint("coord2");
+    const reg = (who, ep, s) => c.post("/api/push", who, { subscription: { endpoint: ep, keys: { p256dh: s.keys.p256dh, auth: s.auth.toString("base64url") } }, label: "RC bins" });
+    t.status(await reg("COORDINATOR", coEp, co), 200, "the coordinator turns on alerts on his phone");
+    t.status(await reg("COORDINATOR", co2Ep, sub()), 200, "and on a second phone");
+    t.status(await reg("ADMIN", adEp, sub()), 200, "an Admin turns on alerts on theirs");
+    const coList = (await c.json("/api/push", "COORDINATOR")).body;
+    const coEps = (coList?.devices ?? []).map((d) => d.endpoint);
+    t.ok(coEps.includes(coEp) && coEps.includes(co2Ep) && !coEps.includes(adEp), "the coordinator lists his own phones only", JSON.stringify(coEps.map((e) => e.slice(-12))));
+    t.ok(!!coList?.devices?.every?.((d) => !("p256dh" in d) && !("auth" in d)), "the list never hands back a phone's keys");
+    t.status(await c.del("/api/push", "COORDINATOR", { endpoint: adEp }), 200, "the coordinator tries to delete the Admin's phone");
+    t.ok(!!(await db.pushDevice.findUnique({ where: { endpoint: adEp } })), "...the Admin's phone is still there");
+    t.status(await c.del("/api/push", "COORDINATOR", { endpoint: co2Ep }), 200, "the coordinator deletes his own second phone");
+    t.ok(!(await db.pushDevice.findUnique({ where: { endpoint: co2Ep } })) && !!(await db.pushDevice.findUnique({ where: { endpoint: coEp } })), "...only that one is gone");
+    for (const who of ["MANAGER", "VIEWER", "TIMESHEETS"]) t.status(await c.get("/api/push", who), [401, 403], `${who} still can't turn on phone alerts`);
+    t.status(await c.get("/api/push", "YARD"), 200, "YARD still turns on its own (unchanged)");
+    t.status(await c.post("/api/push/test", "COORDINATOR"), [200, 502, 503], "the coordinator's test button is allowed (no keys on the test server: 503)");
+    t.status(await c.post("/api/push/test", "VIEWER"), [401, 403], "a Viewer's test button is still refused");
+
+    // The alert itself, end to end on the test copy: alertClientBin run in a child process with throwaway VAPID keys made
+    // for this run only and a STUB push host (https.request answered in-process - nothing leaves the machine; the outbound
+    // guard is loaded in the child too). The client's bin reaches the coordinator's phone (decrypted: words only, no
+    // money, the per-job tag - BN-008); our bin sends nothing; BIN_ALERTS=off sends nothing.
+    const tsxCli = path.join(c.p.appDir, "node_modules", "tsx", "dist", "cli.mjs");
+    const clientMove = await db.binMovement.findFirst({ where: { projectId: P.id, use: "CLIENT", status: { not: "CANCELLED" } } });
+    const oursMove = await db.binMovement.findFirst({ where: { projectId: P.id, use: "OURS" } });
+    if (existsSync(tsxCli) && c.p.files && clientMove && oursMove) {
+      const script = path.join(c.p.files, `rc99-alert-${tag}.mts`);
+      const fileUrl = (rel) => "file:///" + path.join(c.p.appDir, ...rel.split("/")).split(path.sep).join("/");
+      writeFileSync(script, [
+        `import https from "node:https";`,
+        `import { EventEmitter } from "node:events";`,
+        `import { createRequire } from "node:module";`,
+        `const req = createRequire(${JSON.stringify(path.join(c.p.appDir, "package.json"))});`,
+        `const webpush = req("web-push");`,
+        `const keys = webpush.generateVAPIDKeys();`, // throwaway, this run only
+        `process.env.VAPID_PUBLIC_KEY = keys.publicKey; process.env.VAPID_PRIVATE_KEY = keys.privateKey; process.env.VAPID_SUBJECT = "mailto:release-check@example.test";`,
+        `const seen = [];`,
+        `https.request = (opts, cb) => {`,
+        `  const r = new EventEmitter(); const chunks = [];`,
+        `  r.write = (b) => { chunks.push(Buffer.from(b)); return true; }; r.destroy = () => {}; r.setTimeout = () => r;`,
+        `  r.end = () => { seen.push({ host: opts.hostname, path: opts.path, enc: opts.headers?.["Content-Encoding"], body: Buffer.concat(chunks).toString("base64") });`,
+        `    const res = new EventEmitter(); res.statusCode = 201; res.headers = {}; cb(res); process.nextTick(() => res.emit("end")); };`,
+        `  return r;`,
+        `};`,
+        `const { alertClientBin } = await import(${JSON.stringify(fileUrl("src/lib/bins/store.ts"))});`,
+        `const a = await alertClientBin(${JSON.stringify(clientMove.id)}); const afterClient = seen.length;`,
+        `const b = await alertClientBin(${JSON.stringify(oursMove.id)}); const afterOurs = seen.length;`,
+        `process.env.BIN_ALERTS = "off"; const d = await alertClientBin(${JSON.stringify(clientMove.id)}); const afterOff = seen.length;`,
+        `console.log("RESULT " + JSON.stringify({ a, b, d, afterClient, afterOurs, afterOff, seen }));`,
+        `process.exit(0);`,
+      ].join("\n"));
+      let out = "";
+      const guard = path.join(c.p.appDir, "scripts", "release-check", "lib", "outbound-guard.cjs");
+      // NODE_OPTIONS so the guard is in every process tsx starts, not just the first.
+      try { out = execFileSync(process.execPath, [tsxCli, script], { cwd: c.p.appDir, env: { ...process.env, ...(c.childEnv ?? {}), NODE_OPTIONS: `--require ${JSON.stringify(guard)}`, RELEASE_CHECK_NET_LOG: c.p.netLog }, encoding: "utf8", timeout: 120_000 }); }
+      catch (e) { out = String(e?.stdout ?? "") + String(e?.stderr ?? ""); }
+      let res = null;
+      try { res = JSON.parse(out.split("\n").find((l) => l.startsWith("RESULT "))?.slice(7) ?? "null"); } catch { /* checked below */ }
+      t.ok(!!res && res.a >= 1 && res.afterClient >= 1, "a client's bin alert reached a coordinator phone (through the stub push host)", res ? JSON.stringify({ a: res.a, n: res.afterClient }) : out.slice(0, 200));
+      const toCoord = (res?.seen ?? []).filter((s) => s.path === new URL(coEp).pathname);
+      t.ok(toCoord.length === 1 && (res?.seen ?? []).every((s) => s.host === "fcm.googleapis.com" && s.path !== new URL(adEp).pathname), "...to the coordinator's phone only - never the Admin's", JSON.stringify((res?.seen ?? []).map((s) => s.path.slice(-12))));
+      let payload = null;
+      try {
+        const ece = createRequire(path.join(c.p.appDir, "package.json"))("http_ece");
+        payload = JSON.parse(ece.decrypt(Buffer.from(toCoord[0].body, "base64"), { version: "aes128gcm", privateKey: co.ecdh, authSecret: co.auth }).toString("utf8"));
+      } catch (e) { t.note(`couldn't decrypt the stubbed push: ${String(e?.message ?? e).slice(0, 120)}`); }
+      t.ok(payload?.title === "Client's bin delivered" && payload?.url === "/bins" && payload?.tag === `bin-client-${P.id}`.slice(0, 40) && payload?.silent === true, "the alert says \"Client's bin delivered\", opens /bins, quiet, one tag per job (BN-008)", JSON.stringify(payload));
+      t.ok(!!payload && noMoney(JSON.stringify(payload)) && payload.body.includes(`RC Bins job ${tag}`), "words only - the job and the size, no money", payload?.body);
+      t.ok(res?.b === 0 && res?.afterOurs === res?.afterClient, "our bin sends nothing");
+      t.ok(res?.d === 0 && res?.afterOff === res?.afterOurs, "BIN_ALERTS=off sends nothing");
+    } else t.block("no tsx in the candidate's node_modules (or no client / our bin entry) - the alert couldn't be run end to end");
 
     // (10) Nothing is deleted: no DELETE handler, no delete in the source, the counts never went down.
     for (const pth of [`/api/bins/${mA.id}`, `/api/bins/register/${binA}`, "/api/bins", c.site(L.sup, "/bins")]) t.status(await c.del(pth, "ADMIN"), [404, 405], `DELETE ${pth.replace(L.sup.secret, "<link>")}`);

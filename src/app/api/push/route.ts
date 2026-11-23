@@ -12,8 +12,10 @@ import { isPushHost } from "@/lib/pushHost";
 // Since 26 Oct 2026 the accounts login can turn on its own phone for due-date alerts too, and since 4 Nov 2026 the
 // yard computer (YARD) its own alerts for yard jobs (Ilies; sent by lib/yard/alerts.ts). Each only ever sees and
 // changes its own devices. DIRECTOR logins (10 Nov 2026, Directors -> Waiting on you) turn on their own phone for the
-// Monday "N things waiting on you" alert (lib/directorsWaiting) - their own devices only, like accounts.
-const PUSH_OWN_ROLES: readonly string[] = ["ACCOUNTS", "YARD", "DIRECTOR"];
+// Monday "N things waiting on you" alert (lib/directorsWaiting) - their own devices only, like accounts. The coordinator
+// (Alex, Ilies 23 Nov 2026: "all fine for alex, approve both") turns on his own phone for the client's bin alert
+// (lib/bins) - and so also gets office chat and his own purchase-decision alerts, which Ilies accepted. Own devices only.
+const PUSH_OWN_ROLES: readonly string[] = ["ACCOUNTS", "YARD", "DIRECTOR", "COORDINATOR"];
 async function guardPush() {
   const user = await getCurrentUser();
   if (user && PUSH_OWN_ROLES.includes(user.role)) return null;

@@ -175,26 +175,37 @@ test("client's bins by job: a count of bins delivered, split on site / picked up
   ]);
   assert.deepEqual(Object.fromEntries(c), { a: { delivered: 3, onSite: 1, pickedUp: 2 }, c: { delivered: 1, onSite: 0, pickedUp: 1 } });
   assert.ok(![...c.values()].some((x) => Object.keys(x).some((k) => /day/i.test(k))), "no days figure");
+  // BN-009: the database's grouped counts give the same answer.
+  const g = clientBinCounts([
+    { projectId: "a", use: "CLIENT", status: "ON_SITE", n: 1 }, { projectId: "a", use: "CLIENT", status: "PICKED_UP", n: 2 },
+    { projectId: "a", use: "CLIENT", status: "CANCELLED", n: 4 }, { projectId: "c", use: "CLIENT", status: "PICKED_UP", n: 1 },
+    { projectId: "d", use: "CLIENT", status: "ON_SITE", n: 0 },
+  ]);
+  assert.deepEqual(Object.fromEntries(g), Object.fromEntries(c));
+  assert.equal(clientBinCounts([{ projectId: "x", use: "CLIENT", status: "PICKED_UP", n: 12000 }]).get("x")?.delivered, 12000, "never capped");
 });
 
 // ---------- the phone alert to Alex ----------
 
 test("a client's bin delivered: one quiet alert, words only - the job and the size, no amount", () => {
-  const a = clientBinAlert({ id: id(50), use: "CLIENT", size: "M15", project: "Bondi Rd strip-out" });
+  const a = clientBinAlert({ use: "CLIENT", size: "M15", project: "Bondi Rd strip-out", projectId: id(2) });
   assert.ok(a);
   assert.equal(a!.title, "Client's bin delivered");
   assert.equal(a!.body, "Bondi Rd strip-out, 15 m³");
   assert.equal(a!.url, "/bins");
   assert.equal(a!.silent, true, "quiet");
+  assert.equal(a!.tag, `bin-client-${id(2)}`.slice(0, 40), "BN-008: one tag per job - repeat deliveries replace one notification");
+  assert.equal(clientBinAlert({ use: "CLIENT", size: "M8", project: "Bondi Rd strip-out", projectId: id(2) })!.tag, a!.tag, "the same job, the same tag");
+  assert.notEqual(clientBinAlert({ use: "CLIENT", size: "M8", project: "Coogee", projectId: id(3) })!.tag, a!.tag, "another job, another tag");
   assert.ok(assertNoMoney(JSON.stringify(a)), "passes the money guard");
-  const priced = clientBinAlert({ id: id(51), use: "CLIENT", size: "HOOK", project: "$450 Coogee job" });
+  const priced = clientBinAlert({ use: "CLIENT", size: "HOOK", project: "$450 Coogee job", projectId: id(3) });
   assert.ok(priced && assertNoMoney(JSON.stringify(priced)) && !priced.body.includes("$"), "a dollar figure in the job name is taken out");
   assert.equal(priced!.body, "Coogee job, Hook bin");
 });
 
 test("our bin sends nothing; the kill switch BIN_ALERTS=off stops the alert", () => {
-  assert.equal(clientBinAlert({ id: id(52), use: "OURS", size: "M15", project: "Bondi Rd" }), null);
-  assert.equal(clientBinAlert({ id: id(53), use: "", size: "M15", project: "Bondi Rd" }), null);
+  assert.equal(clientBinAlert({ use: "OURS", size: "M15", project: "Bondi Rd", projectId: id(2) }), null);
+  assert.equal(clientBinAlert({ use: "", size: "M15", project: "Bondi Rd", projectId: id(2) }), null);
   assert.equal(binAlertsOn({}), true);
   assert.equal(binAlertsOn({ BIN_ALERTS: "on" }), true);
   assert.equal(binAlertsOn({ BIN_ALERTS: "off" }), false);

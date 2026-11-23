@@ -246,11 +246,12 @@ test("CO-001-R1: the yard never has director access, whatever its tick says", as
 // DIRECTOR logins joined on 10 Nov 2026 (Directors -> Waiting on you: the Monday alert) - own devices only, the same way.
 test("phone / desktop alerts: the yard turns on its own, like accounts (and DIRECTOR logins); other one-page logins stay refused", () => {
   const push = src("../app/api/push/route.ts");
-  assert.match(push, /const PUSH_OWN_ROLES: readonly string\[\] = \["ACCOUNTS", "YARD", "DIRECTOR"\];/);
+  assert.match(push, /const PUSH_OWN_ROLES: readonly string\[\] = \["ACCOUNTS", "YARD", "DIRECTOR", "COORDINATOR"\];/); // + the coordinator (23 Nov 2026)
   assert.match(push, /if \(user && PUSH_OWN_ROLES\.includes\(user\.role\)\) return null;\s*return guard\("ADMIN"\);/);
   for (const h of ["GET", "POST", "DELETE"]) assert.match(handler(push, h), /await guardPush\(\)[\s\S]*userId: user\.id/, `${h}: own devices only`);
   const test = src("../app/api/push/test/route.ts");
-  assert.match(test, /const yard = user\?\.role === "YARD";[\s\S]*if \(!accounts && !yard && !director\) \{\s*const denied = await guard\("ADMIN"\);/);
+  assert.match(test, /const yard = user\?\.role === "YARD";[\s\S]*if \(!accounts && !yard && !director && !coordinator\) \{\s*const denied = await guard\("ADMIN"\);/);
+  assert.match(test, /const coordinator = user\?\.role === "COORDINATOR";/);
   assert.match(test, /const director = user\?\.role === "DIRECTOR";/);
   assert.match(test, /pushToUsers\(\s*\[user!\.id\]/, "a test goes to the caller's own devices only");
 });

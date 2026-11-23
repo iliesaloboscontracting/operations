@@ -152,13 +152,16 @@ export function parseCorrection(b: Record<string, unknown>): CorrectionInput | {
 // How many client's bins each job had delivered: of which on site now and picked up. Our bins and cancelled entries
 // don't count. No days figure - days out is information on the Out now list only, never what's charged.
 export type ClientBinCount = { delivered: number; onSite: number; pickedUp: number };
-export function clientBinCounts(rows: { projectId: string; use: string; status: string }[]): Map<string, ClientBinCount> {
+// Each row is one entry, or (n) a count of entries from a database groupBy (BN-009).
+export function clientBinCounts(rows: { projectId: string; use: string; status: string; n?: number }[]): Map<string, ClientBinCount> {
   const out = new Map<string, ClientBinCount>();
   for (const r of rows) {
     if (r.use !== "CLIENT" || r.status === "CANCELLED") continue;
+    const n = r.n ?? 1;
+    if (!(n > 0)) continue;
     const c = out.get(r.projectId) ?? { delivered: 0, onSite: 0, pickedUp: 0 };
-    c.delivered++;
-    if (r.status === "ON_SITE") c.onSite++; else if (r.status === "PICKED_UP") c.pickedUp++;
+    c.delivered += n;
+    if (r.status === "ON_SITE") c.onSite += n; else if (r.status === "PICKED_UP") c.pickedUp += n;
     out.set(r.projectId, c);
   }
   return out;
@@ -170,10 +173,11 @@ export function clientBinCounts(rows: { projectId: string; use: string; status: 
 export const binAlertsOn = (env: Record<string, string | undefined> = process.env) => (env.BIN_ALERTS ?? "").trim().toLowerCase() !== "off";
 export type BinAlert = { title: string; body: string; url: string; tag: string; silent: boolean };
 // One quiet alert per client's bin delivered: words only - the job and the size. Our bin: nothing. Anything that
-// would carry a dollar figure is never sent (the job name has any "$" amount taken out first).
-export function clientBinAlert(m: { id: string; use: string; size: string; project: string }): BinAlert | null {
+// would carry a dollar figure is never sent (the job name has any "$" amount taken out first). BN-008 (Ilies approved
+// 23 Nov 2026): the tag is per job, so several deliveries to the same job replace one notification instead of stacking.
+export function clientBinAlert(m: { use: string; size: string; project: string; projectId: string }): BinAlert | null {
   if (m.use !== "CLIENT") return null;
-  const msg = { title: "Client's bin delivered", body: `${linkLabel(m.project, "a job")}, ${sizeLabel(m.size)}`, url: "/bins", tag: `bin-${m.id}`.slice(0, 40), silent: true };
+  const msg = { title: "Client's bin delivered", body: `${linkLabel(m.project, "a job")}, ${sizeLabel(m.size)}`, url: "/bins", tag: `bin-client-${m.projectId}`.slice(0, 40), silent: true };
   return assertNoMoney(JSON.stringify(msg)) ? msg : null;
 }
 

@@ -157,7 +157,7 @@ export async function alertClientBin(movementId: string): Promise<number> {
   const m = await prisma.binMovement.findUnique({ where: { id: movementId }, select: { id: true, use: true, size: true, projectId: true } });
   if (!m) return 0;
   const project = await prisma.project.findUnique({ where: { id: m.projectId }, select: { name: true } });
-  const msg = clientBinAlert({ id: m.id, use: m.use, size: m.size, project: project?.name ?? "a job" });
+  const msg = clientBinAlert({ use: m.use, size: m.size, project: project?.name ?? "a job", projectId: m.projectId });
   if (!msg) return 0;
   const coordinators = await prisma.user.findMany({ where: { role: "COORDINATOR", active: true }, select: { id: true } });
   return pushToUsers(coordinators.map((u) => u.id), msg, "normal");
@@ -275,9 +275,11 @@ export async function officeBins(f: BinFilters): Promise<BinsOfficeDTO> {
     prisma.bin.findMany({ orderBy: [{ retiredAt: "asc" }, { size: "asc" }, { label: "asc" }] }),
     prisma.binMovement.findMany({ select: { projectId: true }, distinct: ["projectId"] }),
     // Client's bins delivered in the range (the job filter applies; the client / ours filter doesn't - these are all client's).
-    prisma.binMovement.findMany({
+    // BN-009 (Ilies approved 23 Nov 2026): counted in the database (groupBy), so a long range is never cut short.
+    prisma.binMovement.groupBy({
+      by: ["projectId", "status"],
       where: { use: "CLIENT", deliveredAt: { gte: fromAt, lt: toAt }, ...(scope.projectId ? { projectId: scope.projectId } : {}) },
-      select: { projectId: true, use: true, status: true }, take: 5000,
+      _count: { _all: true },
     }),
   ]);
   const allOut = scope.projectId || scope.use ? await prisma.binMovement.findMany({ where: { status: "ON_SITE" }, select: { size: true, binId: true, projectId: true } }) : outRows;
@@ -290,7 +292,7 @@ export async function officeBins(f: BinFilters): Promise<BinsOfficeDTO> {
   ]);
   const projectName = new Map(projects.map((p) => [p.id, p.name]));
   // Client's bins by job (Alex tracks them as variations; charged per bin - Ilies, 23 Nov 2026): how many were delivered.
-  const counts = clientBinCounts(clientRows);
+  const counts = clientBinCounts(clientRows.map((g) => ({ projectId: g.projectId, use: "CLIENT", status: g.status, n: g._count._all })));
   const countProjects = await prisma.project.findMany({ where: { id: { in: [...counts.keys()] } }, select: { id: true, name: true, jobNo: true, client: true } });
   const clientByJob = countProjects.map((p) => ({ projectId: p.id, project: p.name, jobNo: p.jobNo, client: p.client, ...counts.get(p.id)! }));
   const active = bins.filter((b) => !b.retiredAt);
