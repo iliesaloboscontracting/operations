@@ -402,7 +402,12 @@ export async function changeMovement(idIn: unknown, body: Record<string, unknown
         if ("error" in c) throw new BinError(c.error);
         reason = c.reason;
         const f = { ...c.fields };
-        if (f.projectId && f.projectId !== m.projectId && !(await tx.project.findUnique({ where: { id: f.projectId }, select: { id: true } }))) throw new BinError("Pick the job.");
+        if (f.projectId && f.projectId !== m.projectId) {
+          // BN-003 (Ilies approved 23 Nov 2026): a matched tip docket belongs to the job it was on - take it off first;
+          // and never onto an archived project.
+          if (m.tipReceiptId) throw new BinError("Take the tip docket off first.", 409);
+          if (!(await tx.project.findFirst({ where: { id: f.projectId, archived: false }, select: { id: true } }))) throw new BinError("Pick the job.");
+        }
         const size = f.size ?? m.size;
         if (f.size && f.size !== m.size && f.binId === undefined) f.binId = null; // a new size: the old bin no longer fits
         if (f.binId) {
@@ -425,6 +430,10 @@ export async function changeMovement(idIn: unknown, body: Record<string, unknown
         reason = tidy(body.reason, 300);
         if (reason.length < 3) throw new BinError("Say why it's going back on site.");
         if (!canMove(m.status, "ON_SITE")) throw new BinError("Only a picked-up bin can be put back on site.", 409);
+        // BN-004 (Ilies approved 23 Nov 2026): a retired bin can't go back on site.
+        if (m.binId && (await tx.bin.findUnique({ where: { id: m.binId }, select: { retiredAt: true } }))?.retiredAt) {
+          throw new BinError("That bin is retired - bring it back in the register first.", 409);
+        }
         data = { status: "ON_SITE", onSiteKey: m.binId, pickedUpAt: null, pickedUpBy: null, pickedUpByResourceId: null, pickedUpLinkId: null, tipReceiptId: null, tipConfirmedBy: null, tipConfirmedAt: null };
         // The pick-up photos stay on the entry, marked as an undone pick-up.
         await tx.binPhoto.updateMany({ where: { movementId: m.id, stage: "PICKED_UP" }, data: { stage: "PICKED_UP_UNDONE" } });

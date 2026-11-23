@@ -185,6 +185,9 @@ export default {
     t.ok(tipAfter.priceExGst === 412.5 && tipAfter.tonnes === 3.3 && tipAfter.status === "READ" && tipAfter.invoicedCostId === tipR.invoicedCostId, "the docket's own figures and status are unchanged (tip costs untouched)");
     const otherPicked = await db.binMovement.findFirst({ where: { binId: binB, status: "PICKED_UP" } });
     t.status(await c.patch(`/api/bins/${otherPicked.id}`, "MANAGER", { action: "tip-confirm", receiptId: tipR.id }), 409, "the same docket on a second bin");
+    // BN-003: the job of an entry with a matched docket can't change - take the docket off first.
+    t.status(await c.patch(`/api/bins/${mA.id}`, "MANAGER", { action: "correct", projectId: Q.id, reason: "RC wrong job" }), 409, "correcting the job of an entry with a matched tip docket (BN-003)");
+    t.ok((await db.binMovement.findUnique({ where: { id: mA.id } })).projectId === P.id, "...the job is unchanged");
     t.status(await c.patch(`/api/bins/${mA.id}`, "ADMIN", { action: "tip-reject", receiptId: tipR.id }), 200, "an Admin says it's not this bin's after all");
     t.ok((await db.binMovement.findUnique({ where: { id: mA.id } })).tipReceiptId === null, "...the match is taken off");
     t.ok((await db.recordChange.count({ where: { model: "BinMovement", recordId: mA.id, field: "tipReceiptId" } })) === 2, "both tip decisions are in the history");
@@ -211,6 +214,17 @@ export default {
     // (9) Register changes: Manager+, a reason to retire, never while on site; kept in the history.
     for (const who of NO_WRITE) t.status(await c.patch(`/api/bins/register/${bin9}`, who, { action: "rename", label: `RC 9 x ${tag}` }), [401, 403], `${label(who)} renaming a bin`);
     t.status(await c.patch(`/api/bins/register/${bin9}`, "MANAGER", { action: "retire", reason: "RC sold" }), 409, "retiring a bin that's on site");
+    // BN-003: never onto an archived project.
+    const R = await db.project.create({ data: { name: `RC Bins archived ${tag}`, status: "COMPLETED", archived: true } });
+    const live9 = await db.binMovement.findFirst({ where: { binId: bin9, status: "ON_SITE" } });
+    t.status(await c.patch(`/api/bins/${live9.id}`, "MANAGER", { action: "correct", projectId: R.id, reason: "RC archived job" }), 400, "correcting an entry onto an archived project (BN-003)");
+    t.ok((await db.binMovement.findUnique({ where: { id: live9.id } })).projectId === P.id, "...the job is unchanged");
+    // BN-004: a picked-up entry whose bin was then retired can't be put back on site.
+    t.status(await c.post(c.site(L.drv, "/bins"), null, { action: "pickup", movementId: live9.id, photoIds: [await photo(L.drv)] }), 201, "the 9 m³ is picked up");
+    t.status(await c.patch(`/api/bins/register/${bin9}`, "MANAGER", { action: "retire", reason: "RC cracked" }), 200, "and the 9 m³ bin is retired");
+    t.status(await c.patch(`/api/bins/${live9.id}`, "MANAGER", { action: "unpick", reason: "RC wrong bin" }), 409, "putting back on site an entry whose bin is retired (BN-004)");
+    t.ok((await db.binMovement.findUnique({ where: { id: live9.id } })).status === "PICKED_UP", "...it stays picked up");
+    t.status(await c.patch(`/api/bins/register/${bin9}`, "MANAGER", { action: "restore" }), 200, "the 9 m³ is brought back");
     const hook = def.body.id;
     t.status(await c.patch(`/api/bins/register/${hook}`, "MANAGER", { action: "retire" }), 400, "retiring with no reason");
     t.status(await c.patch(`/api/bins/register/${hook}`, "MANAGER", { action: "rename", label: `RC Hook ${tag}` }), 200, "a Manager renames the hook bin");
