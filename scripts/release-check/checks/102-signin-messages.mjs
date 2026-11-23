@@ -5,6 +5,9 @@
 //       ACCOUNTS / DIRECTOR / YARD 403, signed out 401 - nothing written.
 //   (2) Text: at most 300 characters, no $ amounts, no TFN / bank (400); people only from the active Labour register.
 //   (3) A person sees only their own and "everyone" messages - never another person's; archived and finished ones never.
+//       SM-001 B: after a QR sign-in their own show only on a known phone (an earlier-day CONFIRMED, not removed sign-in
+//       of theirs on that device id); an unknown phone gets everyone messages only and Got it on their own is 404; their
+//       own SUPERVISOR / DRIVER link still shows their own. SM-004: no site-link route touches the office chat.
 //   (4) The sign-in succeeds and returns on its own: the IN reply only carries a token (no message in it), the sign-in is
 //       saved before any message is read; STATUS carries no token; the truck's required pre-start is unchanged.
 //   (5) "Got it" records seen (QR / LINK) and it doesn't show again - once overall across the QR and the link; a hire
@@ -13,7 +16,8 @@
 //       archive keeps everything - nothing deleted, the text never rewritten.
 // WRITES on the test copy: made-up people, a truck, a yard point, a supervisor / driver / office link, sign-ins, messages
 // and their "Got it" rows; everyone signed out, links revoked, people switched off and our live messages archived at the end.
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
+import path from "node:path";
 import { noMoney } from "../lib/context.mjs";
 import { makeLink } from "../lib/setup.mjs";
 
@@ -27,6 +31,19 @@ export default {
   writes: true, timeoutMs: 300_000,
   applies: (c) => c.hasPath("src/lib/signinMessages/rules.ts") || "needs lib/signinMessages/rules.ts",
   async run(t, c) {
+    // SM-004 (approved by Ilies 23 Nov 2026): no site-link route (src/app/api/site/**) reaches the office chat - it never
+    // imports lib/messages/ and never touches the chat tables (Message, MessageThread, MessageParticipant,
+    // MessageVersion). Sign-in messages (SigninMessage*) are a separate store and are fine.
+    {
+      const siteDir = path.join(c.p.appDir, "src", "app", "api", "site");
+      const files = [];
+      const walk = (d) => { for (const e of readdirSync(d, { withFileTypes: true })) { const f = path.join(d, e.name); if (e.isDirectory()) walk(f); else if (/\.(ts|tsx|js|mjs)$/.test(e.name)) files.push(f); } };
+      try { walk(siteDir); } catch { /* missing - the count below fails */ }
+      const CHAT_IMPORT = /["'](?:@\/|(?:\.\.?\/)+)(?:src\/)?lib\/messages(?:\/|["'])/;
+      const CHAT_TABLE = /\b(?:prisma|tx|db)\s*\.\s*(?:message|messageThread|messageParticipant|messageVersion)\b/;
+      const bad = files.filter((f) => { const s = readFileSync(f, "utf8"); return CHAT_IMPORT.test(s) || CHAT_TABLE.test(s); }).map((f) => path.relative(c.p.appDir, f));
+      t.ok(files.length > 0 && bad.length === 0, `SM-004: none of the ${files.length} site-link route files imports the office chat (lib/messages/) or uses its tables`, bad.join(", ").slice(0, 300));
+    }
     const db = c.db;
     if (!db) return t.block("no test database handle");
     const tag = Date.now().toString(36);
@@ -49,7 +66,7 @@ export default {
     const lacks = (r, ...not) => not.every((id) => !ids(r).includes(id));
 
     // Seed: A, B, C, D (a truck driver), Z (rate-limit target), I (switched off), M (a machine); a yard point; a truck.
-    const A = await mkPerson("a"), B = await mkPerson("b"), Cc = await mkPerson("c"), D = await mkPerson("d", { category: "Truck Driver" }), Z = await mkPerson("z");
+    const A = await mkPerson("a"), B = await mkPerson("b"), Cc = await mkPerson("c"), D = await mkPerson("d", { category: "Truck Driver" }), Z = await mkPerson("z"), E = await mkPerson("e");
     const I = await mkPerson("i", { active: false });
     const M = await db.resource.create({ data: { type: "EQUIPMENT", category: "Excavator", name: `RC102 machine ${tag}`, ownership: "OWNED", status: "AVAILABLE" } });
     people.push(M.id);
@@ -59,6 +76,12 @@ export default {
     const TP = await makeLink(db, "POSTER", T.id, { place: "VEHICLE" }); links.push(TP.id);
     const count = () => db.signinMessage.count();
     const count0 = await count();
+    // SM-001 B: a "known device" = an earlier-day CONFIRMED sign-in by the same person on the same device id (seeded).
+    const DAY = 86_400_000;
+    const pastSignIn = (r, deviceId, extra = {}) => db.siteAttendance.create({ data: {
+      place: "YARD", placeLabel: "Yard", date: addDays(c.today, -3), resourceId: r.id, workerName: r.name, deviceId,
+      signInAt: new Date(Date.now() - 3 * DAY), signOutAt: new Date(Date.now() - 3 * DAY + 8 * 3_600_000), signInMethod: "POSTER", signOutMethod: "POSTER", status: "CONFIRMED", ...extra,
+    } });
 
     // (1) Who may.
     for (const who of WRITERS) t.status(await office(who), 200, `the office view: ${who}`);
@@ -98,8 +121,9 @@ export default {
     t.status(await archive(null, mAll), 401, "archiving: signed out 401");
     t.status(await archive("ADMIN", mArch), 409, "archiving twice 409");
 
-    // (4) A signs in at the yard: saved first, the reply only carries a token.
+    // (4) A signs in at the yard: saved first, the reply only carries a token. A's phone is known (an earlier day).
     const devA = `rc102-a-${tag}`;
+    await pastSignIn(A, devA);
     const stA = await sign(Y, "STATUS", { resourceId: A.id }, devA);
     t.ok(stA.status === 200 && stA.body?.messages === undefined, "STATUS carries no message token", stA.status);
     const inA = await sign(Y, "IN", { resourceId: A.id }, devA);
@@ -131,9 +155,29 @@ export default {
     t.status(await linkGotIt(LB, mAB), 200, "B: Got it on the link");
     t.ok((await db.signinMessageSeen.count({ where: { messageId: mAB, personKey: B.id, where: "LINK", siteLinkId: LB.id } })) === 1, "seen recorded on the link");
     t.status(await linkGotIt(LB, mC), 404, "B's link can't mark C's message");
+    await pastSignIn(B, `rc102-b-${tag}`); // B's phone is known too
     const inB = await sign(Y, "IN", { resourceId: B.id }, `rc102-b-${tag}`);
     const boxB = await inbox(inB.body?.messages);
     t.ok(inB.status === 200 && has(boxB, mAll) && lacks(boxB, mAB, mA), "B's QR sign-in: the link's Got it counts - A+B doesn't show again", JSON.stringify(ids(boxB)));
+
+    // SM-001 B: C signs in at the yard on a phone never used by C before - everyone messages only; C's own can't be marked.
+    const inC = await sign(Y, "IN", { resourceId: Cc.id }, `rc102-c-new-${tag}`);
+    const boxC = await inbox(inC.body?.messages);
+    t.ok(inC.status === 200 && has(boxC, mAll) && lacks(boxC, mC, mA, mAB), "SM-001: an unknown phone sees the everyone message only - not C's own", JSON.stringify(ids(boxC)));
+    t.status(await gotIt(inC.body?.messages, mC, `rc102-c-new-${tag}`), 404, "SM-001: Got it on C's own message from an unknown phone: 404, as a missing message");
+    t.ok((await db.signinMessageSeen.count({ where: { messageId: mC } })) === 0, "...nothing recorded");
+    // E: earlier sign-ins that don't count - the same phone but removed (REJECTED), and CONFIRMED on another phone.
+    const mE = (await write("MANAGER", { text: TXT("for E"), audience: "PEOPLE", resourceIds: [E.id] })).body?.id;
+    const devE = `rc102-e-${tag}`;
+    await pastSignIn(E, devE, { status: "REJECTED", removedAt: new Date(), removedBy: `RC102 ${tag}` });
+    await pastSignIn(E, `rc102-e-other-${tag}`);
+    const inE = await sign(Y, "IN", { resourceId: E.id }, devE);
+    const boxE = await inbox(inE.body?.messages);
+    t.ok(!!mE && inE.status === 200 && has(boxE, mAll) && lacks(boxE, mE), "SM-001: a removed sign-in on this phone, or a confirmed one on another phone, doesn't make it known", JSON.stringify(ids(boxE)));
+    // The person's own link is personal: E's SUPERVISOR link shows E's message.
+    const LE = await makeLink(db, "SUPERVISOR", E.id); links.push(LE.id);
+    t.ok(has(await linkInbox(LE), mAll, mE), "SM-001: E's own link still shows E's message");
+
     // C: a DRIVER link; an OFFICE link gets nothing.
     const LC = await makeLink(db, "DRIVER", Cc.id); links.push(LC.id);
     const lc = await linkInbox(LC);
@@ -184,7 +228,7 @@ export default {
     // Nothing deleted, nothing rewritten.
     const arch = await db.signinMessage.findUnique({ where: { id: mArch } });
     t.ok(!!arch && arch.text === TXT("archived") && !!arch.archivedAt && arch.archiveReason === `RC102 archive ${tag}`, "the archived message is kept, its text unchanged, with who / why");
-    t.ok((await count()) === count0 + 6, "every message is still there", String((await count()) - count0));
+    t.ok((await count()) === count0 + 7, "every message is still there", String((await count()) - count0));
 
     // Rate limit: 30 a day per login (the Admin login with no other writes here).
     let made = 0, limited = null;
