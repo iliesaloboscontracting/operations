@@ -21,6 +21,7 @@ import CrewMessages from "@/components/site/CrewMessages";
 import { HowToGuideView } from "@/components/site/HowToGuide";
 import { guideForLink } from "@/lib/howTo";
 import CheckResultView from "@/components/tools/CheckResultView";
+import ToolboxTickList from "@/components/site/ToolboxTickList";
 import InstallApp from "@/components/InstallApp";
 import SiteBrand from "@/components/site/SiteBrand";
 import PushToggle from "@/components/PushToggle";
@@ -48,7 +49,7 @@ type SiteInfo = {
   yardJobs?: number; // the yard's shared link: jobs to get ready (4 Nov 2026)
   readyToCollect?: number; // a supervisor's link: their requests ready at the yard
 };
-type Mode = "home" | "register" | "check" | "fault" | "signin" | "request" | "requests" | "todo" | "purchases" | "hire" | "log" | "receipt" | "receipts" | "hours" | "reimburse" | "yard" | "bins" | "howto";
+type Mode = "home" | "register" | "check" | "checkPhotos" | "fault" | "signin" | "request" | "requests" | "todo" | "purchases" | "hire" | "log" | "receipt" | "receipts" | "hours" | "reimburse" | "yard" | "bins" | "howto";
 
 const input =
   "w-full rounded-lg border border-edge bg-panel2 px-3 py-2.5 text-base text-gray-200 placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500";
@@ -244,7 +245,7 @@ export default function SitePhotosPage({ params: paramsP }: { params: Promise<{ 
             )}
             {(info.kind === "OFFICE" || hasTools) && (<>
             <Big icon={<Camera size={22} />} title="Add a tool" text="Photos and/or type the details" onClick={() => { setFlash(null); setMode("register"); }} />
-            <Big icon={<ScanLine size={22} />} title={info.kind === "OFFICE" ? "Check a toolbox" : "Check my toolbox"} text="Photo of the tools laid out" onClick={() => { setFlash(null); setMode("check"); }} />
+            <Big icon={<ScanLine size={22} />} title={info.kind === "OFFICE" ? "Check a toolbox" : "Check my toolbox"} text={info.kind === "OFFICE" ? "Photo of the tools laid out" : "Tick each tool: here or missing"} onClick={() => { setFlash(null); setMode("check"); }} />
             {info.kind !== "OFFICE" && (
               <Big icon={<Wrench size={22} />} title="Report a fault" text="Not working, damaged, needs a Hilti swap" onClick={() => { setFlash(null); setMode("fault"); }} />
             )}
@@ -259,11 +260,14 @@ export default function SitePhotosPage({ params: paramsP }: { params: Promise<{ 
         </>
       ) : (
         <>
-          <button onClick={() => setMode("home")} className="mb-4 flex items-center gap-1 text-sm text-gray-400">
+          <button onClick={() => setMode(mode === "checkPhotos" ? "check" : "home")} className="mb-4 flex items-center gap-1 text-sm text-gray-400">
             <ArrowLeft size={16} /> Back
           </button>
           {mode === "register" && <RegisterTool api={api} info={info} onDone={finished} />}
-          {mode === "check" && <CheckBox api={api} info={info} />}
+          {/* Check my toolbox (Ilies, 25 Nov 2026): a supervisor ticks each tool Here / Missing; the photo check is
+              behind "Use photos instead". The office link keeps the photo check as before. */}
+          {mode === "check" && info.kind === "SUPERVISOR" && <ToolboxTickList api={api} toolboxes={info.toolboxes} onUsePhotos={() => setMode("checkPhotos")} />}
+          {(mode === "checkPhotos" || (mode === "check" && info.kind !== "SUPERVISOR")) && <CheckBox api={api} info={info} />}
           {mode === "fault" && <ReportFault api={api} info={info} onDone={finished} />}
           {mode === "signin" && <SignInCrew api={api} />}
           {mode === "request" && <RequestForm api={api} who={who} onDone={finished} />}

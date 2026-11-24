@@ -6,6 +6,7 @@ import { readToolPhotos, VisionNotConfigured } from "@/lib/toolVision";
 import { runToolboxCheck } from "@/lib/toolboxCheckRun";
 import { moveTool } from "@/lib/toolMoves";
 import { createTool, duplicateMessage, findDuplicate } from "@/lib/toolCreate";
+import { buildTickResult, tickReply } from "@/lib/toolboxTick";
 
 // POST /api/site/:token/submit
 //   { kind: "READ", platePhotoId?, conditionPhotoId? }          -> details read from the photos (nothing saved)
@@ -13,6 +14,7 @@ import { createTool, duplicateMessage, findDuplicate } from "@/lib/toolCreate";
 //                                                                -> saved straight into the inventory
 //   { kind: "FAULT", toolId, description, photoId? }             -> office inbox (supervisor links)
 //   { kind: "CHECK", toolboxId, photoIds }                        -> checked now, result returned
+//   { kind: "TICK_CHECK", toolboxId, marks: { toolId: "HERE" | "MISSING" } } -> the tick list (SUPERVISOR links), same record
 //   { kind: "CHECK_ACTION", action: "MINE" | "MISSING", toolId, toolboxId }
 // Supervisors run their own toolbox checks (Ilies, 19 Oct 2026): a check is
 // recorded straight away, and from its result they can take a tool from
@@ -39,6 +41,10 @@ export const POST = withErrorHandling(async (req: NextRequest, { params: paramsP
         return await fault(link, body);
       case "CHECK":
         return await check(link, body, by);
+      case "TICK_CHECK":
+        // The tick list is a supervisor's own toolbox only - the office link keeps the photo check (25 Nov 2026).
+        if (link.kind !== "SUPERVISOR") return bad("Ticking a toolbox is on a supervisor's link.", 403);
+        return await tickCheck(link, body, by);
       case "CHECK_ACTION":
         return await checkAction(link, body, by);
       default:
@@ -192,6 +198,37 @@ async function check(link: ResolvedLink, body: Record<string, unknown>, by: stri
     },
   });
   return NextResponse.json({ ok: true, result }, { status: 201 });
+}
+
+// The tick list (Ilies, 25 Nov 2026: "List + tick each one"): every active tool in the link's own toolbox marked Here
+// or Missing. Saved exactly like a photo check - a ToolboxCheck (no photos, method TICK) and a CHECK SiteSubmission,
+// so the office sees it on From site and the Toolboxes page the same way. A tool id from outside the box is refused.
+async function tickCheck(link: ResolvedLink, body: Record<string, unknown>, by: string) {
+  const box = ownBox(link, body.toolboxId);
+  if (!box) return bad("Pick your toolbox.");
+  const tools = await prisma.tool.findMany({
+    where: { toolboxId: box.id, condition: { not: "Swapped out" }, retiredAt: null },
+    orderBy: { tag: "asc" },
+    select: { id: true, tag: true, name: true, serialNumber: true },
+  });
+  const built = buildTickResult(tools, body.marks);
+  if (!built.ok) return bad(built.error);
+  const check = await prisma.toolboxCheck.create({
+    data: { toolboxId: box.id, photoIds: "[]", result: JSON.stringify(built.result), checkedBy: by },
+  });
+  await prisma.siteSubmission.create({
+    data: {
+      siteLinkId: link.id,
+      kind: "CHECK",
+      photoIds: "[]",
+      toolboxId: box.id,
+      checkId: check.id,
+      status: "APPLIED",
+      reviewedBy: by,
+      reviewedAt: new Date(),
+    },
+  });
+  return NextResponse.json({ ok: true, result: tickReply(built.result) }, { status: 201 });
 }
 
 async function checkAction(link: ResolvedLink, body: Record<string, unknown>, by: string) {

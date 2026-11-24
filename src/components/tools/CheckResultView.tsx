@@ -15,7 +15,7 @@ function Row({ icon, tone, children }: { icon: React.ReactNode; tone: string; ch
   );
 }
 
-// The result of a toolbox photo check. Used on the office Toolboxes page and on
+// The result of a toolbox check (photo or tick list). Used on the office Toolboxes page and on
 // a supervisor's Site photos page. `done` holds the outcome text for tools
 // already actioned; without onMine/onMissing the result is read-only.
 export default function CheckResultView({
@@ -33,6 +33,8 @@ export default function CheckResultView({
   onMissing?: (toolId: string) => void;
   onSendBack?: (toolId: string, belongsTo: string | null | undefined) => void;
 }) {
+  // A tick-list check (25 Nov 2026, lib/toolboxTick.ts): Here / Missing marked by hand, no photos.
+  const ticked = result.method === "TICK";
   return (
     <div className="space-y-4">
       {result.foreign.length > 0 && (
@@ -62,7 +64,7 @@ export default function CheckResultView({
       )}
       {result.missing.length > 0 && (
         <section>
-          <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-red-400">Not seen ({result.missing.length})</h3>
+          <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-red-400">{ticked ? "Marked missing" : "Not seen"} ({result.missing.length})</h3>
           <ul className="space-y-1">
             {result.missing.map((t) => (
               <Row key={t.toolId} icon={<XCircle size={14} className="text-red-400" />} tone="bg-red-900/20">
@@ -73,8 +75,8 @@ export default function CheckResultView({
                   <div className="mt-1 text-gray-400">✓ {done[t.toolId]}</div>
                 ) : (
                   <div className="mt-1 flex flex-wrap items-center gap-2">
-                    <span className="text-gray-400">Not in the photo - could be in use or its label was hidden.</span>
-                    {onMissing && <button type="button" className={quiet} onClick={() => onMissing(t.toolId)}>Mark missing</button>}
+                    <span className="text-gray-400">{ticked ? "Not here on this check - the office can see it." : "Not in the photo - could be in use or its label was hidden."}</span>
+                    {onMissing && <button type="button" className={quiet} onClick={() => onMissing(t.toolId)}>{ticked ? "Mark missing on the register" : "Mark missing"}</button>}
                   </div>
                 )}
               </Row>
@@ -89,7 +91,7 @@ export default function CheckResultView({
         <ul className="space-y-1">
           {result.present.map((t) => (
             <Row key={t.toolId} icon={<CheckCircle2 size={14} className="text-emerald-400" />} tone="">
-              {t.tag} · {t.name} <span className="text-gray-500">— by {t.how === "tag" ? "LOB tag" : "serial number"}</span>
+              {t.tag} · {t.name} <span className="text-gray-500">— {t.how === "tick" ? "ticked Here" : `by ${t.how === "tag" ? "LOB tag" : "serial number"}`}</span>
             </Row>
           ))}
           {result.presentUnconfirmed.map((t) => (

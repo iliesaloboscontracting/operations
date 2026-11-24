@@ -216,13 +216,15 @@ export default function FromSitePage() {
                     <div className="flex flex-wrap items-center gap-2">
                       {s.kind === "CHECK" ? <ScanLine size={13} className="text-brand-300" /> : s.kind === "REGISTER" ? <Camera size={13} className="text-gray-400" /> : <Wrench size={13} className="text-gray-400" />}
                       <span className="text-gray-200">
-                        {s.kind === "CHECK" ? `Toolbox check - ${s.toolbox?.name ?? ""}` : s.kind === "REGISTER" ? "New tool" : `Fault on ${s.tool?.tag ?? "a tool"}`}
+                        {s.kind === "CHECK" ? `Toolbox check${s.checkResult?.method === "TICK" ? " (ticked)" : ""} - ${s.toolbox?.name ?? ""}` : s.kind === "REGISTER" ? "New tool" : `Fault on ${s.tool?.tag ?? "a tool"}`}
                       </span>
                       <span className="text-gray-500">{s.from} · {when(s.createdAt)}</span>
                       {s.kind === "CHECK" && s.checkResult ? (
                         <>
                           <span className={s.checkResult.missing.length || s.checkResult.foreign.length ? "text-amber-500" : "text-emerald-400"}>
-                            {s.checkResult.missing.length || s.checkResult.foreign.length
+                            {s.checkResult.method === "TICK"
+                              ? s.checkResult.missing.length ? `${s.checkResult.missing.length} marked missing` : "all here"
+                              : s.checkResult.missing.length || s.checkResult.foreign.length
                               ? `${s.checkResult.missing.length} not seen, ${s.checkResult.foreign.length} from other boxes`
                               : "all good"}
                           </span>

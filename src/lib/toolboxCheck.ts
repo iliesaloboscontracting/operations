@@ -21,7 +21,7 @@ export type CheckLine = {
   tag: string;
   name: string;
   serialNumber: string | null;
-  how: "tag" | "serial" | "model";
+  how: "tag" | "serial" | "model" | "tick"; // "tick": marked Here / Missing by hand on the tick list (lib/toolboxTick.ts)
   belongsTo?: string | null; // for tools from another toolbox
 };
 
@@ -32,6 +32,7 @@ export type CheckResult = {
   foreign: CheckLine[]; // identified by tag or serial, but belongs elsewhere
   unknown: { description: string; brand: string; model: string; lobTag: string; serialNumber: string; possibly: string[] }[];
   notes: string;
+  method?: "TICK"; // absent = a photo check; "TICK" = the supervisor's tick list (25 Nov 2026), no photos
 };
 
 export const normSerial = (s: string | null | undefined) => (s ?? "").replace(/[\s\-./]/g, "").toUpperCase();
