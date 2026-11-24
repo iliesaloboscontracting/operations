@@ -6,7 +6,8 @@ import { readToolPhotos, VisionNotConfigured } from "@/lib/toolVision";
 import { runToolboxCheck } from "@/lib/toolboxCheckRun";
 import { moveTool } from "@/lib/toolMoves";
 import { createTool, duplicateMessage, findDuplicate } from "@/lib/toolCreate";
-import { buildTickResult, tickReply } from "@/lib/toolboxTick";
+import { TICK_LIMIT_MESSAGE, buildTickResult, tickReply } from "@/lib/toolboxTick";
+import { checkIdFor, markToolMissing, saveTickCheck } from "@/lib/toolboxTickStore";
 
 // POST /api/site/:token/submit
 //   { kind: "READ", platePhotoId?, conditionPhotoId? }          -> details read from the photos (nothing saved)
@@ -15,7 +16,7 @@ import { buildTickResult, tickReply } from "@/lib/toolboxTick";
 //   { kind: "FAULT", toolId, description, photoId? }             -> office inbox (supervisor links)
 //   { kind: "CHECK", toolboxId, photoIds }                        -> checked now, result returned
 //   { kind: "TICK_CHECK", toolboxId, marks: { toolId: "HERE" | "MISSING" } } -> the tick list (SUPERVISOR links), same record
-//   { kind: "CHECK_ACTION", action: "MINE" | "MISSING", toolId, toolboxId }
+//   { kind: "CHECK_ACTION", action: "MINE" | "MISSING", toolId, toolboxId, checkId? } -> checkId: the one the check reply carried
 // Supervisors run their own toolbox checks (Ilies, 19 Oct 2026): a check is
 // recorded straight away, and from its result they can take a tool from
 // another box into theirs or mark one of theirs missing - each logged as
@@ -46,7 +47,7 @@ export const POST = withErrorHandling(async (req: NextRequest, { params: paramsP
         if (link.kind !== "SUPERVISOR") return bad("Ticking a toolbox is on a supervisor's link.", 403);
         return await tickCheck(link, body, by);
       case "CHECK_ACTION":
-        return await checkAction(link, body, by);
+        return await checkAction(link, body, by, name);
       default:
         return NextResponse.json({ error: "Unknown request." }, { status: 400 });
     }
@@ -197,7 +198,7 @@ async function check(link: ResolvedLink, body: Record<string, unknown>, by: stri
       reviewedAt: new Date(),
     },
   });
-  return NextResponse.json({ ok: true, result }, { status: 201 });
+  return NextResponse.json({ ok: true, result, checkId: check.id }, { status: 201 });
 }
 
 // The tick list (Ilies, 25 Nov 2026: "List + tick each one"): every active tool in the link's own toolbox marked Here
@@ -213,25 +214,14 @@ async function tickCheck(link: ResolvedLink, body: Record<string, unknown>, by: 
   });
   const built = buildTickResult(tools, body.marks);
   if (!built.ok) return bad(built.error);
-  const check = await prisma.toolboxCheck.create({
-    data: { toolboxId: box.id, photoIds: "[]", result: JSON.stringify(built.result), checkedBy: by },
-  });
-  await prisma.siteSubmission.create({
-    data: {
-      siteLinkId: link.id,
-      kind: "CHECK",
-      photoIds: "[]",
-      toolboxId: box.id,
-      checkId: check.id,
-      status: "APPLIED",
-      reviewedBy: by,
-      reviewedAt: new Date(),
-    },
-  });
-  return NextResponse.json({ ok: true, result: tickReply(built.result) }, { status: 201 });
+  // At most 20 a Sydney day per link, counted before anything is written (TT-003); the check and its submission are
+  // saved together or not at all (TT-005).
+  const saved = await saveTickCheck(link.id, box.id, built.result, by);
+  if (saved.limited) return bad(TICK_LIMIT_MESSAGE, 429);
+  return NextResponse.json({ ok: true, result: tickReply(built.result), checkId: saved.checkId }, { status: 201 });
 }
 
-async function checkAction(link: ResolvedLink, body: Record<string, unknown>, by: string) {
+async function checkAction(link: ResolvedLink, body: Record<string, unknown>, by: string, name: string) {
   const box = ownBox(link, body.toolboxId);
   if (!box) return bad("Pick your toolbox.");
   const tool = typeof body.toolId === "string"
@@ -245,7 +235,10 @@ async function checkAction(link: ResolvedLink, body: Record<string, unknown>, by
   }
   if (body.action === "MISSING") {
     if (tool.toolboxId !== box.id) return bad("You can only mark tools from your own toolbox missing.");
-    await prisma.tool.update({ where: { id: tool.id }, data: { condition: "Missing" } });
+    // TT-002: recorded in the tool's change history - the link's person, the link and the check it came from.
+    const checkId = await checkIdFor(link.id, box.id, body.checkId);
+    if (checkId === false) return bad("That check isn't from your link - check the toolbox again.");
+    await markToolMissing(tool.id, { name, linkId: link.id, checkId });
     return NextResponse.json({ ok: true, message: `${tool.tag} marked missing - the office can see it.` });
   }
   return bad("Unknown action.");

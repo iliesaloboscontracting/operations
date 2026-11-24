@@ -13,8 +13,13 @@
 //   (4) The photo path still works: a CHECK photo uploads (201), no photos -> 400, a photo -> 503 (reading needs the
 //       Claude key, not on the copy - no outbound call). The page keeps the photo check behind "Use photos instead".
 //   (5) No outbound call.
-// WRITES on the test copy: three made-up supervisors, three toolboxes, tools in them, links of each kind, tick checks
-// and one CHECK photo. At the end the links are revoked, toolboxes switched off, tools retired, people switched off.
+//   Security follow-ups (Ilies approved 25 Nov 2026):
+//   TT-001 the Toolboxes page's lastCheck carries method TICK / PHOTO, and after a ticked check the last photo check's date;
+//   TT-002 Mark missing writes a RecordChange row (after Missing, by the link's person, source naming the link and the
+//          check); another box's tool or another link's check id -> 400 with nothing written;
+//   TT-003 the 21st tick check of a Sydney day on one link -> 429, nothing saved; another link still ticks (201).
+// WRITES on the test copy: three made-up supervisors, three toolboxes, tools in them, links of each kind, tick checks,
+// two seeded photo-check records (no photo) and one CHECK photo. At the end the links are revoked, toolboxes switched off, tools retired, people switched off.
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { noMoney } from "../lib/context.mjs";
@@ -71,7 +76,13 @@ export default {
       };
       for (const l of Object.values(L)) if (l) made.links.push(l.id);
       const fake = { secret: "x".repeat(32) };
+      // TT-001: an earlier photo check of B (two days ago) and a photo check as E's latest - seeded, no photo is read.
+      const emptyResult = JSON.stringify({ present: [], presentUnconfirmed: [], missing: [], foreign: [], unknown: [], notes: "" });
+      const photoAt = new Date(Date.now() - 2 * 86_400_000);
+      await db.toolboxCheck.create({ data: { toolboxId: B.id, photoIds: JSON.stringify(["rc-seeded-photo"]), result: emptyResult, checkedBy: "RC office", createdAt: photoAt } });
+      const ePhoto = await db.toolboxCheck.create({ data: { toolboxId: E.id, photoIds: JSON.stringify(["rc-seeded-photo"]), result: emptyResult, checkedBy: "RC office" } });
       const checks = () => db.toolboxCheck.count({ where: { toolboxId: { in: [B.id, B2.id, E.id] } } });
+      const history = (toolId) => db.recordChange.count({ where: { model: "Tool", recordId: toolId } });
 
       // (1) The list.
       const home = await c.text(c.site(L.sup), null);
@@ -143,14 +154,51 @@ export default {
       const boxes = await c.json("/api/toolboxes", "MANAGER");
       const lb = Array.isArray(boxes.body) ? boxes.body.find((x) => x.id === B.id) : null;
       t.ok(lb?.lastCheck?.id === saved?.id && lb.lastCheck.missing === 1 && lb.lastCheck.foreign === 0, "the Toolboxes page: last check, 1 missing", JSON.stringify(lb?.lastCheck));
-      // "Mark missing" afterwards - the photo check's own action.
-      const mm = await send(L.sup, { kind: "CHECK_ACTION", action: "MISSING", toolId: active[2].id, toolboxId: B.id });
+      // TT-001: the method shows, and after a ticked check the box's last photo check.
+      t.ok(lb?.lastCheck?.method === "TICK" && lb.lastCheck.lastPhotoCheckAt && Math.abs(new Date(lb.lastCheck.lastPhotoCheckAt).getTime() - photoAt.getTime()) < 1000,
+        "TT-001: the last check says ticked, with the last photo check's date beside it", JSON.stringify(lb?.lastCheck));
+      const le = Array.isArray(boxes.body) ? boxes.body.find((x) => x.id === E.id) : null;
+      t.ok(le?.lastCheck?.id === ePhoto.id && le.lastCheck.method === "PHOTO" && !("lastPhotoCheckAt" in le.lastCheck), "TT-001: a photo check says photo", JSON.stringify(le?.lastCheck));
+      const tbPage = (() => { try { return readFileSync(path.join(c.p.appDir, "src/app/tools/toolboxes/page.tsx"), "utf8"); } catch { return ""; } })();
+      t.ok(/lastCheckText\(last\)/.test(tbPage), "TT-001: the Toolboxes page shows (ticked) / (photo) and the last photo check (source)");
+      t.ok(r.body?.checkId === saved?.id, "the tick reply names the saved check (for Mark missing)");
+      // "Mark missing" afterwards - the photo check's own action, now with its history (TT-002).
+      const mm = await send(L.sup, { kind: "CHECK_ACTION", action: "MISSING", toolId: active[2].id, toolboxId: B.id, checkId: r.body?.checkId });
       t.status(mm, 200, "Mark missing after the tick check (CHECK_ACTION)");
       t.ok((await db.tool.findUnique({ where: { id: active[2].id }, select: { condition: true } }))?.condition === "Missing", "the tool is Missing on the register");
+      const h = await db.recordChange.findFirst({ where: { model: "Tool", recordId: active[2].id, field: "condition" }, orderBy: { changedAt: "desc" } });
+      t.ok(h?.after === "Missing" && h.changedBy.includes(S.name) && h.changedById === null && h.source?.includes(L.sup.id) && h.source?.includes(saved?.id ?? "-"),
+        "TT-002: a history row - after Missing, by the link's person, naming the link and the check", JSON.stringify(h && { after: h.after, changedBy: h.changedBy, source: h.source }));
+      const otherH0 = await history(other.id);
       t.status(await send(L.sup, { kind: "CHECK_ACTION", action: "MISSING", toolId: other.id, toolboxId: B.id }), 400, "but never another toolbox's tool");
+      t.ok((await history(other.id)) === otherH0 && (await db.tool.findUnique({ where: { id: other.id }, select: { condition: true } }))?.condition !== "Missing",
+        "TT-002: and nothing written for it - no history row, the tool unchanged");
+      // An older page (no check id): the link's latest check of the box is named.
+      t.status(await send(L.sup, { kind: "CHECK_ACTION", action: "MISSING", toolId: active[1].id, toolboxId: B.id }), 200, "Mark missing with no check id (older page)");
+      const h1 = await db.recordChange.findFirst({ where: { model: "Tool", recordId: active[1].id, field: "condition" }, orderBy: { changedAt: "desc" } });
+      t.ok(h1?.after === "Missing" && h1.source?.includes(saved?.id ?? "-"), "TT-002: the history names the link's latest check", h1?.source);
       // The list still shows it (Missing is still in the box) - the next check ticks it again.
       const again = await c.json(c.site(L.sup), null);
       t.ok(again.body?.toolboxes?.[0]?.tools?.length === 4, "the missing tool stays on the list for the next check");
+
+      // TT-003: 20 tick checks a Sydney day per link - the 21st is 429 with nothing saved; another link still works.
+      const day0 = await db.siteSubmission.count({ where: { siteLinkId: L.sup.id, kind: "CHECK", photoIds: "[]" } });
+      let okCount = 0;
+      for (let i = day0; i < 20; i++) if ((await send(L.sup, { kind: "TICK_CHECK", toolboxId: B.id, marks: allHere })).status === 201) okCount += 1;
+      t.ok(okCount === 20 - day0, `ticks ${day0 + 1} to 20 of the day are saved`, `${okCount} of ${20 - day0}`);
+      const cap0 = { checks: await checks(), subs: await db.siteSubmission.count({ where: { siteLinkId: L.sup.id } }) };
+      const over = await send(L.sup, { kind: "TICK_CHECK", toolboxId: B.id, marks: allHere });
+      t.status(over, 429, "TT-003: the 21st tick check of the day");
+      t.ok(over.body?.error === "That's a lot of toolbox checks today - call the office.", "with the call-the-office message", over.text.slice(0, 120));
+      t.ok((await checks()) === cap0.checks && (await db.siteSubmission.count({ where: { siteLinkId: L.sup.id } })) === cap0.subs, "TT-003: nothing saved for it");
+      const o2 = await send(L.sup2, { kind: "TICK_CHECK", toolboxId: B2.id, marks: { [other.id]: "HERE" } });
+      t.status(o2, 201, "TT-003: another supervisor's link still ticks");
+      const lb2 = (await c.json("/api/toolboxes", "MANAGER")).body?.find?.((x) => x.id === B2.id);
+      t.ok(lb2?.lastCheck?.method === "TICK" && lb2.lastCheck.lastPhotoCheckAt === null, "TT-001: a ticked box with no photo check says so", JSON.stringify(lb2?.lastCheck));
+      // TT-002: a check id from another link is refused, nothing written.
+      const a0H = await history(active[0].id);
+      t.status(await send(L.sup, { kind: "CHECK_ACTION", action: "MISSING", toolId: active[0].id, toolboxId: B.id, checkId: o2.body?.checkId ?? "x" }), 400, "TT-002: Mark missing naming another link's check");
+      t.ok((await history(active[0].id)) === a0H && (await db.tool.findUnique({ where: { id: active[0].id }, select: { condition: true } }))?.condition !== "Missing", "and nothing written");
 
       // (4) The photo path still works.
       const ph = await c.post(c.site(L.sup, "/photos"), null, { kind: "CHECK", dataUrl: PNG });

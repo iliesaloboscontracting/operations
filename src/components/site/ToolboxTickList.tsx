@@ -36,6 +36,7 @@ function TickSection({ api, box }: { api: string; box: TickBox }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<CheckResult | null>(null);
+  const [checkId, setCheckId] = useState<string | null>(null); // the saved check - "Mark missing" names it (TT-002)
   const [done, setDone] = useState<Record<string, string>>({});
   const mark = (id: string, m: TickMark) => setMarks((x) => ({ ...x, [id]: m }));
 
@@ -54,7 +55,7 @@ function TickSection({ api, box }: { api: string; box: TickBox }) {
           onMissing={async (toolId) => {
             setError(null);
             try {
-              const r = await send(api, { kind: "CHECK_ACTION", action: "MISSING", toolId, toolboxId: view.id });
+              const r = await send(api, { kind: "CHECK_ACTION", action: "MISSING", toolId, toolboxId: view.id, checkId });
               setDone((d) => ({ ...d, [toolId]: r.message }));
             } catch (e) {
               setError((e as Error).message);
@@ -122,6 +123,7 @@ function TickSection({ api, box }: { api: string; box: TickBox }) {
               try {
                 const r = await send(api, { kind: "TICK_CHECK", toolboxId: view.id, marks });
                 setResult(r.result);
+                setCheckId(typeof r.checkId === "string" ? r.checkId : null);
               } catch (e) {
                 setError((e as Error).message);
               } finally {

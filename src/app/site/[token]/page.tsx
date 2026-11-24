@@ -508,6 +508,7 @@ function CheckBox({ api, info }: { api: string; info: SiteInfo }) {
   const [photos, setPhotos] = useState<(string | null)[]>([null]);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<CheckResult | null>(null);
+  const [checkId, setCheckId] = useState<string | null>(null); // the saved check - "Mark missing" names it (TT-002)
   const [done, setDone] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const box = info.toolboxes.find((b) => b.id === boxId);
@@ -515,7 +516,7 @@ function CheckBox({ api, info }: { api: string; info: SiteInfo }) {
   async function action(toolId: string, kind: "MINE" | "MISSING") {
     setError(null);
     try {
-      const r = await post(api, { kind: "CHECK_ACTION", action: kind, toolId, toolboxId: boxId });
+      const r = await post(api, { kind: "CHECK_ACTION", action: kind, toolId, toolboxId: boxId, checkId });
       setDone((d) => ({ ...d, [toolId]: r.message }));
     } catch (e) {
       setError((e as Error).message);
@@ -575,6 +576,7 @@ function CheckBox({ api, info }: { api: string; info: SiteInfo }) {
           try {
             const r = await post(api, { kind: "CHECK", toolboxId: boxId, photoIds: photos.filter(Boolean) });
             setResult(r.result);
+            setCheckId(typeof r.checkId === "string" ? r.checkId : null);
           } catch (e) {
             setError((e as Error).message);
           } finally {

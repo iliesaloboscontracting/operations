@@ -4,6 +4,7 @@ import { guard, guardTools } from "@/lib/auth";
 import { viewJson } from "@/lib/coordinatorView"; // the coordinator gets no dollar figure (2 Nov 2026)
 import { withErrorHandling } from "@/lib/apiHandler";
 import { checkSupervisor } from "@/lib/toolboxServer";
+import { lastCheckOf } from "@/lib/toolboxLastCheck";
 
 // GET /api/toolboxes -> active toolboxes with their supervisor, tools and last check.
 export const GET = withErrorHandling(async () => {
@@ -22,20 +23,15 @@ export const GET = withErrorHandling(async () => {
       checks: { orderBy: { createdAt: "desc" }, take: 1, select: { id: true, createdAt: true, checkedBy: true, result: true } },
     },
   });
+  // TT-001: a ticked check says so, with the box's last photo check beside it (a tick check never has photos).
+  const photoChecks = await prisma.toolboxCheck.groupBy({
+    by: ["toolboxId"],
+    where: { toolboxId: { in: boxes.map((b) => b.id) }, photoIds: { not: "[]" } },
+    _max: { createdAt: true },
+  });
+  const lastPhoto = new Map(photoChecks.map((p) => [p.toolboxId, p._max.createdAt]));
   return viewJson(
-    boxes.map(({ checks, ...b }) => {
-      const last = checks[0];
-      let summary: { missing: number; foreign: number } | null = null;
-      if (last) {
-        try {
-          const r = JSON.parse(last.result);
-          summary = { missing: r.missing?.length ?? 0, foreign: r.foreign?.length ?? 0 };
-        } catch {
-          summary = null;
-        }
-      }
-      return { ...b, lastCheck: last ? { id: last.id, createdAt: last.createdAt, checkedBy: last.checkedBy, ...summary } : null };
-    })
+    boxes.map(({ checks, ...b }) => ({ ...b, lastCheck: lastCheckOf(checks[0], lastPhoto.get(b.id) ?? null) }))
   );
 });
 

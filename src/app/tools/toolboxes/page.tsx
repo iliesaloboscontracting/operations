@@ -9,6 +9,7 @@ import CheckResultView from "@/components/tools/CheckResultView";
 import { useAuth } from "@/components/AuthProvider";
 import { apiFetch, serverErrorMessage } from "@/lib/apiFetch";
 import type { CheckResult } from "@/lib/toolboxCheck";
+import { lastCheckText } from "@/lib/toolboxLastCheck";
 import type { ResourceDTO, ToolboxDTO, ToolDTO } from "@/lib/types";
 
 const input =
@@ -159,11 +160,8 @@ function ToolboxCard({
 
       <div className="mb-2 text-[11px] text-gray-500">
         {box.tools.length} tool{box.tools.length === 1 ? "" : "s"} ·{" "}
-        {last
-          ? `last checked ${new Date(last.createdAt).toLocaleDateString("en-AU", { day: "numeric", month: "short" })}${last.checkedBy ? ` by ${last.checkedBy}` : ""}${
-              last.missing || last.foreign ? ` — ${last.missing ?? 0} missing, ${last.foreign ?? 0} from other boxes` : " — all good"
-            }`
-          : "never checked"}
+        {lastCheckText(last)}
+
       </div>
 
       <ul className="divide-y divide-edge/60 rounded-lg border border-edge">

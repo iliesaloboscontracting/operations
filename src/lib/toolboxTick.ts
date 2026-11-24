@@ -86,5 +86,16 @@ export const tickReply = (r: CheckResult): CheckResult => {
   return { ...r, present: r.present.map(strip), presentUnconfirmed: r.presentUnconfirmed.map(strip), missing: r.missing.map(strip), foreign: r.foreign.map(strip) };
 };
 
+// TT-003 (25 Nov 2026): at most 20 tick checks a Sydney day per link - the 21st is refused before anything is saved.
+// Other links are counted on their own.
+export const TICK_DAILY_LIMIT = 20;
+export const TICK_LIMIT_MESSAGE = "That's a lot of toolbox checks today - call the office.";
+export const tickLimitReached = (todayCount: number) => todayCount >= TICK_DAILY_LIMIT;
+
+// TT-002 (25 Nov 2026): "Mark missing" from a check is recorded in the tool's change history (RecordChange) - who (the
+// link's person), and which link and check it came from. This is the history row's source.
+export const markMissingSource = (linkId: string, checkId: string | null) =>
+  `Marked missing from a toolbox check on a site link (link ${linkId}, check ${checkId ?? "none"})`;
+
 // No dollar figure in anything a link gets back.
 export const linkSafe = (x: unknown) => assertNoMoney(JSON.stringify(x));

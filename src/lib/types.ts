@@ -260,7 +260,8 @@ export interface ToolboxDTO {
   supervisorId: string | null;
   supervisor: { id: string; name: string; phone: string | null } | null;
   tools: Pick<ToolDTO, "id" | "tag" | "name" | "brand" | "model" | "serialNumber" | "condition" | "ownership">[];
-  lastCheck: { id: string; createdAt: string; checkedBy: string | null; missing?: number; foreign?: number } | null;
+  // method: TICK = the supervisor's tick list, PHOTO = a photo check; lastPhotoCheckAt only when the latest was ticked (TT-001)
+  lastCheck: { id: string; createdAt: string; checkedBy: string | null; method: "TICK" | "PHOTO"; missing?: number; foreign?: number; lastPhotoCheckAt?: string | null } | null;
 }
 
 export interface ToolIssueDTO {
