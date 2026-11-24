@@ -24,7 +24,8 @@ const TRUCK_CHECKS: HowToSection = {
   title: "Truck pre-start and knock-off check",
   steps: [
     { lead: "Taking the truck:", text: "scan the truck's QR (in the cab) and tap Sign in. Then take the odometer photo (Take the photo) and do the pre-start, including the walk-around photos (front, back, both sides, cab)." },
-    { lead: "First sign-in on that truck today:", text: "the pre-start must be done before you drive. Your sign-in time is already saved while you do it." },
+    // HT-004 (Ilies, 24 Nov 2026): required until today's pre-start for the truck is sent - not just on the first sign-in.
+    { lead: "Signing in on that truck today:", text: "the pre-start is required until today's pre-start for that truck has been sent. Do it before you drive - your sign-in time is already saved while you do it." },
     { lead: "Not driving after all?", text: "Tap Sign out on that screen - you're never stuck." },
     { lead: "End of the day:", text: "scan the truck's QR, tap Sign out, then do the knock-off check." },
     { lead: "Found something wrong?", text: "Mark it Fault, write what's wrong, pick how urgent it is and take a photo. Do not use takes the truck off the road and tells the office straight away." },
@@ -35,7 +36,7 @@ const REGIONAL: HowToSection = {
   title: "Regional jobs (e.g. Shellharbour)",
   steps: [
     { lead: "Driving the company truck:", text: "sign in on the truck's QR for the drive out, and again for the drive back. Never press Start travel." },
-    { lead: "Driving your own car or ute:", text: "tap Start travel on your phone before you leave. On the way back, tap Travelling home, then Arrived when you get home." },
+    { lead: "Driving your own car or ute:", text: "tap Start travel on your phone before you leave. On the way back, tap Travelling home, then Arrived when you get home. If Start travel won't start, sign in on the supervisor's QR at site and tell the office." }, // + HT-003
     { lead: "Riding along as crew:", text: "nothing to do for travel - it's worked out from the driver you travelled with. Just sign in on the supervisor's QR when you get to site." },
   ],
 };
@@ -115,7 +116,8 @@ const POSTER_CONFIRM: HowToSection = {
   title: "Confirm poster sign-ins",
   intro: "Crew who sign in on the site poster wait for you to confirm them. They're under the QR on Sign in crew: \"Signed in from the poster - confirm\".",
   steps: [
-    { lead: "Confirm all", text: "confirms everyone who was on site. Any with a warning (no location, or far from site) are left for you to check one by one." },
+    // HT-002 (Ilies, 24 Nov 2026): Confirm all only when everyone listed was there.
+    { text: "Only tap Confirm all if everyone listed was on site. Any with a warning (no location, or far from site) are left for you to check one by one." },
     { lead: "Confirm", text: "one person, or Wasn't here if they weren't on site." },
   ],
 };

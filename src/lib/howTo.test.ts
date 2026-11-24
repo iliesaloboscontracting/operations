@@ -59,6 +59,7 @@ test("regional travel (24 Nov 2026 design): company truck = truck QR out and bac
     assert.match(own.text!, /Start travel on your phone/);
     assert.match(own.text!, /Travelling home/);
     assert.match(own.text!, /Arrived/);
+    assert.match(own.text!, /If Start travel won't start, sign in on the supervisor's QR at site and tell the office\./, "HT-003");
     const crew = reg.steps!.find((s) => /Riding along as crew/.test(s.lead ?? ""))!;
     assert.match(crew.text!, /nothing to do for travel/);
     assert.match(crew.text!, /worked out from the driver you travelled with/);
@@ -75,6 +76,12 @@ test("the supervisor guide covers every tile the link shows today", () => {
   }
   assert.match(t, /Only the office can change a time/);
   assert.match(t, /Don't say prices or dollar amounts/);
+  // HT-002: Confirm all only when everyone listed was on site (supervisor and hand-over guides).
+  for (const g of [SUPERVISOR_GUIDE, HANDOVER_GUIDE]) {
+    const gt = guideText(g);
+    assert.match(gt, /Only tap Confirm all if everyone listed was on site\./, `${g.id}: HT-002`);
+    assert.ok(!/confirms everyone who was on site/.test(gt), `${g.id}: the old Confirm all wording is gone`);
+  }
 });
 
 test("the hand-over guide: only what a hand-over link shows (no hours, receipts, bins, messages or hand over)", () => {
@@ -88,6 +95,9 @@ test("the sign-in screen guide: golden rule, the truck pre-start and knock-off c
   assert.equal(SIGNIN_GUIDE.rule, GOLDEN_RULE);
   assert.ok(SIGNIN_GUIDE.sections.some((s) => /pre-start/.test(s.title) && /knock-off/.test(s.title)));
   assert.match(t, /Not driving after all\?/);
+  // HT-004: required until today's pre-start for that truck has been sent.
+  assert.match(t, /the pre-start is required until today's pre-start for that truck has been sent/);
+  assert.ok(!/First sign-in on that truck today/.test(t), "HT-004: the old first-sign-in-only wording is gone");
   assert.match(t, /Do not use/);
   assert.match(t, /Only the office can fix a time/);
   assert.match(t, /scan the truck QR again/);

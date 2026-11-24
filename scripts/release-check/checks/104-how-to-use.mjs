@@ -17,6 +17,15 @@ import path from "node:path";
 import { noMoney } from "../lib/context.mjs";
 import { makeLink } from "../lib/setup.mjs";
 
+// What a person sees on a page: no <script> / <style> blocks (Next's RSC payloads use "$" markers), no tags, and the
+// "$" entities decoded so a real dollar figure in the visible text is still caught.
+const visibleText = (html) => html
+  .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ")
+  .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ")
+  .replace(/<[^>]+>/g, " ")
+  .replace(/&#0*36;|&#x0*24;|&dollar;/gi, "$")
+  .replace(/&nbsp;|&#160;/gi, " ")
+  .replace(/\s+/g, " ");
 const netLines = (c) => { try { return readFileSync(c.p.netLog, "utf8").split("\n").filter(Boolean).length; } catch { return 0; } };
 
 export default {
@@ -42,6 +51,10 @@ export default {
       && /Riding along as crew:[^\n]*nothing to do for travel[^\n]*supervisor's QR when you get to site/.test(howTo)
       && !/If it asks|Passenger or Own car/.test(howTo),
       "regional (24 Nov 2026 design): company truck = truck QR out and back, never Start travel; own car / ute = Start travel on the link; crew riding along = nothing to do; no passenger / own car picker wording");
+    // Wording fixes approved by Ilies, 24 Nov 2026 ("Approve all three").
+    t.ok(/Only tap Confirm all if everyone listed was on site\./.test(howTo) && !/confirms everyone who was on site/.test(howTo), "HT-002: Confirm all only if everyone listed was on site");
+    t.ok(/Driving your own car or ute:[^\n]*If Start travel won't start, sign in on the supervisor's QR at site and tell the office\./.test(howTo), "HT-003: own car / ute - what to do if Start travel won't start");
+    t.ok(/the pre-start is required until today's pre-start for that truck has been sent/.test(howTo) && !/First sign-in on that truck today/.test(howTo), "HT-004: the truck pre-start is required until today's pre-start for that truck has been sent");
     const tiles = ["Sign in crew", "Confirm all", "Approve hours", "Talk through your day", "Make a request", "My requests", "Hire on my site", "Add receipt", "Reimbursement", "Bins", "Got it"];
     const missing = tiles.filter((x) => !howTo.includes(x));
     t.ok(missing.length === 0, "the supervisor guide names the link's real tiles", missing.join(", "));
@@ -101,7 +114,12 @@ export default {
       t.ok(/noSkip=\{prestartRequired\}/.test(signinSrc) && signinSrc.indexOf("<HowToLink") > signinSrc.lastIndexOf("<PrestartCheck"), "...the required pre-start is untouched and the link comes after it in the page");
       const sp = await c.text(`/site/in/${encodeURIComponent(L.yard.secret)}`, null);
       t.ok(sp.status === 200 && sp.text.includes("How signing in works") && !/Application error/.test(sp.text), "the QR sign-in page shows \"How signing in works\"", sp.status);
-      t.ok(noMoney(sp.text), "no $ in the QR sign-in page");
+      // The visible text only: Next's inline RSC <script> payloads carry "$" markers that aren't money, so scripts and
+      // styles go first, then the tags; entities for "$" are turned back into "$" so a real one still fails.
+      const visible = visibleText(sp.text);
+      t.ok(!noMoney(visibleText("<p>Tip &#36;5</p>")) && !noMoney(visibleText("<div>Paid <b>$12</b></div><script>self.__next_f.push([1,\"$L1\"])</script>")) && noMoney(visibleText("<script>self.__next_f.push([1,\"$5\"])</script><p>ok</p>")),
+        "the visible-text scan still catches a real $ figure (also written &#36;) and ignores script payloads");
+      t.ok(visible.includes("How signing in works") && noMoney(visible), "no $ in the QR sign-in page's visible text", visible.slice(0, 120));
 
       // Sign-in still works.
       const scan = await c.json(`/api/site/in/${encodeURIComponent(L.yard.secret)}`, null);
