@@ -205,7 +205,9 @@ export default {
     const refusedBody = await refused.json().catch(() => ({}));
     t.ok(refused.status === 400 && /travel never ended/.test(refusedBody.error ?? ""), "approve refused while a travel leg was never ended", `${refused.status} ${refusedBody.error ?? ""}`);
     t.status(await c.patch(`/api/attendance/travel/${blockLeg.id}`, "MANAGER", { endAt: "2020-02-04T21:30:00.000Z", reason: "Release check - arrival time from the supervisor" }), 200, "the office ends it with a reason");
-    // Travel pay: the office sets a leg's mode through the same correction - Manager+, a reason, kept in TravelEdit.
+    // Travel pay: the office sets a leg's mode through the same correction - Manager+, a reason, kept in TravelEdit. The
+    // test Manager is never the leg's person (TP-013: your own travel is refused - checked in (8)).
+    t.ok(!(await db.user.count({ where: { id: c.users.MANAGER.id, personnelId: person.id } })) && person.name.trim().toLowerCase() !== "release check manager", "the test Manager isn't the legs' person (TP-013)");
     t.status(await c.patch(`/api/attendance/travel/${blockLeg.id}`, "ACCOUNTS", { mode: "PASSENGER", reason: "rc" }), 403, "travel pay: ACCOUNTS can't set a leg's mode");
     t.status(await c.patch(`/api/attendance/travel/${blockLeg.id}`, "VIEWER", { mode: "PASSENGER", reason: "rc" }), 403, "travel pay: a Viewer can't set a leg's mode");
     if (c.users.COORDINATOR) t.status(await c.patch(`/api/attendance/travel/${blockLeg.id}`, "COORDINATOR", { mode: "PASSENGER", reason: "rc" }), 403, "travel pay: the COORDINATOR can't set a leg's mode");
@@ -243,9 +245,26 @@ export default {
       t.ok(ca?.travel?.some((l) => l.legId === s1.body.leg.id) && !/"gps[a-z]*"\s*:/i.test(JSON.stringify(ca?.travel ?? [])), "the COORDINATOR sees the travel legs on Sign-ins, without GPS");
     } else t.note("no COORDINATOR test login on this build - its travel checks skipped");
     t.status(await c.patch(`/api/attendance/travel/${never.id}`, "MANAGER", { endAt: new Date().toISOString() }), 400, "a correction needs a reason");
-    t.status(await c.patch(`/api/attendance/travel/${never.id}`, "MANAGER", { endAt: new Date(Date.now() - 6 * HOUR).toISOString(), reason: "Release check - forgot to sign in on site" }), 200, "a Manager corrects a travel time with a reason");
+    // TP-013 (24 Nov 2026): the office's correction gets the added leg's checks (TP-009) - never your own travel, the
+    // times on the job's day +-1, never over the person's other travel. `long` (now-10h to now) is the person's travel home.
+    const patchErr = async (body) => { const r = await c.patch(`/api/attendance/travel/${never.id}`, "MANAGER", body); return { status: r.status, error: (await r.json().catch(() => ({}))).error ?? "" }; };
+    const ov13 = await patchErr({ endAt: new Date(Date.now() - 6 * HOUR).toISOString(), reason: "Release check - TP-013" });
+    t.ok(ov13.status === 400 && /run over their travel home/.test(ov13.error), "TP-013: a correction stretched over the person's other travel is refused", `${ov13.status} ${ov13.error}`);
+    const day13 = await patchErr({ startAt: new Date(Date.now() - 76 * HOUR).toISOString(), endAt: new Date(Date.now() - 74 * HOUR).toISOString(), reason: "Release check - TP-013" });
+    t.ok(day13.status === 400 && /on the job's day \(or the day either side\)/.test(day13.error), "TP-013: corrected times off the job's day +-1 are refused", `${day13.status} ${day13.error}`);
+    if (await db.user.count({ where: { personnelId: person.id } })) t.note("the person's register record is already linked to a login on this snapshot - the own-travel correction is covered by the unit tests");
+    else {
+      await db.user.update({ where: { id: c.users.MANAGER.id }, data: { personnelId: person.id } }); // the test Manager's login = the person
+      const self13 = await patchErr({ mode: "PASSENGER", reason: "Release check - TP-013" });
+      await db.user.update({ where: { id: c.users.MANAGER.id }, data: { personnelId: null } });
+      t.ok(self13.status === 403 && self13.error === "Ask another Manager to change your own travel.", "TP-013: a Manager can't change their own travel", `${self13.status} ${self13.error}`);
+    }
+    t.ok((await db.travelEdit.count({ where: { travelLegId: never.id } })) === 0 && !(await db.travelLeg.findUnique({ where: { id: never.id } }))?.endAt, "TP-013: nothing changed or logged by the refused ones");
+    // A valid correction (by a Manager who isn't the person): on the day, clear of their other travel.
+    t.ok(!(await db.user.count({ where: { id: c.users.MANAGER.id, personnelId: person.id } })), "the test Manager isn't the leg's person");
+    t.status(await c.patch(`/api/attendance/travel/${never.id}`, "MANAGER", { startAt: new Date(Date.now() - 13 * HOUR).toISOString(), endAt: new Date(Date.now() - 11 * HOUR).toISOString(), reason: "Release check - forgot to sign in on site" }), 200, "a Manager corrects a travel time with a reason");
     const fixed = await db.travelLeg.findUnique({ where: { id: never.id }, include: { edits: true } });
-    t.ok(fixed?.endMethod === "OFFICE" && fixed.edits.length === 1 && fixed.edits[0].reason.startsWith("Release check"), "the change and its reason are kept (TravelEdit)");
+    t.ok(fixed?.endMethod === "OFFICE" && fixed.edits.length === 2 && fixed.edits.every((e) => e.reason.startsWith("Release check")) && fixed.edits.some((e) => e.field === "endAt"), "the change and its reason are kept (TravelEdit, start and end)");
     const lockedWeek = "2020-01-06";
     await db.timesheetWeek.create({ data: { weekStart: lockedWeek, approvedBy: "Release check", snapshot: JSON.stringify({ weekStart: lockedWeek, lines: [] }), totalHours: 0, people: 0 } });
     const old = await db.travelLeg.create({ data: { direction: "OUT", resourceId: person.id, workerName: person.name, jobId: `rc-old-${tag}`, projectId: loc.id, siteLabel: loc.name, date: "2020-01-07", startAt: new Date("2020-01-06T20:00:00Z") } });
