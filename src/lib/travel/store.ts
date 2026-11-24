@@ -8,13 +8,15 @@ import { parseGps } from "../payroll/rules";
 import { assertNoMoney } from "../moneyGuard";
 import { linkLabel } from "../dailyLog/money";
 import { lockedWeekFor, weekEnd } from "../timesheets";
+import { todaySydney } from "../today";
 import {
   correctionError, DIRECTION_LABEL, homeFrom, HOME_OFFER_HOURS, isTravelMode, legHours, legVerdict, linkRefusal, MODE_LABEL, MODE_NOT_RECORDED, modeOf,
-  modeRefusal, outRefusal, overlapping, paidTravelHours, pointFixFor, stillOpen, TRAVEL_CAP_HOURS, TRAVEL_LINK_KINDS, truckRefusal,
+  linkCountsOn, modeRefusal, outRefusal, overlapping, paidTravelHours, pointFixFor, stillOpen, TRAVEL_CAP_HOURS, TRAVEL_LINK_KINDS, truckRefusal,
   type Direction, type OwnSignIn, type PointFix, type TravelFlag, type TravelMode,
 } from "./rules";
 import { crewLegVerdict, crewWindow, deriveCrewLegs, viaText, type Att } from "./derive";
 import { TIP_CAP_HOURS } from "../tipRun/rules";
+import { normName, sameUser } from "../samePerson";
 
 type Problem = { error: string; status: number };
 const HOUR = 3_600_000;
@@ -36,16 +38,23 @@ const gpsOf = (prefix: "start" | "end", v: unknown) => {
 
 // ---------- who records travel (Ilies, 24 Nov 2026) ----------
 
-// The people with their own SUPERVISOR or DRIVER link (not switched off, the person still active) - the only ones who
-// record travel. Everyone else's travel is worked out from their driver (./derive.ts).
-export async function travelLinkHolders(resourceIds?: string[]): Promise<Set<string>> {
-  const links = await prisma.siteLink.findMany({
-    where: { kind: { in: [...TRAVEL_LINK_KINDS] }, revokedAt: null, resourceId: resourceIds ? { in: resourceIds } : { not: null }, resource: { active: true } },
-    select: { resourceId: true },
-  });
-  return new Set(links.map((l) => l.resourceId!));
+// The people with their own SUPERVISOR or DRIVER link - the only ones who record travel. Everyone else's travel is
+// worked out from their driver (./derive.ts). TP-007a: held on that date (rules.ts linkCountsOn) - today for the phone
+// (and the person still active), the trip's date for the office's lines (linkHolderOn).
+export async function linkHolderOn(resourceIds: string[], activeOnly = false): Promise<(resourceId: string, date: string) => boolean> {
+  const links = resourceIds.length
+    ? await prisma.siteLink.findMany({
+        where: { kind: { in: [...TRAVEL_LINK_KINDS] }, resourceId: { in: resourceIds }, ...(activeOnly ? { resource: { active: true } } : {}) },
+        select: { resourceId: true, createdAt: true, revokedAt: true },
+      })
+    : [];
+  return (resourceId, date) => links.some((l) => l.resourceId === resourceId && linkCountsOn(l, date));
 }
-export const hasTravelLink = async (resourceId: string | null) => !!resourceId && (await travelLinkHolders([resourceId])).has(resourceId);
+export async function travelLinkHolders(resourceIds: string[], date = todaySydney()): Promise<Set<string>> {
+  const held = await linkHolderOn(resourceIds, date === todaySydney());
+  return new Set(resourceIds.filter((id) => held(id, date)));
+}
+export const hasTravelLink = async (resourceId: string | null, date = todaySydney()) => !!resourceId && (await travelLinkHolders([resourceId], date)).has(resourceId);
 
 // ---------- the worker's phone ----------
 
@@ -114,6 +123,15 @@ export async function travelStatus(resourceId: string): Promise<TravelStatus | P
   return out;
 }
 
+// TP-009: the signed-in user is this Labour-register person - their login is linked to it (User.personnelId, under any
+// of their logins - lib/samePerson.ts sameUser), or their login has the same name.
+async function isSelf(userId: string, resourceId: string, personName: string) {
+  const linked = await prisma.user.findMany({ where: { personnelId: resourceId }, select: { id: true } });
+  if (linked.some((u) => sameUser(u.id, userId))) return true;
+  const me = await prisma.user.findUnique({ where: { id: userId }, select: { name: true } });
+  return !!me && normName(me.name) === normName(personName);
+}
+
 const dup = (e: unknown) => e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002";
 
 // "Start travel" to a regional job. A second tap shows the leg already started - never a second one.
@@ -137,14 +155,15 @@ export async function startOut(resourceId: string, b: { jobId?: unknown; mode?: 
   if (existing) return { ok: true, message: `Travel already started at ${sydneyTime(existing.startAt)}.`, leg: viewOf(existing) };
   const why = outRefusal(job ? { jobId, regional: !!job.project?.regional, signedIn: signedIn > 0, existingLeg: false } : undefined);
   if (why) return { error: why, status: job ? 409 : 403 };
-  const noMode = modeRefusal(b.mode);
-  if (noMode) return { error: noMode, status: 400 };
+  // The refusals that hold whatever they pick come first (24 Nov 2026) - then the "own car/ute or passenger" choice.
   // A truck driver's drive is on their truck sign-in - never a travel leg on top of it.
   const onTruck = truckRefusal(await onTruckNow(resourceId));
   if (onTruck) return { error: onTruck, status: 409 };
   if (anyOpen) return { error: `You've already got ${DIRECTION_LABEL[anyOpen.direction as Direction].toLowerCase()} on the go since ${sydneyTime(anyOpen.startAt)}.`, status: 409 };
   // SR-003 (19 Nov 2026): a tip run on the go is worked time - travel never starts on top of it.
   if (await tipRunOpen(resourceId)) return { error: TIP_RUN_OPEN, status: 409 };
+  const noMode = modeRefusal(b.mode);
+  if (noMode) return { error: noMode, status: 400 };
   const now = new Date();
   try {
     const leg = await prisma.travelLeg.create({
@@ -169,12 +188,13 @@ export async function startHome(resourceId: string, b: { mode?: unknown; gps?: u
   if (s.open?.direction === "HOME") return { ok: true, message: `Travelling home since ${s.open.since}.`, leg: s.open };
   if (s.open) return { error: `You've already got travel on the go since ${s.open.since}.`, status: 409 };
   if (!s.home) return { error: "Travelling home is for after you sign out of a regional job.", status: 409 };
-  const noMode = modeRefusal(b.mode);
-  if (noMode) return { error: noMode, status: 400 };
+  // Refusals that hold whatever they pick first, then the mode (24 Nov 2026).
   const onTruck = truckRefusal(await onTruckNow(resourceId));
   if (onTruck) return { error: onTruck, status: 409 };
   // A tip run on the go (19 Nov 2026) is worked time - travel home starts once it's finished, never on top of it.
   if (await tipRunOpen(resourceId)) return { error: TIP_RUN_OPEN, status: 409 };
+  const noMode = modeRefusal(b.mode);
+  if (noMode) return { error: noMode, status: 400 };
   const a = await prisma.siteAttendance.findUnique({
     where: { id: s.home.attendanceId },
     select: { id: true, date: true, workerName: true, job: { select: { id: true, title: true, shift: true, project: { select: { id: true, name: true } } } } },
@@ -253,6 +273,8 @@ export type TravelLine = {
   // TP-001 option A (Ilies, 24 Nov 2026): the one-tap office fix for a Yard / Office sign-in left open into the drive out
   // (rules.ts pointFixFor) - an ordinary office sign-in change, never made automatically.
   pointFix?: PointFix | null;
+  // TP-008c: more than one driver could have been the one they travelled with - information only, never a blocker.
+  driversPossible?: number;
 };
 
 const EDIT_FIELD: Record<string, string> = { startAt: "start", endAt: "end", mode: "travelled as", added: "added by the office" };
@@ -298,6 +320,16 @@ async function ownSignIns(people: string[], starts: Date[], ends: Date[]): Promi
     select: { id: true, resourceId: true, signInAt: true, signOutAt: true, place: true, placeLabel: true },
   });
   for (const r of rows) out.set(r.resourceId!, [...(out.get(r.resourceId!) ?? []), { id: r.id, in: r.signInAt, out: r.signOutAt, place: r.place, placeLabel: r.placeLabel }]);
+  // TP-010 (Ilies, 24 Nov 2026): their regional tip runs are worked time too - travel never counts over one. A run not
+  // finished is looked at over the time it could still run (its 6 h window).
+  const runs = await prisma.tipRun.findMany({
+    where: { resourceId: { in: people }, startAt: { lt: new Date(last + HOUR), gte: new Date(first - 48 * HOUR) } },
+    select: { id: true, resourceId: true, startAt: true, endAt: true },
+  });
+  for (const r of runs) {
+    const end = r.endAt ?? new Date(Math.min(Date.now(), r.startAt.getTime() + TIP_CAP_HOURS * HOUR));
+    out.set(r.resourceId, [...(out.get(r.resourceId) ?? []), { id: `tiprun:${r.id}`, in: r.startAt, out: end, place: "TIP_RUN", placeLabel: "Tip run" }]);
+  }
   return out;
 }
 
@@ -313,9 +345,10 @@ export async function travelLinesBetween(from: string, to: string, now = new Dat
       select: { ...attSelect, resource: { select: { name: true, role: true } }, job: { select: { title: true, shift: true, project: { select: { name: true } } } } },
     }),
   ]);
-  const holders = await travelLinkHolders([...new Set(site.map((s) => s.resourceId!))]);
-  const crewAtts = site.filter((s) => !holders.has(s.resourceId!)).map(toAtt);
-  const holderIds = [...holders];
+  const held = await linkHolderOn([...new Set(site.map((s) => s.resourceId!))]);
+  const isHolder = (a: { resourceId: string | null; date: string }) => held(a.resourceId!, a.date);
+  const crewAtts = site.filter((s) => !isHolder(s)).map(toAtt);
+  const holderIds = [...new Set(site.filter(isHolder).map((s) => s.resourceId!))];
   const crewIds = [...new Set(crewAtts.map((a) => a.resourceId))];
   const crewJobIds = [...new Set(crewAtts.map((a) => a.jobId!))];
   const [trucks, holderLegs, crewRecorded] = await Promise.all([
@@ -328,8 +361,8 @@ export async function travelLinesBetween(from: string, to: string, now = new Dat
       : [],
     crewJobIds.length ? prisma.travelLeg.findMany({ where: { resourceId: { in: crewIds }, jobId: { in: crewJobIds } }, select: { resourceId: true, jobId: true, direction: true } }) : [],
   ]);
-  const holderAtts = [...site.filter((s) => holders.has(s.resourceId!)).map(toAtt), ...trucks.filter((v) => holders.has(v.resourceId!)).map(toAtt)];
-  const crewTrucks = trucks.filter((v) => !holders.has(v.resourceId!)).map(toAtt);
+  const holderAtts = [...site.filter(isHolder).map(toAtt), ...trucks.filter((v) => holderIds.includes(v.resourceId!)).map(toAtt)];
+  const crewTrucks = trucks.filter((v) => crewIds.includes(v.resourceId!)).map(toAtt);
   // A leg recorded for that person, job and way (the office's, or an older one from before) is used instead.
   const recorded = new Set(crewRecorded.map((l) => `${l.resourceId}|${l.jobId}|${l.direction}`));
   const crew = deriveCrewLegs(crewAtts, holderAtts, holderLegs, crewTrucks).filter((c) => !recorded.has(`${c.resourceId}|${c.jobId}|${c.direction}`));
@@ -366,6 +399,7 @@ export async function travelLinesBetween(from: string, to: string, now = new Dat
       via: c.drive && driver ? viaText(c.drive, driver) : null,
       derived: { anchorAttendanceId: c.anchor.id, anchorAt },
       ...(v.pointFix ? { pointFix: v.pointFix } : {}),
+      ...((c.drive?.candidates ?? 0) > 1 ? { driversPossible: c.drive!.candidates } : {}),
     });
   }
   return lines.sort((x, y) => x.name.localeCompare(y.name) || x.startAt.localeCompare(y.startAt));
@@ -377,7 +411,8 @@ export const travelLinesForDate = (date: string) => travelLinesBetween(date, dat
 // leg that's wrong (e.g. trimmed off a sign-in it ran over). It takes the place of the worked-out one for that person,
 // job and way. Start, end, how they travelled and a reason - kept in TravelEdit ("added by the office"). Only on a
 // regional job they signed in on; never over one of their sign-ins; locked weeks refuse; one leg each way per job.
-export async function addTravelLeg(b: Record<string, unknown>, reason: string, by: string): Promise<{ ok: true; id: string } | Problem> {
+export async function addTravelLeg(b: Record<string, unknown>, reason: string, who: { id: string; name: string }): Promise<{ ok: true; id: string } | Problem> {
+  const by = who.name;
   const resourceId = typeof b.resourceId === "string" ? b.resourceId : "";
   const jobId = typeof b.jobId === "string" ? b.jobId : "";
   const direction = b.direction;
@@ -396,11 +431,24 @@ export async function addTravelLeg(b: Record<string, unknown>, reason: string, b
   if (!person || person.type !== "PERSONNEL") return { error: "Pick someone on the Labour register.", status: 400 };
   if (!job?.project?.regional) return { error: "Travel is only for jobs on a regional project.", status: 400 };
   const date = job.date.toISOString().slice(0, 10);
+  // TP-009: never your own travel (the same person under any of their logins - lib/samePerson.ts).
+  if (await isSelf(who.id, resourceId, person.name)) return { error: "Ask another Manager to add your own travel.", status: 403 };
+  // TP-009: on the job's day, one day either side (Sydney).
+  const from = new Date(`${shiftDate(date, -1)}T00:00:00+11:00`), to = new Date(`${shiftDate(date, 2)}T00:00:00+10:00`);
+  if (startAt < from || endAt > to) return { error: "The times need to be on the job's day (or the day either side).", status: 400 };
   if (await lockedWeekFor(date)) return { error: "That week's timesheet has been approved - an Admin has to reopen it (Timesheets page) before its travel can change.", status: 400 };
   if (!(await prisma.siteAttendance.count({ where: { resourceId, jobId, ...counts } }))) return { error: "They didn't sign in on this job - add their sign-in first.", status: 400 };
   const own = (await ownSignIns([resourceId], [startAt], [endAt])).get(resourceId) ?? [];
   const over = overlapping(startAt, endAt, own);
   if (over.length) return { error: `Those times run over one of their sign-ins (${sydneyTime(over[0].in)}-${sydneyTime(over[0].out) ?? "open"}) - trim them first.`, status: 400 };
+  // TP-009: nor over their other travel - recorded or worked out (not the worked-out leg this one takes the place of).
+  const travel = (await travelLinesBetween(shiftDate(date, -1), shiftDate(date, 1))).filter((l) =>
+    l.resourceId === resourceId && l.flag !== "NO_DRIVER" && !(l.derived && l.jobId === jobId && l.direction === direction));
+  const clash = travel.find((l) => {
+    const s = new Date(l.startAt).getTime(), e = l.endAt ? new Date(l.endAt).getTime() : s + TRAVEL_CAP_HOURS * HOUR;
+    return startAt.getTime() < e && endAt.getTime() > s;
+  });
+  if (clash) return { error: `Those times run over their ${DIRECTION_LABEL[clash.direction].toLowerCase()} (${clash.start}-${clash.end ?? "not ended"}) - trim them first.`, status: 400 };
   const existing = await prisma.travelLeg.findUnique({ where: { resourceId_jobId_direction: { resourceId, jobId, direction } } });
   if (existing) return { error: `They already have ${DIRECTION_LABEL[direction].toLowerCase()} for this job - use Fix on it.`, status: 409 };
   try {

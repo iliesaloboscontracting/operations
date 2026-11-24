@@ -11,8 +11,11 @@
 //   HOME - matched on their site sign-out (a real one - not ended by signing in somewhere else): a link-holder whose
 //          sign-out on the same job is within 30 min of it. That person's drive home is either the truck sign-in that
 //          starts then (within a few minutes), up to its sign-out, or their own "Travelling home" leg from that job.
-// The nearest in time wins, drivers first: a truck or an own car/ute leg; a passenger's leg only when no driver matched
-// (it's the same trip). Ties go to the truck. No match = NO_DRIVER (amber, pays nothing, never blocks the week).
+// TP-008 (Ilies, 24 Nov 2026 "Approve a, b and c"): a drive out only counts if it arrived by the crew member's own site
+// sign-in + 10 min (they can't have ridden in a car that got there after them); a truck beats an own car/ute leg, which
+// beats a passenger's leg (that one only when no driver matched - it's the same trip); then the nearest in time. How
+// many drivers were possible is kept (shown "2 drivers possible" - information only). No match = NO_DRIVER (amber, pays
+// nothing, never blocks the week).
 // A recorded leg for that person, job and way (the office's own, or an older one from before) is used instead.
 // Cut at their own sign-in (coordinator for Ilies, 24 Nov 2026 - never paid twice): out ends at the earlier of the
 // driver's arrival and their own site sign-in; home starts at the later of the driver's departure and their own
@@ -30,15 +33,18 @@ export type Att = {
   signInAt: Date; signOutAt: Date | null; signOutMethod: string | null;
 };
 export type LegLite = { id: string; resourceId: string; jobId: string; direction: string; startAt: Date; endAt: Date | null; mode: string | null };
-export type Drive = { kind: "TRUCK" | "LEG"; driverId: string; startAt: Date; endAt: Date | null; mode: TravelMode | null; truck: string | null; gapMs: number };
+export type Drive = { kind: "TRUCK" | "LEG"; driverId: string; startAt: Date; endAt: Date | null; mode: TravelMode | null; truck: string | null; gapMs: number; arrivedAt?: Date; candidates?: number };
 export type CrewLeg = { resourceId: string; jobId: string; date: string; direction: Direction; anchor: Att; anchorAt: Date; drive: Drive | null };
 
 const gap = (a: Date, b: Date) => Math.abs(a.getTime() - b.getTime());
-// Drivers first (a truck, or a leg driving their own car/ute), then the nearest in time, then the truck.
-const isDriving = (d: Drive) => d.kind === "TRUCK" || d.mode === "DRIVER_OWN_VEHICLE";
+// A truck first, then a leg driving their own car/ute, then (only when neither matched) a passenger's leg; within each,
+// the nearest in time. candidates = the drivers it could have been (the pool it was picked from, one per person).
+const rank = (d: Drive) => (d.kind === "TRUCK" ? 0 : d.mode === "DRIVER_OWN_VEHICLE" ? 1 : 2);
+const isDriving = (d: Drive) => rank(d) < 2;
 function best(drives: Drive[]): Drive | null {
   const pool = drives.some(isDriving) ? drives.filter(isDriving) : drives;
-  return [...pool].sort((a, b) => a.gapMs - b.gapMs || (a.kind === "TRUCK" ? 0 : 1) - (b.kind === "TRUCK" ? 0 : 1) || a.driverId.localeCompare(b.driverId))[0] ?? null;
+  const pick = [...pool].sort((a, b) => rank(a) - rank(b) || a.gapMs - b.gapMs || a.driverId.localeCompare(b.driverId))[0];
+  return pick ? { ...pick, candidates: new Set(pool.map((d) => d.driverId)).size } : null;
 }
 
 // The drive a crew member travelled on, or null. holderAtts: the link-holders' sign-ins (site and truck); holderLegs:
@@ -62,9 +68,12 @@ export function findDrive(direction: Direction, jobId: string, anchorAt: Date, h
       continue;
     }
     const leg = holderLegs.find((l) => l.resourceId === c.resourceId && l.jobId === jobId && l.direction === direction);
-    if (leg) drives.push({ kind: "LEG", driverId: c.resourceId, startAt: leg.startAt, endAt: leg.endAt, mode: modeOf(leg.mode), truck: null, gapMs });
+    // arrivedAt: the leg's end, or (not ended) the driver's own site sign-in.
+    if (leg) drives.push({ kind: "LEG", driverId: c.resourceId, startAt: leg.startAt, endAt: leg.endAt, mode: modeOf(leg.mode), truck: null, gapMs, arrivedAt: leg.endAt ?? at });
   }
-  return best(drives);
+  // TP-008a: out, the drive arrived (or the driver signed in on site) by the crew member's sign-in + 10 min.
+  const arrived = (d: Drive) => direction !== "OUT" || (d.arrivedAt ?? d.endAt ?? anchorAt).getTime() <= anchorAt.getTime() + J;
+  return best(drives.filter(arrived));
 }
 
 // The crew member's own travel time: the driver's drive, cut at their own site sign-in (out) / sign-out (home).

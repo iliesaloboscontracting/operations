@@ -6,7 +6,7 @@ import type { SupervisorLine } from "@/lib/payroll/store";
 import { allPlaces, mondayOf } from "@/lib/timesheetView";
 import { TIP_FLAG_LABEL, tipNeedsOffice } from "@/lib/tipRun/rules";
 import { markWords, timesheetDayCell, type AbsenceLine } from "@/lib/absence/rules";
-import { amberFlag, FLAG_LABEL, modeMissing, modeOf, paidText, paidTravelHours } from "@/lib/travel/rules";
+import { amberFlag, driversPossibleText, FLAG_LABEL, modeMissing, modeOf, paidText, paidTravelHours } from "@/lib/travel/rules";
 
 // The weekly timesheet grids (21 Oct 2026), shared by the Operations Timesheets page (/timesheets) and the
 // read-only copy on the Accounts screen (/accounts/timesheets, 2 Nov 2026). Display only - no actions in here.
@@ -130,6 +130,7 @@ function TravelChip({ t }: { t: TravelLine }) {
       </div>
       <div className="whitespace-nowrap text-[10px] text-gray-500">{t.start}–{t.end ?? "?"}</div>
       {paid && <div className={`text-[10px] leading-tight ${noMode ? "text-amber-400" : "text-sky-300"}`} data-testid="travel-paid">{paid}</div>}
+      {driversPossibleText(t.driversPossible) && <div className="text-[10px] leading-tight text-gray-400">{driversPossibleText(t.driversPossible)}</div>}
       {(t.flag || t.changedByOffice) && <div className="text-[10px] leading-tight text-amber-400">{[t.flag && TRAVEL_FLAG[t.flag], t.changedByOffice && "office changed"].filter(Boolean).join(" · ")}</div>}
     </div>
   );

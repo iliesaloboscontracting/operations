@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { crewLegVerdict, CREW_MATCH_MINUTES, crewWindow, deriveCrewLegs, findDrive, ownTruckCovers, viaText, type Att, type LegLite } from "./derive";
-import { amberFlag, legVerdict, linkRefusal, needsOffice, NO_LINK_REFUSAL, paidText, paidTravelHours, pointFixFor, TRAVEL_LINK_KINDS } from "./rules";
+import { amberFlag, driversPossibleText, legVerdict, linkCountsOn, linkRefusal, needsOffice, NO_LINK_REFUSAL, paidText, paidTravelHours, pointFixFor, TRAVEL_LINK_KINDS } from "./rules";
 import { approvalBlockers, peopleOf, travelBlocks, type TravelLine } from "../timesheets";
 import { EXPORT_COLUMNS, fileIsSafe, payRunRows, reviewTravelOf, toCsv, TRAVEL_CHANGED_NOTE, travelChanged, type PayLine } from "../payroll/rules";
 
@@ -29,8 +29,10 @@ test("only link-holders record travel - Start travel is refused without a SUPERV
   // startOut checks the link before anything else; startHome refuses through travelStatus's byDriver.
   assert.match(store, /export async function startOut[\s\S]{0,400}const noLink = linkRefusal\(await hasTravelLink\(resourceId\)\);\s*\n\s*if \(noLink\) return \{ error: noLink, status: 403 \};/);
   assert.match(store, /if \(s\.byDriver\) return \{ error: linkRefusal\(false\)!, status: 403 \};/);
-  assert.match(store, /kind: \{ in: \[\.\.\.TRAVEL_LINK_KINDS\] \}, revokedAt: null/, "a switched-off link doesn't count");
-  assert.match(store, /resource: \{ active: true \}/, "nor an archived person's");
+  // TP-007a: held on the trip's date (linkCountsOn) - the phone checks today, the office's lines the trip's own date.
+  assert.match(store, /kind: \{ in: \[\.\.\.TRAVEL_LINK_KINDS\] \}, resourceId: \{ in: resourceIds \}, \.\.\.\(activeOnly \? \{ resource: \{ active: true \} \} : \{\}\)/, "the phone: the person still active");
+  assert.match(store, /export const hasTravelLink = async \(resourceId: string \| null, date = todaySydney\(\)\)/);
+  assert.match(store, /const isHolder = \(a: \{ resourceId: string \| null; date: string \}\) => held\(a\.resourceId!, a\.date\);/, "each sign-in's own date");
   // The phone isn't offered it either: the travel link and Travelling home only for link-holders.
   const sign = src("../../app/api/site/in/sign/route.ts");
   assert.match(sign, /travelLink: regionalWork && \(await hasTravelLink\(resourceId\)\)/);
@@ -67,14 +69,20 @@ test("crew HOME: matched on their sign-out; the truck sign-in that starts then, 
 
 test(`matching: within ${CREW_MATCH_MINUTES} min, same job only, the nearest driver, drivers before passengers`, () => {
   assert.equal(findDrive("OUT", "j1", at(21, 30), holders, [])?.kind, "TRUCK", "30 min after is still in");
-  assert.equal(findDrive("OUT", "j1", at(20, 30), holders, [])?.kind, "TRUCK", "30 min before is still in");
+  // TP-008a: a drive out that arrived more than 10 min after their own site sign-in wasn't their ride.
+  assert.equal(findDrive("OUT", "j1", at(20, 30), holders, []), null, "on site 30 min before the truck got there - not their ride");
+  assert.equal(findDrive("OUT", "j1", at(20, 50), holders, [])?.kind, "TRUCK", "10 min before the truck got there - still theirs");
+  assert.equal(findDrive("OUT", "j1", at(20, 49), holders, []), null, "11 min before - not");
   assert.equal(findDrive("OUT", "j1", at(21, 31), holders, []), null, "31 min after is out");
   assert.equal(findDrive("OUT", "other-job", at(21), holders, []), null, "another job's driver never counts");
   // Two link-holders: the nearest in time wins.
   const supSite = att({ resourceId: "sup", signInAt: at(21, 20) });
   const supLeg = leg({ resourceId: "sup", startAt: at(19, 30), endAt: at(21, 20) });
-  assert.equal(findDrive("OUT", "j1", at(21, 18), [...holders, supSite], [supLeg])?.driverId, "sup", "own car/ute, 2 min away");
-  assert.equal(findDrive("OUT", "j1", at(21, 5), [...holders, supSite], [supLeg])?.driverId, "drv", "the truck, 5 min away");
+  // TP-008b: a truck and an own car/ute both match - the truck, even when the car is nearer in time.
+  const both = findDrive("OUT", "j1", at(21, 18), [...holders, supSite], [supLeg]);
+  assert.deepEqual([both?.driverId, both?.candidates], ["drv", 2], "the truck; TP-008c: 2 drivers possible");
+  assert.equal(findDrive("OUT", "j1", at(21, 5), [...holders, supSite], [supLeg])?.driverId, "drv", "the car arrived after their sign-in + 10 min - only the truck");
+  assert.equal(findDrive("OUT", "j1", at(21, 5), [...holders, supSite], [supLeg])?.candidates, 1);
   // A passenger's leg only when no driver matched - it's the same trip.
   const pasSite = att({ resourceId: "pas", signInAt: at(21, 1) });
   const pasLeg = leg({ resourceId: "pas", mode: "PASSENGER", startAt: at(19), endAt: at(21, 1) });
@@ -146,7 +154,7 @@ test("option A (Ilies, 24 Nov 2026): one tap ends the Yard sign-in at the depart
   const [out] = deriveCrewLegs([siteC], holders, []);
   const v = crewLegVerdict(out, [own(yardC), own(siteC)], at(40), { site: "Orange hospital", driver: "Turori Smith" });
   assert.deepEqual(v.pointFix, {
-    attendanceId: yardC.id, signOutAt: at(19).toISOString(), label: "End yard sign-in when the truck left",
+    attendanceId: yardC.id, signOutAt: at(19).toISOString(), currentSignOutAt: at(21, 10).toISOString(), label: "End yard sign-in when the truck left",
     reason: "Rode to Orange hospital with Turori Smith - travel counted instead (option A, Ilies 24 Nov 2026)",
   });
   // The office presses it: the Yard sign-in now ends when the truck left.
@@ -212,10 +220,10 @@ test("TP-005: 'Travel paid hours' is the last pay-run column; number columns are
 });
 
 test("cut at their own sign-in: out ends at the earlier of the driver's arrival and their site sign-in; home starts at the later; -1h after the cut", () => {
-  // B signed in on site at 7:45 (20:45), before the driver arrived at 8:00: travel 6:00 -> 7:45 = 1.75h, paid 0.75h.
-  const b = att({ signInAt: at(20, 45), signOutAt: at(30, 20) });
+  // B signed in on site at 7:52 (20:52), before the driver arrived at 8:00: travel 6:00 -> 7:52 = 1.75h, paid 0.75h.
+  const b = att({ signInAt: at(20, 52), signOutAt: at(30, 20) });
   const [out, home] = deriveCrewLegs([b], holders, []);
-  assert.deepEqual(crewWindow(out), { startAt: at(19), endAt: at(20, 45) });
+  assert.deepEqual(crewWindow(out), { startAt: at(19), endAt: at(20, 52) });
   assert.equal(crewLegVerdict(out, [own(b)]).hours, 1.75);
   assert.equal(paidTravelHours(1.75, "PASSENGER"), 0.75);
   // Signed out at 5:20pm (30:20), after the truck left at 5pm: home from 5:20 to 7:30 = 2.25h, paid 1.25h.
@@ -226,7 +234,7 @@ test("cut at their own sign-in: out ends at the earlier of the driver's arrival 
   const [o2, h2] = deriveCrewLegs([a], holders, []);
   assert.deepEqual([crewWindow(o2)?.endAt, crewWindow(h2)?.startAt], [at(21), at(30)]);
   // Signed in before the drive even started: 0h, paid 0 - never below 0.
-  const z = att({ signInAt: at(18, 40) });
+  const z = att({ signInAt: at(18, 52) });
   const zl = deriveCrewLegs([z], [att({ resourceId: "drv", place: "VEHICLE", jobId: null, signInAt: at(18, 30), signOutAt: at(19), signOutMethod: "MOVED" }), att({ resourceId: "drv", signInAt: at(19) })], [])[0];
   assert.equal(crewLegVerdict(zl, [own(z)]).hours, 0.25);
   assert.equal(paidTravelHours(0.25, "PASSENGER"), 0);
@@ -252,4 +260,75 @@ test("a crew member's own truck QR sign-in on that drive stands: no worked-out l
   assert.equal(ownTruckCovers(deriveCrewLegs([gSite], holders, [])[0], [{ ...gTruck, place: "YARD" }]), false);
   // The store passes the crew's own truck sign-ins in.
   assert.match(src("./store.ts"), /deriveCrewLegs\(crewAtts, holderAtts, holderLegs, crewTrucks\)/);
+});
+test("TP-007a: who held a link is read on the trip's date", () => {
+  const made = (d: string) => new Date(`${d}T02:00:00Z`); // midday-ish in Sydney
+  // A link made after a trip: on the trip's day they were crew - that trip is still worked out from the driver.
+  assert.equal(linkCountsOn({ createdAt: made("2026-11-20"), revokedAt: null }, "2026-11-18"), false);
+  assert.equal(linkCountsOn({ createdAt: made("2026-11-20"), revokedAt: null }, "2026-11-20"), true, "made that day counts");
+  // A link switched off later: its past days still count (their own legs stand, and crew are worked out from them).
+  const off = { createdAt: made("2026-11-01"), revokedAt: made("2026-11-22") };
+  assert.equal(linkCountsOn(off, "2026-11-18"), true);
+  assert.equal(linkCountsOn(off, "2026-11-22"), false, "switched off that day - not after it");
+  assert.equal(linkCountsOn(off, "2026-11-23"), false);
+  // Sydney's date, not UTC's: made 9pm UTC on the 17th = 8am on the 18th in Sydney.
+  assert.equal(linkCountsOn({ createdAt: new Date("2026-11-17T21:00:00Z"), revokedAt: null }, "2026-11-17"), false);
+  const store = src("./store.ts");
+  assert.match(store, /const noLink = linkRefusal\(await hasTravelLink\(resourceId\)\);/, "the phone: today");
+});
+
+test("TP-008: truck arriving 9:00, own car arriving 9:30, crew on site 9:28 - the truck; '2 drivers possible'", () => {
+  const nine = (h: number, m = 0) => new Date(Date.UTC(2026, 10, 2, h - 11, m)); // Sydney (UTC+11)
+  const truckIn = att({ resourceId: "drv", place: "VEHICLE", jobId: null, signInAt: nine(7), signOutAt: nine(9), signOutMethod: "MOVED" });
+  const drvSite9 = att({ resourceId: "drv", signInAt: nine(9) });
+  const carSite = att({ resourceId: "sup", signInAt: nine(9, 30) });
+  const car = leg({ resourceId: "sup", startAt: nine(7, 30), endAt: nine(9, 30) });
+  const d = findDrive("OUT", "j1", nine(9, 28), [truckIn, drvSite9, carSite], [car]);
+  assert.deepEqual([d?.kind, d?.driverId, d?.candidates], ["TRUCK", "drv", 2]);
+  assert.equal(driversPossibleText(d?.candidates), "2 drivers possible");
+  assert.equal(driversPossibleText(1), "");
+  // Information only: never a flag, never a blocker.
+  const crew = att({ signInAt: nine(9, 28) });
+  const [out] = deriveCrewLegs([crew], [truckIn, drvSite9, carSite], [car]);
+  assert.deepEqual([crewLegVerdict(out, [own(crew)]).flag, crewLegVerdict(out, [own(crew)]).hours], [null, 2]);
+  assert.match(src("./store.ts"), /\.\.\.\(\(c\.drive\?\.candidates \?\? 0\) > 1 \? \{ driversPossible: c\.drive!\.candidates \} : \{\}\)/);
+});
+
+test("TP-010: a tip run during travel is worked time - the leg counts nothing (SIGNIN_OVERLAP); tip runs refuse during travel", () => {
+  const run = { id: "tiprun:t1", in: at(30, 30), out: at(31, 30), place: "TIP_RUN", placeLabel: "Tip run" };
+  assert.deepEqual(legVerdict(at(30), at(32), [run]), { hours: null, flag: "SIGNIN_OVERLAP" });
+  const a = att({ signInAt: at(21, 10), signOutAt: at(29, 50) });
+  const home = deriveCrewLegs([a], holders, []).find((c) => c.direction === "HOME")!;
+  assert.equal(crewLegVerdict(home, [own(a), run]).flag, "SIGNIN_OVERLAP", "worked-out legs too");
+  assert.equal(pointFixFor("OUT", [run], at(30), { site: "x", driver: null, truck: true }), null, "no one-tap fix for a tip run");
+  const store = src("./store.ts");
+  assert.match(store, /const runs = await prisma\.tipRun\.findMany\(/, "ownSignIns loads their tip runs");
+  assert.match(store, /id: `tiprun:\$\{r\.id\}`, in: r\.startAt, out: end/);
+  // ...and a tip run never starts while travel is open (lib/tipRun/store.ts).
+  assert.match(src("../tipRun/store.ts"), /prisma\.travelLeg\.count\(\{ where: \{ resourceId, endAt: null,/);
+});
+
+test("TP-009: the office's added leg - never over their other travel, on the job's day +-1, never your own", () => {
+  const add = src("./store.ts").slice(src("./store.ts").indexOf("export async function addTravelLeg"));
+  assert.match(add, /if \(await isSelf\(who\.id, resourceId, person\.name\)\) return \{ error: "Ask another Manager to add your own travel\.", status: 403 \};/);
+  assert.match(add, /The times need to be on the job's day \(or the day either side\)\./);
+  assert.match(add, /await travelLinesBetween\(shiftDate\(date, -1\), shiftDate\(date, 1\)\)/, "recorded and worked-out legs");
+  assert.match(add, /!\(l\.derived && l\.jobId === jobId && l\.direction === direction\)/, "not the worked-out leg it takes the place of");
+  assert.match(src("./store.ts"), /linked\.some\(\(u\) => sameUser\(u\.id, userId\)\)/, "lib/samePerson.ts: any of their logins");
+  assert.match(src("../../app/api/attendance/travel/route.ts"), /addTravelLeg\(body, reason, \{ id: user\.id, name: user\.name \}\)/);
+});
+
+test("TP-007b: only an Admin makes a driver link; TP-011: the yard button asks first", () => {
+  const route = src("../../app/api/site-links/route.ts");
+  assert.match(route, /if \(kind === "DRIVER" && \(await guard\("ADMIN"\)\)\) return NextResponse\.json\(\{ error: "Only an Admin can make a driver link\." \}, \{ status: 403 \}\);/);
+  assert.match(src("../../app/tools/site/page.tsx"), /isAdmin\s*\? drivers\.map/);
+  assert.match(src("../../components/attendance/TravelLegs.tsx"), /if \(!window\.confirm\(`\$\{f\.label\}\?\\n\\nTheir sign-out changes from \$\{t\(f\.currentSignOutAt\)\} to \$\{t\(f\.signOutAt\)\}/);
+});
+
+test("refusals that hold whatever they pick come before the mode question (truck, open travel, tip run)", () => {
+  const store = src("./store.ts");
+  const out = store.slice(store.indexOf("export async function startOut"), store.indexOf("export async function startHome"));
+  assert.ok(out.indexOf("tipRunOpen(resourceId)") < out.indexOf("modeRefusal(b.mode)") && out.indexOf("onTruckNow(resourceId)") < out.indexOf("modeRefusal(b.mode)"));
+  const home = store.slice(store.indexOf("export async function startHome"), store.indexOf("export async function arrive"));
+  assert.ok(home.indexOf("tipRunOpen(resourceId)") < home.indexOf("modeRefusal(b.mode)") && home.indexOf("onTruckNow(resourceId)") < home.indexOf("modeRefusal(b.mode)"));
 });

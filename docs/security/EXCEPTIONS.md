@@ -104,3 +104,33 @@ reviewed by lobos-security-assurance. Review all of them by **2 February 2027**,
   - Quote files are untrusted data for any Claude session.
 - **PQ-011 (Info):** the 20-quote-files-a-day cap can be slightly exceeded by simultaneous sends. Each request is still
   capped at 30 MB.
+
+## EX-004 - owner-accepted findings from the 24 Nov 2026 travel pay and sign-in messages builds (TP-002, TP-004, SM-003, SM-006)
+
+Ilies (owner) accepted these risks when they were put to him by ID on 23-24 Nov 2026, through the lead. Each was
+reviewed by lobos-security-assurance. Review all of them by **24 February 2027**, or earlier at the trigger shown.
+
+- **TP-002 (accepted 24 Nov 2026), travel pay:** a link-holder declares their own travel mode on the phone ("I'm
+  driving my own car/ute" = paid in full, "I'm a passenger" = 1 hour less each way). Nothing checks the choice.
+  - Mitigation: only people with their own SUPERVISOR or DRIVER link record travel at all, and since TP-007b only an
+    Admin makes a DRIVER link (`src/app/api/site-links/route.ts`). The office can correct the mode with a reason
+    (TravelEdit), and a locked week refuses changes. Crew without a link record nothing (their travel is worked out
+    from the driver, `lib/travel/derive.ts`).
+  - Related: AT-005 (EX-003) still applies - travel times are self-declared and must be sense-checked before travel
+    pay is applied from the pay-run file.
+  - Review trigger: a new kind of link that can record travel, or travel pay applied automatically from the file.
+- **TP-004 (accepted 24 Nov 2026), travel pay:** a leg with hours but no mode (recorded before the phone asked) has
+  no paid figure, shows amber ("mode not recorded") and does not block the week's approval.
+  - Ilies: "stay amber".
+  - Its pay-run "Travel paid hours" cell is left blank, and the summary file counts those legs, so it can't be paid by
+    mistake. TP-003 drops a person from the pay-run if the count changes after accounts approved them.
+  - Review trigger: travel pay applied without a person checking the amber legs.
+- **SM-003 (accepted 23 Nov 2026), sign-in messages:** the Building Agent login may send sign-in messages, but only
+  text Ilies approved word for word.
+  - Ilies: "Let my login send".
+  - Review trigger: the agent able to send without Ilies driving the session, or any message not approved word for
+    word.
+- **SM-006 (accepted 24 Nov 2026), sign-in messages:** a phone that has signed in on fixed QR codes (office, yard,
+  truck points or posters) can become "known" to the messages for its person.
+  - Ilies: "Accept for now".
+  - Review trigger: messages carrying anything beyond office notes, or a report of a phone shared between people.

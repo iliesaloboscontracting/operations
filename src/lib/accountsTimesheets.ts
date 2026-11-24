@@ -170,7 +170,7 @@ export const TIMESHEETS_EXPLAINER: Explainer = {
       // components/timesheets/TimesheetGrid.tsx (TravelChip TRAVEL_FLAG, AccountsNote, WholeWeek); app/accounts/timesheets/page.tsx (tiles, banner)
       heading: "Travel boxes and the week",
       bullets: [
-        "A blue box is regional travel (\"Travel out\" or \"Travel home\") with its paid hours under it (\"paid 1h (passenger)\"). \"on the way\" = still travelling; \"never ended - no hours\", \"over 8h - not counted\" and \"overlaps a sign-in - not paid\" turn it amber and need the office; \"no driver found\" is amber too but never holds up the week.",
+        "A blue box is regional travel (\"Travel out\" or \"Travel home\") with its paid hours under it (\"paid 1h (passenger)\"). \"on the way\" = still travelling; \"never ended - no hours\", \"over 8h - not counted\" and \"overlaps a sign-in - not paid\" turn it amber and need the office; \"no driver found\" is amber too but never holds up the week; \"2 drivers possible\" is information only.",
         "A purple \"Tip run\" box is a regional tip run (worked hours). \"on the go\" = not finished yet; \"never ended - no hours\" and \"over 6h - not counted\" turn it amber and need the office.",
         "\"Draft\" means a Manager hasn't approved the week yet; \"Locked\" means they have. \"Need sorting\" counts the amber sign-ins, travel legs and tip runs.",
         "On a locked week, \"N sign-ins differ from what was approved\" means a time changed after the lock - the office would need to reopen the week.",

@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Car, Home } from "lucide-react";
 import { apiFetch, serverErrorMessage } from "@/lib/apiFetch";
 import type { TravelLine } from "@/lib/travel/store";
-import { amberFlag, FLAG_LABEL, modeMissing, modeOf, paidText, TRAVEL_MODES, type TravelMode } from "@/lib/travel/rules";
+import { amberFlag, driversPossibleText, FLAG_LABEL, modeMissing, modeOf, paidText, TRAVEL_MODES, type TravelMode } from "@/lib/travel/rules";
 
 // Regional travel legs on the Sign-ins page (2 Nov 2026), under the job they belong to: travel out (Start travel ->
 // their site sign-in) and travel home (Travelling home -> Arrived). Hours are their own - never site hours. The office
@@ -43,6 +43,7 @@ export default function TravelLegs({ legs, canEdit, onChanged }: { legs: TravelL
               <Paid l={l} />
               {l.flag && <span className={amberFlag(l.flag) ? "text-xs text-amber-400" : "text-xs text-emerald-400"} data-testid="travel-flag">{FLAG[l.flag]}</span>}
               {l.changedByOffice && <span className="text-xs text-amber-400" title={l.changedByOffice}>office changed</span>}
+              {driversPossibleText(l.driversPossible) && <span className="text-xs text-gray-400" data-testid="travel-drivers-possible">{driversPossibleText(l.driversPossible)}</span>}
               {canEdit && l.pointFix && <PointFixButton leg={l} onDone={onChanged} />}
               {canEdit && <button className="ml-auto text-xs text-brand-300 hover:underline" onClick={() => setEditing(editing === l.legId ? null : l.legId)}>{l.derived ? "Add travel" : "Fix"}</button>}
             </div>
@@ -70,7 +71,10 @@ function PointFixButton({ leg, onDone }: { leg: TravelLine; onDone: () => void }
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const f = leg.pointFix!;
+  // TP-011 (Ilies, 24 Nov 2026): asks first, with the sign-in's time before -> after.
+  const t = (iso: string | null) => (iso ? new Date(iso).toLocaleTimeString("en-AU", { timeZone: "Australia/Sydney", hour: "numeric", minute: "2-digit" }) : "not signed out");
   async function go() {
+    if (!window.confirm(`${f.label}?\n\nTheir sign-out changes from ${t(f.currentSignOutAt)} to ${t(f.signOutAt)}.\nReason kept: ${f.reason}`)) return;
     setBusy(true);
     setError(null);
     const res = await apiFetch(`/api/attendance/${f.attendanceId}`, {

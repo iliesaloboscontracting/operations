@@ -265,9 +265,12 @@ export default function FromSitePage() {
                       {supervisors.filter((p) => !officeStaff.some((o) => o.id === p.id)).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                     </optgroup>
                   )}
+                  {/* TP-007b (Ilies, 24 Nov 2026: "Admins only"): a driver link also records regional travel - only an Admin makes one. */}
                   {drivers.length > 0 && (
-                    <optgroup label="Drivers (receipts link)">
-                      {drivers.map((p) => <option key={p.id} value={`driver:${p.id}`}>{p.name}</option>)}
+                    <optgroup label="Drivers (receipts + travel link)">
+                      {isAdmin
+                        ? drivers.map((p) => <option key={p.id} value={`driver:${p.id}`}>{p.name}</option>)
+                        : <option value="" disabled>Driver links - an Admin makes these</option>}
                     </optgroup>
                   )}
                   {/* YD-002 (Ilies approved 4 Nov 2026): only an Admin makes the shared Yard link. */}

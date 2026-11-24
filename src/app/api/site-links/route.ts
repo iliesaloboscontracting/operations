@@ -68,6 +68,9 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   if (!person || person.type !== "PERSONNEL") return NextResponse.json({ error: "Pick someone from the Personnel register." }, { status: 400 });
   // kind DRIVER (Receipts, 26 Oct 2026): a driver's link - Add receipt and My receipts, nothing else.
   const kind = body.kind === "OFFICE" ? "OFFICE" : body.kind === "DRIVER" ? "DRIVER" : "SUPERVISOR";
+  // TP-007b (Ilies, 24 Nov 2026: "Admins only"): a driver link also lets its person record regional travel (and so be
+  // the driver crew travel is worked out from) - only an Admin makes one. Supervisor / office links stay Manager+.
+  if (kind === "DRIVER" && (await guard("ADMIN"))) return NextResponse.json({ error: "Only an Admin can make a driver link." }, { status: 403 });
   // Supervisor links: anyone in charge of a toolbox, or a Site Manager /
   // supervisor (they run crew sign-in even without a toolbox).
   const leads = person.toolboxes.length > 0 || isLead(person);

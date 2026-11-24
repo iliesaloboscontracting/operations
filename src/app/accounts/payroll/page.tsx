@@ -12,7 +12,7 @@ import { apiFetch, serverErrorMessage } from "@/lib/apiFetch";
 import type { PayAbsence, PayPersonDTO, PayDayLine } from "@/lib/payroll/store";
 import { markedButSignedInText } from "@/lib/absence/rules";
 import type { DayState, Group } from "@/lib/payroll/rules";
-import { amberFlag, FLAG_LABEL, modeMissing, paidText } from "@/lib/travel/rules";
+import { amberFlag, driversPossibleText, FLAG_LABEL, modeMissing, paidText } from "@/lib/travel/rules";
 
 type Week = {
   weekStart: string; weekEnd: string; days: string[]; weekEnded: boolean; managerLock: { by: string; at: string } | null;
@@ -75,7 +75,7 @@ function Travel({ p }: { p: PayPersonDTO }) {
         const paid = paidText(t);
         return (
           <div key={t.legId} className={modeMissing(t) || amberFlag(t.flag) ? "text-amber-300" : "text-gray-400"} title={`${t.site} · ${t.start}-${t.end ?? "not ended"}`}>
-            {dayHead(t.date)} {t.direction === "OUT" ? "out" : "home"} {t.hours == null ? (t.flag ? FLAG_LABEL[t.flag] : "-") : `${t.hours}h`}{paid ? ` · ${paid}` : ""}
+            {dayHead(t.date)} {t.direction === "OUT" ? "out" : "home"} {t.hours == null ? (t.flag ? FLAG_LABEL[t.flag] : "-") : `${t.hours}h`}{paid ? ` · ${paid}` : ""}{driversPossibleText(t.driversPossible) ? ` · ${driversPossibleText(t.driversPossible)}` : ""}
           </div>
         );
       })}

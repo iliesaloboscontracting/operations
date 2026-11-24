@@ -144,7 +144,31 @@ export default {
     t.ok(tsAcc.body?.people?.find((p) => p.resourceId === A.id)?.absences?.[TODAY]?.label === "Sick", "accounts' view-only timesheet shows it");
 
     // NI-001 b: the CSVs carry the label with empty hours, never the note; they pass the payroll file check.
-    const sickRow = (csv, who) => csv.split(/\r?\n/).find((l) => l.startsWith(`${who.name},`) && l.includes(`,${TODAY},`) && /,(Sick|Not in),,,,,,,(Sick|Not in),/.test(l));
+    // Columns are found by their header name (24 Nov 2026: travel pay added "Travel paid (h)" - positions moved), and a
+    // Sick / Not in line must have every time and hours column empty: sign in / out, break, hours, tip run, travel, travel
+    // paid. Returns the line's Notes (or undefined when there's no such line).
+    const csvCells = (line) => {
+      const out = []; let cur = "", q = false;
+      for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        if (q) { if (ch === '"' && line[i + 1] === '"') { cur += '"'; i++; } else if (ch === '"') q = false; else cur += ch; }
+        else if (ch === '"') q = true; else if (ch === ",") { out.push(cur); cur = ""; } else cur += ch;
+      }
+      out.push(cur);
+      return out;
+    };
+    const EMPTY_COLS = ["Sign in", "Sign out", "Unpaid break (min)", "Hours", "Of which tip run (h)", "Travel (h)", "Travel paid (h)"];
+    const sickRow = (csv, who) => {
+      const lines = csv.split(/\r?\n/);
+      const hi = lines.findIndex((l) => l.startsWith("Employee,"));
+      if (hi < 0) return undefined;
+      const head = csvCells(lines[hi]);
+      const col = (r, name) => r[head.indexOf(name)];
+      if (EMPTY_COLS.some((n) => head.indexOf(n) < 0) || head.indexOf("Notes") < 0) return undefined;
+      const row = lines.slice(hi + 1).map(csvCells).find((r) => col(r, "Employee") === who.name && col(r, "Date") === TODAY
+        && /^(Sick|Not in)$/.test(col(r, "Site / place")) && col(r, "Status") === col(r, "Site / place") && EMPTY_COLS.every((n) => col(r, n) === ""));
+      return row ? col(row, "Notes") : undefined;
+    };
     for (const [pth, who, what] of [[`/api/timesheets/export?week=${TODAY}`, "MANAGER", "the staff timesheet CSV"], [`/api/accounts/timesheets/export?week=${TODAY}`, "ACCOUNTS", "the accounts timesheet CSV"]]) {
       const e = await keep(await c.get(pth, who));
       if (e.status === 409 && who === "ACCOUNTS") { t.note(`${what}: 409 on this copy - other sign-ins this week trip the file check (${e.text.slice(0, 100)})`); continue; }

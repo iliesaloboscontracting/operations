@@ -72,14 +72,15 @@ export function overlapping(startAt: Date, endAt: Date | null, own: OwnSignIn[],
 // ordinary office sign-in change (Manager+, the reason below kept in AttendanceEdit, locked weeks refuse). Never done
 // automatically. Offered only for a drive OUT that runs over exactly one sign-in, a Yard / Office point one that started
 // before the departure.
-export type PointFix = { attendanceId: string; signOutAt: string; label: string; reason: string };
+// currentSignOutAt: the sign-out it has now (TP-011: the button asks first, showing before -> after).
+export type PointFix = { attendanceId: string; signOutAt: string; currentSignOutAt: string | null; label: string; reason: string };
 export function pointFixFor(direction: Direction, overlaps: OwnSignIn[], departure: Date, ctx: { site: string; driver: string | null; truck: boolean }): PointFix | null {
   if (direction !== "OUT" || overlaps.length !== 1) return null;
   const p = overlaps[0];
   if ((p.place !== "YARD" && p.place !== "OFFICE") || p.in.getTime() >= departure.getTime()) return null;
   const where = p.place === "YARD" ? "yard" : "office";
   return {
-    attendanceId: p.id, signOutAt: departure.toISOString(),
+    attendanceId: p.id, signOutAt: departure.toISOString(), currentSignOutAt: p.out?.toISOString() ?? null,
     label: ctx.truck ? `End ${where} sign-in when the truck left` : `End ${where} sign-in when travel started`,
     reason: ctx.driver
       ? `Rode to ${ctx.site} with ${ctx.driver} - travel counted instead (option A, Ilies 24 Nov 2026)`
@@ -93,6 +94,13 @@ export function pointFixFor(direction: Direction, overlaps: OwnSignIn[], departu
 export const TRAVEL_LINK_KINDS = ["SUPERVISOR", "DRIVER"] as const;
 export const NO_LINK_REFUSAL = "Travel is recorded by your driver - nothing to do.";
 export const linkRefusal = (hasLink: boolean): string | null => (hasLink ? null : NO_LINK_REFUSAL);
+// TP-007a (Ilies, 24 Nov 2026): who held a link is read on the trip's date, not today - a link counts on a day when it
+// was made on or before that day (Sydney) and was not switched off, or was switched off after it. So someone given a
+// link later keeps their earlier trips as crew (worked out from the driver), and a link switched off later keeps its
+// past legs (and the crew worked out from them).
+export const sydneyDate = (d: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: "Australia/Sydney" }).format(d);
+export const linkCountsOn = (l: { createdAt: Date; revokedAt: Date | null }, date: string) =>
+  sydneyDate(l.createdAt) <= date && (!l.revokedAt || sydneyDate(l.revokedAt) > date);
 
 // ---------- the travel pass (AT-001, Ilies 2 Nov 2026: "Supervisor QR only") ----------
 
@@ -171,6 +179,8 @@ export function paidText(t: { hours: number | null; mode?: TravelMode | null; pa
 // For the office: legs with hours but no mode, and crew with no driver found - neither has a paid figure (TP-003 counts
 // them in Victoria's approval).
 export const noDriver = (t: { flag?: TravelFlag | null }) => t.flag === "NO_DRIVER";
+// TP-008c: "2 drivers possible" - more than one link-holder could have been the driver (information only).
+export const driversPossibleText = (n: number | null | undefined) => (n && n > 1 ? `${n} drivers possible` : "");
 
 // Start travel / Travelling home needs the choice first.
 export const MODE_REQUIRED = "Tap one first: I'm driving my own car/ute, or I'm a passenger.";

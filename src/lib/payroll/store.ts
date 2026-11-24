@@ -114,7 +114,7 @@ async function payTipRuns(weekStart: string): Promise<PayLine[]> {
 // TP-001 (a leg over the person's own sign-ins counts nothing).
 export type PayTravel = {
   legId: string; personKey: string; name: string; date: string; direction: string; site: string; start: string; end: string | null;
-  hours: number | null; flag: TravelFlag | null; mode: TravelMode | null; paidHours: number | null; via: string | null;
+  hours: number | null; flag: TravelFlag | null; mode: TravelMode | null; paidHours: number | null; via: string | null; driversPossible?: number;
   gps: { start: { lat: number; lng: number; accuracyM: number | null } | null; end: { lat: number; lng: number; accuracyM: number | null } | null };
 };
 async function payTravel(weekStart: string): Promise<PayTravel[]> {
@@ -129,7 +129,7 @@ async function payTravel(weekStart: string): Promise<PayTravel[]> {
     const g = gpsOf.get(t.legId);
     return {
       legId: t.legId, personKey: t.resourceId, name: payText(t.name, "Unnamed", t.date), date: t.date, direction: t.direction, site: payText(t.site, "Site", t.date),
-      start: t.start, end: t.end, hours: t.hours, flag: t.flag, mode: modeOf(t.mode), paidHours: t.paidHours ?? null, via: t.via ? payText(t.via, "with the driver", t.date) : null,
+      start: t.start, end: t.end, hours: t.hours, flag: t.flag, mode: modeOf(t.mode), paidHours: t.paidHours ?? null, via: t.via ? payText(t.via, "with the driver", t.date) : null, ...(t.driversPossible ? { driversPossible: t.driversPossible } : {}),
       gps: { start: g ? pt(g.startGpsLat, g.startGpsLng, g.startGpsAccuracyM) : null, end: g ? pt(g.endGpsLat, g.endGpsLng, g.endGpsAccuracyM) : null },
     };
   });

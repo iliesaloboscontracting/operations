@@ -14,7 +14,8 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   const body = await req.json().catch(() => ({}));
   const reason = typeof body.reason === "string" ? body.reason.trim().slice(0, 300) : "";
   if (reason.length < 3) return NextResponse.json({ error: "Say why it's being added." }, { status: 400 });
-  const out = await addTravelLeg(body, reason, user?.name ?? "Office");
+  if (!user) return NextResponse.json({ error: "Sign in first." }, { status: 401 });
+  const out = await addTravelLeg(body, reason, { id: user.id, name: user.name });
   if ("error" in out) return NextResponse.json({ error: out.error }, { status: out.status });
   return NextResponse.json(out);
 });
