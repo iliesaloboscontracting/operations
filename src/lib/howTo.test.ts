@@ -44,22 +44,28 @@ test("the driver guide: the golden rule, Sign out once at the end, the truck's Q
   assert.match(steps[steps.length - 1], /knock-off check/);
   assert.ok(count(t, "truck's QR") >= 4, "the truck's QR");
   assert.match(t, /pre-start must be done/);
-  assert.match(t, /Don't press Start travel/);
+  assert.match(t, /Never press Start travel/);
   for (const label of ["Add receipt", "My receipts", "Reimbursement", "Delivered", "Picked up", "Client's bin", "Our bin", "Got it", "Tip docket", "Fuel"]) assert.ok(t.includes(label), `driver guide: ${label}`);
 });
 
-test("regional travel: company truck = truck QR only; Start travel for passengers and own-car drivers (before and after the travel-mode release)", () => {
+test("regional travel (24 Nov 2026 design): company truck = truck QR out and back; own car = Start travel on the link; crew riding along = nothing", () => {
   for (const g of [DRIVER_GUIDE, SIGNIN_GUIDE]) {
     const reg = g.sections.find((s) => s.title.startsWith("Regional"))!;
+    assert.equal(reg.steps!.length, 3);
     const truck = reg.steps!.find((s) => /company truck/.test(s.lead ?? ""))!;
-    assert.match(truck.text!, /truck's QR/);
-    assert.match(truck.text!, /Don't press Start travel/);
-    const own = reg.steps!.find((s) => /Passenger/.test(s.lead ?? ""))!;
-    assert.match(own.lead!, /own car/);
-    assert.match(own.text!, /Start travel/);
-    assert.match(own.text!, /If it asks, pick Passenger or Own car\/ute/);
-    assert.ok(reg.steps!.some((s) => /Travelling home/.test(s.text ?? "") && /Arrived/.test(s.text ?? "")));
+    assert.match(truck.text!, /truck's QR for the drive out, and again for the drive back/);
+    assert.match(truck.text!, /Never press Start travel/);
+    const own = reg.steps!.find((s) => /own car or ute/.test(s.lead ?? ""))!;
+    assert.match(own.text!, /Start travel on your link/);
+    assert.match(own.text!, /Travelling home/);
+    assert.match(own.text!, /Arrived/);
+    const crew = reg.steps!.find((s) => /Riding along as crew/.test(s.lead ?? ""))!;
+    assert.match(crew.text!, /nothing to do for travel/);
+    assert.match(crew.text!, /worked out from the driver you travelled with/);
+    assert.match(crew.text!, /supervisor's QR when you get to site/);
+    assert.ok(!/Start travel/.test(crew.text!), "crew never press Start travel");
   }
+  for (const g of ALL_GUIDES) assert.ok(!/If it asks|Passenger or Own car/.test(guideText(g)), `${g.id}: no passenger / own car picker wording`);
 });
 
 test("the supervisor guide covers every tile the link shows today", () => {

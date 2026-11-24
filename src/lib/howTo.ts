@@ -7,8 +7,9 @@
 // POSTER and OFFICE links get nothing (guideForLink). Button names are the screens' own labels - if a label changes on
 // a screen, change it here too (src/lib/howTo.test.ts checks the key ones).
 //
-// Regional travel is written to be right both before and after the travel-mode release: driving the company truck =
-// the truck's QR only, never "Start travel"; "Start travel" is for passengers and own-car drivers ("if it asks, pick").
+// Regional travel (Ilies's travel design, 24 Nov 2026): driving the company truck = the truck's QR out and back, never
+// "Start travel"; driving your own car or ute = "Start travel" on your link, then "Travelling home" and "Arrived";
+// riding along as crew = nothing to do for travel (worked out from the driver) - sign in on the supervisor's QR at site.
 
 export type HowToStep = { lead?: string; text?: string };
 export type HowToSection = { title: string; intro?: string; steps?: HowToStep[]; numbered?: boolean; after?: string };
@@ -33,9 +34,9 @@ const TRUCK_CHECKS: HowToSection = {
 const REGIONAL: HowToSection = {
   title: "Regional jobs (e.g. Shellharbour)",
   steps: [
-    { lead: "Driving the company truck:", text: "use the truck's QR as normal. It counts your whole drive. Don't press Start travel." },
-    { lead: "Passenger, or in your own car or ute:", text: "tap Start travel on your phone before you leave. If it asks, pick Passenger or Own car/ute. Your sign-in at site ends it." },
-    { lead: "Going home:", text: "after you sign out, tap Travelling home, then Arrived when you get home." },
+    { lead: "Driving the company truck:", text: "sign in on the truck's QR for the drive out, and again for the drive back. Never press Start travel." },
+    { lead: "Driving your own car or ute:", text: "tap Start travel on your link before you leave. On the way back, tap Travelling home, then Arrived when you get home." },
+    { lead: "Riding along as crew:", text: "nothing to do for travel - it's worked out from the driver you travelled with. Just sign in on the supervisor's QR when you get to site." },
   ],
 };
 

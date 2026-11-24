@@ -1,7 +1,8 @@
 // "How to use" guides on the crew screens (Ilies, 24 Nov 2026: "yes build how to use, deploy once passes").
 //   (1) The words: src/lib/howTo.ts is static (no fetch / API / storage / database), has no "$" and no dollar figure; the
-//       driver guide has the golden rule (Sign out once, at the very end) and the truck's QR; regional travel says the
-//       company truck = truck QR only and Start travel is for passengers / own car; the supervisor guide names the tiles.
+//       driver guide has the golden rule (Sign out once, at the very end) and the truck's QR; regional travel (24 Nov 2026
+//       design): company truck = truck QR out and back, never Start travel; own car / ute = Start travel on the link;
+//       crew riding along = nothing to do; no passenger / own car picker wording; the supervisor guide names the tiles.
 //   (2) Who gets it: guideForLink gives DRIVER, SUPERVISOR and HANDOVER a guide and nothing else (POSTER, OFFICE, the
 //       yard's shared link); the site link page shows the "How to use" tile only from guideForLink; the built page code
 //       holds the guides; the link pages open (DRIVER, SUPERVISOR, HANDOVER, OFFICE) and the link replies (GET
@@ -36,8 +37,11 @@ export default {
     }
     t.ok(/Only press Sign out once, at the very end of your day/.test(howTo) && /Never sign out in between/.test(howTo), "the golden rule: one place at a time, Sign out once at the very end");
     t.ok((howTo.match(/truck's QR/g) ?? []).length >= 4, "the driver guide uses the truck's QR");
-    t.ok(/Driving the company truck:[^\n]*Don't press Start travel/.test(howTo) && /Passenger, or in your own car[^\n]*Start travel[^\n]*If it asks, pick Passenger or Own car\/ute/.test(howTo),
-      "regional: company truck = truck QR only, never Start travel; Start travel for passengers / own car (both before and after the travel-mode release)");
+    t.ok(/Driving the company truck:[^\n]*truck's QR for the drive out, and again for the drive back[^\n]*Never press Start travel/.test(howTo)
+      && /Driving your own car or ute:[^\n]*Start travel on your link[^\n]*Travelling home[^\n]*Arrived/.test(howTo)
+      && /Riding along as crew:[^\n]*nothing to do for travel[^\n]*supervisor's QR when you get to site/.test(howTo)
+      && !/If it asks|Passenger or Own car/.test(howTo),
+      "regional (24 Nov 2026 design): company truck = truck QR out and back, never Start travel; own car / ute = Start travel on the link; crew riding along = nothing to do; no passenger / own car picker wording");
     const tiles = ["Sign in crew", "Confirm all", "Approve hours", "Talk through your day", "Make a request", "My requests", "Hire on my site", "Add receipt", "Reimbursement", "Bins", "Got it"];
     const missing = tiles.filter((x) => !howTo.includes(x));
     t.ok(missing.length === 0, "the supervisor guide names the link's real tiles", missing.join(", "));
