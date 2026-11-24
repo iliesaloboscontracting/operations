@@ -199,3 +199,24 @@ export function correctionError(startAt: Date, endAt: Date | null): string | nul
   if (endAt && endAt <= startAt) return "The end must be after the start.";
   return null;
 }
+
+// TP-009 / TP-013: an office leg (added or corrected) sits on its job's day, one day either side (Sydney). date = the
+// job's day (YYYY-MM-DD). An open end is checked by its start. Returns an error, or null.
+export const JOB_DAY_REFUSAL = "The times need to be on the job's day (or the day either side).";
+const dayShift = (date: string, n: number) => new Date(new Date(date + "T00:00:00.000Z").getTime() + n * 86_400_000).toISOString().slice(0, 10);
+export function jobDayRefusal(date: string, startAt: Date, endAt: Date | null): string | null {
+  const from = new Date(`${dayShift(date, -1)}T00:00:00+11:00`), to = new Date(`${dayShift(date, 2)}T00:00:00+10:00`);
+  return startAt < from || (endAt ?? startAt) > to ? JOB_DAY_REFUSAL : null;
+}
+
+// TP-009 / TP-013: the first of the person's other travel lines these times run over (an open end - this leg's or
+// theirs - counts as the 8h cap). The caller picks the lines: that person's, never NO_DRIVER, never the leg itself.
+type Span = { direction: Direction; start: string; end: string | null; startAt: string; endAt: string | null };
+export function travelClash<T extends Span>(startAt: Date, endAt: Date | null, others: T[]): T | undefined {
+  const s0 = startAt.getTime(), e0 = endAt ? endAt.getTime() : s0 + TRAVEL_CAP_HOURS * HOUR;
+  return others.find((l) => {
+    const s = new Date(l.startAt).getTime(), e = l.endAt ? new Date(l.endAt).getTime() : s + TRAVEL_CAP_HOURS * HOUR;
+    return s0 < e && e0 > s;
+  });
+}
+export const clashRefusal = (c: Span) => `Those times run over their ${DIRECTION_LABEL[c.direction].toLowerCase()} (${c.start}-${c.end ?? "not ended"}) - trim them first.`;

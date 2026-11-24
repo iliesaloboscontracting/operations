@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { crewLegVerdict, CREW_MATCH_MINUTES, crewWindow, deriveCrewLegs, findDrive, ownTruckCovers, viaText, type Att, type LegLite } from "./derive";
-import { amberFlag, driversPossibleText, legVerdict, linkCountsOn, linkRefusal, needsOffice, NO_LINK_REFUSAL, paidText, paidTravelHours, pointFixFor, TRAVEL_LINK_KINDS } from "./rules";
+import { amberFlag, clashRefusal, driversPossibleText, JOB_DAY_REFUSAL, jobDayRefusal, travelClash, legVerdict, linkCountsOn, linkRefusal, needsOffice, NO_LINK_REFUSAL, paidText, paidTravelHours, pointFixFor, TRAVEL_LINK_KINDS } from "./rules";
 import { approvalBlockers, peopleOf, travelBlocks, type TravelLine } from "../timesheets";
 import { EXPORT_COLUMNS, fileIsSafe, payRunRows, reviewTravelOf, toCsv, TRAVEL_CHANGED_NOTE, travelChanged, type PayLine } from "../payroll/rules";
 
@@ -311,11 +311,53 @@ test("TP-010: a tip run during travel is worked time - the leg counts nothing (S
 test("TP-009: the office's added leg - never over their other travel, on the job's day +-1, never your own", () => {
   const add = src("./store.ts").slice(src("./store.ts").indexOf("export async function addTravelLeg"));
   assert.match(add, /if \(await isSelf\(who\.id, resourceId, person\.name\)\) return \{ error: "Ask another Manager to add your own travel\.", status: 403 \};/);
-  assert.match(add, /The times need to be on the job's day \(or the day either side\)\./);
-  assert.match(add, /await travelLinesBetween\(shiftDate\(date, -1\), shiftDate\(date, 1\)\)/, "recorded and worked-out legs");
-  assert.match(add, /!\(l\.derived && l\.jobId === jobId && l\.direction === direction\)/, "not the worked-out leg it takes the place of");
+  assert.match(add, /const offDay = jobDayRefusal\(date, startAt, endAt\);\n\s+if \(offDay\) return \{ error: offDay, status: 400 \};/);
+  assert.match(add, /otherTravelRefusal\(resourceId, date, startAt, endAt, \(l\) => !!l\.derived && l\.jobId === jobId && l\.direction === direction\)/, "not the worked-out leg it takes the place of");
+  const helper = src("./store.ts").slice(src("./store.ts").indexOf("async function otherTravelRefusal("));
+  assert.match(helper, /await travelLinesBetween\(shiftDate\(date, -1\), shiftDate\(date, 1\)\)/, "recorded and worked-out legs");
+  assert.match(helper, /l\.resourceId === resourceId && l\.flag !== "NO_DRIVER" && !skip\(l\)/);
   assert.match(src("./store.ts"), /linked\.some\(\(u\) => sameUser\(u\.id, userId\)\)/, "lib/samePerson.ts: any of their logins");
   assert.match(src("../../app/api/attendance/travel/route.ts"), /addTravelLeg\(body, reason, \{ id: user\.id, name: user\.name \}\)/);
+});
+
+test("TP-013: an office correction - never your own (403), times on the job's day +-1, never over their other travel", () => {
+  const store = src("./store.ts");
+  const edit = store.slice(store.indexOf("export async function editTravelLeg("));
+  // Your own leg: 403, the same isSelf as an added one (User.personnelId under any login, or the same name).
+  assert.match(edit, /if \(await isSelf\(who\.id, leg\.resourceId, person\?\.name \?\? leg\.workerName\)\) return \{ error: "Ask another Manager to change your own travel\.", status: 403 \};/);
+  assert.ok(edit.indexOf("isSelf(") < edit.indexOf("prisma.travelLeg.update"), "refused before anything is written");
+  assert.match(src("../../app/api/attendance/travel/[id]/route.ts"), /editTravelLeg\(params\.id, body, reason, \{ id: user\.id, name: user\.name \}\)/, "the route passes who is signed in");
+  // New times are checked with the same helpers, before the write; the leg itself never counts as a clash.
+  assert.match(edit, /jobDayRefusal\(leg\.date, startAt, endAt\)/);
+  assert.match(edit, /otherTravelRefusal\(leg\.resourceId, leg\.date, startAt, endAt, \(l\) => l\.legId === leg\.id\)/);
+  assert.ok(edit.indexOf("otherTravelRefusal(") < edit.indexOf("prisma.travelLeg.update"), "refused before anything is written");
+  // The rules still there: locked week first, the mode set / changed but never cleared, every change logged.
+  assert.ok(edit.indexOf("lockedWeekFor(leg.date)") < edit.indexOf("jobDayRefusal("));
+  assert.match(edit, /edits: \{ create: edits\.map\(\(e\) => \(\{ \.\.\.e, reason, editedBy: by \}\)\) \}/);
+
+  // Outside the job's day +-1: 400. The job is 3 Nov (Sydney, +11:00 in summer).
+  const at = (s: string) => new Date(s);
+  assert.equal(jobDayRefusal("2026-11-03", at("2026-11-01T23:30:00+11:00"), at("2026-11-02T03:00:00+11:00")), JOB_DAY_REFUSAL, "starts 2 days before");
+  assert.equal(jobDayRefusal("2026-11-03", at("2026-11-04T20:00:00+11:00"), at("2026-11-05T03:00:00+11:00")), JOB_DAY_REFUSAL, "ends 2 days after");
+  assert.equal(jobDayRefusal("2026-11-03", at("2026-11-05T02:00:00+11:00"), null), JOB_DAY_REFUSAL, "an open end is checked by its start");
+  assert.equal(jobDayRefusal("2026-11-03", at("2026-11-02T05:00:00+11:00"), at("2026-11-02T09:00:00+11:00")), null, "the day before is fine");
+  assert.equal(jobDayRefusal("2026-11-03", at("2026-11-04T18:00:00+11:00"), at("2026-11-04T22:00:00+11:00")), null, "the day after is fine");
+
+  // Stretching a leg over the person's other leg: 400 with which one.
+  const home = { legId: "l2", direction: "HOME" as const, start: "4:00 pm", end: "7:00 pm", startAt: "2026-11-03T05:00:00.000Z", endAt: "2026-11-03T08:00:00.000Z" };
+  const out = { legId: "l1", direction: "OUT" as const, start: "5:00 am", end: "8:00 am", startAt: "2026-11-02T18:00:00.000Z", endAt: "2026-11-02T21:00:00.000Z" };
+  const others = [out, home].filter((l) => l.legId !== "l1"); // the leg being fixed is left out
+  const clash = travelClash(at("2026-11-03T05:00:00+11:00"), at("2026-11-03T17:00:00+11:00"), others);
+  assert.equal(clash, home, "OUT stretched to 5 pm runs over travel home from 4 pm");
+  assert.equal(clashRefusal(clash!), "Those times run over their travel home (4:00 pm-7:00 pm) - trim them first.");
+  const noon = { ...home, start: "12:00 pm", startAt: "2026-11-03T01:00:00.000Z" };
+  assert.equal(travelClash(at("2026-11-03T05:00:00+11:00"), null, [noon]), noon, "this leg's open end counts as the 8h cap (to 1 pm)");
+  const openHome = { ...home, end: null, endAt: null };
+  assert.equal(travelClash(at("2026-11-03T18:00:00+11:00"), at("2026-11-03T21:00:00+11:00"), [openHome]), openHome, "their open leg counts 8h from its start");
+  assert.equal(travelClash(at("2026-11-03T05:00:00+11:00"), at("2026-11-03T08:00:00+11:00"), [out]), out, "why the leg being fixed is left out");
+  // A valid correction: on the day, clear of their other travel - nothing refuses it.
+  assert.equal(jobDayRefusal("2026-11-03", at("2026-11-03T05:30:00+11:00"), at("2026-11-03T08:30:00+11:00")), null);
+  assert.equal(travelClash(at("2026-11-03T05:30:00+11:00"), at("2026-11-03T08:30:00+11:00"), others), undefined);
 });
 
 test("TP-007b: only an Admin makes a driver link; TP-011: the yard button asks first", () => {

@@ -10,7 +10,7 @@ import { linkLabel } from "../dailyLog/money";
 import { lockedWeekFor, weekEnd } from "../timesheets";
 import { todaySydney } from "../today";
 import {
-  correctionError, DIRECTION_LABEL, homeFrom, HOME_OFFER_HOURS, isTravelMode, legHours, legVerdict, linkRefusal, MODE_LABEL, MODE_NOT_RECORDED, modeOf,
+  clashRefusal, correctionError, DIRECTION_LABEL, jobDayRefusal, travelClash, homeFrom, HOME_OFFER_HOURS, isTravelMode, legHours, legVerdict, linkRefusal, MODE_LABEL, MODE_NOT_RECORDED, modeOf,
   linkCountsOn, modeRefusal, outRefusal, overlapping, paidTravelHours, pointFixFor, stillOpen, TRAVEL_CAP_HOURS, TRAVEL_LINK_KINDS, truckRefusal,
   type Direction, type OwnSignIn, type PointFix, type TravelFlag, type TravelMode,
 } from "./rules";
@@ -407,6 +407,14 @@ export async function travelLinesBetween(from: string, to: string, now = new Dat
 export const travelLinesForWeek = (weekStart: string) => travelLinesBetween(weekStart, weekEnd(weekStart));
 export const travelLinesForDate = (date: string) => travelLinesBetween(date, date);
 
+// TP-009 / TP-013: an office leg's times never run over the person's other travel on the job's day +-1 - recorded or
+// worked out (never NO_DRIVER: those have no times). skip = the line(s) this leg is or takes the place of.
+async function otherTravelRefusal(resourceId: string, date: string, startAt: Date, endAt: Date | null, skip: (l: TravelLine) => boolean): Promise<string | null> {
+  const travel = (await travelLinesBetween(shiftDate(date, -1), shiftDate(date, 1))).filter((l) => l.resourceId === resourceId && l.flag !== "NO_DRIVER" && !skip(l));
+  const clash = travelClash(startAt, endAt, travel);
+  return clash ? clashRefusal(clash) : null;
+}
+
 // The office adds a leg by hand (Manager+, 24 Nov 2026) - for crew with "no driver found", or to replace a worked-out
 // leg that's wrong (e.g. trimmed off a sign-in it ran over). It takes the place of the worked-out one for that person,
 // job and way. Start, end, how they travelled and a reason - kept in TravelEdit ("added by the office"). Only on a
@@ -434,8 +442,8 @@ export async function addTravelLeg(b: Record<string, unknown>, reason: string, w
   // TP-009: never your own travel (the same person under any of their logins - lib/samePerson.ts).
   if (await isSelf(who.id, resourceId, person.name)) return { error: "Ask another Manager to add your own travel.", status: 403 };
   // TP-009: on the job's day, one day either side (Sydney).
-  const from = new Date(`${shiftDate(date, -1)}T00:00:00+11:00`), to = new Date(`${shiftDate(date, 2)}T00:00:00+10:00`);
-  if (startAt < from || endAt > to) return { error: "The times need to be on the job's day (or the day either side).", status: 400 };
+  const offDay = jobDayRefusal(date, startAt, endAt);
+  if (offDay) return { error: offDay, status: 400 };
   if (await lockedWeekFor(date)) return { error: "That week's timesheet has been approved - an Admin has to reopen it (Timesheets page) before its travel can change.", status: 400 };
   if (!(await prisma.siteAttendance.count({ where: { resourceId, jobId, ...counts } }))) return { error: "They didn't sign in on this job - add their sign-in first.", status: 400 };
   // One leg each way per job - checked before the time checks, so a second one says "use Fix" (not an overlap with itself).
@@ -445,13 +453,8 @@ export async function addTravelLeg(b: Record<string, unknown>, reason: string, w
   const over = overlapping(startAt, endAt, own);
   if (over.length) return { error: `Those times run over one of their sign-ins (${sydneyTime(over[0].in)}-${sydneyTime(over[0].out) ?? "open"}) - trim them first.`, status: 400 };
   // TP-009: nor over their other travel - recorded or worked out (not the worked-out leg this one takes the place of).
-  const travel = (await travelLinesBetween(shiftDate(date, -1), shiftDate(date, 1))).filter((l) =>
-    l.resourceId === resourceId && l.flag !== "NO_DRIVER" && !(l.derived && l.jobId === jobId && l.direction === direction));
-  const clash = travel.find((l) => {
-    const s = new Date(l.startAt).getTime(), e = l.endAt ? new Date(l.endAt).getTime() : s + TRAVEL_CAP_HOURS * HOUR;
-    return startAt.getTime() < e && endAt.getTime() > s;
-  });
-  if (clash) return { error: `Those times run over their ${DIRECTION_LABEL[clash.direction].toLowerCase()} (${clash.start}-${clash.end ?? "not ended"}) - trim them first.`, status: 400 };
+  const clash = await otherTravelRefusal(resourceId, date, startAt, endAt, (l) => !!l.derived && l.jobId === jobId && l.direction === direction);
+  if (clash) return { error: clash, status: 400 };
 
   try {
     const leg = await prisma.travelLeg.create({
@@ -469,9 +472,14 @@ export async function addTravelLeg(b: Record<string, unknown>, reason: string, w
 
 // An office correction (Manager+): start / end and (travel pay, 23-24 Nov 2026) how they travelled - "mode":
 // DRIVER_OWN_VEHICLE | PASSENGER - with a reason, kept in TravelEdit. Locked weeks refuse it.
-export async function editTravelLeg(id: string, b: Record<string, unknown>, reason: string, by: string): Promise<{ ok: true; changed: boolean } | Problem> {
+// TP-013 (the same checks as an added leg, TP-009): never your own travel; new times on the job's day +-1 and never
+// over the person's other travel (recorded or worked out).
+export async function editTravelLeg(id: string, b: Record<string, unknown>, reason: string, who: { id: string; name: string }): Promise<{ ok: true; changed: boolean } | Problem> {
+  const by = who.name;
   const leg = await prisma.travelLeg.findUnique({ where: { id } });
   if (!leg) return { error: "not found", status: 404 };
+  const person = await prisma.resource.findUnique({ where: { id: leg.resourceId }, select: { name: true } });
+  if (await isSelf(who.id, leg.resourceId, person?.name ?? leg.workerName)) return { error: "Ask another Manager to change your own travel.", status: 403 };
   if (await lockedWeekFor(leg.date)) return { error: "That week's timesheet has been approved - an Admin has to reopen it (Timesheets page) before its travel can change.", status: 400 };
   const parse = (v: unknown) => (typeof v === "string" && v ? new Date(v) : null);
   const startAt = "startAt" in b ? parse(b.startAt) : leg.startAt;
@@ -487,6 +495,13 @@ export async function editTravelLeg(id: string, b: Record<string, unknown>, reas
   if ((endAt?.getTime() ?? null) !== (leg.endAt?.getTime() ?? null)) edits.push({ field: "endAt", before: leg.endAt?.toISOString() ?? null, after: endAt?.toISOString() ?? null });
   if (mode !== leg.mode) edits.push({ field: "mode", before: leg.mode, after: mode });
   if (!edits.length) return { ok: true, changed: false };
+  // TP-013: new times (a mode-only change keeps the times it had) - on the job's day +-1, never over their other travel.
+  if (edits.some((e) => e.field === "startAt" || e.field === "endAt")) {
+    const offDay = jobDayRefusal(leg.date, startAt, endAt);
+    if (offDay) return { error: offDay, status: 400 };
+    const clash = await otherTravelRefusal(leg.resourceId, leg.date, startAt, endAt, (l) => l.legId === leg.id);
+    if (clash) return { error: clash, status: 400 };
+  }
   await prisma.travelLeg.update({
     where: { id },
     data: { startAt, endAt, mode, ...(endAt && edits.some((e) => e.field === "endAt") ? { endMethod: "OFFICE" } : {}), edits: { create: edits.map((e) => ({ ...e, reason, editedBy: by })) } },
