@@ -46,7 +46,10 @@ export default {
     const regPoster = await makeLink(db, "POSTER", null, { projectId: reg.id });
     const locPoster = await makeLink(db, "POSTER", null, { projectId: loc.id });
     const officePoint = await makeLink(db, "POSTER", null, { place: "OFFICE" });
-    const supLink = await makeLink(db, "SUPERVISOR", person.id); // the person runs sign-in for their jobs
+    // The person runs sign-in for their jobs. Made a week back: TP-007a reads who held a link on the trip's date, and
+    // before noon Sydney the night job below is LAST night's - a link made today would make the person crew there (two
+    // worked-out legs on the night job), so the check would depend on the time of day it runs.
+    const supLink = await makeLink(db, "SUPERVISOR", person.id, { createdAt: new Date(jobDate.getTime() - 7 * 86_400_000) });
     const dev = `rc-dev-${tag}`;
     const linkSafe = [];
     const travel = async (body) => {
@@ -151,11 +154,17 @@ export default {
 
     // (7) Timesheets: the Travel column for Managers, TIMESHEETS and the Accounts view; site hours unchanged by travel.
     const week = c.thisWeek;
+    // The person's travel on this check's own jobs is exactly its four legs - out and home on the regional job, the two
+    // seeded on the local one - and nothing else (no worked-out leg on the night job). Travel the snapshot already has
+    // for that person on other jobs this week isn't the check's, so it's left out of the count.
+    const checkJobs = new Set([regJob.id, regNight.id, locJob.id]);
+    const fourIds = () => [s1.body.leg.id, h1.body.leg.id, never.id, long.id].sort().join();
+    const fourLegs = (legs) => { const own = legs.filter((l) => checkJobs.has(l.jobId)); return own.length === 4 && own.map((l) => l.legId).sort().join() === fourIds(); };
     for (const [who, path] of [["MANAGER", `/api/timesheets?week=${week}`], ["TIMESHEETS", `/api/timesheets?week=${week}`], ["ACCOUNTS", `/api/accounts/timesheets?week=${week}`]]) {
       const w = (await c.json(path, who)).body;
       const p = w?.people?.find((x) => x.resourceId === person.id);
       const legs = Object.values(p?.travel ?? {}).flat();
-      t.ok(legs.length === 4 && typeof p.travelTotal === "number" && typeof w.travelHours === "number", `${who}: the person's four travel legs and a travel total`, `${legs.length}`);
+      t.ok(fourLegs(legs) && typeof p.travelTotal === "number" && typeof w.travelHours === "number", `${who}: the person's four travel legs and a travel total`, JSON.stringify(legs.map((l) => [l.direction, l.jobId === regNight.id ? "night" : l.jobId === regJob.id ? "regional" : l.jobId === locJob.id ? "local" : "other", l.legId.slice(0, 12)])));
       if (who === "MANAGER") {
         t.ok(legs.find((l) => l.legId === never.id)?.flag === "NOT_ENDED" && legs.find((l) => l.legId === never.id)?.hours === null, "never ended: flagged, no hours");
         t.ok(legs.find((l) => l.legId === long.id)?.flag === "OVER_CAP" && legs.find((l) => l.legId === long.id)?.hours === null, "over 8h: flagged, no hours");
@@ -240,7 +249,7 @@ export default {
       t.status(await c.patch(`/api/attendance/travel/${never.id}`, "COORDINATOR", { endAt: new Date().toISOString(), reason: "rc" }), 403, "the COORDINATOR can't correct travel (view only)");
       t.status(await c.patch(`/api/projects/${reg.id}`, "COORDINATOR", { regional: false }), 403, "the COORDINATOR can't change the Regional flag");
       const cw = (await c.json(`/api/timesheets?week=${week}`, "COORDINATOR")).body;
-      t.ok(Object.values(cw?.people?.find((x) => x.resourceId === person.id)?.travel ?? {}).flat().length === 4, "the COORDINATOR sees the Travel column (view only)");
+      t.ok(fourLegs(Object.values(cw?.people?.find((x) => x.resourceId === person.id)?.travel ?? {}).flat()), "the COORDINATOR sees the Travel column (view only)");
       const ca = (await c.json(`/api/attendance?date=${today}`, "COORDINATOR")).body;
       t.ok(ca?.travel?.some((l) => l.legId === s1.body.leg.id) && !/"gps[a-z]*"\s*:/i.test(JSON.stringify(ca?.travel ?? [])), "the COORDINATOR sees the travel legs on Sign-ins, without GPS");
     } else t.note("no COORDINATOR test login on this build - its travel checks skipped");
