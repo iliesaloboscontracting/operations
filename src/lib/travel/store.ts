@@ -438,6 +438,9 @@ export async function addTravelLeg(b: Record<string, unknown>, reason: string, w
   if (startAt < from || endAt > to) return { error: "The times need to be on the job's day (or the day either side).", status: 400 };
   if (await lockedWeekFor(date)) return { error: "That week's timesheet has been approved - an Admin has to reopen it (Timesheets page) before its travel can change.", status: 400 };
   if (!(await prisma.siteAttendance.count({ where: { resourceId, jobId, ...counts } }))) return { error: "They didn't sign in on this job - add their sign-in first.", status: 400 };
+  // One leg each way per job - checked before the time checks, so a second one says "use Fix" (not an overlap with itself).
+  const existing = await prisma.travelLeg.findUnique({ where: { resourceId_jobId_direction: { resourceId, jobId, direction } } });
+  if (existing) return { error: `They already have ${DIRECTION_LABEL[direction].toLowerCase()} for this job - use Fix on it.`, status: 409 };
   const own = (await ownSignIns([resourceId], [startAt], [endAt])).get(resourceId) ?? [];
   const over = overlapping(startAt, endAt, own);
   if (over.length) return { error: `Those times run over one of their sign-ins (${sydneyTime(over[0].in)}-${sydneyTime(over[0].out) ?? "open"}) - trim them first.`, status: 400 };
@@ -449,8 +452,7 @@ export async function addTravelLeg(b: Record<string, unknown>, reason: string, w
     return startAt.getTime() < e && endAt.getTime() > s;
   });
   if (clash) return { error: `Those times run over their ${DIRECTION_LABEL[clash.direction].toLowerCase()} (${clash.start}-${clash.end ?? "not ended"}) - trim them first.`, status: 400 };
-  const existing = await prisma.travelLeg.findUnique({ where: { resourceId_jobId_direction: { resourceId, jobId, direction } } });
-  if (existing) return { error: `They already have ${DIRECTION_LABEL[direction].toLowerCase()} for this job - use Fix on it.`, status: 409 };
+
   try {
     const leg = await prisma.travelLeg.create({
       data: {

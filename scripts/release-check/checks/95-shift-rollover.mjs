@@ -47,6 +47,9 @@ export default {
     const dayJob = await db.job.create({ data: { projectId: loc.id, title: loc.name, date: new Date(today + "T00:00:00.000Z"), shift: "DAY", status: "ACTIVE" } });
     for (const j of [lastNight, tonight, dayJob]) for (const p of free.slice(0, 5)) await db.assignment.create({ data: { jobId: j.id, resourceId: p.id } });
     const supLink = await makeLink(db, "SUPERVISOR", sup.id);
+    // The tipper drives the truck back to tip it - a DRIVER link-holder (24 Nov 2026: only SUPERVISOR / DRIVER
+    // link-holders record travel, so SR-003 is tested on someone who could start travel at all).
+    await makeLink(db, "DRIVER", tipper.id);
     const regPoster = await makeLink(db, "POSTER", null, { projectId: reg.id });
     const linkSafe = [];
     const keep = async (r) => { const j = await r.json().catch(() => ({})); linkSafe.push(JSON.stringify(j)); return { status: r.status, body: j }; };
