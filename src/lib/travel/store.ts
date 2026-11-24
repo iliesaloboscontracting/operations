@@ -271,7 +271,7 @@ function lineOf(l: LegRow, roles: Map<string, string | null>, own: OwnSignIn[], 
   return {
     legId: l.id, direction: l.direction as Direction, date: l.date, resourceId: l.resourceId, name: l.workerName, role: roles.get(l.resourceId) ?? null,
     jobId: l.jobId, site: l.siteLabel, start: sydneyTime(l.startAt)!, end: sydneyTime(l.endAt), startAt: l.startAt.toISOString(), endAt: l.endAt?.toISOString() ?? null, hours, flag,
-    changedByOffice: l.edits.length ? l.edits.map((e) => `${EDIT_FIELD[e.field] ?? e.field} ${editValue(e.field, e.before)} -> ${editValue(e.field, e.after)} (${e.reason})`).join("; ") : null,
+    changedByOffice: l.edits.length ? l.edits.map((e) => (e.field === "added" ? `${EDIT_FIELD.added} ${editValue(e.field, e.after)} (${e.reason})` : `${EDIT_FIELD[e.field] ?? e.field} ${editValue(e.field, e.before)} -> ${editValue(e.field, e.after)} (${e.reason})`)).join("; ") : null,
     mode, paidHours: paidTravelHours(hours, mode),
     ...(fix ? { pointFix: fix } : {}),
   };

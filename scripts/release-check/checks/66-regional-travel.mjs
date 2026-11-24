@@ -4,8 +4,16 @@
 // Travel pay (Ilies, 23-24 Nov 2026): the phone's mode (own car/ute or passenger) is required, Start travel is refused on
 // an open truck sign-in, paid hours (passenger 1h less each way, own vehicle in full) on the screens, exports and the
 // approved snapshot, office mode corrections (Manager+, reason, TravelEdit, locked weeks refuse).
+// Travel design (Ilies, 24 Nov 2026): only SUPERVISOR / DRIVER link-holders record travel (no link = refused on the
+// server, nothing offered); crew's travel worked out from the driver they travelled with (truck QR or own leg, +-30 min,
+// paid 1h less each way); own car pays full, passenger 1h less; TP-001 (a leg over the person's own sign-ins pays nothing
+// and blocks approval) with option A's one-tap "End yard sign-in when the truck left"; "no driver found" amber, the
+// office adds the leg; TP-003 (a travel change after Victoria approved drops the person from the pay-run); TP-005 (Travel
+// paid hours last in the pay-run file).
 // WRITES on the test copy: two projects ("RC regional" / "RC local") with a job today each, an allocation, two site
-// posters, sign-ins, travel legs and one approved far-past week (for the lock check).
+// posters, sign-ins, travel legs and one approved far-past week (for the lock check); for the 24 Nov 2026 design a
+// third project ("RC regional crew") with a job on Tue 5 Mar 2019, DRIVER / SUPERVISOR links for three people, seeded
+// truck / site / Yard sign-ins and legs, an office-added leg, an approved (reopened, re-approved) week and a payroll review.
 import { noMoney } from "../lib/context.mjs";
 import { makeLink } from "../lib/setup.mjs";
 
@@ -90,6 +98,8 @@ export default {
     t.ok(noReg.status === 200 && !noReg.body.travelPass && noReg.body.travelLink === false, "AT-001: the supervisor's QR, allocated, but no regional work gives no pass", `${noReg.status} ${noReg.body.error ?? ""}`);
     t.status((await travel({ pass, deviceId: "another-phone", action: "STATUS" })).status, 401, "the pass doesn't work on another phone");
     t.status((await travel({ pass, action: "START_HOME" })).status, 409, "travelling home after a local sign-out is refused");
+    // Off the night job before travelling (TP-001: a leg over one of their own open sign-ins would count nothing).
+    t.status((await sign(await qr(regNight.id), regNight.id, "OUT")).status, 200, "signed out of the night job before Start travel");
     // (3) Travel out: only the regional job is offered; the local one is refused; a second tap is the same leg.
     const st = await travel({ pass, action: "STATUS" });
     t.ok(st.status === 200 && st.body.outJobs?.some((j) => j.jobId === regJob.id) && !st.body.outJobs?.some((j) => j.jobId === locJob.id), "only the regional job is offered", JSON.stringify(st.body).slice(0, 200));
@@ -180,7 +190,7 @@ export default {
     for (const f of ["payrun", "summary"]) {
       const r = await c.text(`/api/accounts/payroll/export?week=${payWeek}&file=${f}`, "ACCOUNTS");
       const csv = r.text;
-      t.ok(r.status === 200 && /Travel hours,Travel paid hours/.test(csv) && noMoney(csv) && !/\bBSB\b|\bTFN\b|\bABA\b/i.test(csv), `payroll ${f} file: Travel hours and Travel paid hours columns, no money (fileIsSafe passed - the route refuses otherwise)`, `${r.status} ${csv.slice(0, 160)}`);
+      t.ok(r.status === 200 && (f === "payrun" ? /Travel hours,Of which tip run hours,Travel paid hours\r?\n/ : /Travel hours,Travel paid hours/).test(csv) && noMoney(csv) && !/\bBSB\b|\bTFN\b|\bABA\b/i.test(csv), `payroll ${f} file: Travel hours and Travel paid hours columns, no money (fileIsSafe passed - the route refuses otherwise)`, `${r.status} ${csv.slice(0, 160)}`);
       if (f === "summary") t.ok(csv.split("\n").some((l) => l.startsWith(person.name) && /,4,3,0\r?$/.test(l)), "summary: the person's 4h travel, 3h paid (then 0 Tip run hours)", csv.slice(0, 400));
     }
     const pay2 = (await c.json(`/api/accounts/payroll?week=${payWeek}`, "ACCOUNTS")).body;
@@ -237,6 +247,145 @@ export default {
     await db.timesheetWeek.create({ data: { weekStart: lockedWeek, approvedBy: "Release check", snapshot: JSON.stringify({ weekStart: lockedWeek, lines: [] }), totalHours: 0, people: 0 } });
     const old = await db.travelLeg.create({ data: { direction: "OUT", resourceId: person.id, workerName: person.name, jobId: `rc-old-${tag}`, projectId: loc.id, siteLabel: loc.name, date: "2020-01-07", startAt: new Date("2020-01-06T20:00:00Z") } });
     t.status(await c.patch(`/api/attendance/travel/${old.id}`, "MANAGER", { endAt: "2020-01-06T23:00:00.000Z", reason: "Release check" }), 400, "a locked (approved) week refuses a travel change");
+
+    // (8b) Only link-holders record travel (Ilies, 24 Nov 2026). person3 has no SUPERVISOR / DRIVER link: put on the
+    // regional job and signed in on the supervisor's QR (so the phone gets its pass - AT-001 unchanged), the phone is
+    // offered no travel and the server refuses a start.
+    if (await db.siteLink.count({ where: { resourceId: person3.id, kind: { in: ["SUPERVISOR", "DRIVER"] }, revokedAt: null } })) {
+      t.note("person3 has a SUPERVISOR / DRIVER link on this snapshot - the no-link phone case is checked in (11) instead");
+    } else {
+      await db.assignment.create({ data: { jobId: regJob.id, resourceId: person3.id } });
+      const dev3 = `${dev}-3`;
+      const in3 = await sign(await qr(regJob.id), regJob.id, "IN", person3.id, dev3);
+      t.ok(in3.status === 200 && typeof in3.body.travelPass === "string" && in3.body.travelLink === false, "no link: the pass is still given (AT-001 unchanged) but no travel page link", `${in3.status} ${in3.body.error ?? ""} ${in3.body.travelLink}`);
+      const out3 = await sign(await qr(regJob.id), regJob.id, "OUT", person3.id, dev3);
+      t.ok(out3.status === 200 && !out3.body.travelHome, "no link: a regional sign-out offers no Travelling home", `${out3.status}`);
+      const st3 = await travel({ pass: in3.body.travelPass, deviceId: dev3, action: "STATUS" });
+      t.ok(st3.status === 200 && st3.body.byDriver === true && !(st3.body.outJobs ?? []).length && !st3.body.home, "no link: the travel page offers nothing (recorded by the driver)", JSON.stringify(st3.body).slice(0, 160));
+      for (const [action, extra] of [["START_OUT", { jobId: regJob.id, mode: "PASSENGER" }], ["START_HOME", { mode: "DRIVER_OWN_VEHICLE" }]]) {
+        const r = await travel({ pass: in3.body.travelPass, deviceId: dev3, action, ...extra });
+        t.ok(r.status === 403 && r.body.error === "Travel is recorded by your driver - nothing to do.", `no link: ${action} refused on the server`, `${r.status} ${r.body.error ?? ""}`);
+      }
+      t.ok((await db.travelLeg.count({ where: { resourceId: person3.id } })) === 0, "no link: no travel leg stored");
+    }
+
+    // (11) Crew travel worked out from the driver (Ilies, 24 Nov 2026) - a week of its own (4-10 Mar 2019; Sydney is
+    // UTC+11 then, so 19:00Z on the 4th = 6am on Tue 5 Mar). Seeded sign-ins (the truck QR and site sign-ins as they're
+    // stored), read back through the office, Timesheets, the approval and Payroll.
+    const WK = "2019-03-04", DAY = "2019-03-05";
+    const Z = (s) => new Date(`2019-03-${s}:00.000Z`); // "04T19:00" -> 2019-03-04T19:00Z
+    const free = await db.resource.findMany({
+      where: {
+        type: "PERSONNEL", active: true, id: { notIn: [person.id, person2.id, person3.id] }, OR: [{ engagement: null }, { engagement: { not: "ABN" } }],
+        siteLinks: { none: { kind: { in: ["SUPERVISOR", "DRIVER"] }, revokedAt: null } }, attendances: { none: { date: { gte: WK, lte: "2019-03-10" } } },
+      },
+      select: { id: true, name: true }, orderBy: { name: "asc" }, take: 7,
+    });
+    if (free.length < 7) { t.note(`only ${free.length} Labour-register people without a link on the snapshot - the worked-out travel cases need 7`); }
+    else {
+      const [D, A, B, O, P, C, F] = free;
+      await makeLink(db, "DRIVER", D.id); // the truck driver
+      await makeLink(db, "SUPERVISOR", O.id); // drives their own ute
+      await makeLink(db, "DRIVER", P.id); // a link-holder riding along as a passenger
+      const reg2 = await db.project.create({ data: { name: `RC regional crew ${tag}`, status: "ACTIVE", regional: true } });
+      const j2 = await db.job.create({ data: { projectId: reg2.id, title: reg2.name, date: new Date(`${DAY}T00:00:00.000Z`), shift: "DAY", status: "ACTIVE" } });
+      const seedAtt = (who, o) => db.siteAttendance.create({ data: { date: DAY, resourceId: who.id, workerName: who.name, signInMethod: "SUPERVISOR_QR", status: "CONFIRMED", signOutMethod: "SUPERVISOR_QR", ...o } });
+      const seedTruck = (who, o) => seedAtt(who, { place: "VEHICLE", vehicleId: `rc-truck2-${tag}`, placeLabel: "RC Tipper 2", signInMethod: "POSTER", signOutMethod: "POSTER", ...o });
+      // D: truck QR 6:00 -> site 8:00 (the site sign-in moves them off the truck), site -> 5:00pm, truck back 5:00 -> 7:30pm.
+      await seedTruck(D, { signInAt: Z("04T19:00"), signOutAt: Z("04T21:00"), signOutMethod: "MOVED" });
+      await seedAtt(D, { jobId: j2.id, signInAt: Z("04T21:00"), signOutAt: Z("05T06:00"), signOutMethod: "MOVED" });
+      const dBack = await seedTruck(D, { signInAt: Z("05T06:00"), signOutAt: Z("05T08:30") });
+      // Two crew with no link, on site within 30 min of D: their travel is D's drive (2h out, 2.5h home) less 1h each way.
+      await seedAtt(A, { jobId: j2.id, signInAt: Z("04T21:10"), signOutAt: Z("05T05:50") });
+      await seedAtt(B, { jobId: j2.id, signInAt: Z("04T20:45"), signOutAt: Z("05T06:00") });
+      // O: own ute, 6:40 -> 8:25 (1.75h, paid in full), home 5:30 -> 7:30pm (2h, paid in full).
+      const oSite = await seedAtt(O, { jobId: j2.id, signInAt: Z("04T21:25"), signOutAt: Z("05T06:20") });
+      const seedLeg = (who, o) => db.travelLeg.create({ data: { resourceId: who.id, workerName: who.name, jobId: j2.id, projectId: reg2.id, siteLabel: reg2.name, date: DAY, ...o } });
+      await seedLeg(O, { direction: "OUT", startAt: Z("04T19:40"), endAt: Z("04T21:25"), endMethod: "SIGN_IN", endAttendanceId: oSite.id, mode: "DRIVER_OWN_VEHICLE" });
+      await seedLeg(O, { direction: "HOME", startAt: Z("05T06:30"), endAt: Z("05T08:30"), endMethod: "ARRIVED", startAttendanceId: oSite.id, mode: "DRIVER_OWN_VEHICLE" });
+      // P: rode in someone's car as a passenger, 6:00 -> 8:05 (2h to the quarter, paid 1h).
+      const pSite = await seedAtt(P, { jobId: j2.id, signInAt: Z("04T21:05"), signOutAt: Z("05T06:00") });
+      await seedLeg(P, { direction: "OUT", startAt: Z("04T19:00"), endAt: Z("04T21:05"), endMethod: "SIGN_IN", endAttendanceId: pSite.id, mode: "PASSENGER" });
+      // C: signed in at the Yard 5:30am, still on it when the truck left (the site sign-in at 8:10 moved them off it).
+      const cYard = await seedAtt(C, { place: "YARD", placeLabel: "Yard", signInMethod: "POSTER", signInAt: Z("04T18:30"), signOutAt: Z("04T21:10"), signOutMethod: "MOVED" });
+      await seedAtt(C, { jobId: j2.id, signInAt: Z("04T21:10"), signOutAt: Z("05T06:00") });
+      // F: on site at noon - nobody with a link signed in near then: no driver found.
+      await seedAtt(F, { jobId: j2.id, signInAt: Z("05T01:00"), signOutAt: Z("05T05:00") });
+
+      const crewWeek = async () => (await c.json(`/api/timesheets?week=${WK}`, "MANAGER")).body;
+      const legsOf = (w, who) => Object.values(w?.people?.find((x) => x.resourceId === who.id)?.travel ?? {}).flat();
+      const w1 = await crewWeek();
+      for (const who of [A, B]) {
+        const l = legsOf(w1, who);
+        const o = l.find((x) => x.direction === "OUT"), h = l.find((x) => x.direction === "HOME");
+        t.ok(o?.legId?.startsWith("derived:") && o.hours === 2 && o.paidHours === 1 && h?.hours === 2.5 && h.paidHours === 1.5 && o.via === `with ${D.name}'s truck (RC Tipper 2)`,
+          `crew without a link (${who === A ? "A" : "B"}): travel worked out from the driver's truck - out 2h paid 1h, home 2.5h paid 1.5h, "${o?.via ?? "-"}"`, JSON.stringify(l.map((x) => [x.direction, x.hours, x.paidHours, x.flag, x.via])));
+      }
+      t.ok(legsOf(w1, D).length === 0, "the truck driver: no travel leg - their truck QR sign-ins are their worked hours");
+      const oL = legsOf(w1, O), pL = legsOf(w1, P);
+      t.ok(oL.find((x) => x.direction === "OUT")?.paidHours === 1.75 && oL.find((x) => x.direction === "HOME")?.paidHours === 2, "own car / ute link-holder: paid in full (1.75h out, 2h home)", JSON.stringify(oL.map((x) => [x.hours, x.paidHours])));
+      t.ok(pL.length === 1 && pL[0].hours === 2 && pL[0].paidHours === 1 && pL[0].mode === "PASSENGER", "passenger link-holder: paid 1h less (2h -> 1h)", JSON.stringify(pL.map((x) => [x.hours, x.paidHours])));
+      const cOut = legsOf(w1, C).find((x) => x.direction === "OUT");
+      const fix = cOut?.pointFix ?? { attendanceId: "-", signOutAt: "", reason: "" };
+      t.ok(cOut?.flag === "SIGNIN_OVERLAP" && cOut.hours === null && cOut.paidHours === null, "TP-001: crew whose Yard sign-in ran into the drive - flagged, pays nothing", JSON.stringify(cOut));
+      t.ok(cOut?.pointFix?.attendanceId === cYard.id && cOut.pointFix.signOutAt === Z("04T19:00").toISOString() && cOut.pointFix.label === "End yard sign-in when the truck left"
+        && cOut.pointFix.reason === `Rode to ${reg2.name} with ${D.name} - travel counted instead (option A, Ilies 24 Nov 2026)`, "option A: the one-tap fix ends the Yard sign-in at the truck's departure", JSON.stringify(cOut?.pointFix));
+      const fL = legsOf(w1, F);
+      t.ok(fL.length === 2 && fL.every((x) => x.flag === "NO_DRIVER" && x.hours === null && x.paidHours === null), "no driver found: both ways amber, nothing paid", JSON.stringify(fL.map((x) => x.flag)));
+      t.ok((await db.siteAttendance.findUnique({ where: { id: cYard.id } }))?.signOutAt?.toISOString() === Z("04T21:10").toISOString(), "never automatic: the Yard sign-in is untouched until the office presses the button");
+      const dayAtt = await c.json(`/api/attendance?date=${DAY}`, "MANAGER");
+      t.ok((dayAtt.body?.travel ?? []).some((l) => l.resourceId === A.id && l.via) && !/"gps[a-z]*"\s*:/i.test(JSON.stringify(dayAtt.body?.travel ?? [])), "Sign-ins lists the worked-out legs with the driver's name, no GPS");
+
+      // The overlap blocks approval; "no driver found" doesn't.
+      const r1 = await c.post("/api/timesheets", "MANAGER", { week: WK, action: "approve" });
+      const r1b = await r1.json().catch(() => ({}));
+      t.ok(r1.status === 400 && /travel overlaps a sign-in/.test(r1b.error ?? "") && !/no driver/.test(r1b.error ?? ""), "TP-001: approval refused while the overlap is there (not for no driver found)", `${r1.status} ${r1b.error ?? ""}`);
+      // The office presses "End yard sign-in when the truck left" - the ordinary office sign-in change.
+      t.status(await c.patch(`/api/attendance/${fix.attendanceId}`, "ACCOUNTS", { signOutAt: fix.signOutAt, reason: fix.reason }), 403, "option A: ACCOUNTS can't press it");
+      t.status(await c.patch(`/api/attendance/${fix.attendanceId}`, "MANAGER", { signOutAt: fix.signOutAt, reason: fix.reason }), 200, "option A: a Manager presses it");
+      const yardEdit = await db.attendanceEdit.findFirst({ where: { attendanceId: cYard.id, field: "signOutAt" }, orderBy: { editedAt: "desc" } });
+      t.ok((await db.siteAttendance.findUnique({ where: { id: cYard.id } }))?.signOutAt?.toISOString() === Z("04T19:00").toISOString() && yardEdit?.reason === fix.reason && yardEdit.after === Z("04T19:00").toISOString(),
+        "option A: the Yard sign-in now ends when the truck left, logged in AttendanceEdit with the automatic reason", JSON.stringify(yardEdit));
+      const cOut2 = legsOf(await crewWeek(), C).find((x) => x.direction === "OUT");
+      t.ok(cOut2?.flag === null && cOut2.hours === 2 && cOut2.paidHours === 1 && !cOut2.pointFix, "option A: the flag clears; paid = driver's drive - 1h", JSON.stringify(cOut2));
+      // "No driver found": the office adds the leg (Manager+, reason, never over a sign-in, one each way).
+      const addBody = { resourceId: F.id, jobId: j2.id, direction: "OUT", startAt: Z("04T23:00").toISOString(), endAt: Z("05T01:00").toISOString(), mode: "PASSENGER", reason: "Release check - came up with the morning delivery" };
+      for (const who of ["ACCOUNTS", "VIEWER", "TIMESHEETS", ...(c.users.COORDINATOR ? ["COORDINATOR"] : [])]) t.status(await c.post("/api/attendance/travel", who, addBody), 403, `adding a leg: ${who} refused`);
+      t.status(await c.post("/api/attendance/travel", "MANAGER", { ...addBody, reason: "" }), 400, "adding a leg needs a reason");
+      t.status(await c.post("/api/attendance/travel", "MANAGER", { ...addBody, endAt: Z("05T01:30").toISOString() }), 400, "adding a leg over their own sign-in is refused");
+      t.status(await c.post("/api/attendance/travel", "MANAGER", addBody), 200, "a Manager adds F's travel out");
+      t.status(await c.post("/api/attendance/travel", "MANAGER", addBody), 409, "a second one is refused (one leg each way per job)");
+      const fAdded = await db.travelLeg.findFirst({ where: { resourceId: F.id, jobId: j2.id, direction: "OUT" }, include: { edits: true } });
+      t.ok(fAdded?.endMethod === "OFFICE" && fAdded.mode === "PASSENGER" && fAdded.edits.some((e) => e.field === "added" && e.reason.startsWith("Release check")), "the added leg and its reason are kept (TravelEdit 'added')");
+      const fL2 = legsOf(await crewWeek(), F);
+      t.ok(fL2.find((x) => x.direction === "OUT")?.legId === fAdded?.id && fL2.find((x) => x.direction === "OUT")?.paidHours === 1 && fL2.find((x) => x.direction === "HOME")?.flag === "NO_DRIVER", "the office's leg takes the place of the worked-out one (paid 1h); home stays amber", JSON.stringify(fL2.map((x) => [x.legId, x.flag, x.paidHours])));
+      t.status(await c.post("/api/timesheets", "MANAGER", { week: WK, action: "approve" }), 200, "approved once the overlap is fixed - 'no driver found' never blocks");
+      const snap = JSON.parse((await db.timesheetWeek.findFirst({ where: { weekStart: WK, reopenedAt: null }, orderBy: { approvedAt: "desc" } }))?.snapshot ?? "{}").travel ?? [];
+      t.ok(snap.some((l) => l.resourceId === A.id && l.legId.startsWith("derived:") && l.paidHours === 1), "the approved snapshot freezes the worked-out legs");
+      t.status(await c.post("/api/attendance/travel", "MANAGER", { ...addBody, direction: "HOME", startAt: Z("05T05:10").toISOString(), endAt: Z("05T07:00").toISOString() }), 400, "a locked week refuses an added leg");
+      // Exports: fileIsSafe (the accounts route refuses a file that fails it), the driver named, the paid column last.
+      const tcsv = await c.text(`/api/accounts/timesheets/export?week=${WK}`, "ACCOUNTS");
+      t.ok(tcsv.status === 200 && tcsv.text.includes(`With ${D.name}'s truck (RC Tipper 2)`) && noMoney(tcsv.text), "accounts' timesheet export: the worked-out legs name the driver, no $", `${tcsv.status}`);
+      // TP-003: Victoria approves A, then the driver's time changes - A drops out of the pay-run until she approves again.
+      t.status(await c.post("/api/accounts/payroll", "ACCOUNTS", { week: WK, personKey: A.id, status: "APPROVED" }), 200, "accounts approve A's week");
+      const review = await db.payWeekReview.findFirst({ where: { weekStart: WK, personKey: A.id }, orderBy: { at: "desc" } });
+      t.ok(JSON.parse(review?.snapshot ?? "{}").travel?.paidHours === 2.5, "TP-003: her approval keeps A's travel paid hours (2.5h)", review?.snapshot?.slice(0, 200));
+      const run1 = await c.text(`/api/accounts/payroll/export?week=${WK}&file=payrun`, "ACCOUNTS");
+      const rows1 = run1.text.trim().split(/\r?\n/).map((l) => l.split(","));
+      const aRow = rows1.find((r) => r[0] === A.name || r[0] === `"${A.name}"`);
+      t.ok(run1.status === 200 && rows1[0].join(",") === "Employee,Email,Earnings Rate,Date,Hours,Site,Travel hours,Of which tip run hours,Travel paid hours" && aRow?.[8] === "2.5" && aRow?.[6] === "4.5",
+        "TP-005: pay-run file - 'Travel paid hours' last; A's day: travel 4.5h, paid 2.5h", `${run1.status} ${rows1[0].join(",")} | ${aRow?.join(",")}`);
+      t.ok(rows1.slice(1).every((r) => [4, 6, 7, 8].every((i) => r[i] === "" || r[i] === undefined || /^\d+(\.\d+)?$/.test(r[i]))) && noMoney(run1.text), "TP-005: the number columns are numbers or blank, no $");
+      t.status(await c.post("/api/timesheets", "ADMIN", { week: WK, action: "reopen", reason: "Release check - TP-003" }), 200, "an Admin reopens the week");
+      t.status(await c.patch(`/api/attendance/${dBack.id}`, "MANAGER", { signOutAt: Z("05T09:00").toISOString(), reason: "Release check - truck back later" }), 200, "the office changes the driver's truck-back sign-out");
+      t.status(await c.post("/api/timesheets", "MANAGER", { week: WK, action: "approve" }), 200, "the Manager locks the week again");
+      const payW = (await c.json(`/api/accounts/payroll?week=${WK}`, "ACCOUNTS")).body;
+      const pA = payW?.people?.find((x) => x.personKey === A.id);
+      t.ok(pA && pA.travelPaidHours === 3 && pA.inPayRun === false && /Travel changed since you approved - approve again/.test(pA.payRunNote ?? ""), "TP-003: A's travel changed (paid 2.5h -> 3h) - out of the pay-run, 'approve again'", JSON.stringify([pA?.travelPaidHours, pA?.inPayRun, pA?.payRunNote]));
+      const run2 = await c.text(`/api/accounts/payroll/export?week=${WK}&file=payrun`, "ACCOUNTS");
+      t.ok(run2.status === 200 && !run2.text.includes(A.name), "TP-003: A is not in the pay-run file until approved again");
+      t.ok(noMoney(JSON.stringify(payW)) && noMoney(JSON.stringify(w1)), "no $ on Payroll or Timesheets");
+    }
 
     // (9) Turning regional off keeps every leg; travel is no longer offered for it.
     const before = await db.travelLeg.count({ where: { projectId: reg.id } });
