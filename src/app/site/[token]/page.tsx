@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState, use } from "react";
-import { ArrowLeft, Camera, ClipboardList, Container, ListChecks, Loader2, NotebookPen, PackageCheck, QrCode as QrIcon, ImagePlus, ClipboardCheck, ReceiptText, ScanLine, Send, ShoppingCart, Truck, Wrench, Wallet } from "lucide-react";
+import { ArrowLeft, BookOpen, Camera, ClipboardList, Container, ListChecks, Loader2, NotebookPen, PackageCheck, QrCode as QrIcon, ImagePlus, ClipboardCheck, ReceiptText, ScanLine, Send, ShoppingCart, Truck, Wrench, Wallet } from "lucide-react";
 import YardJobs from "@/components/yard/YardJobs";
 import PhotoPicker from "@/components/tools/PhotoPicker";
 import DailyLog from "@/components/site/DailyLog";
@@ -18,6 +18,8 @@ import Bins from "@/components/site/Bins";
 import ApproveHours from "@/components/site/ApproveHours";
 import SiteQuestions from "@/components/site/SiteQuestions";
 import CrewMessages from "@/components/site/CrewMessages";
+import { HowToGuideView } from "@/components/site/HowToGuide";
+import { guideForLink } from "@/lib/howTo";
 import CheckResultView from "@/components/tools/CheckResultView";
 import InstallApp from "@/components/InstallApp";
 import SiteBrand from "@/components/site/SiteBrand";
@@ -46,7 +48,7 @@ type SiteInfo = {
   yardJobs?: number; // the yard's shared link: jobs to get ready (4 Nov 2026)
   readyToCollect?: number; // a supervisor's link: their requests ready at the yard
 };
-type Mode = "home" | "register" | "check" | "fault" | "signin" | "request" | "requests" | "todo" | "purchases" | "hire" | "log" | "receipt" | "receipts" | "hours" | "reimburse" | "yard" | "bins";
+type Mode = "home" | "register" | "check" | "fault" | "signin" | "request" | "requests" | "todo" | "purchases" | "hire" | "log" | "receipt" | "receipts" | "hours" | "reimburse" | "yard" | "bins" | "howto";
 
 const input =
   "w-full rounded-lg border border-edge bg-panel2 px-3 py-2.5 text-base text-gray-200 placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500";
@@ -87,6 +89,8 @@ export default function SitePhotosPage({ params: paramsP }: { params: Promise<{ 
   const sendsReceipts = !!info && (info.kind === "SUPERVISOR" || info.kind === "DRIVER");
   // The yard's shared phone link (an OFFICE link with no person): yard jobs + tools capture (Ilies, 4 Nov 2026).
   const yard = !!info && info.kind === "OFFICE" && !!info.shared;
+  // "How to use" (24 Nov 2026): DRIVER, SUPERVISOR and HANDOVER links only - never POSTER or OFFICE. Static words, no fetch.
+  const howTo = info ? guideForLink(info.kind, !!info.shared) : null;
 
   const finished = (message: string) => {
     setFlash(message);
@@ -242,6 +246,9 @@ export default function SitePhotosPage({ params: paramsP }: { params: Promise<{ 
               <Big icon={<Wrench size={22} />} title="Report a fault" text="Not working, damaged, needs a Hilti swap" onClick={() => { setFlash(null); setMode("fault"); }} />
             )}
             </>)}
+            {howTo && (
+              <Big icon={<BookOpen size={22} />} title="How to use" text={driver ? "Signing in, truck checks, receipts and bins - step by step" : "What each button does - step by step"} onClick={() => { setFlash(null); setMode("howto"); window.scrollTo(0, 0); }} />
+            )}
           </div>
           <p className="mt-8 text-center text-xs text-gray-600">
             Tip: add this page to your home screen (Share → Add to Home Screen) so it opens like an app. Don&apos;t share your link.
@@ -267,6 +274,7 @@ export default function SitePhotosPage({ params: paramsP }: { params: Promise<{ 
           {mode === "reimburse" && <Reimburse api={api} onDone={finished} />}
           {mode === "bins" && <Bins api={api} onDone={finished} />}
           {mode === "hours" && <ApproveHours api={api} onDone={finished} />}
+          {mode === "howto" && howTo && <HowToGuideView guide={howTo} onBack={() => { setMode("home"); window.scrollTo(0, 0); }} />}
           {mode === "yard" && (
             <>
               <h1 className="mb-1 text-xl font-semibold text-gray-100">Yard jobs</h1>

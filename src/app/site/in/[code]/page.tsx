@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState, use } from "react";
 import SiteBrand from "@/components/site/SiteBrand";
 import PrestartCheck, { type PrestartResult } from "@/components/site/PrestartCheck";
 import CrewMessages from "@/components/site/CrewMessages";
+import { HowToLink } from "@/components/site/HowToGuide";
+import { SIGNIN_GUIDE } from "@/lib/howTo";
 import { Camera, Car, Home, Loader2, LogIn, LogOut, Truck } from "lucide-react";
 import { serverErrorMessage } from "@/lib/apiFetch";
 import { resizePhoto } from "@/lib/imageResize";
@@ -249,6 +251,13 @@ export default function CrewSignInPage({ params: paramsP }: { params: Promise<{ 
             </>
           )}
           {scan.method === "POSTER" && <p className="text-center text-xs text-gray-500">Signed in from the site poster - your supervisor confirms it.</p>}
+        </div>
+      )}
+      {/* "How signing in works" (24 Nov 2026): a small link under the page - never on the odometer or pre-start screens,
+          and it opens over the page, so the sign-in underneath is never reset or held up. Static words, no fetch. */}
+      {!(done && (odometer || prestart)) && (
+        <div className="mt-8 text-center">
+          <HowToLink guide={SIGNIN_GUIDE} label="How signing in works" />
         </div>
       )}
     </div>
