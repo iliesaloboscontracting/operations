@@ -18,7 +18,7 @@ import { tipRunVerdicts } from "../tipRun/store";
 import { absencesForWeek } from "../absence/store";
 import { markedButSignedInText } from "../absence/rules";
 import {
-  canAccountsApprove, dayState, fileIsSafe, groupOf, inPayRun, payRunRows, personKeyOf, summarise, toCsv, TRAVEL_HOOK, travelKey, type DayTravel,
+  canAccountsApprove, dayState, fileIsSafe, groupOf, inPayRun, payRunRows, personKeyOf, reviewTravelOf, summarise, toCsv, TRAVEL_CHANGED_NOTE, travelChanged, TRAVEL_HOOK, travelKey, type DayTravel,
   type ApprovalSnapshotLine, type DayState, type Group, type PayLine,
 } from "./rules";
 
@@ -135,18 +135,6 @@ async function payTravel(weekStart: string): Promise<PayTravel[]> {
   });
 }
 
-// TP-003 (24 Nov 2026): what Victoria approved a person's travel on - kept in her review's snapshot (no new column). If
-// it differs now, they're left out of the pay-run until she approves again. Reviews from before have no travel part.
-export type ReviewTravel = { paidHours: number; toCheck: number };
-export const reviewTravelOf = (p: { travelPaidHours: number; travelModeMissing: number; travelNoDriver: number }): ReviewTravel => ({ paidHours: p.travelPaidHours, toCheck: p.travelModeMissing + p.travelNoDriver });
-export function travelChanged(snapshot: string | null | undefined, now: ReviewTravel): boolean {
-  const s = parse<unknown>(snapshot ?? "", null);
-  if (!s || Array.isArray(s) || typeof s !== "object" || !("travel" in s)) return false; // an older review - left as it is
-  const t = (s as { travel?: Partial<ReviewTravel> }).travel;
-  if (!t || typeof t.paidHours !== "number" || typeof t.toCheck !== "number") return false;
-  return Math.abs(t.paidHours - now.paidHours) > 0.001 || t.toCheck !== now.toCheck;
-}
-export const TRAVEL_CHANGED_NOTE = "Travel changed since you approved - approve again";
 
 // The latest supervisor approval for each job and day.
 async function latestApprovals(pairs: { jobId: string; date: string }[]) {

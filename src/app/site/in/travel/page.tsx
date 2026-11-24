@@ -5,15 +5,17 @@ import { Car, Home, Loader2, MapPin, Users } from "lucide-react";
 import SiteBrand from "@/components/site/SiteBrand";
 import { serverErrorMessage } from "@/lib/apiFetch";
 import { deviceId, PASS_KEY, store, useQuietGps } from "@/lib/signinDevice";
-import { MODE_BUTTON, type TravelMode } from "@/lib/travel/rules";
+import { MODE_BUTTON, NO_LINK_REFUSAL, type TravelMode } from "@/lib/travel/rules";
 
 // Travel to and from regional jobs (2 Nov 2026, Ilies): the worker's own phone, no scan needed. The phone has to
 // have signed in on site once (that gives it its travel pass). "Start travel" before leaving for a regional job -
 // signing in on site ends it. After signing out of a regional job, "Travelling home", then "Arrived".
 // Only regional jobs show here; local jobs work exactly as before. Times only - never a dollar figure.
+// Since 24 Nov 2026 (Ilies) only people with their own SUPERVISOR or DRIVER link start travel here; crew riding along
+// are told their driver's travel counts for them (the server refuses a start too).
 
 type Leg = { id: string; direction: "OUT" | "HOME"; label: string; site: string; since: string | null; ended: string | null; open: boolean };
-type Status = { name: string; open: Leg | null; outJobs: { jobId: string; label: string; leg: Leg | null }[]; home: { attendanceId: string; label: string } | null; homeLeg: Leg | null };
+type Status = { name: string; open: Leg | null; outJobs: { jobId: string; label: string; leg: Leg | null }[]; home: { attendanceId: string; label: string } | null; homeLeg: Leg | null; byDriver?: boolean };
 const big = "flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-5 text-lg font-semibold text-white disabled:opacity-50";
 
 export default function TravelPage() {
@@ -133,6 +135,8 @@ export default function TravelPage() {
                 </button>
               )}
             </div>
+          ) : status.byDriver ? (
+            <Box>{NO_LINK_REFUSAL} Your travel is worked out from the driver you travelled with - just sign in on the supervisor&apos;s QR when you get to site.</Box>
           ) : startable.length > 0 && picking === "START_OUT" ? (
             <div className="space-y-3">
               <p className="text-base text-gray-200">{startable.find((j) => j.jobId === jobId)?.label}</p>

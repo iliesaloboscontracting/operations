@@ -111,6 +111,20 @@ export function payRunRows(lines: PayLine[], approved: Set<string>, emails: Map<
   return [[...EXPORT_COLUMNS], ...out];
 }
 
+// TP-003 (24 Nov 2026): what Victoria approved a person's travel on - kept in her review's snapshot (no new column). If
+// it differs now, they're left out of the pay-run until she approves again. Reviews from before have no travel part.
+export type ReviewTravel = { paidHours: number; toCheck: number };
+export const reviewTravelOf = (p: { travelPaidHours: number; travelModeMissing: number; travelNoDriver: number }): ReviewTravel => ({ paidHours: p.travelPaidHours, toCheck: p.travelModeMissing + p.travelNoDriver });
+export function travelChanged(snapshot: string | null | undefined, now: ReviewTravel): boolean {
+  let s: unknown = null;
+  try { s = JSON.parse(snapshot ?? ""); } catch { return false; }
+  if (!s || Array.isArray(s) || typeof s !== "object" || !("travel" in s)) return false; // an older review - left as it is
+  const t = (s as { travel?: Partial<ReviewTravel> }).travel;
+  if (!t || typeof t.paidHours !== "number" || typeof t.toCheck !== "number") return false;
+  return Math.abs(t.paidHours - now.paidHours) > 0.001 || t.toCheck !== now.toCheck;
+}
+export const TRAVEL_CHANGED_NOTE = "Travel changed since you approved - approve again";
+
 export type SummaryPerson = { personKey: string; name: string; group: Group; company: string | null; hours: number; byItem: Record<string, number>; days: number; review: string | null; tipRunHours?: number };
 export function summarise(lines: PayLine[], reviews: Map<string, string>): { people: SummaryPerson[]; byItem: Record<string, number>; bySite: Record<string, number>; byAgency: Record<string, number>; total: number } {
   const people = new Map<string, SummaryPerson>();

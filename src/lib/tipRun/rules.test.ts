@@ -230,7 +230,7 @@ test("SR-006 (h): the columns say 'Of which tip run' - staff, labour hire and pa
   assert.ok(csv.includes(",Hours,Of which tip run (h),Travel (h),"));
   assert.ok(timesheetCsv("2026-11-16", [], null, [], { head: ["Labour hire", "x"] }).includes(",Hours,Of which tip run (h),Travel (h),"), "labour hire: the same header");
   assert.ok(fileIsSafe(csv));
-  assert.deepEqual(EXPORT_COLUMNS.slice(-3), ["Travel hours", "Travel paid hours", "Of which tip run hours"]);
+  assert.deepEqual(EXPORT_COLUMNS.slice(-3), ["Travel hours", "Of which tip run hours", "Travel paid hours"], "TP-005: paid travel last in the pay-run file");
   const run = toCsv(payRunRows([], new Set(), new Map()));
   assert.ok(run.includes("Of which tip run hours") && fileIsSafe(run));
   assert.match(src("../payroll/store.ts"), /"Travel hours", "Travel paid hours", "Of which tip run hours"\]/, "the summary file");

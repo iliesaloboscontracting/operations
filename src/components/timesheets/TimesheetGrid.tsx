@@ -6,7 +6,7 @@ import type { SupervisorLine } from "@/lib/payroll/store";
 import { allPlaces, mondayOf } from "@/lib/timesheetView";
 import { TIP_FLAG_LABEL, tipNeedsOffice } from "@/lib/tipRun/rules";
 import { markWords, timesheetDayCell, type AbsenceLine } from "@/lib/absence/rules";
-import { modeMissing, modeOf, paidText, paidTravelHours } from "@/lib/travel/rules";
+import { amberFlag, FLAG_LABEL, modeMissing, modeOf, paidText, paidTravelHours } from "@/lib/travel/rules";
 
 // The weekly timesheet grids (21 Oct 2026), shared by the Operations Timesheets page (/timesheets) and the
 // read-only copy on the Accounts screen (/accounts/timesheets, 2 Nov 2026). Display only - no actions in here.
@@ -115,11 +115,13 @@ function Entry({ l, today, showSite = true, sup }: { l: TimesheetLine; today: st
 
 // Regional travel (2 Nov 2026): one leg - out (to site) or home - with its own hours. Travel pay (23-24 Nov 2026): the
 // paid hours under it - "paid 1h (passenger)" / "paid 2h (own vehicle)" - or "mode not recorded" (amber, for the office).
-const TRAVEL_FLAG: Record<string, string> = { ON_THE_WAY: "on the way", NOT_ENDED: "never ended - no hours", OVER_CAP: "over 8h - not counted" };
+// Crew travel (24 Nov 2026): worked out from their driver - "paid 1h (with Turori's truck)"; "no driver found" and (TP-001)
+// "overlaps a sign-in - not paid" are amber too.
+const TRAVEL_FLAG: Record<string, string> = FLAG_LABEL;
 function TravelChip({ t }: { t: TravelLine }) {
-  const warn = t.flag === "NOT_ENDED" || t.flag === "OVER_CAP";
+  const warn = amberFlag(t.flag);
   const noMode = modeMissing({ hours: t.hours, mode: modeOf(t.mode) });
-  const paid = paidText({ hours: t.hours, mode: modeOf(t.mode), paidHours: t.paidHours });
+  const paid = paidText({ hours: t.hours, mode: modeOf(t.mode), paidHours: t.paidHours, via: t.via });
   return (
     <div className={`rounded-md border px-1.5 py-1 ${warn ? "border-amber-500/50 bg-amber-500/10" : "border-sky-500/40 bg-sky-500/10"}`} title={[t.site, t.changedByOffice ? "Office changed: " + t.changedByOffice : null].filter(Boolean).join("\n")} data-testid="travel-leg">
       <div className="flex items-baseline justify-between gap-1">

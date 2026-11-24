@@ -8,6 +8,7 @@ import { POINT_BREAK_MINUTES, STILL_ON_HOURS } from "./signin";
 import { timesheetCsv, type AbsenceLine, type TimesheetLine, type TipRunLine, type TravelLine } from "./timesheets";
 import { fileIsSafe } from "./payroll/rules";
 import { HOME_OFFER_HOURS, MODE_BUTTON, PASSENGER_LESS_HOURS, TRAVEL_CAP_HOURS } from "./travel/rules";
+import { CREW_MATCH_MINUTES } from "./travel/derive";
 import { TIP_CAP_HOURS, TIP_OFFER_HOURS } from "./tipRun/rules";
 import { BREAK_OVER_MINUTES, BREAK_OVER_MINUTES_4H, break4hFrom, breakRuleFrom } from "./dayHours";
 
@@ -80,9 +81,10 @@ export const TIMESHEETS_EXPLAINER: Explainer = {
       heading: "Travel (regional jobs)",
       bullets: [
         "Only for jobs on a project marked Regional - local jobs are exactly as before. Travel is its own column and is never added to site hours.",
-        "Travel out: the worker taps Start travel on their phone; it ends when they sign in on site at that project. A phone can start travel after its owner signs in on a supervisor's QR on a regional job they're allocated to.",
+        "Only people with their own supervisor or driver link record travel. Travel out: they tap Start travel on their phone; it ends when they sign in on site at that project. A phone can start travel after its owner signs in on a supervisor's QR on a regional job they're allocated to.",
         `Travel home: after signing out of a regional job they tap Travelling home (offered for ${HOME_OFFER_HOURS} hours after the sign-out), then Arrived.`,
-        `Travel hours = start to end, to the nearest quarter hour, with no break taken off. A leg never ended, or longer than ${TRAVEL_CAP_HOURS} hours, counts no hours and is flagged - only the office can correct it, with a reason. Until it's fixed, the Manager can't approve that week.`,
+        `Crew with no link record nothing: their travel is worked out from the driver they travelled with - a supervisor or driver who signed in on the same job within ${CREW_MATCH_MINUTES} minutes of them (out: the driver's truck QR sign-in up to their site sign-in, or their own Start travel; home: the driver's drive home). None found = "no driver found" (amber, nothing paid, never in the way of the approval) - the office can add the leg on Sign-ins (Add travel, with a reason).`,
+        `Travel hours = start to end, to the nearest quarter hour, with no break taken off. A leg never ended, longer than ${TRAVEL_CAP_HOURS} hours, or running over one of the person's own sign-ins ("overlaps a sign-in - not paid", e.g. a Yard sign-in still open during the drive) counts no hours and is flagged - only the office can correct it, with a reason ("End yard sign-in when the truck left" does it in one tap). Until it's fixed, the Manager can't approve that week.`,
       ],
     },
     {
@@ -91,10 +93,10 @@ export const TIMESHEETS_EXPLAINER: Explainer = {
       heading: "How travel is paid",
       bullets: [
         "Truck driver: whoever drives the company truck signs in on the truck QR for the drive. That sign-in already counts their hours, so they don't use Start travel - the phone refuses travel while they're signed in on a truck.",
-        `Passenger: before the leg starts the worker taps "${MODE_BUTTON.PASSENGER}". Their travel is paid ${PASSENGER_LESS_HOURS} hour less than the leg takes, once each way (out and home on their own): a 2-hour leg is paid 1 hour; a leg of 1 hour or less is paid nothing.`,
-        `Own car or ute: the worker taps "${MODE_BUTTON.DRIVER_OWN_VEHICLE}". That counts as a driver - the leg is paid in full.`,
-        "Each travel box, Payroll and the exports show both: e.g. \"Travel 2h · paid 1h (passenger)\". The exports have a \"Travel paid\" column next to \"Travel\". Hours only - never a dollar figure.",
-        "\"mode not recorded\" (amber) is a leg from before the phone asked - it has no paid figure until the office sets it on Sign-ins (Fix, with a reason). A leg never ended or over 8 hours is still paid nothing.",
+        `Passenger (a supervisor or driver riding along): before the leg starts they tap "${MODE_BUTTON.PASSENGER}". Their travel is paid ${PASSENGER_LESS_HOURS} hour less than the leg takes, once each way (out and home on their own): a 2-hour leg is paid 1 hour; a leg of 1 hour or less is paid nothing.`,
+        `Own car or ute: they tap "${MODE_BUTTON.DRIVER_OWN_VEHICLE}". That counts as a driver - the leg is paid in full.`,
+        `Crew riding along (no link): paid like a passenger - ${PASSENGER_LESS_HOURS} hour less than their driver's drive, each way. The box names the driver, e.g. "paid 1h (with Turori's truck)".`,
+        "Each travel box, Payroll and the exports show both: e.g. \"Travel 2h · paid 1h (passenger)\"; the exports have a \"Travel paid\" column. \"mode not recorded\" (amber) is a leg from before the phone asked - no paid figure until the office sets it on Sign-ins (Fix, with a reason). A leg never ended, over 8 hours or over a sign-in is paid nothing. Hours only - never a dollar figure.",
       ],
     },
     {
@@ -168,7 +170,7 @@ export const TIMESHEETS_EXPLAINER: Explainer = {
       // components/timesheets/TimesheetGrid.tsx (TravelChip TRAVEL_FLAG, AccountsNote, WholeWeek); app/accounts/timesheets/page.tsx (tiles, banner)
       heading: "Travel boxes and the week",
       bullets: [
-        "A blue box is regional travel (\"Travel out\" or \"Travel home\") with its paid hours under it (\"paid 1h (passenger)\"). \"on the way\" = still travelling; \"never ended - no hours\" and \"over 8h - not counted\" turn it amber and need the office.",
+        "A blue box is regional travel (\"Travel out\" or \"Travel home\") with its paid hours under it (\"paid 1h (passenger)\"). \"on the way\" = still travelling; \"never ended - no hours\", \"over 8h - not counted\" and \"overlaps a sign-in - not paid\" turn it amber and need the office; \"no driver found\" is amber too but never holds up the week.",
         "A purple \"Tip run\" box is a regional tip run (worked hours). \"on the go\" = not finished yet; \"never ended - no hours\" and \"over 6h - not counted\" turn it amber and need the office.",
         "\"Draft\" means a Manager hasn't approved the week yet; \"Locked\" means they have. \"Need sorting\" counts the amber sign-ins, travel legs and tip runs.",
         "On a locked week, \"N sign-ins differ from what was approved\" means a time changed after the lock - the office would need to reopen the week.",
@@ -179,7 +181,7 @@ export const TIMESHEETS_EXPLAINER: Explainer = {
       // app/api/accounts/timesheets/export/route.ts; lib/timesheets.ts timesheetCsv
       heading: "Export",
       bullets: [
-        "Export downloads the week as a spreadsheet - hours only, one line per sign-in, tip run and travel leg, plus each person's week total. A tip run's hours are in Hours and again in \"Of which tip run (h)\". A travel leg's hours are in \"Travel (h)\" and its paid hours in \"Travel paid (h)\", with Passenger / Own vehicle in Notes.",
+        "Export downloads the week as a spreadsheet - hours only, one line per sign-in, tip run and travel leg, plus each person's week total. A tip run's hours are in Hours and again in \"Of which tip run (h)\". A travel leg's hours are in \"Travel (h)\" and its paid hours in \"Travel paid (h)\", with Passenger / Own vehicle (or the driver, for crew riding along) in Notes.",
         "A locked week exports exactly what the Manager approved. A week not locked yet is marked DRAFT.",
       ],
     },
@@ -208,7 +210,7 @@ const noDollarOrNull = (s: string | null) => (s == null ? null : noDollar(s));
 
 export function accountsTimesheetCsv(weekStart: string, lines: TimesheetLine[], approval: { approvedBy: string; approvedAt: Date } | null, travel: TravelLine[] = [], tipRuns: TipRunLine[] = [], absences: AbsenceLine[] = []): string | null {
   const clean = lines.map((l) => ({ ...l, name: noDollar(l.name), role: noDollarOrNull(l.role), site: noDollar(l.site), changedByOffice: noDollarOrNull(l.changedByOffice) }));
-  const cleanTravel = travel.map((t) => ({ ...t, name: noDollar(t.name), role: noDollarOrNull(t.role), site: noDollar(t.site), changedByOffice: noDollarOrNull(t.changedByOffice) }));
+  const cleanTravel = travel.map((t) => ({ ...t, name: noDollar(t.name), role: noDollarOrNull(t.role), site: noDollar(t.site), changedByOffice: noDollarOrNull(t.changedByOffice), via: noDollarOrNull(t.via ?? null) }));
   const cleanTips = tipRuns.map((r) => ({ ...r, name: noDollar(r.name), role: noDollarOrNull(r.role), site: noDollar(r.site), changedByOffice: noDollarOrNull(r.changedByOffice) }));
   // Sick / Not in (23 Nov 2026): the marker, with any amount taken out of the note (refused at entry anyway).
   const cleanAbsences = absences.map((a) => ({ ...a, name: noDollar(a.name), role: noDollarOrNull(a.role), note: noDollarOrNull(a.note), by: noDollar(a.by) }));

@@ -50,7 +50,7 @@ test("the pay-run file: approved employees only, hours per person, pay item and 
     L({ attendanceId: "a5", hours: null, out: null }), // no sign-out - nothing to pay
   ];
   const rows = payRunRows(lines, new Set(["r1"]), new Map([["r1", "sam@example.com"]]));
-  assert.deepEqual(rows[0], ["Employee", "Email", "Earnings Rate", "Date", "Hours", "Site", "Travel hours", "Travel paid hours", "Of which tip run hours"]);
+  assert.deepEqual(rows[0], ["Employee", "Email", "Earnings Rate", "Date", "Hours", "Site", "Travel hours", "Of which tip run hours", "Travel paid hours"], "TP-005: Travel paid hours is the last column");
   assert.deepEqual(rows.slice(1), [
     ["Sam Smith", "sam@example.com", "Ordinary Hours", "2026-10-27", 7.5, "Myers / Bronte", "", "", ""],
     ["Sam Smith", "sam@example.com", "Saturday Hours", "2026-10-31", 6, "Myers", "", "", ""],
@@ -65,7 +65,7 @@ test("the pay-run file: approved employees only, hours per person, pay item and 
   ]);
   const withTravel = payRunRows(lines, new Set(["r1"]), new Map([["r1", "sam@example.com"]]), travel);
   assert.deepEqual(withTravel.slice(1), [
-    ["Sam Smith", "sam@example.com", "Ordinary Hours", "2026-10-27", 7.5, "Myers / Bronte", 2.5, 1.5, ""],
+    ["Sam Smith", "sam@example.com", "Ordinary Hours", "2026-10-27", 7.5, "Myers / Bronte", 2.5, "", 1.5],
     ["Sam Smith", "sam@example.com", "", "2026-10-28", 0, "Orange", 3, "", ""],
     ["Sam Smith", "sam@example.com", "Saturday Hours", "2026-10-31", 6, "Myers", "", "", ""],
   ]);
@@ -80,7 +80,7 @@ test("the pay-run file: approved employees only, hours per person, pay item and 
     L({ attendanceId: "tiprun:t2", date: "2026-10-28", shift: "NIGHT", hours: 1.5, site: "Tip run - Calwell (night)", tipRun: true }),
     L({ attendanceId: "tiprun:t3", personKey: "r2", resourceId: "r2", personName: "Not Approved", hours: 2, tipRun: true }),
   ], new Set(["r1"]), new Map([["r1", "sam@example.com"]]));
-  assert.deepEqual(withTip.find((r) => r[3] === "2026-10-28"), ["Sam Smith", "sam@example.com", "Night Hours", "2026-10-28", 8.5, "Calwell (night) / Tip run - Calwell (night)", "", "", 1.5]);
+  assert.deepEqual(withTip.find((r) => r[3] === "2026-10-28"), ["Sam Smith", "sam@example.com", "Night Hours", "2026-10-28", 8.5, "Calwell (night) / Tip run - Calwell (night)", "", 1.5, ""]);
   assert.ok(!withTip.some((r) => r[0] === "Not Approved"));
   const csv = toCsv(rows);
   assert.ok(fileIsSafe(csv));

@@ -8,7 +8,7 @@
 // a screen, change it here too (src/lib/howTo.test.ts checks the key ones).
 //
 // Regional travel (Ilies's travel design, 24 Nov 2026): driving the company truck = the truck's QR out and back, never
-// "Start travel"; driving your own car or ute = "Start travel" on your phone, then "Travelling home" and "Arrived";
+// "Start travel"; driving your own car or ute = "Start travel" on your link, then "Travelling home" and "Arrived";
 // riding along as crew = nothing to do for travel (worked out from the driver) - sign in on the supervisor's QR at site.
 
 export type HowToStep = { lead?: string; text?: string };
@@ -36,7 +36,7 @@ const REGIONAL: HowToSection = {
   title: "Regional jobs (e.g. Shellharbour)",
   steps: [
     { lead: "Driving the company truck:", text: "sign in on the truck's QR for the drive out, and again for the drive back. Never press Start travel." },
-    { lead: "Driving your own car or ute:", text: "tap Start travel on your phone before you leave. On the way back, tap Travelling home, then Arrived when you get home. If Start travel won't start, sign in on the supervisor's QR at site and tell the office." }, // + HT-003
+    { lead: "Driving your own car or ute:", text: "tap Start travel on your link before you leave. On the way back, tap Travelling home, then Arrived when you get home. If Start travel won't start, sign in on the supervisor's QR at site and tell the office." }, // + HT-003
     { lead: "Riding along as crew:", text: "nothing to do for travel - it's worked out from the driver you travelled with. Just sign in on the supervisor's QR when you get to site." },
   ],
 };
