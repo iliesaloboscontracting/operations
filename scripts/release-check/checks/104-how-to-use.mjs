@@ -38,7 +38,7 @@ export default {
     t.ok(/Only press Sign out once, at the very end of your day/.test(howTo) && /Never sign out in between/.test(howTo), "the golden rule: one place at a time, Sign out once at the very end");
     t.ok((howTo.match(/truck's QR/g) ?? []).length >= 4, "the driver guide uses the truck's QR");
     t.ok(/Driving the company truck:[^\n]*truck's QR for the drive out, and again for the drive back[^\n]*Never press Start travel/.test(howTo)
-      && /Driving your own car or ute:[^\n]*Start travel on your link[^\n]*Travelling home[^\n]*Arrived/.test(howTo)
+      && /Driving your own car or ute:[^\n]*Start travel on your phone[^\n]*Travelling home[^\n]*Arrived/.test(howTo)
       && /Riding along as crew:[^\n]*nothing to do for travel[^\n]*supervisor's QR when you get to site/.test(howTo)
       && !/If it asks|Passenger or Own car/.test(howTo),
       "regional (24 Nov 2026 design): company truck = truck QR out and back, never Start travel; own car / ute = Start travel on the link; crew riding along = nothing to do; no passenger / own car picker wording");

@@ -56,7 +56,7 @@ test("regional travel (24 Nov 2026 design): company truck = truck QR out and bac
     assert.match(truck.text!, /truck's QR for the drive out, and again for the drive back/);
     assert.match(truck.text!, /Never press Start travel/);
     const own = reg.steps!.find((s) => /own car or ute/.test(s.lead ?? ""))!;
-    assert.match(own.text!, /Start travel on your link/);
+    assert.match(own.text!, /Start travel on your phone/);
     assert.match(own.text!, /Travelling home/);
     assert.match(own.text!, /Arrived/);
     const crew = reg.steps!.find((s) => /Riding along as crew/.test(s.lead ?? ""))!;
