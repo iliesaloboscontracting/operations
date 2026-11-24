@@ -6,7 +6,7 @@ import { nameWithoutAmounts } from "@/lib/dailyLog/money";
 import { makeMessageToken, makeOdometerToken, makePrestartToken, makeTravelPass, openJob, pointOf, readTicket, shiftLabel, sydneyTime } from "@/lib/signin";
 import { askText, decideSignIn, recentNightShift, type ShiftAnswer, type ShiftAsk } from "@/lib/shiftRollover";
 import { tipRunOn } from "@/lib/tipRun/rules";
-import { endOutOnSignIn, hasRegionalWork, homeOffered } from "@/lib/travel/store";
+import { endOutOnSignIn, hasRegionalWork, hasTravelLink, homeOffered } from "@/lib/travel/store";
 import { walkaroundRequiredFor } from "@/lib/prestart/store";
 import { truckPrestartPending } from "@/lib/prestart/today";
 import { passAllowed } from "@/lib/travel/rules";
@@ -200,8 +200,9 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
       ok: true,
       message: `Signed out at ${sydneyTime(now)} - ${outJob ? shiftLabel(outJob) : where.label}. See you next time.`,
       ...(await travelFor(who.resourceId, deviceId, where.date, { jobId: where.jobId, method: ticket.method, allocatedIds: where.allocatedIds })),
-      // Regional job: "Travelling home" comes next on the phone.
-      ...(regional ? { travelHome: true } : {}),
+      // Regional job: "Travelling home" comes next on the phone - only for people with their own SUPERVISOR / DRIVER link
+      // (24 Nov 2026: crew record nothing - their travel is worked out from their driver).
+      ...(regional && (await hasTravelLink(who.resourceId)) ? { travelHome: true } : {}),
       // ...and "Start tip run" (19 Nov 2026) for the driver going back to tip the truck - their own phone, no sign-in.
       ...(regional && who.resourceId && tipRunOn() ? { tipRun: true } : {}),
       // Off a truck: the short post-check comes next (8 Nov 2026), for the sign-in just closed.
@@ -274,7 +275,8 @@ async function travelFor(resourceId: string | null, deviceId: string | null, dat
   if (!resourceId || !deviceId) return {};
   const regionalWork = await hasRegionalWork(resourceId, date);
   const allocated = !!s.allocatedIds && s.allocatedIds.includes(resourceId);
-  return { travelLink: regionalWork, ...(passAllowed({ jobId: s.jobId, method: s.method, allocated, regionalWork }) ? { travelPass: makeTravelPass(resourceId, deviceId) } : {}) };
+  // The travel page link only for link-holders (24 Nov 2026); the pass itself is unchanged (AT-001 - tip runs use it too).
+  return { travelLink: regionalWork && (await hasTravelLink(resourceId)), ...(passAllowed({ jobId: s.jobId, method: s.method, allocated, regionalWork }) ? { travelPass: makeTravelPass(resourceId, deviceId) } : {}) };
 }
 // A hire worker's typed name / company: never an amount in it (SEC-010) - it's shown on the log screen and the report.
 const clean = (v: unknown) => (typeof v === "string" ? nameWithoutAmounts(v.replace(/\s+/g, " ").trim()).slice(0, 60) : "");

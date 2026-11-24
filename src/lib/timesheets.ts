@@ -9,7 +9,7 @@ import { dayHours, isSalaried } from "./dayHours";
 import { todaySydney } from "./today";
 import { csvCell } from "./payroll/rules";
 import type { TravelLine } from "./travel/store";
-import { FLAG_LABEL, MODE_LABEL, MODE_NOT_RECORDED, modeMissing, modeOf, needsOffice, paidTravelHours } from "./travel/rules";
+import { FLAG_LABEL, MODE_LABEL, MODE_NOT_RECORDED, modeMissing, modeOf, needsOffice, noDriver, paidTravelHours } from "./travel/rules";
 import type { TipRunLine } from "./tipRun/store";
 import { TIP_BLOCK_REASON, TIP_FLAG_LABEL, tipBlocks, tipNeedsOffice } from "./tipRun/rules";
 import { absenceCsvNotes, type AbsenceLine } from "./absence/rules";
@@ -52,6 +52,7 @@ export type TimesheetPerson = {
   // how many legs have hours but no mode (recorded before it was asked - no paid figure, for the office).
   travelPaidTotal?: number;
   travelModeMissing?: number;
+  travelNoDriver?: number; // crew legs with no driver found (24 Nov 2026) - amber, no paid figure, never a blocker
   // Regional tip runs (19 Nov 2026, shift rollover): ordinary worked hours on the shift's date, in their own column -
   // tipRunTotal is the part of `total` that is tip runs.
   tipRuns?: Record<string, TipRunLine[]>;
@@ -69,7 +70,9 @@ export type TimesheetSnapshot = { weekStart: string; lines: TimesheetLine[]; tra
 // snapshot from before travel pay has neither - no mode, no paid figure).
 export const travelPaid = (t: TravelLine) => (t.paidHours != null ? t.paidHours : paidTravelHours(t.hours, modeOf(t.mode)));
 // The words for the exports' Notes: "Passenger" / "Own vehicle" / "Mode not recorded" (only for a leg with hours).
+// Crew travel worked out from their driver (24 Nov 2026): "With Turori's truck (Tipper - CN03RK)" instead.
 export const travelModeNote = (t: TravelLine) => {
+  if (t.via) return t.via[0].toUpperCase() + t.via.slice(1);
   const m = modeOf(t.mode);
   if (m) return MODE_LABEL[m][0].toUpperCase() + MODE_LABEL[m].slice(1);
   return t.hours != null ? MODE_NOT_RECORDED[0].toUpperCase() + MODE_NOT_RECORDED.slice(1) : null;
@@ -167,6 +170,7 @@ export function peopleOf(weekStart: string, lines: TimesheetLine[], travel: Trav
       travelTotal: 0,
       travelPaidTotal: 0,
       travelModeMissing: 0,
+      travelNoDriver: 0,
       tipRuns: Object.fromEntries(weekDates(weekStart).map((d) => [d, [] as TipRunLine[]])),
       tipRunTotal: 0,
     };
@@ -185,6 +189,7 @@ export function peopleOf(weekStart: string, lines: TimesheetLine[], travel: Trav
     p.travelTotal += t.hours ?? 0;
     p.travelPaidTotal! += travelPaid(t) ?? 0;
     if (modeMissing({ hours: t.hours, mode: modeOf(t.mode) })) p.travelModeMissing! += 1;
+    if (noDriver(t)) p.travelNoDriver! += 1;
   }
   // Tip runs are worked hours: in the person's total, and their own column (tipRunTotal). A flagged run counts nothing.
   for (const r of tipRuns) {
@@ -204,11 +209,12 @@ export function peopleOf(weekStart: string, lines: TimesheetLine[], travel: Trav
 }
 
 // Travel legs that stop the week being approved (Ilies, 2 Nov 2026: "YES" - like a missing sign-out): never ended,
-// over the cap, or still on the way (not ended yet - approving would lock it in with no hours). The office fixes
-// them on Sign-ins with a reason.
+// over the cap, or still on the way (not ended yet - approving would lock it in with no hours), and (TP-001, 24 Nov
+// 2026) over one of the person's own sign-ins. The office fixes them on Sign-ins with a reason. "No driver found" is
+// amber but never in the way (Ilies: "stay amber").
 export const travelBlocks = (t: TravelLine) => needsOffice(t.flag) || t.flag === "ON_THE_WAY";
 export const travelIssues = (travel: TravelLine[]) => travel.filter(travelBlocks).length;
-const TRAVEL_REASON: Record<string, string> = { NOT_ENDED: "travel never ended", OVER_CAP: "travel over 8h", ON_THE_WAY: "still travelling" };
+const TRAVEL_REASON: Record<string, string> = { NOT_ENDED: "travel never ended", OVER_CAP: "travel over 8h", ON_THE_WAY: "still travelling", SIGNIN_OVERLAP: "travel overlaps a sign-in" };
 
 // Regional tip runs that stop the week being approved (19 Nov 2026, Ilies - like travel): never ended, over 6h, or
 // still on the go. The office fixes them on Sign-ins with a reason.
@@ -298,6 +304,7 @@ export async function timesheetWeek(weekStart: string, opts: { dayLimit?: boolea
     // Travel pay (23-24 Nov 2026): the paid part, and legs with hours but no mode (information for the office).
     travelPaidHours: Math.round(shownTravel.reduce((n, t) => n + (travelPaid(t) ?? 0), 0) * 4) / 4,
     travelModeMissing: shownTravel.filter((t) => modeMissing({ hours: t.hours, mode: modeOf(t.mode) })).length,
+    travelNoDriver: shownTravel.filter(noDriver).length, // crew with no driver found (24 Nov 2026) - amber, never a blocker
     travelIssues: travelIssues(travelNow),
     issues: lines.filter((l) => lineIssues(l).length > 0).length, // sign-ins; travelIssues (above) counts the travel legs
     approval: approval && { approvedBy: approval.approvedBy, approvedAt: approval.approvedAt },
@@ -365,7 +372,11 @@ export function timesheetCsv(
         out.push([p.name, p.role, t.date, dayName(t.date), `${t.direction === "OUT" ? "Travel out to" : "Travel home from"} ${t.site}`, t.start, t.end, "", "", "", t.hours, travelPaid(t), "Travel", notes]);
       }
     }
-    out.push([p.name, p.role, "", "WEEK TOTAL", "", "", "", "", p.total, p.tipRunTotal ?? 0, p.travelTotal, p.travelPaidTotal ?? 0, "", p.travelModeMissing ? `${p.travelModeMissing} travel leg${p.travelModeMissing === 1 ? "" : "s"}: ${MODE_NOT_RECORDED}` : ""]);
+    const totalNotes = [
+      ...(p.travelModeMissing ? [`${p.travelModeMissing} travel leg${p.travelModeMissing === 1 ? "" : "s"}: ${MODE_NOT_RECORDED}`] : []),
+      ...(p.travelNoDriver ? [`${p.travelNoDriver} travel leg${p.travelNoDriver === 1 ? "" : "s"}: ${FLAG_LABEL.NO_DRIVER}`] : []),
+    ].join("; ");
+    out.push([p.name, p.role, "", "WEEK TOTAL", "", "", "", "", p.total, p.tipRunTotal ?? 0, p.travelTotal, p.travelPaidTotal ?? 0, "", totalNotes]);
   }
   out.push(...(opts.tail ?? []));
   return out.map((r) => r.map(cell).join(",")).join("\r\n") + "\r\n";

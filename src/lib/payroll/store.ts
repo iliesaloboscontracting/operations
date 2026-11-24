@@ -12,7 +12,8 @@ import { assertNoMoney } from "../moneyGuard";
 import { nameWithoutAmounts } from "../dailyLog/money";
 import { todaySydney } from "../today";
 import type { ResolvedLink } from "../siteLinks";
-import { legHours, modeMissing, modeOf, paidTravelHours, type TravelFlag, type TravelMode } from "../travel/rules";
+import { modeMissing, modeOf, noDriver, type TravelFlag, type TravelMode } from "../travel/rules";
+import { travelLinesBetween } from "../travel/store";
 import { tipRunVerdicts } from "../tipRun/store";
 import { absencesForWeek } from "../absence/store";
 import { markedButSignedInText } from "../absence/rules";
@@ -108,24 +109,44 @@ async function payTipRuns(weekStart: string): Promise<PayLine[]> {
 
 // Regional travel legs for the week (2 Nov 2026) - accounts / Admins only here, so the GPS points come too.
 // Travel pay (23-24 Nov 2026): mode (null = not recorded) and paidHours (lib/travel/rules.ts paidTravelHours).
+// Since 24 Nov 2026 the same lines as Sign-ins and Timesheets (lib/travel/store.ts travelLinesBetween - one helper, like
+// tip runs' tipRunVerdicts): crew legs worked out from their driver (via, no GPS - nothing was recorded for them) and
+// TP-001 (a leg over the person's own sign-ins counts nothing).
 export type PayTravel = {
   legId: string; personKey: string; name: string; date: string; direction: string; site: string; start: string; end: string | null;
-  hours: number | null; flag: TravelFlag | null; mode: TravelMode | null; paidHours: number | null;
+  hours: number | null; flag: TravelFlag | null; mode: TravelMode | null; paidHours: number | null; via: string | null;
   gps: { start: { lat: number; lng: number; accuracyM: number | null } | null; end: { lat: number; lng: number; accuracyM: number | null } | null };
 };
 async function payTravel(weekStart: string): Promise<PayTravel[]> {
-  const legs = await prisma.travelLeg.findMany({ where: { date: { gte: weekStart, lte: weekEnd(weekStart) } }, orderBy: { startAt: "asc" } });
+  const lines = await travelLinesBetween(weekStart, weekEnd(weekStart));
+  const legs = await prisma.travelLeg.findMany({
+    where: { id: { in: lines.filter((l) => !l.derived).map((l) => l.legId) } },
+    select: { id: true, startGpsLat: true, startGpsLng: true, startGpsAccuracyM: true, endGpsLat: true, endGpsLng: true, endGpsAccuracyM: true },
+  });
+  const gpsOf = new Map(legs.map((l) => [l.id, l]));
   const pt = (lat: number | null, lng: number | null, acc: number | null) => (lat != null && lng != null ? { lat, lng, accuracyM: acc } : null);
-  return legs.map((l) => {
-    const h = legHours(l.startAt, l.endAt);
-    const mode = modeOf(l.mode);
+  return [...lines].sort((a, b) => a.startAt.localeCompare(b.startAt)).map((t) => {
+    const g = gpsOf.get(t.legId);
     return {
-      legId: l.id, personKey: l.resourceId, name: payText(l.workerName, "Unnamed", l.date), date: l.date, direction: l.direction, site: payText(l.siteLabel, "Site", l.date),
-      start: sydneyTime(l.startAt)!, end: sydneyTime(l.endAt), ...h, mode, paidHours: paidTravelHours(h.hours, mode),
-      gps: { start: pt(l.startGpsLat, l.startGpsLng, l.startGpsAccuracyM), end: pt(l.endGpsLat, l.endGpsLng, l.endGpsAccuracyM) },
+      legId: t.legId, personKey: t.resourceId, name: payText(t.name, "Unnamed", t.date), date: t.date, direction: t.direction, site: payText(t.site, "Site", t.date),
+      start: t.start, end: t.end, hours: t.hours, flag: t.flag, mode: modeOf(t.mode), paidHours: t.paidHours ?? null, via: t.via ? payText(t.via, "with the driver", t.date) : null,
+      gps: { start: g ? pt(g.startGpsLat, g.startGpsLng, g.startGpsAccuracyM) : null, end: g ? pt(g.endGpsLat, g.endGpsLng, g.endGpsAccuracyM) : null },
     };
   });
 }
+
+// TP-003 (24 Nov 2026): what Victoria approved a person's travel on - kept in her review's snapshot (no new column). If
+// it differs now, they're left out of the pay-run until she approves again. Reviews from before have no travel part.
+export type ReviewTravel = { paidHours: number; toCheck: number };
+export const reviewTravelOf = (p: { travelPaidHours: number; travelModeMissing: number; travelNoDriver: number }): ReviewTravel => ({ paidHours: p.travelPaidHours, toCheck: p.travelModeMissing + p.travelNoDriver });
+export function travelChanged(snapshot: string | null | undefined, now: ReviewTravel): boolean {
+  const s = parse<unknown>(snapshot ?? "", null);
+  if (!s || Array.isArray(s) || typeof s !== "object" || !("travel" in s)) return false; // an older review - left as it is
+  const t = (s as { travel?: Partial<ReviewTravel> }).travel;
+  if (!t || typeof t.paidHours !== "number" || typeof t.toCheck !== "number") return false;
+  return Math.abs(t.paidHours - now.paidHours) > 0.001 || t.toCheck !== now.toCheck;
+}
+export const TRAVEL_CHANGED_NOTE = "Travel changed since you approved - approve again";
 
 // The latest supervisor approval for each job and day.
 async function latestApprovals(pairs: { jobId: string; date: string }[]) {
@@ -184,7 +205,7 @@ export type PayPersonDTO = {
   travelHours: number;
   travelPaidHours: number; // travel pay (23-24 Nov 2026): the paid part of travelHours
   travelModeMissing: number; // legs with hours but no mode (recorded before it was asked) - no paid figure
-
+  travelNoDriver: number; // crew legs with no driver found (24 Nov 2026) - no paid figure, amber
   absences?: Record<string, PayAbsence>; // "Not in today" (23 Nov 2026): Sick / Not in on that day - no hours
 };
 // A Sick / Not in mark for accounts (23 Nov 2026): the words only - never hours, pay or cost. signedIn: they signed in
@@ -206,7 +227,7 @@ export async function payrollWeek(weekStart: string) {
       days: Object.fromEntries(weekDates(weekStart).map((d) => [d, [] as PayDayLine[]])), issues: [],
       review: r ? { status: r.status, note: r.note, by: r.by, at: r.at.toISOString() } : null, reviewHours: r?.hours ?? null,
       canApprove: canAccountsApprove(l.group, !!lock, ended), inPayRun: inPayRun(l.group, r?.status ?? null),
-      travel: [], travelHours: 0, travelPaidHours: 0, travelModeMissing: 0,
+      travel: [], travelHours: 0, travelPaidHours: 0, travelModeMissing: 0, travelNoDriver: 0,
     };
     (p.days[l.date] ??= []).push(line);
     p.hours += l.hours ?? 0;
@@ -220,6 +241,7 @@ export async function payrollWeek(weekStart: string) {
     p.travelHours += t.hours ?? 0;
     p.travelPaidHours += t.paidHours ?? 0;
     if (modeMissing(t)) p.travelModeMissing += 1;
+    if (noDriver(t)) p.travelNoDriver += 1;
   }
   // Sick / Not in (23 Nov 2026): on the person's day when they're on the week; every mark is also listed apart
   // (absences, below) - someone off all week has no sign-in, so no row here. Never in hours or the pay-run file.
@@ -260,6 +282,12 @@ export async function payrollWeek(weekStart: string) {
       p.inPayRun = false;
       p.payRunNote = `Hours changed since you approved (${p.reviewHours}h -> ${p.hours}h) - approve again to put them in the pay-run.`;
     }
+    // TP-003 (24 Nov 2026): the same for travel - paid travel hours, or the legs with no mode / no driver, differ from
+    // what she approved (e.g. a driver's time corrected after she approved the crew riding with them).
+    if (p.inPayRun && p.review?.status === "APPROVED" && travelChanged(reviews.get(p.personKey)?.snapshot, reviewTravelOf(p))) {
+      p.inPayRun = false;
+      p.payRunNote = `${TRAVEL_CHANGED_NOTE} to put them in the pay-run.`;
+    }
   }
   const list = [...people.values()].sort((a, b) => a.group.localeCompare(b.group) || a.name.localeCompare(b.name));
   // People whose notes mention ABN but engagement isn't set - for the office to check (never set automatically).
@@ -290,7 +318,11 @@ export async function reviewPerson(who: { id: string; name: string }, b: Record<
   await prisma.payWeekReview.create({
     data: {
       weekStart: week.weekStart, personKey, personName: p.name, status, hours: p.hours, note: note || null, by: who.name, byId: who.id,
-      snapshot: JSON.stringify(Object.values(p.days).flat().map((l) => ({ attendanceId: l.attendanceId, date: l.date, site: l.site, in: l.in, out: l.out, hours: l.hours, dayState: l.dayState }))),
+      // TP-003 (24 Nov 2026): the lines, and the travel she approved on (paid hours + legs with no mode / no driver).
+      snapshot: JSON.stringify({
+        lines: Object.values(p.days).flat().map((l) => ({ attendanceId: l.attendanceId, date: l.date, site: l.site, in: l.in, out: l.out, hours: l.hours, dayState: l.dayState })),
+        travel: reviewTravelOf(p),
+      }),
     },
   });
   return { ok: true };
@@ -308,13 +340,14 @@ export async function payrollFiles(weekStart: string, which: "payrun" | "summary
     const v = travel.get(k) ?? { hours: 0, paid: 0, modeMissing: false, site: t.site, name: p.name };
     v.hours += t.hours ?? 0;
     v.paid += t.paidHours ?? 0;
-    if (modeMissing(t)) v.modeMissing = true;
+    if (modeMissing(t)) v.modeMissing = true; // no driver found pays nothing - a known 0, so the day's paid figure stands
     travel.set(k, v);
   }
-  // The pay-run file had "Travel hours" already, so "Travel paid hours" goes next to it (travel pay, 23-24 Nov 2026).
+  // TP-005 (24 Nov 2026): "Travel paid hours" is the LAST column, so the Xero import's existing columns keep their places.
   const payRun = () => toCsv(payRunRows(lines, approved, emails, travel));
   const travelOf = new Map(week.people.map((p) => [p.personKey, p.travelHours]));
-  const paidOf = new Map(week.people.map((p) => [p.personKey, p.travelModeMissing ? `${p.travelPaidHours} + ${p.travelModeMissing} not recorded` : p.travelPaidHours]));
+  const toCheck = (p: PayPersonDTO) => [p.travelModeMissing && `${p.travelModeMissing} not recorded`, p.travelNoDriver && `${p.travelNoDriver} no driver found`].filter(Boolean).join(" + ");
+  const paidOf = new Map(week.people.map((p) => [p.personKey, toCheck(p) ? `${p.travelPaidHours} + ${toCheck(p)}` : p.travelPaidHours]));
   const s = week.summary;
   const summary = () => toCsv([
     [`Lobos Contracting - weekly hours summary, ${week.weekStart} to ${week.weekEnd}`],
@@ -329,6 +362,7 @@ export async function payrollFiles(weekStart: string, which: "payrun" | "summary
     ["Total travel hours (regional)", Math.round(week.people.reduce((n, p) => n + p.travelHours, 0) * 4) / 4],
     ["Total travel paid hours (regional)", Math.round(week.people.reduce((n, p) => n + p.travelPaidHours, 0) * 4) / 4],
     ...(week.people.some((p) => p.travelModeMissing) ? [[`Travel legs with no mode recorded (no paid figure - the office sets it on Sign-ins): ${week.people.reduce((n, p) => n + p.travelModeMissing, 0)}`]] : []),
+    ...(week.people.some((p) => p.travelNoDriver) ? [[`Crew travel with no driver found (no paid figure - the office adds the leg on Sign-ins): ${week.people.reduce((n, p) => n + p.travelNoDriver, 0)}`]] : []),
     [`Travel pay: ${TRAVEL_HOOK}`],
     ...Object.entries(s.bySite).sort((a, b) => b[1] - a[1]).map(([k, v]) => [`Site: ${k}`, v]),
     ...Object.entries(s.byAgency).map(([k, v]) => [`Labour hire: ${k}`, v]),

@@ -4,6 +4,9 @@
 //   HOME - after signing out of a regional job they tap "Travelling home"; "Arrived" ends it.
 // Travel hours are their own column: never site hours, never a JobActual, never a cost.
 // Travel pay (Ilies, 23-24 Nov 2026): see paidTravelHours below - hours only, never a dollar figure.
+// Who records it (Ilies, 24 Nov 2026): only link-holders (TRAVEL_LINK_KINDS); crew's travel is worked out from their
+// driver (./derive.ts). TP-001: a leg over the person's own sign-ins counts nothing (legVerdict).
+import { overlapsSignIn } from "../tipRun/rules";
 
 export type Direction = "OUT" | "HOME";
 export const DIRECTION_LABEL: Record<Direction, string> = { OUT: "Travel out", HOME: "Travel home" };
@@ -17,8 +20,15 @@ export const HOME_OFFER_HOURS = 8;
 // ON_THE_WAY: not ended yet, still inside the window (information only).
 // NOT_ENDED: never ended - closed at no time, counts nothing, for the office to sort.
 // OVER_CAP: longer than the cap - counts nothing, for the office to check.
-export type TravelFlag = "ON_THE_WAY" | "NOT_ENDED" | "OVER_CAP";
-export const FLAG_LABEL: Record<TravelFlag, string> = { ON_THE_WAY: "on the way", NOT_ENDED: "never ended - no hours", OVER_CAP: `over ${TRAVEL_CAP_HOURS}h - not counted` };
+// SIGNIN_OVERLAP (TP-001, Ilies 24 Nov 2026): the leg runs over one of that person's own sign-ins (e.g. a Yard sign-in
+//   still open during the drive) - counts nothing and blocks the week until the office trims one or the other.
+// NO_DRIVER (24 Nov 2026, "stay amber"): crew on a regional job with no link-holder to work their travel out from -
+//   counts nothing, amber, never blocks the week; the office can add the leg by hand.
+export type TravelFlag = "ON_THE_WAY" | "NOT_ENDED" | "OVER_CAP" | "SIGNIN_OVERLAP" | "NO_DRIVER";
+export const FLAG_LABEL: Record<TravelFlag, string> = {
+  ON_THE_WAY: "on the way", NOT_ENDED: "never ended - no hours", OVER_CAP: `over ${TRAVEL_CAP_HOURS}h - not counted`,
+  SIGNIN_OVERLAP: "overlaps a sign-in - not paid", NO_DRIVER: "no driver found",
+};
 
 const HOUR = 3_600_000;
 const q4 = (n: number) => Math.round(n * 4) / 4;
@@ -35,8 +45,54 @@ export function legHours(startAt: Date, endAt: Date | null, now = new Date()): {
   return { hours: q4(gross), flag: null };
 }
 
-// A flag the office has to look at (ON_THE_WAY is not one).
-export const needsOffice = (flag: TravelFlag | null) => flag === "NOT_ENDED" || flag === "OVER_CAP";
+// A flag the office has to look at before the week can be approved (ON_THE_WAY and NO_DRIVER are not one).
+export const needsOffice = (flag: TravelFlag | null) => flag === "NOT_ENDED" || flag === "OVER_CAP" || flag === "SIGNIN_OVERLAP";
+// Amber on the screens: needsOffice, or crew with no driver found (amber, but never in the way of the approval).
+export const amberFlag = (flag: TravelFlag | null) => needsOffice(flag) || flag === "NO_DRIVER";
+
+// ---------- TP-001: a leg never runs over the person's own sign-ins ----------
+
+export type OwnSignIn = { id: string; in: Date; out: Date | null; place?: string | null; placeLabel?: string | null };
+// The hours a leg counts, checked against the person's own sign-ins (not rejected or removed). A leg that would count
+// but overlaps one of them counts nothing - SIGNIN_OVERLAP. A leg already counting nothing keeps its own flag. `skip`:
+// a sign-in that belongs to the leg itself (crew: the site sign-in / sign-out their travel is worked out from).
+export function legVerdict(startAt: Date, endAt: Date | null, own: OwnSignIn[], now = new Date(), skip: string[] = []): { hours: number | null; flag: TravelFlag | null } {
+  const v = legHours(startAt, endAt, now);
+  if (v.hours == null) return v;
+  return overlapping(startAt, endAt, own, now, skip).length ? { hours: null, flag: "SIGNIN_OVERLAP" } : v;
+}
+// The person's sign-ins a leg runs over (shared time > 0; touching end to start is not an overlap).
+export function overlapping(startAt: Date, endAt: Date | null, own: OwnSignIn[], now = new Date(), skip: string[] = []): OwnSignIn[] {
+  return own.filter((x) => !skip.includes(x.id) && overlapsSignIn(startAt, endAt, [x], now));
+}
+
+// Option A (Ilies, 24 Nov 2026): crew rarely sign in at the Yard / Office before a regional drive ("the people that are
+// usually at the yard are the drivers"). When one does and it runs into the drive out, the leg stays flagged until the
+// office taps "End yard sign-in when the truck left" - that point sign-in's sign-out is set to the departure, through the
+// ordinary office sign-in change (Manager+, the reason below kept in AttendanceEdit, locked weeks refuse). Never done
+// automatically. Offered only for a drive OUT that runs over exactly one sign-in, a Yard / Office point one that started
+// before the departure.
+export type PointFix = { attendanceId: string; signOutAt: string; label: string; reason: string };
+export function pointFixFor(direction: Direction, overlaps: OwnSignIn[], departure: Date, ctx: { site: string; driver: string | null; truck: boolean }): PointFix | null {
+  if (direction !== "OUT" || overlaps.length !== 1) return null;
+  const p = overlaps[0];
+  if ((p.place !== "YARD" && p.place !== "OFFICE") || p.in.getTime() >= departure.getTime()) return null;
+  const where = p.place === "YARD" ? "yard" : "office";
+  return {
+    attendanceId: p.id, signOutAt: departure.toISOString(),
+    label: ctx.truck ? `End ${where} sign-in when the truck left` : `End ${where} sign-in when travel started`,
+    reason: ctx.driver
+      ? `Rode to ${ctx.site} with ${ctx.driver} - travel counted instead (option A, Ilies 24 Nov 2026)`
+      : `Travelled to ${ctx.site} - travel counted instead (option A, Ilies 24 Nov 2026)`,
+  };
+}
+
+// ---------- who records travel (Ilies, 24 Nov 2026) ----------
+// Only people with their own SUPERVISOR or DRIVER link (not switched off) record travel on their phone. Everyone else
+// riding along records nothing: their travel is worked out from the driver they travelled with (./derive.ts).
+export const TRAVEL_LINK_KINDS = ["SUPERVISOR", "DRIVER"] as const;
+export const NO_LINK_REFUSAL = "Travel is recorded by your driver - nothing to do.";
+export const linkRefusal = (hasLink: boolean): string | null => (hasLink ? null : NO_LINK_REFUSAL);
 
 // ---------- the travel pass (AT-001, Ilies 2 Nov 2026: "Supervisor QR only") ----------
 
@@ -67,12 +123,15 @@ export function homeFrom(candidates: HomeCandidate[], now = new Date()): HomeCan
   return ok[0] && !ok[0].existingLeg ? ok[0] : null;
 }
 
-// ---------- travel pay (Ilies, 23-24 Nov 2026) ----------
-// 1. Truck driver: signs in on the truck QR for the drive - that sign-in already counts the hours. Never a travel leg
-//    (Start travel is refused while they're signed in on a truck - truckRefusal).
-// 2. Passenger: paid 1 hour less than the leg takes, once each way - max(0, leg hours - 1) per leg (out and home apart).
-// 3. Own car or ute: a driver - the leg is paid in full.
-// The worker picks 2 or 3 on the phone before the leg starts. Legs recorded before this was asked have no mode: no
+// ---------- travel pay (Ilies, 23-24 Nov 2026; who records it, 24 Nov 2026) ----------
+// 1. Truck driver (a link-holder): signs in on the truck QR for the drive out and again for the drive back - those
+//    sign-ins already count the hours. Never a travel leg (Start travel is refused while on a truck - truckRefusal).
+// 2. A link-holder riding as a passenger: "I'm a passenger" - paid 1 hour less than the leg takes, once each way -
+//    max(0, leg hours - 1) per leg (out and home apart).
+// 3. A link-holder driving their own car or ute: the leg is paid in full.
+// 4. Crew with no link: nothing to record. Their travel is the drive of the link-holder they travelled with (./derive.ts),
+//    paid like a passenger: 1 hour less each way.
+// Link-holders pick 2 or 3 on the phone before the leg starts. Legs recorded before this was asked have no mode: no
 // paid figure, "mode not recorded" for the office (who can set it with a reason).
 
 export type TravelMode = "DRIVER_OWN_VEHICLE" | "PASSENGER";
@@ -84,7 +143,7 @@ export const MODE_LABEL: Record<TravelMode, string> = { DRIVER_OWN_VEHICLE: "own
 export const MODE_NOT_RECORDED = "mode not recorded";
 export const PASSENGER_LESS_HOURS = 1;
 // The rule in one line, for the payroll screen and the summary file.
-export const TRAVEL_PAY_RULE = `passenger: ${PASSENGER_LESS_HOURS} hour less each way; driving own car/ute: in full; truck driver: the truck sign-in counts the drive`;
+export const TRAVEL_PAY_RULE = `crew riding along: worked out from their driver, ${PASSENGER_LESS_HOURS} hour less each way; passenger: ${PASSENGER_LESS_HOURS} hour less each way; driving own car/ute: in full; truck driver: the truck sign-in counts the drive`;
 
 export const isTravelMode = (v: unknown): v is TravelMode => typeof v === "string" && (TRAVEL_MODES as readonly string[]).includes(v);
 // A mode as stored (anything else - an old leg, a bad value - is "not recorded").
@@ -101,12 +160,17 @@ export function paidTravelHours(hours: number | null | undefined, mode: TravelMo
 // A leg the office should look at for pay: it has hours but no mode (recorded before the question was asked).
 export const modeMissing = (t: { hours: number | null; mode?: TravelMode | null }) => t.hours != null && !t.mode;
 
-// "Travel 2h · paid 1h (passenger)" - the words on the office screens. hours null = counts nothing.
-export function paidText(t: { hours: number | null; mode?: TravelMode | null; paidHours?: number | null }): string {
+// "Travel 2h · paid 1h (passenger)" - the words on the office screens. hours null = counts nothing. via: crew's travel
+// worked out from their driver - "paid 1h (with Turori's truck, Tipper - CN03RK)".
+export function paidText(t: { hours: number | null; mode?: TravelMode | null; paidHours?: number | null; via?: string | null }): string {
   if (t.hours == null) return "";
   if (!t.mode) return MODE_NOT_RECORDED;
-  return `paid ${t.paidHours ?? paidTravelHours(t.hours, t.mode)}h (${MODE_LABEL[t.mode]})`;
+  return `paid ${t.paidHours ?? paidTravelHours(t.hours, t.mode)}h (${t.via || MODE_LABEL[t.mode]})`;
 }
+
+// For the office: legs with hours but no mode, and crew with no driver found - neither has a paid figure (TP-003 counts
+// them in Victoria's approval).
+export const noDriver = (t: { flag?: TravelFlag | null }) => t.flag === "NO_DRIVER";
 
 // Start travel / Travelling home needs the choice first.
 export const MODE_REQUIRED = "Tap one first: I'm driving my own car/ute, or I'm a passenger.";
