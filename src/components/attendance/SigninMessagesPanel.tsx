@@ -4,12 +4,14 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { MessageSquare, X } from "lucide-react";
 import { apiFetch, serverErrorMessage } from "@/lib/apiFetch";
 import { MESSAGE_LIMITS, addDays, type OfficeMessage } from "@/lib/signinMessages/rules";
+import { TIDY_LIMITS, TIDY_WORDS } from "@/lib/signinMessages/tidy";
 
 // Message at sign-in (Ilies, 23 Nov 2026) - on the Sign-ins page, for Managers, Admins and the coordinator. A short note
 // to one person, several, or everyone who signs in; it shows on their phone after they sign in (and on their own site /
 // driver link) until they tap "Got it" or its last day passes. No edits - archive it and send a new one.
 type Person = { id: string; name: string };
-type Data = { today: string; messages: OfficeMessage[]; people: Person[] };
+// tidy: "Tidy it up" is on (MESSAGE_TIDY not off, the server has its Claude key).
+type Data = { today: string; messages: OfficeMessage[]; people: Person[]; tidy?: boolean };
 
 const box = "w-full rounded-lg border border-edge bg-panel2 px-2.5 py-1.5 text-sm text-gray-200 placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-500/40";
 const when = (iso: string) => new Date(iso).toLocaleString("en-AU", { timeZone: "Australia/Sydney", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
@@ -57,6 +59,12 @@ function Compose({ data, onCancel, onSent }: { data: Data; onCancel: () => void;
   const [until, setUntil] = useState(addDays(data.today, MESSAGE_LIMITS.defaultDays));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // "Tidy it up" (Ilies, 25 Nov 2026): Claude rewrites the draft into the box - never sends. Undo puts the draft back.
+  const [original, setOriginal] = useState<string | null>(null);
+  const [tidying, setTidying] = useState(false);
+  const [tidyOff, setTidyOff] = useState(data.tidy === false);
+  const [tidyError, setTidyError] = useState<string | null>(null);
+  const len = text.trim().length;
   const found = useMemo(() => {
     const s = q.trim().toLowerCase();
     if (s.length < 2) return [];
@@ -73,10 +81,45 @@ function Compose({ data, onCancel, onSent }: { data: Data; onCancel: () => void;
     onSent();
   }
 
+  // Only the draft text goes - never who it's for. On any refusal the draft stays exactly as typed.
+  async function tidyUp() {
+    const draft = text;
+    setTidying(true);
+    setTidyError(null);
+    const res = await apiFetch("/api/attendance/messages/tidy", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: draft }) });
+    setTidying(false);
+    if (res.status === 503) { setTidyOff(true); return; }
+    if (!res.ok) return setTidyError(await serverErrorMessage(res, TIDY_WORDS.failed));
+    const out = (await res.json().catch(() => null)) as { text?: unknown } | null;
+    if (typeof out?.text !== "string" || !out.text) return setTidyError(TIDY_WORDS.failed);
+    setOriginal((o) => o ?? draft); // tidied twice: Undo still goes back to what he typed
+    setText(out.text);
+  }
+  function undo() {
+    if (original === null) return;
+    setText(original);
+    setOriginal(null);
+    setTidyError(null);
+  }
+
   return (
     <div className="mb-3 space-y-2 rounded-xl border border-edge bg-panel p-3 text-xs">
-      <textarea className={`${box} min-h-[70px]`} maxLength={MESSAGE_LIMITS.textMax} placeholder="e.g. Well done on your pre-starts this week" value={text} onChange={(e) => setText(e.target.value)} />
-      <div className="text-right text-gray-500">{text.trim().length}/{MESSAGE_LIMITS.textMax}</div>
+      <textarea className={`${box} min-h-[70px]`} maxLength={TIDY_LIMITS.draftMax} placeholder="e.g. Well done on your pre-starts this week" value={text} onChange={(e) => setText(e.target.value)} />
+      <div className="flex flex-wrap items-center gap-2" data-testid="signin-message-tidy">
+        {tidyOff ? (
+          <span className="text-gray-500">{TIDY_WORDS.off}</span>
+        ) : (
+          <button className="rounded-lg border border-edge px-2.5 py-1 text-gray-200 hover:bg-panel2 disabled:opacity-50" disabled={tidying || busy || len < TIDY_LIMITS.draftMin} onClick={tidyUp}
+            title="Claude rewrites it as a short, clear message for the crew. Check it, then press Send.">
+            {tidying ? "Tidying..." : "Tidy it up"}
+          </button>
+        )}
+        {original !== null && !tidying && <button className="text-brand-300 underline" onClick={undo}>Undo</button>}
+        <span className={`ml-auto ${len > MESSAGE_LIMITS.textMax ? "text-amber-300" : "text-gray-500"}`}>{len}/{MESSAGE_LIMITS.textMax}</span>
+      </div>
+      {len > MESSAGE_LIMITS.textMax && <p className="text-amber-300">Over {MESSAGE_LIMITS.textMax} characters - shorten it{tidyOff ? "" : " or tap Tidy it up"} before sending.</p>}
+      {tidyError && <div className="rounded-md bg-red-900/30 px-3 py-2 text-red-300">{tidyError}</div>}
+      {original !== null && <p className="text-gray-500">Tidied - check it reads right before you send. Nothing has been sent.</p>}
       <div className="flex gap-3 text-gray-300">
         <label className="flex items-center gap-1.5"><input type="radio" checked={!everyone} onChange={() => setEveryone(false)} /> Pick people</label>
         <label className="flex items-center gap-1.5"><input type="radio" checked={everyone} onChange={() => setEveryone(true)} /> Everyone who signs in</label>
@@ -108,7 +151,7 @@ function Compose({ data, onCancel, onSent }: { data: Data; onCancel: () => void;
       {error && <div className="rounded-md bg-red-900/30 px-3 py-2 text-red-300">{error}</div>}
       <div className="flex justify-end gap-2">
         <button className="px-2.5 py-1 text-gray-400" onClick={onCancel}>Cancel</button>
-        <button className="rounded-lg bg-brand-600 px-3 py-1 font-semibold text-white disabled:opacity-50" disabled={busy || text.trim().length < MESSAGE_LIMITS.textMin || (!everyone && picked.length === 0)} onClick={send}>
+        <button className="rounded-lg bg-brand-600 px-3 py-1 font-semibold text-white disabled:opacity-50" disabled={busy || tidying || len < MESSAGE_LIMITS.textMin || len > MESSAGE_LIMITS.textMax || (!everyone && picked.length === 0)} onClick={send}>
           {busy ? "Sending..." : "Send"}
         </button>
       </div>
