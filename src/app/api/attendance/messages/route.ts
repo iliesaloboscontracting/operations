@@ -3,19 +3,21 @@ import { getCurrentUser, guardOrCoordinator } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { todaySydney } from "@/lib/today";
 import { parseMessage } from "@/lib/signinMessages/rules";
+import { tidyAvailable } from "@/lib/signinMessages/tidy";
 import { createMessage, officeMessages, pickablePeople } from "@/lib/signinMessages/store";
 
 // Message at sign-in (Ilies, 23 Nov 2026: "yes build it, deploy once passes") - the Sign-ins page's panel. Managers,
 // Admins and the coordinator (as "Not in today" - guardOrCoordinator, never by loosening guard()). Refused: Viewer,
 // TIMESHEETS, ACCOUNTS, DIRECTOR, YARD and every site link (links only reach /api/site/*). Words only - no money.
 //
-// GET  -> { messages: the newest 100 with seen / not seen yet, people: active Labour-register names to pick from }
+// GET  -> { messages: the newest 100 with seen / not seen yet, people: active Labour-register names to pick from,
+//          tidy: whether "Tidy it up" is on (MESSAGE_TIDY not off and the server has ANTHROPIC_API_KEY) }
 export const GET = withErrorHandling(async () => {
   const denied = await guardOrCoordinator("MANAGER");
   if (denied) return denied;
   const today = todaySydney();
   const [messages, people] = await Promise.all([officeMessages(today), pickablePeople()]);
-  return NextResponse.json({ today, messages, people });
+  return NextResponse.json({ today, messages, people, tidy: tidyAvailable() });
 });
 
 // POST { text, audience: ALL | PEOPLE, resourceIds?, showUntil? } -> 201 { id }. 30 a day per login (429).
