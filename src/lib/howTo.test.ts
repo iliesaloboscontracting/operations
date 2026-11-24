@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { assertNoMoney } from "./moneyGuard";
-import { ALL_GUIDES, DRIVER_GUIDE, GOLDEN_RULE, HANDOVER_GUIDE, SIGNIN_GUIDE, SUPERVISOR_GUIDE, guideForLink, guideText } from "./howTo";
+import { ALL_GUIDES, DRIVER_GUIDE, GOLDEN_RULE, HANDOVER_GUIDE, LINK_PASSENGER_STEP, SIGNIN_GUIDE, SUPERVISOR_GUIDE, guideForLink, guideText } from "./howTo";
 
 const src = (rel: string) => readFileSync(path.join(process.cwd(), rel), "utf8");
 const count = (text: string, word: string) => text.split(word).length - 1;
@@ -49,9 +49,10 @@ test("the driver guide: the golden rule, Sign out once at the end, the truck's Q
 });
 
 test("regional travel (24 Nov 2026 design): company truck = truck QR out and back; own car = Start travel on the link; crew riding along = nothing", () => {
-  for (const g of [DRIVER_GUIDE, SIGNIN_GUIDE]) {
+  for (const g of [DRIVER_GUIDE, SUPERVISOR_GUIDE, SIGNIN_GUIDE]) {
     const reg = g.sections.find((s) => s.title.startsWith("Regional"))!;
-    assert.equal(reg.steps!.length, 3);
+    // The link guides add one step for a link-holder riding as a passenger (Ilies, 24 Nov 2026); the QR screen doesn't.
+    assert.equal(reg.steps!.length, g === SIGNIN_GUIDE ? 3 : 4, g.id);
     const truck = reg.steps!.find((s) => /company truck/.test(s.lead ?? ""))!;
     assert.match(truck.text!, /truck's QR for the drive out, and again for the drive back/);
     assert.match(truck.text!, /Never press Start travel/);
@@ -67,6 +68,14 @@ test("regional travel (24 Nov 2026 design): company truck = truck QR out and bac
     assert.ok(!/Start travel/.test(crew.text!), "crew never press Start travel");
   }
   for (const g of ALL_GUIDES) assert.ok(!/If it asks|Passenger or Own car/.test(guideText(g)), `${g.id}: no passenger / own car picker wording`);
+  // Picker wording only in the one line for link-holders riding along, and only on the link guides.
+  assert.deepEqual(LINK_PASSENGER_STEP, { lead: "Riding along with a link (e.g. a supervisor not driving):", text: "tap Start travel on your link and pick I'm a passenger." });
+  for (const g of ALL_GUIDES) {
+    const steps = g.sections.flatMap((s) => s.steps ?? []);
+    const withPicker = steps.filter((s) => /passenger/i.test(`${s.lead ?? ""} ${s.text ?? ""}`));
+    assert.deepEqual(withPicker, g.id === "driver" || g.id === "supervisor" ? [LINK_PASSENGER_STEP] : [], `${g.id}: picker wording only in the link-holder passenger line`);
+    assert.ok(!g.sections.some((s) => /passenger/i.test(`${s.intro ?? ""} ${s.after ?? ""}`)), g.id);
+  }
 });
 
 test("the supervisor guide covers every tile the link shows today", () => {

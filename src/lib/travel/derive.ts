@@ -14,7 +14,10 @@
 // The nearest in time wins, drivers first: a truck or an own car/ute leg; a passenger's leg only when no driver matched
 // (it's the same trip). Ties go to the truck. No match = NO_DRIVER (amber, pays nothing, never blocks the week).
 // A recorded leg for that person, job and way (the office's own, or an older one from before) is used instead.
-// Paid = max(0, hours - 1) each way (paidTravelHours as a passenger). The driver's drive never ended or over 8 h = no
+// Cut at their own sign-in (coordinator for Ilies, 24 Nov 2026 - never paid twice): out ends at the earlier of the
+// driver's arrival and their own site sign-in; home starts at the later of the driver's departure and their own
+// sign-out (crewWindow). Their own truck QR sign-in on that drive stands: it's their record - no worked-out leg that way.
+// Paid = max(0, hours - 1) each way, after the cut (paidTravelHours as a passenger). The driver's drive never ended or over 8 h = no
 // hours, flagged like any leg; a drive over the crew member's own other sign-ins = SIGNIN_OVERLAP (TP-001).
 import { legHours, modeOf, overlapping, pointFixFor, type Direction, type OwnSignIn, type PointFix, type TravelFlag, type TravelMode } from "./rules";
 
@@ -64,8 +67,31 @@ export function findDrive(direction: Direction, jobId: string, anchorAt: Date, h
   return best(drives);
 }
 
-// Every crew member's legs for the jobs they signed in on. crewAtts: crew sign-ins on regional jobs only.
-export function deriveCrewLegs(crewAtts: Att[], holderAtts: Att[], holderLegs: LegLite[]): CrewLeg[] {
+// The crew member's own travel time: the driver's drive, cut at their own site sign-in (out) / sign-out (home).
+export function crewWindow(c: CrewLeg): { startAt: Date; endAt: Date | null } | null {
+  if (!c.drive) return null;
+  if (c.direction === "OUT") {
+    const end = c.drive.endAt && c.drive.endAt.getTime() < c.anchorAt.getTime() ? c.drive.endAt : c.anchorAt;
+    return { startAt: c.drive.startAt, endAt: end };
+  }
+  return { startAt: c.drive.startAt.getTime() > c.anchorAt.getTime() ? c.drive.startAt : c.anchorAt, endAt: c.drive.endAt };
+}
+
+// Their own truck QR sign-in on that drive: it counts the drive as worked hours, so it stands - no worked-out leg.
+// Covering = running over the drive, or (no driver found) ending at their site sign-in / starting at their sign-out.
+export function ownTruckCovers(c: CrewLeg, crewTrucks: Att[]): boolean {
+  const J = DRIVE_JOIN_MINUTES * MIN;
+  const w = crewWindow(c);
+  return crewTrucks.some((v) => {
+    if (v.resourceId !== c.resourceId || v.place !== "VEHICLE") return false;
+    if (w && v.signInAt.getTime() < (w.endAt ?? c.anchorAt).getTime() && (v.signOutAt ?? c.anchorAt).getTime() > w.startAt.getTime()) return true;
+    return c.direction === "OUT" ? !!v.signOutAt && gap(v.signOutAt, c.anchorAt) <= J : gap(v.signInAt, c.anchorAt) <= J;
+  });
+}
+
+// Every crew member's legs for the jobs they signed in on. crewAtts: crew sign-ins on regional jobs only; crewTrucks:
+// their own truck QR sign-ins (those stand - ownTruckCovers).
+export function deriveCrewLegs(crewAtts: Att[], holderAtts: Att[], holderLegs: LegLite[], crewTrucks: Att[] = []): CrewLeg[] {
   const groups = new Map<string, Att[]>();
   for (const a of crewAtts) {
     if (!a.jobId) continue;
@@ -81,7 +107,7 @@ export function deriveCrewLegs(crewAtts: Att[], holderAtts: Att[], holderLegs: L
     const last = atts.filter((a) => a.signOutAt && a.signOutMethod !== "MOVED").sort((a, b) => b.signOutAt!.getTime() - a.signOutAt!.getTime())[0];
     if (last) out.push({ resourceId: last.resourceId, jobId, date: last.date, direction: "HOME", anchor: last, anchorAt: last.signOutAt!, drive: findDrive("HOME", jobId, last.signOutAt!, holderAtts, holderLegs) });
   }
-  return out;
+  return out.filter((c) => !ownTruckCovers(c, crewTrucks));
 }
 
 // A crew leg as it counts: no driver = NO_DRIVER; the driver's drive never ended / over 8 h = no hours, flagged; over
@@ -90,10 +116,11 @@ export function deriveCrewLegs(crewAtts: Att[], holderAtts: Att[], holderLegs: L
 export function crewLegVerdict(
   c: CrewLeg, own: OwnSignIn[], now = new Date(), ctx: { site: string; driver: string | null } = { site: "the job", driver: null },
 ): { hours: number | null; flag: TravelFlag | null; pointFix: PointFix | null } {
-  if (!c.drive) return { hours: null, flag: "NO_DRIVER", pointFix: null };
-  const v = legHours(c.drive.startAt, c.drive.endAt, now);
+  const w = crewWindow(c);
+  if (!c.drive || !w) return { hours: null, flag: "NO_DRIVER", pointFix: null };
+  const v = legHours(w.startAt, w.endAt, now);
   if (v.hours == null) return { ...v, pointFix: null };
-  const over = overlapping(c.drive.startAt, c.drive.endAt, own, now, [c.anchor.id]);
+  const over = overlapping(w.startAt, w.endAt, own, now, [c.anchor.id]);
   if (!over.length) return { ...v, pointFix: null };
   return { hours: null, flag: "SIGNIN_OVERLAP", pointFix: pointFixFor(c.direction, over, c.drive.startAt, { ...ctx, truck: c.drive.kind === "TRUCK" }) };
 }

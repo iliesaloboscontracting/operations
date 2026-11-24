@@ -279,11 +279,11 @@ export default {
         type: "PERSONNEL", active: true, id: { notIn: [person.id, person2.id, person3.id] }, OR: [{ engagement: null }, { engagement: { not: "ABN" } }],
         siteLinks: { none: { kind: { in: ["SUPERVISOR", "DRIVER"] }, revokedAt: null } }, attendances: { none: { date: { gte: WK, lte: "2019-03-10" } } },
       },
-      select: { id: true, name: true }, orderBy: { name: "asc" }, take: 7,
+      select: { id: true, name: true }, orderBy: { name: "asc" }, take: 8,
     });
-    if (free.length < 7) { t.note(`only ${free.length} Labour-register people without a link on the snapshot - the worked-out travel cases need 7`); }
+    if (free.length < 8) { t.note(`only ${free.length} Labour-register people without a link on the snapshot - the worked-out travel cases need 8`); }
     else {
-      const [D, A, B, O, P, C, F] = free;
+      const [D, A, B, O, P, C, F, G] = free;
       await makeLink(db, "DRIVER", D.id); // the truck driver
       await makeLink(db, "SUPERVISOR", O.id); // drives their own ute
       await makeLink(db, "DRIVER", P.id); // a link-holder riding along as a passenger
@@ -295,9 +295,13 @@ export default {
       await seedTruck(D, { signInAt: Z("04T19:00"), signOutAt: Z("04T21:00"), signOutMethod: "MOVED" });
       await seedAtt(D, { jobId: j2.id, signInAt: Z("04T21:00"), signOutAt: Z("05T06:00"), signOutMethod: "MOVED" });
       const dBack = await seedTruck(D, { signInAt: Z("05T06:00"), signOutAt: Z("05T08:30") });
-      // Two crew with no link, on site within 30 min of D: their travel is D's drive (2h out, 2.5h home) less 1h each way.
+      // Two crew with no link, on site within 30 min of D: their travel is D's drive (2h out, 2.5h home) less 1h each way -
+      // cut at their own sign-in: B signed in at 7:45, before D arrived at 8:00, so B's travel out is 6:00-7:45 (1.75h).
       await seedAtt(A, { jobId: j2.id, signInAt: Z("04T21:10"), signOutAt: Z("05T05:50") });
       await seedAtt(B, { jobId: j2.id, signInAt: Z("04T20:45"), signOutAt: Z("05T06:00") });
+      // G (no link) scanned the truck QR themselves for the ride out: that sign-in is their record - no worked-out out leg.
+      const gTruck = await seedTruck(G, { signInAt: Z("04T19:00"), signOutAt: Z("04T21:00"), signOutMethod: "MOVED" });
+      await seedAtt(G, { jobId: j2.id, signInAt: Z("04T21:00"), signOutAt: Z("05T06:00") });
       // O: own ute, 6:40 -> 8:25 (1.75h, paid in full), home 5:30 -> 7:30pm (2h, paid in full).
       const oSite = await seedAtt(O, { jobId: j2.id, signInAt: Z("04T21:25"), signOutAt: Z("05T06:20") });
       const seedLeg = (who, o) => db.travelLeg.create({ data: { resourceId: who.id, workerName: who.name, jobId: j2.id, projectId: reg2.id, siteLabel: reg2.name, date: DAY, ...o } });
@@ -315,12 +319,15 @@ export default {
       const crewWeek = async () => (await c.json(`/api/timesheets?week=${WK}`, "MANAGER")).body;
       const legsOf = (w, who) => Object.values(w?.people?.find((x) => x.resourceId === who.id)?.travel ?? {}).flat();
       const w1 = await crewWeek();
-      for (const who of [A, B]) {
+      for (const [who, label, outH, outPaid] of [[A, "A", 2, 1], [B, "B (on site before the driver - cut at their own sign-in)", 1.75, 0.75]]) {
         const l = legsOf(w1, who);
         const o = l.find((x) => x.direction === "OUT"), h = l.find((x) => x.direction === "HOME");
-        t.ok(o?.legId?.startsWith("derived:") && o.hours === 2 && o.paidHours === 1 && h?.hours === 2.5 && h.paidHours === 1.5 && o.via === `with ${D.name}'s truck (RC Tipper 2)`,
-          `crew without a link (${who === A ? "A" : "B"}): travel worked out from the driver's truck - out 2h paid 1h, home 2.5h paid 1.5h, "${o?.via ?? "-"}"`, JSON.stringify(l.map((x) => [x.direction, x.hours, x.paidHours, x.flag, x.via])));
+        t.ok(o?.legId?.startsWith("derived:") && o.hours === outH && o.paidHours === outPaid && h?.hours === 2.5 && h.paidHours === 1.5 && o.via === `with ${D.name}'s truck (RC Tipper 2)`,
+          `crew without a link ${label}: travel worked out from the driver's truck - out ${outH}h paid ${outPaid}h, home 2.5h paid 1.5h, "${o?.via ?? "-"}"`, JSON.stringify(l.map((x) => [x.direction, x.hours, x.paidHours, x.flag, x.via])));
       }
+      const gL = legsOf(w1, G);
+      t.ok(gL.length === 1 && gL[0].direction === "HOME" && gL[0].paidHours === 1.5 && !gL.some((x) => x.flag === "SIGNIN_OVERLAP"), "crew with their own truck QR sign-in: it stands - no worked-out out leg, no overlap flag; home still from the driver", JSON.stringify(gL.map((x) => [x.direction, x.hours, x.paidHours, x.flag])));
+      t.ok(!!gTruck.id, "G's truck sign-in kept as it was");
       t.ok(legsOf(w1, D).length === 0, "the truck driver: no travel leg - their truck QR sign-ins are their worked hours");
       const oL = legsOf(w1, O), pL = legsOf(w1, P);
       t.ok(oL.find((x) => x.direction === "OUT")?.paidHours === 1.75 && oL.find((x) => x.direction === "HOME")?.paidHours === 2, "own car / ute link-holder: paid in full (1.75h out, 2h home)", JSON.stringify(oL.map((x) => [x.hours, x.paidHours])));

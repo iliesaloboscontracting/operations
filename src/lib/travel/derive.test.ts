@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { crewLegVerdict, CREW_MATCH_MINUTES, deriveCrewLegs, findDrive, viaText, type Att, type LegLite } from "./derive";
+import { crewLegVerdict, CREW_MATCH_MINUTES, crewWindow, deriveCrewLegs, findDrive, ownTruckCovers, viaText, type Att, type LegLite } from "./derive";
 import { amberFlag, legVerdict, linkRefusal, needsOffice, NO_LINK_REFUSAL, paidText, paidTravelHours, pointFixFor, TRAVEL_LINK_KINDS } from "./rules";
 import { approvalBlockers, peopleOf, travelBlocks, type TravelLine } from "../timesheets";
 import { EXPORT_COLUMNS, fileIsSafe, payRunRows, reviewTravelOf, toCsv, TRAVEL_CHANGED_NOTE, travelChanged, type PayLine } from "../payroll/rules";
@@ -209,4 +209,47 @@ test("TP-005: 'Travel paid hours' is the last pay-run column; number columns are
   assert.deepEqual(rows[2].slice(-3), [2, "", ""], "no mode recorded: blank, never text");
   for (const r of rows.slice(1)) for (const i of [4, 6, 7, 8]) assert.ok(r[i] === "" || typeof r[i] === "number", `column ${i}: ${r[i]}`);
   assert.ok(fileIsSafe(toCsv(rows)));
+});
+
+test("cut at their own sign-in: out ends at the earlier of the driver's arrival and their site sign-in; home starts at the later; -1h after the cut", () => {
+  // B signed in on site at 7:45 (20:45), before the driver arrived at 8:00: travel 6:00 -> 7:45 = 1.75h, paid 0.75h.
+  const b = att({ signInAt: at(20, 45), signOutAt: at(30, 20) });
+  const [out, home] = deriveCrewLegs([b], holders, []);
+  assert.deepEqual(crewWindow(out), { startAt: at(19), endAt: at(20, 45) });
+  assert.equal(crewLegVerdict(out, [own(b)]).hours, 1.75);
+  assert.equal(paidTravelHours(1.75, "PASSENGER"), 0.75);
+  // Signed out at 5:20pm (30:20), after the truck left at 5pm: home from 5:20 to 7:30 = 2.25h, paid 1.25h.
+  assert.deepEqual(crewWindow(home), { startAt: at(30, 20), endAt: at(32, 30) });
+  assert.equal(crewLegVerdict(home, [own(b)]).hours, 2.25);
+  // Driver arrived first / left last: the driver's own times.
+  const a = att({ signInAt: at(21, 10), signOutAt: at(29, 50) });
+  const [o2, h2] = deriveCrewLegs([a], holders, []);
+  assert.deepEqual([crewWindow(o2)?.endAt, crewWindow(h2)?.startAt], [at(21), at(30)]);
+  // Signed in before the drive even started: 0h, paid 0 - never below 0.
+  const z = att({ signInAt: at(18, 40) });
+  const zl = deriveCrewLegs([z], [att({ resourceId: "drv", place: "VEHICLE", jobId: null, signInAt: at(18, 30), signOutAt: at(19), signOutMethod: "MOVED" }), att({ resourceId: "drv", signInAt: at(19) })], [])[0];
+  assert.equal(crewLegVerdict(zl, [own(z)]).hours, 0.25);
+  assert.equal(paidTravelHours(0.25, "PASSENGER"), 0);
+  // The driver's drive not ended (own leg on the way) but they're on site: their sign-in ends it.
+  const supSite = att({ resourceId: "sup", signInAt: at(21) });
+  const open = findDrive("OUT", "j1", at(21), [supSite], [leg({ resourceId: "sup", startAt: at(19), endAt: null })]);
+  assert.deepEqual(crewWindow({ resourceId: "crew", jobId: "j1", date: "x", direction: "OUT", anchor: att({}), anchorAt: at(21, 5), drive: open }), { startAt: at(19), endAt: at(21, 5) });
+});
+
+test("a crew member's own truck QR sign-in on that drive stands: no worked-out leg that way, no overlap flag", () => {
+  // G rode in on the truck and scanned its QR (6:00 -> 8:00, moved off it by the site sign-in): out is their sign-in.
+  const gTruck = att({ resourceId: "g", place: "VEHICLE", jobId: null, signInAt: at(19), signOutAt: at(21), signOutMethod: "MOVED" });
+  const gSite = att({ resourceId: "g", signInAt: at(21), signOutAt: at(30) });
+  const legs = deriveCrewLegs([gSite], holders, [], [gTruck]);
+  assert.deepEqual(legs.map((l) => l.direction), ["HOME"], "no worked-out out leg - and so nothing to flag");
+  assert.equal(crewLegVerdict(legs[0], [own(gTruck), own(gSite)]).hours, 2.5, "home still worked out from the driver");
+  // ...even with no driver found (their own truck sign-in ends at their site sign-in).
+  const lone = att({ resourceId: "g", signInAt: at(23, 30) });
+  const loneTruck = att({ resourceId: "g", place: "VEHICLE", jobId: null, signInAt: at(21, 30), signOutAt: at(23, 30), signOutMethod: "MOVED" });
+  assert.equal(deriveCrewLegs([lone], holders, [], [loneTruck]).filter((l) => l.direction === "OUT").length, 0);
+  // Someone else's truck sign-in, or a Yard sign-in, doesn't count as theirs.
+  assert.equal(ownTruckCovers(deriveCrewLegs([gSite], holders, [])[0], [{ ...gTruck, resourceId: "other" }]), false);
+  assert.equal(ownTruckCovers(deriveCrewLegs([gSite], holders, [])[0], [{ ...gTruck, place: "YARD" }]), false);
+  // The store passes the crew's own truck sign-ins in.
+  assert.match(src("./store.ts"), /deriveCrewLegs\(crewAtts, holderAtts, holderLegs, crewTrucks\)/);
 });

@@ -40,6 +40,10 @@ const REGIONAL: HowToSection = {
     { lead: "Riding along as crew:", text: "nothing to do for travel - it's worked out from the driver you travelled with. Just sign in on the supervisor's QR when you get to site." },
   ],
 };
+// On the link guides (driver, supervisor) only - people with a link record their own travel, so one riding along (not
+// driving) uses Start travel (Ilies approved, 24 Nov 2026). The only place the guide names a picker button.
+export const LINK_PASSENGER_STEP: HowToStep = { lead: "Riding along with a link (e.g. a supervisor not driving):", text: "tap Start travel on your link and pick I'm a passenger." };
+const REGIONAL_LINK: HowToSection = { ...REGIONAL, steps: [...REGIONAL.steps!, LINK_PASSENGER_STEP] };
 
 const SOMETHING_WRONG: HowToSection = {
   title: "If something goes wrong",
@@ -83,7 +87,7 @@ export const DRIVER_GUIDE: HowToGuide = {
       ],
       after: "Found something wrong with the truck? Mark it Fault in the check, write what's wrong, pick how urgent it is, and take a photo. Do not use takes the truck off the road and tells the office straight away.",
     },
-    REGIONAL,
+    REGIONAL_LINK,
     {
       title: "Your driver link",
       steps: [
@@ -196,7 +200,7 @@ export const SUPERVISOR_GUIDE: HowToGuide = {
   title: "How to use - supervisors",
   sub: "Crew sign-in, hours, the daily log, requests, hire, receipts and bins",
   rule: "Save this link on your home screen and don't share it - it's yours. Questions from the office show at the top - answer them there.",
-  sections: [SIGN_IN_CREW, POSTER_CONFIRM, HAND_OVER, APPROVE_HOURS, DAILY_LOG, REQUESTS, HIRE_CHECK, RECEIPTS_BINS, MESSAGES, TOOLS, REMINDERS,
+  sections: [SIGN_IN_CREW, POSTER_CONFIRM, HAND_OVER, APPROVE_HOURS, DAILY_LOG, REQUESTS, HIRE_CHECK, RECEIPTS_BINS, MESSAGES, TOOLS, REMINDERS, REGIONAL_LINK,
     { title: "If something goes wrong", steps: [
       { lead: "A wrong time, a missed sign-out or the wrong person?", text: "Only the office can fix a time - tell them." },
       { lead: "Link not working?", text: "Ask the office for a new one." },

@@ -13,7 +13,7 @@ import {
   modeRefusal, outRefusal, overlapping, paidTravelHours, pointFixFor, stillOpen, TRAVEL_CAP_HOURS, TRAVEL_LINK_KINDS, truckRefusal,
   type Direction, type OwnSignIn, type PointFix, type TravelFlag, type TravelMode,
 } from "./rules";
-import { crewLegVerdict, deriveCrewLegs, viaText, type Att } from "./derive";
+import { crewLegVerdict, crewWindow, deriveCrewLegs, viaText, type Att } from "./derive";
 import { TIP_CAP_HOURS } from "../tipRun/rules";
 
 type Problem = { error: string; status: number };
@@ -319,23 +319,25 @@ export async function travelLinesBetween(from: string, to: string, now = new Dat
   const crewIds = [...new Set(crewAtts.map((a) => a.resourceId))];
   const crewJobIds = [...new Set(crewAtts.map((a) => a.jobId!))];
   const [trucks, holderLegs, crewRecorded] = await Promise.all([
-    holderIds.length && crewAtts.length
-      ? prisma.siteAttendance.findMany({ where: { place: "VEHICLE", resourceId: { in: holderIds }, date: { gte: shiftDate(from, -1), lte: shiftDate(to, 1) }, ...counts }, select: attSelect })
+    // Truck QR sign-ins: the link-holders' (their drive) and the crew's own (those stand - no worked-out leg on top).
+    crewAtts.length
+      ? prisma.siteAttendance.findMany({ where: { place: "VEHICLE", resourceId: { in: [...holderIds, ...crewIds] }, date: { gte: shiftDate(from, -1), lte: shiftDate(to, 1) }, ...counts }, select: attSelect })
       : [],
     holderIds.length && crewJobIds.length
       ? prisma.travelLeg.findMany({ where: { resourceId: { in: holderIds }, jobId: { in: crewJobIds } }, select: { id: true, resourceId: true, jobId: true, direction: true, startAt: true, endAt: true, mode: true } })
       : [],
     crewJobIds.length ? prisma.travelLeg.findMany({ where: { resourceId: { in: crewIds }, jobId: { in: crewJobIds } }, select: { resourceId: true, jobId: true, direction: true } }) : [],
   ]);
-  const holderAtts = [...site.filter((s) => holders.has(s.resourceId!)).map(toAtt), ...trucks.map(toAtt)];
+  const holderAtts = [...site.filter((s) => holders.has(s.resourceId!)).map(toAtt), ...trucks.filter((v) => holders.has(v.resourceId!)).map(toAtt)];
+  const crewTrucks = trucks.filter((v) => !holders.has(v.resourceId!)).map(toAtt);
   // A leg recorded for that person, job and way (the office's, or an older one from before) is used instead.
   const recorded = new Set(crewRecorded.map((l) => `${l.resourceId}|${l.jobId}|${l.direction}`));
-  const crew = deriveCrewLegs(crewAtts, holderAtts, holderLegs).filter((c) => !recorded.has(`${c.resourceId}|${c.jobId}|${c.direction}`));
+  const crew = deriveCrewLegs(crewAtts, holderAtts, holderLegs, crewTrucks).filter((c) => !recorded.has(`${c.resourceId}|${c.jobId}|${c.direction}`));
 
   const own = await ownSignIns(
     [...new Set([...legs.map((l) => l.resourceId), ...crew.map((c) => c.resourceId)])],
-    [...legs.map((l) => l.startAt), ...crew.map((c) => c.drive?.startAt ?? c.anchorAt)],
-    [...legs.map((l) => l.endAt ?? now), ...crew.map((c) => c.drive?.endAt ?? now)],
+    [...legs.map((l) => l.startAt), ...crew.map((c) => crewWindow(c)?.startAt ?? c.anchorAt)],
+    [...legs.map((l) => l.endAt ?? now), ...crew.map((c) => crewWindow(c)?.endAt ?? now)],
   );
   const siteOf = new Map(site.map((s) => [s.id, s]));
   const nameOf = new Map(site.map((s) => [s.resourceId!, s.resource?.name ?? ""]));
@@ -349,7 +351,7 @@ export async function travelLinesBetween(from: string, to: string, now = new Dat
     const siteLabel = a.job ? jobLabel(a.job) : "Regional job";
     const driver = c.drive ? nameOf.get(c.drive.driverId) || "the driver" : null;
     const v = crewLegVerdict(c, own.get(c.resourceId) ?? [], now, { site: siteLabel, driver });
-    const d = c.drive;
+    const d = crewWindow(c); // the driver's drive, cut at their own sign-in / sign-out
     const anchorAt = c.anchorAt.toISOString();
     lines.push({
       legId: `derived:${c.anchor.id}:${c.direction}`, direction: c.direction, date: c.date, resourceId: c.resourceId, name: a.resource?.name ?? "Unknown", role: roleOf.get(c.resourceId) ?? null,
@@ -361,7 +363,7 @@ export async function travelLinesBetween(from: string, to: string, now = new Dat
       hours: v.hours, flag: v.flag, changedByOffice: null,
       // Paid like a passenger: 1 hour less each way.
       mode: d ? "PASSENGER" : null, paidHours: paidTravelHours(v.hours, d ? "PASSENGER" : null),
-      via: d && driver ? viaText(d, driver) : null,
+      via: c.drive && driver ? viaText(c.drive, driver) : null,
       derived: { anchorAttendanceId: c.anchor.id, anchorAt },
       ...(v.pointFix ? { pointFix: v.pointFix } : {}),
     });

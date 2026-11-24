@@ -49,8 +49,11 @@ export default {
     t.ok(/Driving the company truck:[^\n]*truck's QR for the drive out, and again for the drive back[^\n]*Never press Start travel/.test(howTo)
       && /Driving your own car or ute:[^\n]*Start travel on your link[^\n]*Travelling home[^\n]*Arrived/.test(howTo)
       && /Riding along as crew:[^\n]*nothing to do for travel[^\n]*supervisor's QR when you get to site/.test(howTo)
-      && !/If it asks|Passenger or Own car/.test(howTo),
-      "regional (24 Nov 2026 design): company truck = truck QR out and back, never Start travel; own car / ute = Start travel on the link; crew riding along = nothing to do; no passenger / own car picker wording");
+      && !/If it asks|Passenger or Own car/.test(howTo)
+      // The one picker line (Ilies, 24 Nov 2026): a link-holder riding as a passenger - and no other passenger wording.
+      && /Riding along with a link \(e\.g\. a supervisor not driving\):[^\n]*tap Start travel on your link and pick I'm a passenger\./.test(howTo)
+      && (howTo.match(/\bpassenger\b/gi) ?? []).length === 1,
+      "regional (24 Nov 2026 design): company truck = truck QR out and back, never Start travel; own car / ute = Start travel on the link; crew riding along = nothing to do; picker wording only in the link-holder passenger line");
     // Wording fixes approved by Ilies, 24 Nov 2026 ("Approve all three").
     t.ok(/Only tap Confirm all if everyone listed was on site\./.test(howTo) && !/confirms everyone who was on site/.test(howTo), "HT-002: Confirm all only if everyone listed was on site");
     t.ok(/Driving your own car or ute:[^\n]*If Start travel won't start, sign in on the supervisor's QR at site and tell the office\./.test(howTo), "HT-003: own car / ute - what to do if Start travel won't start");
