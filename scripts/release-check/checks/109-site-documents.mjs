@@ -432,7 +432,8 @@ export default {
         try { payload = JSON.parse(createRequire(path.join(c.p.appDir, "package.json"))("http_ece").decrypt(Buffer.from(toOw[0].body, "base64"), { version: "aes128gcm", privateKey: ow.ecdh, authSecret: ow.auth }).toString("utf8")); }
         catch (e) { t.note(`couldn't decrypt the stubbed push: ${String(e?.message ?? e).slice(0, 120)}`); }
         t.ok(payload?.title === "Incident report sent" && payload?.url === `/incidents/${iid}` && payload?.body === `Incident report ${num1} sent - ${P.name} (${S.name})`, "the alert's words and where it opens", JSON.stringify(payload));
-        const words = JSON.stringify(payload ?? {});
+        // The project's and the supervisor's names carry a random tag (it could spell "w1" or "ply") - checked without them.
+        const words = JSON.stringify(payload ?? {}).split(P.name).join("").split(S.name).join("");
         t.ok(!!payload && noMoney(words) && !/near miss|injury|treatment|stairs|ply|secret|W1/i.test(words), "no health detail and no money in the alert");
 
         const k = runChild("off", [
