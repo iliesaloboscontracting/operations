@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { CalendarDays, ClipboardCheck, Clock, Container, FileSearch, Mail, MessageSquare, ShoppingCart, Truck, UserCheck, Wrench } from "lucide-react";
+import { CalendarDays, ClipboardCheck, Clock, Container, FilePen, FileSearch, Mail, MessageSquare, ShoppingCart, Truck, UserCheck, Wrench } from "lucide-react";
 import PageShell from "@/components/PageShell";
 import { useAuth } from "@/components/AuthProvider";
 import BinsOutCard from "@/components/bins/BinsOutCard";
+import VariationsCard from "@/components/variations/VariationsCard";
 import PushToggle from "@/components/PushToggle";
 import NeedsAttentionCard from "@/components/findings/NeedsAttentionCard";
 
@@ -21,6 +22,7 @@ const TILES = [
   { href: "/tools", label: "Tools & toolboxes", what: "The tool register, toolboxes, checks by photo, faults and Hilti swaps.", icon: Wrench },
   { href: "/hire", label: "Hire", what: "Add, extend and off-hire - suppliers, dates, status and the project it's for.", icon: Truck },
   { href: "/bins", label: "Bins", what: "Bins on site and picked up, with the photos. Client's bins are the ones charged to the client. View only.", icon: Container },
+  { href: "/variations", label: "Variations", what: "Variation / day dockets the client signed on site - print or save as PDF, and mark Priced / Sent to client.", icon: FilePen },
   { href: "/purchases", label: "Purchase requests", what: "Buy or hire something, with suppliers' quotes - Ilies or a director approves.", icon: ShoppingCart },
   { href: "/messages", label: "Messages", what: "The office chat and your one-to-ones.", icon: MessageSquare },
   { href: "/documents", label: "Documents", what: "Search the site & safety folders - SWMS, scopes, drawings.", icon: FileSearch },
@@ -36,12 +38,14 @@ export default function CoordinatorPage() {
         {/* For you (LCI Stage 1, 25 Nov 2026): the things he can fix from his own pages - money-free; hidden when empty. */}
         {coordinatorOnly && <div className="w-full max-w-md empty:hidden"><NeedsAttentionCard variant="coordinator" /></div>}
         <div className="w-full max-w-md"><BinsOutCard /></div>
+        {/* Variations to price (Ilies, 25 Nov 2026) - signed variation / day dockets still To price. */}
+        <div className="w-full max-w-md"><VariationsCard /></div>
         {/* Alerts on this phone (Ilies, 23 Nov 2026: "all fine for alex"): a client's bin delivered - and office chat and his
             own purchase decisions. His own devices only (/api/push). */}
         {coordinatorOnly && (
           <div className="w-full max-w-md rounded-xl border border-edge bg-panel p-4 shadow-soft">
             <div className="mb-1 font-semibold text-gray-100">Alerts on this phone</div>
-            <p className="mb-2 text-xs text-gray-400">A client&apos;s bin delivered, new messages and your purchase requests. Turn this on from your own phone, not a shared computer.</p>
+            <p className="mb-2 text-xs text-gray-400">A client&apos;s bin delivered, a variation docket signed, new messages and your purchase requests. Turn this on from your own phone, not a shared computer.</p>
             <PushToggle align="start" />
           </div>
         )}
