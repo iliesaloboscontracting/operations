@@ -14,7 +14,9 @@ export const GB = 1024 * MB;
 export const KINDS = ["PHOTO", "VIDEO"] as const;
 export type MediaKind = (typeof KINDS)[number];
 // VARIATION (25 Nov 2026): the optional photos on a variation / day docket (lib/variations/media.ts) - photos only.
-export const AREAS = ["DAILY_LOG", "DELAY", "BEFORE_AFTER", "FAULT", "WALKAROUND", "HOUR_METER", "VARIATION"] as const;
+// INCIDENT (25 Nov 2026): the optional photos on an incident report (lib/siteDocs/media.ts) - photos only, never in a
+// gallery; seen only by the owner and DIRECTOR logins once the report is sent (never read back on a link).
+export const AREAS = ["DAILY_LOG", "DELAY", "BEFORE_AFTER", "FAULT", "WALKAROUND", "HOUR_METER", "VARIATION", "INCIDENT"] as const;
 export type MediaArea = (typeof AREAS)[number];
 export type MediaState = "PENDING" | "READY" | "REJECTED";
 
@@ -48,6 +50,7 @@ export const AREA_RULES: Record<MediaArea, { kinds: readonly MediaKind[]; galler
   WALKAROUND: { kinds: ["PHOTO"], gallery: false },
   HOUR_METER: { kinds: ["PHOTO"], gallery: false },
   VARIATION: { kinds: ["PHOTO"], gallery: true },
+  INCIDENT: { kinds: ["PHOTO"], gallery: false },
 };
 
 // How many of each the daily log screens take through the bucket (the old way stays 4 / 4 / 6).

@@ -97,10 +97,12 @@ export const COORDINATOR_PAGES = [
   "/timesheets/labour-hire", // labour hire hours, view + export (Ilies, 11 Nov 2026: "Managers + Admins + Alex")
   "/bins", // bins out and picked up, view only - client's bins are variations he tracks (Ilies, 23 Nov 2026)
   "/variations", // variation / day dockets signed on site - he sets To price / Priced / Sent to client (Ilies, 25 Nov 2026)
+  "/site-documents", // site documents: plans, SWMS + register, pre-starts, toolbox talks, topic of the week (Ilies, 25 Nov 2026) - never incidents
 ] as const;
 export function isCoordinatorPage(path: string): boolean {
   const p = (path.split(/[?#]/)[0] || "/").replace(/\/+$/, "") || "/";
-  return (COORDINATOR_PAGES as readonly string[]).includes(p) || /^\/daily-report\/[^/]+$/.test(p) || /^\/variations\/[^/]+$/.test(p);
+  return (COORDINATOR_PAGES as readonly string[]).includes(p) || /^\/daily-report\/[^/]+$/.test(p) || /^\/variations\/[^/]+$/.test(p)
+    || /^\/site-documents\/(topic|records\/[^/]+|swms\/[^/]+)$/.test(p);
 }
 // A link on one of his pages: kept when it goes to one of them, otherwise null (shown as plain text), as
 // directorHref() does for directors.

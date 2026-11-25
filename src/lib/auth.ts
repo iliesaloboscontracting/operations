@@ -5,10 +5,11 @@ import { randomBytes, scrypt as scryptCb, timingSafeEqual } from "crypto";
 import { promisify } from "util";
 import { prisma } from "./prisma";
 import { SESSION_COOKIE, sessionMaxAgeFor, signSession, verifySession } from "./session";
-import { isOwner } from "./owner";
+import { OWNER_EMAIL, isOwner } from "./owner";
 import { coordinatorOr, faultsWorker, NO_DIRECTOR_ACCESS_ROLES, toolsWorkerOr, yardOr, type Role } from "./roles";
 import { UNKNOWN_RANK, rankAtLeast, rankOf } from "./roleRank";
 import { mayReadVariations } from "./variations/rules";
+import { mayReadIncidents, mayReadSiteDocs } from "./siteDocs/rules";
 
 const scrypt = promisify(scryptCb) as (pw: string, salt: Buffer, len: number) => Promise<Buffer>;
 
@@ -157,6 +158,26 @@ export async function guardVariations(): Promise<{ denied: NextResponse } | { us
   const user = await getCurrentUser();
   if (!user) return { denied: NextResponse.json({ error: "Not signed in" }, { status: 401 }) };
   if (!mayReadVariations(user.role)) return { denied: NextResponse.json({ error: "You don't have permission to do that" }, { status: 403 }) };
+  return { user };
+}
+
+// Site documents (/site-documents, /api/site-documents/*, Ilies approved 25 Nov 2026): Managers, Admins (the owner is one)
+// and the coordinator - exactly those, by name (lib/siteDocs/rules.ts mayReadSiteDocs). Never VIEWER, TIMESHEETS,
+// ACCOUNTS, DIRECTOR or YARD. Returns the user (the Building Agent login is refused signatures and writes by the routes).
+export async function guardSiteDocs(): Promise<{ denied: NextResponse } | { user: AuthUser }> {
+  const user = await getCurrentUser();
+  if (!user) return { denied: NextResponse.json({ error: "Not signed in" }, { status: 401 }) };
+  if (!mayReadSiteDocs(user.role)) return { denied: NextResponse.json({ error: "You don't have permission to do that" }, { status: 403 }) };
+  return { user };
+}
+
+// Incident reports (/incidents, /directors/incidents, /api/directors/incidents/*, Ilies 25 Nov 2026): the owner and
+// DIRECTOR logins ONLY (lib/siteDocs/rules.ts mayReadIncidents) - never a Manager, another Admin (even with the director
+// tick), the coordinator, accounts, the yard or the Building Agent. Never by loosening guard() or guardDirector().
+export async function guardIncidents(): Promise<{ denied: NextResponse } | { user: AuthUser }> {
+  const user = await getCurrentUser();
+  if (!user) return { denied: NextResponse.json({ error: "Not signed in" }, { status: 401 }) };
+  if (!mayReadIncidents(user, OWNER_EMAIL)) return { denied: NextResponse.json({ error: "Incident reports are for the owner and the directors only." }, { status: 403 }) };
   return { user };
 }
 

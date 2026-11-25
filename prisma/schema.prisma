@@ -2811,7 +2811,7 @@ model HourMeterEvent {
 // lib/media/.
 model MediaObject {
   id           String    @id @default(cuid())
-  area         String // DAILY_LOG | DELAY | BEFORE_AFTER | FAULT | WALKAROUND | HOUR_METER | VARIATION (docket photos, 25 Nov 2026)
+  area         String // DAILY_LOG | DELAY | BEFORE_AFTER | FAULT | WALKAROUND | HOUR_METER | VARIATION (docket photos, 25 Nov 2026) | INCIDENT (incident report photos, 25 Nov 2026)
   kind         String // PHOTO | VIDEO
   mime         String // the type the phone declared - pinned in the signed upload address
   bytes        Int // the size the phone declared at the start (the caps count this)
@@ -3089,4 +3089,219 @@ model VariationStatusEvent {
 
   @@index([docketId, createdAt])
   @@index([createdAt])
+}
+
+// Site documents (Ilies approved 25 Nov 2026: "yes build it, deploy once it passes") - src/lib/siteDocs/. Everything
+// runs on the supervisor's link (SUPERVISOR, or a HANDOVER link on its own job): plans & drawings (read only), the
+// SWMS with crew sign-on, the daily pre-start meeting, the weekly toolbox talk and the incident report. Crew sign on
+// the supervisor's phone, picked from that job's sign-ins today. Append-only: no update or delete path for a file, a
+// signed record, a signature, a version or an incident (siteDocs.test.ts scans for one); the office's "archive" of a
+// file is its own event row. Plain ids to Job / Project / SiteLink / Resource / SiteAttendance - nothing existing is
+// changed. Nothing here touches sign-ins, timesheets, JobActual or costs (sign-ins are only read to list the crew).
+// No price, rate or amount anywhere.
+
+// An office file: a plan / drawing (PLAN) or a SWMS version (SWMS) for a project, or the PDF of a toolbox talk topic
+// of the week (TOPIC, no project). Stored in SITE_DOC_FILE_DIR (random names), checked by its first bytes (PDF, JPEG,
+// PNG). A new SWMS upload is the next VERSION (1, 2, 3 ... per project); the older ones are kept forever, shown as
+// superseded. Uploaded by a Manager, an Admin (the owner is one) or the coordinator.
+model SiteDocFile {
+  id           String   @id @default(cuid())
+  projectId    String? // PLAN / SWMS: the project; TOPIC: null
+  kind         String // PLAN | SWMS | TOPIC
+  title        String
+  version      Int? // SWMS: 1, 2, 3 ... per project (the unique index decides); null otherwise
+  fileName     String   @unique // the stored name in SITE_DOC_FILE_DIR
+  originalName String
+  mime         String // application/pdf | image/jpeg | image/png
+  bytes        Int
+  sha256       String
+  uploadedById String
+  uploadedBy   String
+  createdAt    DateTime @default(now())
+
+  @@unique([projectId, kind, version])
+  @@index([projectId, kind, createdAt])
+  @@index([kind, createdAt])
+}
+
+// The office archiving a file (hidden from the link, never deleted) - the one status change, kept as its own row:
+// who, when, why. One ARCHIVED row a file (the unique index).
+model SiteDocFileEvent {
+  id        String   @id @default(cuid())
+  fileId    String
+  action    String // ARCHIVED
+  note      String
+  byUserId  String
+  byName    String
+  createdAt DateTime @default(now())
+
+  @@unique([fileId, action])
+  @@index([createdAt])
+}
+
+// One person's sign-on to one SWMS version: picked from the job's sign-ins today (CREW), or the supervisor (SUPERVISOR),
+// ticked "I've read and understand this SWMS", finger signature (a checked PNG, in the database so it's in the nightly
+// backup). One a person a version (personKey: R:<resourceId>, or W:<name>|<company> for a hire worker); a new version
+// needs everyone again.
+model SwmsSignature {
+  id           String   @id @default(cuid())
+  fileId       String // the SWMS version (SiteDocFile kind SWMS)
+  projectId    String
+  version      Int
+  role         String // CREW | SUPERVISOR
+  personKey    String
+  resourceId   String?
+  attendanceId String? // CREW: the sign-in it was picked from
+  name         String
+  company      String?
+  understood   Boolean
+  png          Bytes
+  bytes        Int
+  sha256       String
+  jobId        String
+  siteLinkId   String
+  linkKind     String // SUPERVISOR | HANDOVER
+  runBy        String // the link's person
+  createdAt    DateTime @default(now())
+
+  @@unique([fileId, personKey])
+  @@index([projectId, createdAt])
+  @@index([siteLinkId, createdAt])
+}
+
+// A pre-start meeting (PRESTART, daily - "Pre-start 2" if a second one) or a toolbox talk (TOOLBOX, weekly) on one
+// job, sent from the link with the crew's and the supervisor's signatures. Locked once sent: late arrivals sign on
+// afterwards as new SiteDocSignature rows (late = true), never an edit.
+model SiteDocRecord {
+  id                   String             @id @default(cuid())
+  kind                 String // PRESTART | TOOLBOX
+  seq                  Int // 1, 2 ... per job and kind
+  jobId                String
+  projectId            String?
+  day                  String // YYYY-MM-DD - the job's date
+  week                 String // YYYY-MM-DD - the Monday of that Sydney week
+  projectName          String
+  jobNo                String?
+  content              String // JSON - PRESTART: [{ key, label, notes }]; TOOLBOX: { source, title, officePoints, points, sitePoints }
+  notes                String?
+  topicId              String? // TOOLBOX: the office's topic of the week, when it was used
+  topicTitle           String?
+  supervisorName       String
+  supervisorResourceId String?
+  siteLinkId           String
+  linkKind             String // SUPERVISOR | HANDOVER
+  createdAt            DateTime           @default(now())
+  signatures           SiteDocSignature[]
+
+  @@unique([jobId, kind, seq])
+  @@index([projectId, kind, createdAt])
+  @@index([siteLinkId, createdAt])
+  @@index([kind, week])
+  @@index([createdAt])
+}
+
+// A signature on a pre-start / toolbox talk: each crew member (ticked "I understand") and the supervisor. One a person
+// a record. late = signed on after it was sent.
+model SiteDocSignature {
+  id           String        @id @default(cuid())
+  recordId     String
+  record       SiteDocRecord @relation(fields: [recordId], references: [id], onDelete: Restrict)
+  role         String // CREW | SUPERVISOR
+  personKey    String
+  resourceId   String?
+  attendanceId String?
+  name         String
+  company      String?
+  understood   Boolean
+  late         Boolean       @default(false)
+  png          Bytes
+  bytes        Int
+  sha256       String
+  siteLinkId   String
+  createdAt    DateTime      @default(now())
+
+  @@unique([recordId, personKey])
+  @@index([siteLinkId, createdAt])
+}
+
+// The office's toolbox talk "topic of the week" for every site (title, points, optional PDF - a SiteDocFile TOPIC).
+// Setting it again for the same week is a new row; the newest row for a week is the one used.
+model SiteDocTopic {
+  id        String   @id @default(cuid())
+  week      String // YYYY-MM-DD - the Monday (Sydney week, Monday to Sunday)
+  title     String
+  points    String // JSON list of short lines
+  fileId    String?
+  byUserId  String
+  byName    String
+  createdAt DateTime @default(now())
+
+  @@index([week, createdAt])
+}
+
+// An incident report from the supervisor's link. INC-0001 numbers on send (max + 1, the unique index decides). Seen
+// ONLY by the owner and DIRECTOR logins (/incidents, /directors/incidents) - never Managers, other Admins, the
+// coordinator, accounts, the Building Agent or any link after it's sent (the link keeps the number, date and type).
+// Health details never go to any AI, any push text or any link reply. Immutable once sent; follow-up is IncidentEvent.
+model IncidentReport {
+  id              String             @id @default(cuid())
+  number          Int                @unique
+  jobId           String
+  projectId       String?
+  day             String // YYYY-MM-DD - the job's date
+  projectName     String
+  jobNo           String?
+  type            String // INJURY | NEAR_MISS | HAZARD | PROPERTY_DAMAGE | ENVIRONMENTAL | DANGEROUS
+  treatment       String // NONE | FIRST_AID | MEDICAL | LOST_TIME
+  bodyPart        String
+  occurredAt      DateTime
+  location        String
+  people          String // JSON [{ name, company, staff }] - picked from the job's sign-ins
+  others          String? // typed: others involved (name and company)
+  whatHappened    String
+  immediateAction String
+  witnesses       String?
+  serious         Boolean // the supervisor ticked "serious injury or illness"
+  notifiable      Boolean // the SafeWork prompt applied (dangerous incident, medical treatment, lost time or serious)
+  promptShown     Boolean // the phone showed the red SafeWork box before Send
+  safeworkCalled  String? // YES | NOT_YET | NOT_NEEDED - the supervisor's answer (notifiable only)
+  photoIds        String             @default("[]") // MediaObject ids (area INCIDENT, this link's, READY)
+  supervisorName  String
+  resourceId      String?
+  siteLinkId      String
+  linkKind        String
+  createdAt       DateTime           @default(now())
+  signature       IncidentSignature?
+  events          IncidentEvent[]
+
+  @@index([createdAt])
+  @@index([siteLinkId, createdAt])
+  @@index([projectId, createdAt])
+}
+
+// The supervisor's finger signature on an incident report (a checked PNG).
+model IncidentSignature {
+  id         String         @id @default(cuid())
+  incidentId String         @unique
+  incident   IncidentReport @relation(fields: [incidentId], references: [id], onDelete: Restrict)
+  png        Bytes
+  bytes      Int
+  sha256     String
+  createdAt  DateTime       @default(now())
+}
+
+// The follow-up on an incident (the owner / a DIRECTOR login): append-only notes, each moving the status on -
+// INVESTIGATION / ACTION (Open -> Investigating), CLOSED (-> Closed), REOPENED (Closed -> Investigating).
+model IncidentEvent {
+  id         String         @id @default(cuid())
+  incidentId String
+  incident   IncidentReport @relation(fields: [incidentId], references: [id], onDelete: Restrict)
+  kind       String // INVESTIGATION | ACTION | CLOSED | REOPENED
+  status     String // the status after it: OPEN | INVESTIGATING | CLOSED
+  note       String
+  byUserId   String
+  byName     String
+  createdAt  DateTime       @default(now())
+
+  @@index([incidentId, createdAt])
 }
