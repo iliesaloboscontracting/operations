@@ -7,6 +7,7 @@ import { usePathname } from "next/navigation";
 import { ChevronDown, KeyRound, LogOut } from "lucide-react";
 import { localISODate } from "@/lib/resource";
 import { useAuth } from "./AuthProvider";
+import { isOwner } from "@/lib/owner";
 import FormModal from "./FormModal";
 
 export const PRESTARTS_HREF = "/faults?tab=checks";
@@ -29,6 +30,10 @@ const OPERATIONS = [
   { href: "/bins", label: "Bins" },
   // Variations (25 Nov 2026): variation / day dockets signed on site - Managers and Admins (the coordinator on his screen).
   { href: "/variations", label: "Variations" },
+  // Site documents (25 Nov 2026): plans, SWMS + register, pre-starts, toolbox talks, topic of the week - Managers and Admins.
+  { href: "/site-documents", label: "Site documents" },
+  // Incident reports (25 Nov 2026): the owner only here (filtered below); DIRECTOR logins on the Directors screen.
+  { href: "/incidents", label: "Incidents" },
   { href: "/attendance", label: "Sign-ins" },
   // The truck and plant pre-starts (23 Nov 2026, Ilies couldn't find them under Registers -> Faults): the Checks tab
   // straight away. The same people as before - Managers and Admins here (filtered below), the coordinator and the yard
@@ -109,6 +114,7 @@ const DIRECTORS = [
   { href: "/directors/queries", label: "My queries" },
   { href: "/messages", label: "Messages" },
   { href: "/directors/lessons", label: "Lessons" },
+  { href: "/directors/incidents", label: "Incidents" }, // owner + DIRECTOR logins only (25 Nov 2026) - filtered below
 ];
 const ACCOUNTS = [
   { href: "/accounts", label: "To do" },
@@ -140,6 +146,7 @@ const COORDINATOR = [
   { href: "/hire", label: "Hire" },
   { href: "/bins", label: "Bins" }, // view only (23 Nov 2026)
   { href: "/variations", label: "Variations" }, // signed dockets - he sets the office status (25 Nov 2026)
+  { href: "/site-documents", label: "Site documents" }, // plans, SWMS, pre-starts, toolbox talks (25 Nov 2026) - never incidents
   { href: "/purchases", label: "Purchases" },
   { href: "/messages", label: "Messages" },
   { href: "/documents", label: "Documents" },
@@ -245,7 +252,9 @@ export default function TopNav() {
     : yardOnly ? "yard"
     : isDirector && (isActive("/directors") || (path === "/messages" && fromScreen === "directors")) ? "directors"
     : isAdmin && (isActive("/accounts") || ((path === "/invoices" || path === "/messages") && fromAccounts)) ? "accounts" : null;
-  const screenTabs = screen === "directors" ? DIRECTORS : screen === "accounts" ? ACCOUNTS : screen === "coordinator" ? COORDINATOR : screen === "yard" ? YARD : [];
+  // Incident reports: the owner and DIRECTOR logins only (an Admin with the director tick doesn't get the tab - the API refuses them too).
+  const incidentsOk = !!user && (user.role === "DIRECTOR" || isOwner(user.email));
+  const screenTabs = screen === "directors" ? DIRECTORS.filter((i) => i.href !== "/directors/incidents" || incidentsOk) : screen === "accounts" ? ACCOUNTS : screen === "coordinator" ? COORDINATOR : screen === "yard" ? YARD : [];
   // Overview also covers a job opened from it; every other tab is its own page or below it.
   const tabActive = (href: string) => (href === "/directors" ? path === "/directors" || path.startsWith("/directors/jobs") : href === "/accounts" ? path === "/accounts"
     : href === "/yard" ? path === "/yard" // the stock take is its own tab
@@ -284,7 +293,7 @@ export default function TopNav() {
             <Divider />
           </>
         )}
-        {OPERATIONS.filter((i) => (i.href !== "/tracking" && i.href !== "/invoices" && i.href !== "/assistant" && i.href !== "/attendance" && i.href !== PRESTARTS_HREF && i.href !== "/timesheets" && i.href !== "/timesheets/labour-hire" && i.href !== "/requests" && i.href !== "/office-requests" && i.href !== "/purchases" && i.href !== "/questions" && i.href !== "/messages" && i.href !== "/receipts" && i.href !== "/bins" && i.href !== "/variations" && i.href !== "/documents") || canEdit).filter((i) => i.href !== "/questions" || myQuestions >= 0).map((i) => (
+        {OPERATIONS.filter((i) => (i.href !== "/tracking" && i.href !== "/invoices" && i.href !== "/assistant" && i.href !== "/attendance" && i.href !== PRESTARTS_HREF && i.href !== "/timesheets" && i.href !== "/timesheets/labour-hire" && i.href !== "/requests" && i.href !== "/office-requests" && i.href !== "/purchases" && i.href !== "/questions" && i.href !== "/messages" && i.href !== "/receipts" && i.href !== "/bins" && i.href !== "/variations" && i.href !== "/site-documents" && i.href !== "/incidents" && i.href !== "/documents") || canEdit).filter((i) => i.href !== "/incidents" || incidentsOk).filter((i) => i.href !== "/questions" || myQuestions >= 0).map((i) => (
           <NavTab
             key={i.href}
             href={i.href}
