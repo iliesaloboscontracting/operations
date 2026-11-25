@@ -22,8 +22,12 @@ export const FINDINGS_CONFIG = {
   // The same problem again within this many days of being resolved or
   // verified reopens the same finding; after that it's a new one.
   recurrenceWindowDays: 30,
-  // Only these severities close themselves when the rule stops firing;
-  // the rest get "signal cleared" and wait for a person.
+  // These severities close themselves the moment the rule stops firing. Since
+  // LCI Stage 1 (Ilies, 25 Nov 2026: "approve all defaults") every other
+  // severity closes itself too, once its signal has stayed clear for the
+  // rule's verify window (below) - "Resolved by System: the rule no longer
+  // fires" - except a CRITICAL finding on the Directors screen (Xero
+  // reconnect, Act-level cost), which still waits for a person.
   autoResolveSeverities: ["INFO"] as Priority[],
   // Phone alerts: CRITICAL only, to these logins (Ilies only, until he
   // confirms otherwise - he told the lead "me and Nick", this agent "just me").
@@ -59,3 +63,72 @@ export const DIRECTOR_KINDS: ReadonlySet<string> = new Set([
 export type FindingScreen = "DIRECTORS" | "OPERATIONS";
 export const screenFor = (f: { ruleCode: string; audience: string }): FindingScreen =>
   DIRECTOR_KINDS.has(f.ruleCode) || f.audience === "DIRECTOR" ? "DIRECTORS" : "OPERATIONS";
+
+// ---------- LCI Stage 1 (Ilies, 25 Nov 2026: "approve all defaults") ----------
+// Plan: operations-agent-log/reports/LCI full coverage plan (25 Nov 2026).md, sections 1 and 3.
+
+// Rules taken out of service. Their open findings close with this reason; the
+// rule never fires again. DATE_INACTIVE_HAS_JOBS: "inactive" means "doesn't need
+// attention right now" - jobs are staged and called back (Ilies). A call-back is
+// checked like a start instead (START_NOT_READY on the restart day).
+export const RETIRED_RULES: ReadonlyMap<string, string> = new Map([
+  ["DATE_INACTIVE_HAS_JOBS", "inactive with jobs booked is normal (jobs are staged and called back) - restarts are checked like starts"],
+]);
+
+// Not a site: the Yard and internal test projects never raise a supervisor gap
+// or a missing start date. Matched on the project's name (trimmed, any case).
+export const NOT_A_SITE: readonly RegExp[] = [/^yard$/i, /^test\b/i];
+export const isNotASite = (name: string | null | undefined) => !!name && NOT_A_SITE.some((re) => re.test(name.trim()));
+// A test project's allocations are never a cost gap either (the Yard's still are - its costs are real).
+export const isTestProject = (name: string | null | undefined) => !!name && /^test\b/i.test(name.trim());
+
+export const LCI_RULES = {
+  // DATE_START_MISMATCH: only a difference of more than this many days (staged
+  // starts are normal), and only on projects whose first board day is no older
+  // than recentBoardDays.
+  startMismatchOverDays: 7,
+  startMismatchRecentBoardDays: 60,
+  // A booked day on an inactive project with no running job in this many days
+  // before it is a restart, checked like a start (within the start window).
+  restartGapDays: 14,
+  restartWindowDays: 7,
+  // DATA_UNCOSTED: only allocations from the last 30 days, or on a day not yet closed.
+  uncostedRecentDays: 30,
+} as const;
+
+// The one-off cleanup of stale findings (Decision 2, default yes): the engine's
+// first run after deploy closes what the new rules no longer flag, once, with
+// this reason on every closed finding. Recorded in FindingCleanup (one row per
+// label) so it never runs twice. LCI_CLEANUP=off skips it.
+export const LCI_CLEANUP = { label: "2026-11-25", prefix: "Closed in the 25 Nov cleanup" } as const;
+
+// Outcomes that are a close, not a fix - never auto-verified as "effective".
+//   LAPSED       a dated finding whose day passed before it was fixed
+//   RETIRED      the rule was taken out of service
+//   RULE_CHANGED the cleanup closed it because the new rule no longer flags it
+export const NOT_A_FIX_OUTCOMES: ReadonlySet<string> = new Set(["LAPSED", "RETIRED", "RULE_CHANGED"]);
+
+// The "Needs attention" card (plan section 3.1): at most this many lines,
+// worst first; a rule with groupFrom or more items is one expandable line.
+export const CARD = { maxLines: 8, groupFrom: 3 } as const;
+
+// What the coordinator (Alex) sees on his "For you" card: operational,
+// money-free kinds he can already fix from his own pages (Hire: off-hire /
+// extend). Stage 2 adds tools, faults, bins, sign-ins and site requests.
+export const COORDINATOR_KINDS: ReadonlySet<string> = new Set(["HIRE_OVERDUE"]);
+
+// Kinds whose own module already sends a phone alert: LCI lists them but never
+// pushes them again (plan: "never doubling an existing alert"). None of the
+// Stage 1 kinds do; Stage 2 adds pre-starts, urgent requests and faults here.
+export const MODULE_ALERTED_KINDS: ReadonlySet<string> = new Set<string>([]);
+
+// Kill switches (env). LCI_RULES_OFF=<CODE,CODE>: those rules aren't run and
+// their findings are left exactly as they are (and kept off the card).
+// LCI_CARD=off hides the card; LCI_PUSH=off stops LCI's own operational pushes
+// (the Directors-screen alerts are unchanged); LCI_CLEANUP=off skips the cleanup.
+export const rulesOff = (env: string | undefined = process.env.LCI_RULES_OFF): Set<string> =>
+  new Set((env ?? "").split(",").map((s) => s.trim().toUpperCase()).filter(Boolean));
+const isOff = (v: string | undefined) => (v ?? "").trim().toLowerCase() === "off";
+export const lciCardOn = () => !isOff(process.env.LCI_CARD);
+export const lciPushOn = () => !isOff(process.env.LCI_PUSH);
+export const lciCleanupOn = () => !isOff(process.env.LCI_CLEANUP);

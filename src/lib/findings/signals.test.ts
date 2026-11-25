@@ -47,15 +47,14 @@ test("only live jobs: active, or costed in the last 30 days (Tracking's rule)", 
   assert.deepEqual(s.map((x) => x.subject.id), ["recent"]);
 });
 
-test("DATA_NO_CONTRACT_VALUE from $2k spent; DATA_UNCOSTED with the count", () => {
+test("DATA_NO_CONTRACT_VALUE from $2k spent; a project's uncosted count alone no longer raises DATA_UNCOSTED (grouped by cause - LCI Stage 1)", () => {
   const s = costSignals([
     proj({ id: "a", health: "CANT_ASSESS", contractValue: null, totalCost: 2000 }),
     proj({ id: "b", health: "CANT_ASSESS", contractValue: null, totalCost: 1999.99 }),
     proj({ id: "c", uncostedCount: 3 }),
   ], TODAY, RULES);
-  assert.deepEqual(s.map((x) => `${x.kind}:${x.subject.id}`), ["DATA_NO_CONTRACT_VALUE:a", "DATA_UNCOSTED:c"]);
+  assert.deepEqual(s.map((x) => `${x.kind}:${x.subject.id}`), ["DATA_NO_CONTRACT_VALUE:a"]);
   assert.ok(s.every((x) => x.severity === "INFO" && x.provisional));
-  assert.equal(s[1].values.uncosted, 3);
 });
 
 // ---------- hire ----------
@@ -176,6 +175,7 @@ const fullInputs = (): SignalInputs => ({
   dates: [{ projectId: "b", projectName: "Vaucluse", exceptions: [{ code: "DATE_NO_START", text: "No start date" }, { code: "DATE_JOBS_NO_TIMES", text: "2 upcoming jobs with no start/finish time" }] }],
   starts: [start(1, "2026-10-27", "critical")],
   supervisorGaps: [{ jobId: "j1", projectId: "a", name: "Smith St", date: "2026-10-29", daysAway: 3 }],
+  uncosted: { rates: [{ resourceId: "r1", resourceName: "Tipper", resourceType: "VEHICLE", count: 4, projects: ["Vaucluse"], lastDate: "2026-10-24" }], hours: [{ projectId: "b", projectName: "Vaucluse", count: 2, lastDate: "2026-10-23" }] },
   crewShortDays: [{ date: "2026-10-28", own: 45, hire: 2, short: 3 }],
   crewAvailable: 42,
   daysNotClosed: Array.from({ length: 13 }, (_, i) => `2026-10-${String(i + 1).padStart(2, "0")}`),

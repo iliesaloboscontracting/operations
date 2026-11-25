@@ -9,7 +9,14 @@
 //  - same problem next run -> the same open finding (keyed by dedupeKey);
 //    new evidence only on a severity change or a material move in the values
 //  - rule stops firing: INFO resolves itself; MEDIUM+ is marked "signal
-//    cleared" and stays open for a person - nothing important disappears
+//    cleared", and (LCI Stage 1, 25 Nov 2026) closes itself once it has
+//    stayed clear for the rule's window - except a CRITICAL Directors-screen
+//    finding, which still waits for a person
+//  - a dated finding (key ends in a YYYY-MM-DD day) whose day has passed
+//    closes as LAPSED - "the day has passed", which is not "fixed"
+//  - a retired rule's findings close as RETIRED
+//  - the one-off cleanup run (ctx.cleanup) closes every open finding the new
+//    rules no longer flag, with "Closed in the 25 Nov cleanup: <reason>"
 //  - resolved and clear for the rule's window (1 / 2 / 7 days) -> verified
 //  - fires again before that -> back to Open ("fix didn't take")
 //  - fires again within 30 days of verified -> the same finding reopens
@@ -20,7 +27,7 @@
 import type { Signal } from "./signals";
 import type { Priority } from "../insights/kpis";
 import { daysBetween } from "../dates";
-import { FINDINGS_CONFIG, verifyAfterDays } from "./config";
+import { FINDINGS_CONFIG, LCI_CLEANUP, MODULE_ALERTED_KINDS, NOT_A_FIX_OUTCOMES, RETIRED_RULES, screenFor, verifyAfterDays } from "./config";
 
 export type FindingStatus = "OPEN" | "ACKNOWLEDGED" | "ACTIONED" | "RESOLVED" | "DISMISSED" | "VERIFIED";
 const OPENISH: FindingStatus[] = ["OPEN", "ACKNOWLEDGED", "ACTIONED"];
@@ -42,6 +49,8 @@ export type FindingState = {
   dismissKind: string | null;
   suppressUntil: string | null;
   seenCount: number;
+  audience?: string | null; // decides the screen (a CRITICAL Directors-screen finding waits for a person)
+  outcomeResult?: string | null; // LAPSED / RETIRED / RULE_CHANGED are never auto-verified
 };
 
 export type EventInput = { action: string; fromValue?: string | null; toValue?: string | null; note?: string | null };
@@ -52,7 +61,59 @@ export type Op =
   | { type: "create"; key: string; data: FindingFields; events: EventInput[]; evidence: EvidenceInput[]; alert: boolean }
   | { type: "update"; key: string; id: string; data: FindingFields; events: EventInput[]; evidence: EvidenceInput[]; alert: boolean };
 
-export type RunContext = { now: Date; today: string; sydneyDay: (d: Date) => string };
+// cleanup: the one-off cleanup run (lib/findings/store.ts runs it once, LCI_CLEANUP).
+export type RunContext = { now: Date; today: string; sydneyDay: (d: Date) => string; cleanup?: boolean };
+
+// ---------- closing (LCI Stage 1) ----------
+
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+// The day a dated finding is about (NO_SUPERVISOR, START_NOT_READY, CREW_SHORT: the key's last part), else null.
+export function datedDay(dedupeKey: string): string | null {
+  const last = dedupeKey.split(":").pop() ?? "";
+  return dedupeKey.split(":").length > 3 && ISO_DAY.test(last) ? last : null;
+}
+// A CRITICAL finding on the Directors screen never closes itself.
+const waitsForPerson = (f: FindingState) =>
+  f.severity === "CRITICAL" && screenFor({ ruleCode: f.ruleCode, audience: f.audience ?? "" }) === "DIRECTORS";
+
+export type CloseReason = { outcome: "LAPSED" | "RETIRED" | "RULE_CHANGED" | "EFFECTIVE"; why: string; short: string };
+
+// Why an open finding the rule didn't flag this run should close now - or null to leave it open.
+export function closeReason(f: FindingState, ctx: RunContext, daysClear: number): CloseReason | null {
+  const retired = RETIRED_RULES.get(f.ruleCode);
+  if (retired) return { outcome: "RETIRED", why: `Rule retired: ${retired}`, short: "rule retired" };
+  const day = datedDay(f.dedupeKey);
+  if (day && day < ctx.today) return { outcome: "LAPSED", why: `The day has passed (${day}) - it wasn't fixed in time`, short: "past day" };
+  if (waitsForPerson(f)) return null;
+  if (FINDINGS_CONFIG.autoResolveSeverities.includes(f.severity)) {
+    return ctx.cleanup && !f.signalClearedAt && /^DATA_UNCOSTED:PROJECT:[^:]+$/.test(f.dedupeKey)
+      ? { outcome: "RULE_CHANGED", why: "Regrouped: one item per resource with no rate, instead of one per project", short: "regrouped by cause" }
+      : { outcome: "EFFECTIVE", why: "The rule no longer fires", short: "the rule no longer fires" };
+  }
+  if (ctx.cleanup) {
+    return f.signalClearedAt
+      ? { outcome: "EFFECTIVE", why: "The problem had already gone - the rule no longer fires", short: "the problem had already gone" }
+      : { outcome: "RULE_CHANGED", why: "The new rule no longer flags it", short: "the new rule no longer flags it" };
+  }
+  if (f.signalClearedAt && daysClear >= verifyAfterDays(f.ruleCode)) {
+    return { outcome: "EFFECTIVE", why: `Clear for ${daysClear} day${daysClear === 1 ? "" : "s"} - the rule no longer fires`, short: "the rule no longer fires" };
+  }
+  return null;
+}
+
+function closeOp(f: FindingState, r: CloseReason, ctx: RunContext): Op {
+  const note = ctx.cleanup ? `${LCI_CLEANUP.prefix}: ${r.short} - ${r.why}` : r.why;
+  return {
+    type: "update", key: f.dedupeKey, id: f.id,
+    data: {
+      status: "RESOLVED", openKey: null, resolvedAt: ctx.now, resolvedBy: "System", resolution: note,
+      signalClearedAt: f.signalClearedAt ?? ctx.now, resolvedWhileFiring: false,
+      outcomeResult: r.outcome === "EFFECTIVE" ? null : r.outcome,
+    },
+    events: [{ action: "AUTO_RESOLVED", fromValue: f.status, toValue: r.outcome, note }],
+    evidence: [], alert: false,
+  };
+}
 
 // ---------- helpers ----------
 
@@ -139,7 +200,7 @@ export function planKey(signal: Signal | null, f: FindingState | null, ctx: RunC
       if (f.resolvedWhileFiring) return { type: "update", key, id: f.id, data: base, events: [], evidence: [], alert: false };
       return {
         type: "update", key, id: f.id,
-        data: { ...base, severity: signal.severity, status: "OPEN", openKey: key, signalClearedAt: null, clearRuns: 0 },
+        data: { ...base, severity: signal.severity, status: "OPEN", openKey: key, signalClearedAt: null, clearRuns: 0, outcomeResult: null },
         events: [{ action: "NOT_FIXED", note: "The rule fired again before the fix was verified" }],
         evidence: [metric(signal)],
         alert: pushable(signal.severity),
@@ -171,16 +232,13 @@ export function planKey(signal: Signal | null, f: FindingState | null, ctx: RunC
 
   // ----- the rule did not fire this run -----
   if (OPENISH.includes(f.status)) {
-    if (FINDINGS_CONFIG.autoResolveSeverities.includes(f.severity)) {
-      return {
-        type: "update", key, id: f.id,
-        data: { status: "RESOLVED", openKey: null, resolvedAt: now, resolvedBy: "System", resolution: "The rule no longer fires", signalClearedAt: now, clearRuns: 0, resolvedWhileFiring: false },
-        events: [{ action: "AUTO_RESOLVED", note: "The rule no longer fires" }],
-        evidence: [], alert: false,
-      };
-    }
+    const close = closeReason(f, ctx, daysClear);
+    if (close) return closeOp(f, close, ctx);
     if (!f.signalClearedAt) {
-      return { type: "update", key, id: f.id, data: { signalClearedAt: now, clearRuns: 0 }, events: [{ action: "SIGNAL_CLEARED", note: "The rule no longer fires - a person decides whether it's resolved" }], evidence: [], alert: false };
+      const note = waitsForPerson(f)
+        ? "The rule no longer fires - a person decides whether it's resolved"
+        : `The rule no longer fires - it closes itself after ${verifyAfterDays(f.ruleCode)} day${verifyAfterDays(f.ruleCode) === 1 ? "" : "s"} clear`;
+      return { type: "update", key, id: f.id, data: { signalClearedAt: now, clearRuns: 0 }, events: [{ action: "SIGNAL_CLEARED", note }], evidence: [], alert: false };
     }
     return daysClear !== f.clearRuns ? { type: "update", key, id: f.id, data: { clearRuns: daysClear }, events: [], evidence: [], alert: false } : null;
   }
@@ -188,6 +246,9 @@ export function planKey(signal: Signal | null, f: FindingState | null, ctx: RunC
     if (!f.signalClearedAt) {
       return { type: "update", key, id: f.id, data: { signalClearedAt: now, clearRuns: 0 }, events: [{ action: "SIGNAL_CLEARED" }], evidence: [], alert: false };
     }
+    // A close that isn't a fix (day passed, rule retired or changed) is never verified as effective - and
+    // nothing more is written to it (no daily clear-day counting on a closed record).
+    if (f.outcomeResult && NOT_A_FIX_OUTCOMES.has(f.outcomeResult)) return null;
     if (!f.resolvedWhileFiring && daysClear >= verifyAfterDays(f.ruleCode)) {
       return {
         type: "update", key, id: f.id,
@@ -238,6 +299,40 @@ export function planRun(signals: Signal[], latest: Map<string, FindingState>, ct
     if (op) ops.push(op);
   }
   return ops;
+}
+
+// ---------- LCI Stage 1: the cleanup's counts, and which CRITICAL findings push ----------
+
+export type CleanupCounts = { closed: number; left: number; byRule: Record<string, Record<string, number>> };
+
+// What a cleanup run closed, by rule and reason (the event's toValue: LAPSED / RETIRED / RULE_CHANGED / EFFECTIVE).
+export function cleanupCounts(ops: Op[], ruleOf: Map<string, string>, openBefore: number): CleanupCounts {
+  const byRule: Record<string, Record<string, number>> = {};
+  let closed = 0;
+  for (const o of ops) {
+    if (o.type !== "update") continue;
+    const e = o.events.find((x) => x.action === "AUTO_RESOLVED");
+    if (!e) continue;
+    closed++;
+    const rule = ruleOf.get(o.id) ?? o.key.split(":")[0];
+    const reason = String(e.toValue ?? "EFFECTIVE");
+    byRule[rule] = { ...(byRule[rule] ?? {}), [reason]: (byRule[rule]?.[reason] ?? 0) + 1 };
+  }
+  const opened = ops.filter((o) => o.type === "create" && OPENISH.includes(String(o.data.status) as FindingStatus)).length;
+  return { closed, left: openBefore - closed + opened, byRule };
+}
+
+// Which new / escalated / reopened CRITICAL findings push: Directors-screen
+// kinds as before; Operations-screen kinds too since LCI Stage 1 (Decision 5:
+// CRITICAL only, to the owner only), except a kind whose own module already
+// alerts, and not while LCI_PUSH=off (pushOn false).
+export function alertsDue(ops: Op[], pushOn: boolean): Op[] {
+  return ops.filter((o) => {
+    if (!o.alert) return false;
+    const ruleCode = String(o.data.ruleCode ?? o.key.split(":")[0]);
+    if (screenFor({ ruleCode, audience: String(o.data.audience ?? "") }) === "DIRECTORS") return true;
+    return pushOn && !MODULE_ALERTED_KINDS.has(ruleCode);
+  });
 }
 
 export function summarise(ops: Op[]) {

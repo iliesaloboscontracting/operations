@@ -12,6 +12,7 @@ import type { Confidence, Priority } from "../insights/kpis";
 import { addDays, daysBetween } from "../dates";
 import { assertNoMoney } from "../moneyGuard";
 import { THRESHOLDS } from "../insights/dictionary";
+import type { UncostedInput } from "./lciRules";
 
 // Thresholds Tracking itself uses (exported from lib/trackingData.ts, which
 // is server-only) - passed in, so these functions stay pure and testable.
@@ -106,17 +107,37 @@ export function costSignals(projects: TrackingProject[], today: string, rules: T
         values: { spent: p.totalCost, missing: "contractValue" },
       });
     }
-    if (p.uncostedCount > 0) {
-      out.push({
-        ...base, kind: "DATA_UNCOSTED", dedupeKey: dedupeKeyOf("DATA_UNCOSTED", "PROJECT", p.id),
-        severity: "INFO", audience: "COMMERCIAL",
-        title: `${p.name}: ${plural(p.uncostedCount, "allocation")} can't be costed (rate or hours missing)`,
-        provisional: true, confidence: null,
-        values: { uncosted: p.uncostedCount, missing: "rate or hours" },
-      });
-    }
+    // DATA_UNCOSTED is grouped by cause since LCI Stage 1 (uncostedSignals below) - not one per project.
   }
   return out;
+}
+
+// LCI Stage 1 (25 Nov 2026): allocations that can't be costed, grouped by cause
+// - one finding per resource with no rate (fixed once, on its register), and
+// one per project for allocations with no hours (job times missing). Only the
+// last 30 days, or days not yet closed (lib/findings/lciRules.ts).
+const REGISTER_OF: Record<string, string> = { PERSONNEL: "/labour", EQUIPMENT: "/plant", ATTACHMENT: "/plant", VEHICLE: "/vehicles", HIRE: "/hire" };
+export function uncostedSignals(u: UncostedInput | null | undefined): Signal[] {
+  if (!u) return [];
+  return [
+    ...u.rates.map((r): Signal => ({
+      kind: "DATA_UNCOSTED", subject: { type: "RESOURCE", id: r.resourceId, name: r.resourceName }, projectId: null,
+      dedupeKey: dedupeKeyOf("DATA_UNCOSTED", "RESOURCE", r.resourceId), severity: "INFO", audience: "COMMERCIAL",
+      title: `${r.resourceName} has no rate, so ${plural(r.count, "allocation")} on ${r.projects.slice(0, 3).join(", ")}${r.projects.length > 3 ? ` and ${r.projects.length - 3} more` : ""} can't be costed`,
+      provisional: true, confidence: null,
+      evidence: [{ recordType: "Resource", recordId: r.resourceId, label: r.resourceName }],
+      href: REGISTER_OF[r.resourceType] ?? "/tracking",
+      values: { uncosted: r.count, jobs: r.projects.length, lastDate: r.lastDate, missing: "rate" },
+    })),
+    ...u.hours.map((h): Signal => ({
+      kind: "DATA_UNCOSTED", subject: { type: "PROJECT", id: h.projectId, name: h.projectName }, projectId: h.projectId,
+      dedupeKey: dedupeKeyOf("DATA_UNCOSTED", "PROJECT", h.projectId, "HOURS"), severity: "INFO", audience: "COMMERCIAL",
+      title: `${h.projectName}: ${plural(h.count, "allocation")} can't be costed - the job has no start or finish time`,
+      provisional: true, confidence: null,
+      evidence: [projectRef(h.projectId, h.projectName)], href: `/command?date=${h.lastDate}`,
+      values: { uncosted: h.count, lastDate: h.lastDate, missing: "hours" },
+    })),
+  ];
 }
 
 // ---------- hire, per item ----------
@@ -200,20 +221,25 @@ export function dateSignals(rows: ProjectDateExceptions[]): Signal[] {
 
 // ---------- readiness and people ----------
 
-export function startSignals(starts: StartAlertDTO[]): Signal[] {
+// A restart (LCI Stage 1): the first booked day after a gap on an inactive
+// project, checked like a start - same key shape, so a moved restart is a new problem.
+export function startSignals(starts: (StartAlertDTO & { restart?: boolean })[]): Signal[] {
   return starts.map((s) => ({
     kind: "START_NOT_READY", subject: { type: "PROJECT", id: s.projectId, name: s.name }, projectId: s.projectId,
     // The start date is part of the key: a moved start is a new problem.
     dedupeKey: dedupeKeyOf("START_NOT_READY", "PROJECT", s.projectId, s.startDate),
     severity: s.level === "critical" ? "CRITICAL" : "HIGH", audience: "OPERATIONAL",
-    title: `${s.name} starts ${s.startDate}: ${s.issues.join(", ").toLowerCase()}`,
+    title: `${s.name} ${s.restart ? "restarts" : "starts"} ${s.startDate}: ${s.issues.join(", ").toLowerCase()}`,
     provisional: false, confidence: "HIGH",
     evidence: [projectRef(s.projectId, s.name)], href: `/command?date=${s.startDate}`,
-    values: { startDate: s.startDate, daysAway: s.daysAway, crew: s.crew, plant: s.plant, noJobYet: s.noJobYet },
+    values: { startDate: s.startDate, daysAway: s.daysAway, crew: s.crew, plant: s.plant, noJobYet: s.noJobYet, ...(s.restart ? { restart: true } : {}) },
   }));
 }
 
-export function supervisorSignals(gaps: SupervisorGap[]): Signal[] {
+// NO_SUPERVISOR (LCI Stage 1): one per project-day (lib/findings/lciRules.ts
+// supervisorGapsLci); a single worker alone is INFO "solo on site" - never on
+// the card (Decision 1: only crews of 2 or more raise a gap).
+export function supervisorSignals(gaps: (SupervisorGap & { solo?: boolean; crew?: number })[]): Signal[] {
   return gaps.map((g) => {
     // A project's day; a one-off job (no project) by its own id.
     const subject = g.projectId
@@ -222,11 +248,13 @@ export function supervisorSignals(gaps: SupervisorGap[]): Signal[] {
     return {
       kind: "NO_SUPERVISOR", subject, projectId: g.projectId,
       dedupeKey: dedupeKeyOf("NO_SUPERVISOR", subject.type, subject.id, g.projectId ? g.date : undefined),
-      severity: g.daysAway <= 2 ? "CRITICAL" : "MEDIUM", audience: "OPERATIONAL",
-      title: `${g.name} on ${g.date}: crew booked but no supervisor or lead`,
+      severity: g.solo ? "INFO" : g.daysAway <= 2 ? "CRITICAL" : "MEDIUM", audience: "OPERATIONAL",
+      title: g.solo
+        ? `${g.name} on ${g.date}: one worker on their own (solo on site) - information only`
+        : `${g.name} on ${g.date}: crew booked but no supervisor or lead`,
       provisional: false, confidence: "HIGH",
       evidence: [g.projectId ? projectRef(g.projectId, g.name) : { recordType: "Job", recordId: g.jobId ?? "", label: g.name }],
-      href: `/command?date=${g.date}`, values: { date: g.date, daysAway: g.daysAway },
+      href: `/command?date=${g.date}`, values: { date: g.date, daysAway: g.daysAway, ...(g.crew != null ? { crew: g.crew } : {}), ...(g.solo ? { solo: true } : {}) },
     } satisfies Signal;
   });
 }
@@ -396,8 +424,9 @@ export type SignalInputs = {
   idleHire: IdleHireItem[];
   overdueHire: OverdueHireItem[];
   dates: ProjectDateExceptions[];
-  starts: StartAlertDTO[];
-  supervisorGaps: SupervisorGap[];
+  starts: (StartAlertDTO & { restart?: boolean })[];
+  supervisorGaps: (SupervisorGap & { solo?: boolean; crew?: number })[];
+  uncosted?: UncostedInput | null; // LCI Stage 1: DATA_UNCOSTED grouped by cause
   crewShortDays: CrewDay[];
   crewAvailable: number;
   daysNotClosed: string[];
@@ -425,6 +454,7 @@ const RANK: Record<Priority, number> = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, INFO: 
 export function buildSignals(i: SignalInputs): Signal[] {
   return [
     ...costSignals(i.projects, i.today, i.rules),
+    ...uncostedSignals(i.uncosted),
     ...hireSignals(i.projects, i.idleHire, i.overdueHire, i.today, i.rules),
     ...dateSignals(i.dates),
     ...startSignals(i.starts),

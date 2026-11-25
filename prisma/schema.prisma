@@ -1390,6 +1390,19 @@ model FindingEvent {
   @@index([at])
 }
 
+// LCI Stage 1 (Ilies, 25 Nov 2026: "approve all defaults", Decision 2): the one-off cleanup of stale findings, run once
+// by the engine's first run after deploy (lib/findings/store.ts). One row per cleanup label - so it never runs twice -
+// with what it closed, by reason (JSON counts). Append-only: never updated or deleted. Each closed finding has its own
+// FindingEvent ("Closed in the 25 Nov cleanup: <reason>"); nothing is deleted.
+model FindingCleanup {
+  id      String   @id @default(cuid())
+  label   String   @unique // e.g. 2026-11-25
+  closed  Int
+  left    Int // findings still open after it
+  byRule  String // JSON: { ruleCode: { reason: count } }
+  at      DateTime @default(now())
+}
+
 // Budget approvals from the Directors screen (Task H, 25 Oct 2026). Estimating
 // keeps the budget and its decided status; this is Operations' own record of
 // every decision attempt - which login made it and what Estimating said,
