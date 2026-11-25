@@ -31,7 +31,14 @@ export default {
     t.ok(pg.status === 200 && !/Application error|Unhandled Runtime Error/.test(pg.text), "page /documents as Manager", pg.status);
     // Never on a site link.
     for (const L of [c.links.sup, c.links.office].filter(Boolean)) {
-      t.status(await c.get(c.site(L, "/documents"), null), [404, 405], `site link API /documents (${L === c.links.sup ? "supervisor" : "office"})`);
+      // Since 25 Nov 2026 /api/site/<link>/documents is Site documents (plans, SWMS, pre-starts - checks/109) on a
+      // supervisor's link: it must still never be document SEARCH - no search fields, and the search's own query
+      // parameters return no hits. An office link isn't given site documents at all (404).
+      const who = L === c.links.sup ? "supervisor" : "office";
+      const sd = await c.json(c.site(L, "/documents?q=swms&scope=site"), null);
+      const searchy = sd.body && typeof sd.body === "object" && ["hits", "snippets", "results", "folders", "connected", "documents"].some((k) => k in sd.body);
+      t.ok(L === c.links.sup ? [200, 404, 503].includes(sd.status) && !searchy : sd.status === 404, `site link API /documents (${who}) is not document search`, `${sd.status} ${Object.keys(sd.body ?? {}).join(",")}`);
+      t.status(await c.get(`/api/documents?q=swms&link=${L.secret}`, null), 401, `document search with a ${who} link's secret and no login`);
       const sp = await c.text(c.sitePage(L, "/documents"), null);
       t.ok(sp.status === 404 || !/Document search|\/api\/documents/.test(sp.text), "site link page /documents has no document search", sp.status);
     }

@@ -30,7 +30,7 @@
 // SWMS versions, signatures, records, a topic, incident reports (all kept - append-only), a photo, test phone devices.
 // Links revoked, people switched off and projects completed at the end.
 import { execFileSync } from "node:child_process";
-import { createECDH, randomBytes } from "node:crypto";
+import { createECDH, createHmac, randomBytes } from "node:crypto";
 import { existsSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -80,6 +80,25 @@ export default {
       seen.push([`${method} ${rest}`, text]);
       let j = null; try { j = JSON.parse(text); } catch { /* */ }
       return { status: r.status, body: j, text, headers: r.headers };
+    };
+    // SD-001: a document opens through a ticket - POST .../ticket on the link, then GET the url it gives (no cookie, no
+    // link secret). -> the mint's status, the url and the file reply.
+    const open = async (link, what, id) => {
+      const m = await call("POST", link, `/documents/${what}/${id}/ticket`, {});
+      if (m.status !== 201 || typeof m.body?.url !== "string") return { status: m.status, mint: m.status, url: null };
+      const r = await fetch(c.base + m.body.url, { redirect: "manual" });
+      const text = await r.text().catch(() => "");
+      seen.push([`GET ${m.body.url.slice(0, 20)}`, text.startsWith("%PDF") ? "" : text]);
+      return { status: r.status, mint: m.status, url: m.body.url, text, headers: r.headers };
+    };
+    const getUrl = async (url) => (await fetch(c.base + url, { redirect: "manual" })).status;
+    // A ticket signed here with the test server's AUTH_SECRET (lib/signin.ts makeDocTicket's format) - for expired /
+    // other-link tickets.
+    const secret = c.childEnv?.AUTH_SECRET ?? null;
+    const forge = (kind, fileId, linkId, exp) => {
+      const payload = `SD|${kind}|${fileId}|${linkId}|${exp}`;
+      const macv = createHmac("sha256", `${secret}:site-signin`).update(payload).digest("base64url").slice(0, 22);
+      return `/api/site/doc/${Buffer.from(payload, "utf8").toString("base64url")}.${macv}`;
     };
     try {
       // ---- seed ----
@@ -162,13 +181,33 @@ export default {
       const vj = view0?.jobs?.find?.((j) => j.id === J.id);
       t.ok(!!vj && !view0.jobs.some((j) => j.id === J2.id), "the supervisor sees its own job today, not another supervisor's");
       t.ok(vj?.plans?.length === 1 && vj.plans[0].id === planPId, "the link lists its project's plan - not the archived one, not another project's", JSON.stringify(vj?.plans));
-      const pf = await call("GET", L.sup, `/documents/files/${planPId}`);
+      const pf = await open(L.sup, "files", planPId);
+      t.ok(pf.mint === 201 && /^\/api\/site\/doc\/[A-Za-z0-9_.-]+$/.test(pf.url ?? "") && !pf.url.includes(L.sup.secret), "SD-001: the link gets a ticket address - with no link secret in it", pf.url ?? String(pf.mint));
       t.ok(pf.status === 200 && pf.headers.get("content-type") === "application/pdf" && pf.headers.get("x-content-type-options") === "nosniff" && /^inline; filename="/.test(pf.headers.get("content-disposition") ?? "") && /default-src 'none'/.test(pf.headers.get("content-security-policy") ?? "") && pf.text.startsWith("%PDF-"),
         "the link opens its plan: application/pdf, nosniff, inline, a CSP", `${pf.status} ${pf.headers.get("content-type")} ${pf.headers.get("content-security-policy")}`);
-      t.status((await call("GET", L.sup, `/documents/files/${planQId}`)).status, 404, "another project's plan (cross-project)");
-      t.status((await call("GET", L.sup2, `/documents/files/${planPId}`)).status, 404, "another supervisor's link can't open this project's plan");
-      t.status((await call("GET", L.sup, `/documents/files/${photoPId}`)).status, 404, "an archived plan");
-      t.status((await call("GET", L.sup, `/documents/files/${"z".repeat(25)}`)).status, 404, "a made-up file");
+      t.status((await open(L.sup, "files", planQId)).mint, 404, "another project's plan (cross-project) - no ticket");
+      t.status((await open(L.sup2, "files", planPId)).mint, 404, "another supervisor's link can't get a ticket for this project's plan");
+      t.status((await open(L.sup, "files", photoPId)).mint, 404, "an archived plan - no ticket");
+      t.status((await open(L.sup, "files", "z".repeat(25))).mint, 404, "a made-up file");
+      for (const [name, link] of [["driver", L.driver], ["poster", L.poster], ["office", L.office], ["switched-off", L.off], ["expired hand-over", L.expired]]) t.status((await call("POST", link, `/documents/files/${planPId}/ticket`, {})).status, 404, `SD-001: a ${name} link can't get a ticket`);
+      t.status((await call("GET", L.sup, `/documents/files/${planPId}`)).status, [404, 405], "SD-001: the old token-path file address is gone");
+      t.status(await getUrl(pf.url.slice(0, -2) + (pf.url.endsWith("AA") ? "BB" : "AA")), 404, "SD-001: a tampered ticket");
+      t.status(await getUrl("/api/site/doc/not-a-ticket"), 404, "SD-001: a made-up ticket");
+      if (secret) {
+        t.status(await getUrl(forge("F", planPId, L.sup.id, Date.now() - 1000)), 404, "SD-001: an expired ticket");
+        t.status(await getUrl(forge("F", planPId, L.sup.id, Date.now() + 60 * 60_000)), 404, "SD-001: a ticket for longer than 15 minutes");
+        t.status(await getUrl(forge("F", planPId, L.sup2.id, Date.now() + 60_000)), 404, "SD-001: a well-signed ticket for another link (whose jobs aren't on that project)");
+        t.status(await getUrl(forge("F", planQId, L.sup.id, Date.now() + 60_000)), 404, "SD-001: a well-signed ticket for another project's file");
+        t.status(await getUrl(forge("F", planPId, L.off.id, Date.now() + 60_000)), 404, "SD-001: a well-signed ticket for a switched-off link");
+        t.status(await getUrl(forge("F", planPId, L.sup.id, Date.now() + 60_000)), 200, "...a well-signed one for this link and file opens (the forge matches the server's format)");
+      } else t.note("no AUTH_SECRET in the child env - the expired / other-link ticket cases were not run");
+      // A ticket for a plan archived after it was given out.
+      const latePlan = await up("MANAGER", { projectId: P.id, kind: "PLAN", title: "To be archived", fileName: "late.pdf", dataUrl: dataUrl("application/pdf", PDF("late")) });
+      const lateId = (await latePlan.json().catch(() => ({})))?.file?.id ?? "-";
+      const lateT = await call("POST", L.sup, `/documents/files/${lateId}/ticket`, {});
+      t.status(lateT.status, 201, "a ticket for a new plan");
+      t.status(await c.post(`/api/site-documents/files/${lateId}/archive`, "MANAGER", { note: "Superseded drawing" }), 201, "...the plan is archived");
+      t.status(await getUrl(lateT.body?.url ?? "/api/site/doc/x"), 404, "SD-001: a ticket for a file archived since it was given -> 404");
       const sj = await c.get(`/api/site-documents/files/${photoPId}`, "COORDINATOR");
       t.ok(sj.status === 200 && sj.headers.get("content-type") === "image/jpeg" && /sandbox/.test(sj.headers.get("content-security-policy") ?? ""), "the office still opens the archived JPEG (image/jpeg, sandbox CSP)");
 
@@ -207,11 +246,12 @@ export default {
       t.ok(prj?.currentSwmsId === v2?.id && prj?.swms?.find?.((x) => x.id === v1?.id)?.superseded === true, "the project shows v2 current, v1 superseded");
       const vs = (await call("GET", L.sup, "/documents")).body?.jobs?.find?.((j) => j.id === J.id);
       t.ok(vs?.swms?.id === v2?.id && vs.swms.version === 2 && vs.crew.find((x) => x.id === a1.id)?.swmsSigned === true && vs.crew.find((x) => x.id === a2.id)?.swmsSigned === false, "the link: v2 current, W1 signed, W2 not");
-      t.status((await call("GET", L.sup, `/documents/files/${v1?.id}`)).status, 404, "the link can't open the superseded SWMS");
-      t.status((await call("GET", L.sup, `/documents/files/${v2?.id}`)).status, 200, "...it opens the current one");
+      t.status((await open(L.sup, "files", v1?.id)).mint, 404, "the link can't get a ticket for the superseded SWMS");
+      t.status((await open(L.sup, "files", v2?.id)).status, 200, "...it opens the current one");
       t.status(await c.get(`/site-documents/swms/${v2?.id}`, "MANAGER"), 200, "the A4 sign-on sheet page loads");
       // The coordinator from his dashboard (Ilies, 25 Nov 2026: "allow him to upload documents aswell from his dashboard
       // which the crew get on their apps"): a plan and a new SWMS version, then they're on the supervisor's link.
+      const v2T = await call("POST", L.sup, `/documents/files/${v2?.id}/ticket`, {});
       const cPlan = await up("COORDINATOR", { projectId: P.id, kind: "PLAN", title: `RC coordinator drawing ${tag}`, fileName: "drawing.pdf", dataUrl: dataUrl("application/pdf", PDF("coord plan")) });
       t.status(cPlan, 201, "the coordinator uploads a plan");
       const cPlanId = (await cPlan.json().catch(() => ({})))?.file?.id ?? "-";
@@ -220,8 +260,9 @@ export default {
       t.ok(cSw.status === 201 && v3?.version === 3, "the coordinator uploads a new SWMS version (v3)", JSON.stringify(v3));
       const vc = (await call("GET", L.sup, "/documents")).body?.jobs?.find?.((j) => j.id === J.id);
       t.ok(vc?.plans?.some?.((p) => p.id === cPlanId) && vc?.swms?.id === v3?.id && vc.swms.version === 3 && vc.crew.every((x) => x.swmsSigned === false), "...both show on the supervisor's link for that project (v3 current, nobody signed it yet)");
-      t.status((await call("GET", L.sup, `/documents/files/${cPlanId}`)).status, 200, "...and the supervisor opens the coordinator's plan");
-      t.status((await call("GET", L.sup2, `/documents/files/${cPlanId}`)).status, 404, "...another project's supervisor can't");
+      t.status((await open(L.sup, "files", cPlanId)).status, 200, "...and the supervisor opens the coordinator's plan");
+      t.status((await open(L.sup2, "files", cPlanId)).mint, 404, "...another project's supervisor can't");
+      t.status(await getUrl(v2T.body?.url ?? "/api/site/doc/x"), 404, "SD-001: a ticket for v2, given before v3 was uploaded -> 404 (superseded since)");
       const sum = (await c.json("/api/site-documents?summary=1", "COORDINATOR")).body;
       t.ok(typeof sum?.notSigned === "number" && sum.projects?.some?.((p) => p.id === P.id && p.hasSwms && p.notSigned >= 3), "the coordinator's card summary: people on site today who haven't signed the current SWMS", JSON.stringify(sum?.projects?.find?.((p) => p.id === P.id)));
       for (const who of ["VIEWER", "DIRECTOR", "ACCOUNTS", "YARD"]) t.status(await c.get("/api/site-documents?summary=1", who), 403, `${who} reading the card summary`);
@@ -267,9 +308,10 @@ export default {
       t.status(tp, 201, "the coordinator sets this week's topic with a PDF");
       const vt = (await call("GET", L.sup, "/documents")).body;
       t.ok(vt?.topic?.title === `RC Silica dust ${tag}` && vt.topic.points.length === 2 && vt.topic.hasPdf === true, "the link sees the topic of the week");
-      const tf = await call("GET", L.sup, `/documents/topic/${vt?.topic?.id}`);
+      const tf = await open(L.sup, "topic", vt?.topic?.id);
       t.ok(tf.status === 200 && tf.headers.get("content-type") === "application/pdf", "the link opens the topic PDF");
-      t.status((await call("GET", L.sup, `/documents/topic/${"q".repeat(25)}`)).status, 404, "another topic id");
+      t.status((await open(L.sup, "topic", "q".repeat(25))).mint, 404, "another topic id - no ticket");
+      t.status((await call("POST", L.driver, `/documents/topic/${vt?.topic?.id}/ticket`, {})).status, 404, "SD-001: a driver link can't get a topic ticket");
       const tb = await rec(L.sup, { kind: "TOOLBOX", jobId: J.id, source: "OFFICE", topicId: vt?.topic?.id, points: "Went through wet cutting", sitePoints: "Level 3 slab saw", crew: [{ attendanceId: a2.id, understood: true, signature: sig() }], supervisorSignature: sig() });
       t.ok(tb.status === 201 && tb.body?.record?.label === "Toolbox talk" && tb.body.record.title === `RC Silica dust ${tag}`, "a toolbox talk on the topic of the week", `${tb.status} ${tb.body?.error ?? ""}`);
       t.status((await rec(L.sup, { kind: "TOOLBOX", jobId: J.id, source: "OFFICE", topicId: "x".repeat(25), points: "abc", crew: [], supervisorSignature: sig() })).status, 409, "a stale topic of the week");
@@ -327,6 +369,10 @@ export default {
       t.ok(row2?.notifiable === true && row2.promptShown === true && row2.safeworkCalled === "NOT_YET" && row2.linkKind === "HANDOVER", "the prompt and the answer are recorded");
       const lv = await call("GET", L.sup, "/documents");
       t.ok(lv.body?.incidents?.some?.((x) => x.number === num1) && lv.body.incidents.every((x) => Object.keys(x).sort().join() === "day,number,sentAt,type") && !lv.text.includes(`RC secret words ${tag}`), "the link's list: number, date and type only - never the words");
+      for (const [label, url] of [["list", "/api/directors/incidents"], ["detail", `/api/directors/incidents/${iid}`]]) {
+        const r = await c.get(url, "OWNER");
+        t.ok(r.status === 200 && /no-store/.test(r.headers.get("cache-control") ?? ""), `SD-004: the incident ${label} is sent no-store`, r.headers.get("cache-control") ?? "");
+      }
       for (const who of INC_YES) {
         t.status(await c.get("/api/directors/incidents", who), 200, `${who} lists incident reports`);
         t.status(await c.get(`/api/directors/incidents/${iid}`, who), 200, `${who} opens one`);
@@ -444,16 +490,21 @@ export default {
           `const i = await import(${JSON.stringify(fileUrl("src/app/api/site/[token]/documents/incident/route.ts"))});`,
           `const m = await import(${JSON.stringify(fileUrl("src/app/api/site/[token]/documents/media/[op]/route.ts"))});`,
           `const h = await import(${JSON.stringify(fileUrl("src/app/api/site/[token]/route.ts"))});`,
+          `const tk = await import(${JSON.stringify(fileUrl("src/app/api/site/[token]/documents/files/[id]/ticket/route.ts"))});`,
+          `const dg = await import(${JSON.stringify(fileUrl("src/app/api/site/doc/[ticket]/route.ts"))});`,
+          `const tkr = await tk.POST(new Request("http://x/", { method: "POST", body: "{}" }), { params: Promise.resolve({ token: ${JSON.stringify(L.sup.secret)}, id: ${JSON.stringify(planPId)} }) });`,
+          `const dgr = await dg.GET(new Request("http://x/"), { params: Promise.resolve({ ticket: "x.y" }) });`,
           `const g = await v.GET(new Request("http://x/"), ctx); const p = await r.POST(new Request("http://x/", { method: "POST", body: "{}" }), ctx);`,
           `const ip = await i.POST(new Request("http://x/", { method: "POST", body: "{}" }), ctx);`,
           `const ms = await m.POST(new Request("http://x/", { method: "POST", body: "{}" }), { params: Promise.resolve({ token: ${JSON.stringify(L.sup.secret)}, op: "start" }) });`,
           `const home = await (await h.GET(new Request("http://x/"), ctx)).json();`,
           `const off = await import(${JSON.stringify(fileUrl("src/lib/siteDocs/office.ts"))});`,
           `const list = await off.officeProjects(); const one = await off.officeProject(${JSON.stringify(P.id)});`,
-          `console.log("RESULT " + JSON.stringify({ g: g.status, gBody: await g.json(), p: p.status, ip: ip.status, ms: ms.status, homeHas: "siteDocs" in home, homePerson: home.person, office: { list: list.some((x) => x.id === ${JSON.stringify(P.id)}), one: one?.project?.id === ${JSON.stringify(P.id)} } })); process.exit(0);`,
+          `console.log("RESULT " + JSON.stringify({ tk: tkr.status, dg: dgr.status, g: g.status, gBody: await g.json(), p: p.status, ip: ip.status, ms: ms.status, homeHas: "siteDocs" in home, homePerson: home.person, office: { list: list.some((x) => x.id === ${JSON.stringify(P.id)}), one: one?.project?.id === ${JSON.stringify(P.id)} } })); process.exit(0);`,
         ]);
         t.ok(k?.g === 503 && k?.p === 503 && k?.ip === 503 && k?.ms === 503 && /switched off/.test(k?.gBody?.error ?? ""), "SITE_DOCS=off: the link routes 503 with plain words", JSON.stringify(k));
         t.ok(k?.homePerson === S.name && k?.homeHas === false, "...and the link's home has no Site documents tile");
+        t.ok(k?.tk === 503 && k?.dg === 503, "SD-001: SITE_DOCS=off - a ticket can't be got (503) and a ticket address 503", JSON.stringify({ tk: k?.tk, dg: k?.dg }));
         t.ok(k?.office?.list === true && k.office.one === true, "...the office still reads", JSON.stringify(k?.office));
       } else t.block("no tsx in the candidate's node_modules - the alert and the kill switch couldn't be run");
 

@@ -4,6 +4,7 @@
 //
 //   npm run release-check -- --snapshot <path to a SQLite copy of live data> [--app <checkout>] [--port 3001]
 //                            [--accept-data-loss] [--out <report folder>] [--keep-build] [--no-audit] [--only a,b]
+//                            [--allow-incidents]   (SD-002: a snapshot is prepped first - prep-snapshot.mjs)
 //
 // It copies the snapshot to <app>/prisma/test.db, writes a test .env (no phone-alert, Xero, Graph, AI or
 // server-to-server keys), records row counts, runs `prisma db push` (stops on any data-loss warning), creates
@@ -22,6 +23,7 @@ import { makeContext, makeTally } from "./lib/context.mjs";
 import { startServer, stopServer } from "./lib/server.mjs";
 import { childEnv, compareCounts, copySnapshot, dbPush, ENV_MARKER, makeLinks, makeSpecialUsers, makeUsers, paths, prismaFor, refusals, rowCounts, writeEnv } from "./lib/setup.mjs";
 import { npmCommand, run, scrub, sha256File, sydneyDate } from "./lib/util.mjs";
+import { isClean, sensitiveRows } from "./lib/prep.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const { values: o } = parseArgs({
@@ -29,6 +31,7 @@ const { values: o } = parseArgs({
     snapshot: { type: "string" }, app: { type: "string" }, port: { type: "string", default: "3001" }, out: { type: "string" },
     "accept-data-loss": { type: "boolean", default: false }, "keep-build": { type: "boolean", default: false },
     "no-audit": { type: "boolean", default: false }, "skip-build": { type: "boolean", default: false }, only: { type: "string" }, help: { type: "boolean", default: false },
+    "allow-incidents": { type: "boolean", default: false }, // SD-002: only with the release owner's say-so
   },
   allowPositionals: false,
 });
@@ -60,6 +63,12 @@ const git = (args, dir = appDir) => run("git", ["-C", dir, ...args], { timeoutMs
 
 // ---- 0. refuse anything unsafe --------------------------------------------------------------------------------
 const refused = refusals(p, { snapshot: o.snapshot, port });
+// SD-002 (Ilies approved 26 Nov 2026): no incident reports or signature images in a test copy.
+if (!refused.length && !o["allow-incidents"]) {
+  let s = null;
+  try { s = sensitiveRows(o.snapshot); } catch (e) { refused.push(`Couldn't read the snapshot to check it for incident / signature data: ${String(e?.message ?? e).slice(0, 120)}`); }
+  if (s && !isClean(s)) refused.push(`The snapshot still has incident reports or signature images (${Object.entries(s).filter(([, n]) => n).map(([t, n]) => `${t}: ${n}`).join(", ")}). Copy it and run \`node scripts/release-check/prep-snapshot.mjs <the copy>\` first, then use the copy (or pass --allow-incidents only with the release owner's say-so).`);
+}
 if (refused.length) {
   for (const r of refused) console.error("REFUSED: " + r);
   rmSync(runTmp, { recursive: true, force: true });
