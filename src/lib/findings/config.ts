@@ -46,8 +46,9 @@ export function verifyAfterDays(ruleCode: string): number {
 // directors' box shouldn't show operational outstanding matters). Director-
 // level kinds go on the Directors overview; every other kind is operational -
 // stored, but not listed anywhere (the Operations "Attention" page was removed
-// 25 Oct 2026: Ilies, "all other tabs flag and raise the issues") and never
-// pushed as an alert. Move a kind between
+// 25 Oct 2026: Ilies, "all other tabs flag and raise the issues") - since LCI
+// Stage 1 (25 Nov 2026) they're on the board's "Needs attention" card
+// (lib/findings/card.ts), and a CRITICAL one pushes to the owner. Move a kind between
 // screens by adding it to or taking it off this list. Anything with the
 // DIRECTOR audience always stays on the Directors screen. Display and
 // permission routing only - the engine and the findings don't change.

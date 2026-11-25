@@ -699,6 +699,28 @@ business, without becoming unnecessarily complicated.
   off, nothing deleted, history in RecordChange). Max 25 on the list incl. built-ins (PS-068), names tidied and
   "Other"/blank refused (PS-069). `hireCompanies` (names only) on GET /api/site/in/[code]. Release check
   `89-hire-company-list`.
+- **LCI Stage 1 - findings cleanup + "Needs attention" card** (25 Nov 2026, Ilies "approve all defaults"; plan
+  `operations-agent-log/reports/LCI full coverage plan (25 Nov 2026).md`; `src/lib/findings/`):
+  - Engine: a finding whose signal stays clear for its verify window (1 / 2 / 7 days) closes itself, any severity -
+    except a CRITICAL Directors-screen one (a person decides). Dated findings close as LAPSED once their day passes
+    (not "fixed", never verified); a retired rule's as RETIRED (`RETIRED_RULES`: DATE_INACTIVE_HAS_JOBS - inactive
+    with jobs is normal; restarts on inactive projects are checked like starts).
+  - Rule fixes (findings only - the Directors overview and the Projects page keep their own lists, `lciRules.ts`):
+    NO_SUPERVISOR per project-day, crews of 2+ only (a solo worker is INFO), never the Yard / TEST (`NOT_A_SITE`) or a
+    one-off job; DATE_START_MISMATCH only over 7 days on projects first booked in the last 60 days; DATE_NO_START not
+    for the Yard / TEST; DATA_UNCOSTED one per resource with no rate / per project with no hours (last 30 days or
+    days not closed).
+  - One-off cleanup: the engine's first run after deploy, recorded once in `FindingCleanup` (label 2026-11-25), each
+    close a FindingEvent "Closed in the 25 Nov cleanup: <reason>"; nothing deleted. On the 24 Nov copy (run 25 Nov) it
+    closed 143 of 153.
+  - Card: `/api/findings/card` (`card.ts`) - the owner / Admins / Managers on the board under Pre-starts today
+    (Operations-screen only, worst first, 3+ of a rule grouped, 8 lines + drawer, INFO under "Data gaps", plain
+    starts left to the board's own strip); the coordinator a money-free "For you" card on /coordinator
+    (`COORDINATOR_KINDS`: HIRE_OVERDUE), Done / Snooze only (`coordinatorMayAct`); every other login 403. Snooze =
+    accepted risk to a date + reason, Done = resolve + reason (still firing -> stays, marked).
+  - CRITICAL Operations-screen findings push to the owner only, never a kind whose module already alerts
+    (`MODULE_ALERTED_KINDS`). Kill switches: `LCI_RULES_OFF=<codes>`, `LCI_CARD=off`, `LCI_PUSH=off`,
+    `LCI_CLEANUP=off`. Release check `107-lci-stage1`. Stages 2-3 (new rules, Accounts lines, Monday push) not built.
 - **Money-guard principle:** crew-facing/operational views (day sheets, Day
   Review, the Yard) never carry dollar figures — enforced at both the
   TypeScript type level (narrow DTOs with no money fields) and via a runtime
