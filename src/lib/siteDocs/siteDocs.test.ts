@@ -10,6 +10,7 @@ import {
   BODY_PARTS, INCIDENT_TYPES, LIMITS, PRESTART_TOPICS, SAFEWORK_PROMPT, TREATMENTS, allDifferent, alertRecipients, allocateNumber, crewList, currentSwms,
   fileHeaders, incidentAlert, incidentEvent, incidentNo, incidentStatus, isNotifiable, linkMayUse, linkSafe, mayReadIncidents, mayReadSiteDocs, mondayOf,
   parseArchive, parseFileMeta, parseIncident, parseRecord, parseSignOn, parseTopic, personKey, pickCrew, pickable, safeFileName, siteDocsOn, weekOf,
+  lateSignOnJobs, newSwmsAlert, newSwmsRecipients, scrubbedError, signedAfterSignOut,
   type CrewRow,
 } from "./rules";
 import { checkUpload, readSignature, sniffFile } from "./checks";
@@ -426,4 +427,111 @@ test("the kill switch SITE_DOCS=off; every link reply is checked for money", () 
   for (const f of filesUnder(path.join(__dirname, "..", "..", "app", "api", "site-documents"))) assert.doesNotMatch(readFileSync(f, "utf8"), /siteDocsOn/);
   const home = readFileSync(path.join(__dirname, "..", "..", "app", "api", "site", "[token]", "route.ts"), "utf8");
   assert.match(home, /linkMayUse\(link\) && siteDocsOn\(\) \? \{ siteDocs: await tileState\(link\) \} : \{\}/);
+});
+
+// ---------- security fixes and decisions (Ilies approved SD-001..SD-006, SD-009, SD-010, 26 Nov 2026) ----------
+
+process.env.AUTH_SECRET ??= "unit-test-secret-0123456789abcdef";
+test("SD-001: a document ticket is bound to the kind, the file and the link, lasts at most 15 minutes, can't be forged", async () => {
+  const { makeDocTicket, readDocTicket, DOC_TICKET_MAX_MS } = await import("../signin");
+  const t0 = 1_000_000;
+  const t = makeDocTicket("F", id(31), id(41), t0);
+  assert.deepEqual(readDocTicket(t, t0 + 60_000), { kind: "F", fileId: id(31), linkId: id(41) });
+  assert.equal(readDocTicket(t, t0 + 11 * 60_000), null, "expired after 10 minutes");
+  assert.ok(DOC_TICKET_MAX_MS <= 15 * 60_000);
+  const [p, m] = t.split(".");
+  const forged = Buffer.from(Buffer.from(p, "base64url").toString("utf8").replace(id(41), id(42))).toString("base64url");
+  assert.equal(readDocTicket(`${forged}.${m}`, t0), null, "another link's id with the old signature");
+  assert.equal(readDocTicket(`${p}.${m.slice(0, -1)}x`, t0), null, "a tampered signature");
+  assert.equal(readDocTicket("nonsense", t0), null);
+  assert.ok(/^[A-Za-z0-9_.-]+$/.test(t), "URL-safe");
+  const route = readFileSync(path.join(__dirname, "..", "..", "app", "api", "site", "[token]", "documents", "files", "[id]", "ticket", "route.ts"), "utf8");
+  assert.match(route, /url: `\/api\/site\/doc\/\$\{makeDocTicket\("F", id, link\.id\)\}`/, "the ticket address holds the link's id, never its secret");
+  const doc = readFileSync(path.join(__dirname, "..", "..", "app", "api", "site", "doc", "[ticket]", "route.ts"), "utf8");
+  assert.match(doc, /readDocTicket\(/);
+  assert.match(doc, /await linkById\(t\.linkId\)/);
+  assert.match(doc, /await linkMayOpen\(link, t\.kind, t\.fileId\)/, "the file checks are run again when it's opened");
+  assert.match(doc, /if \(!siteDocsOn\(\)\) return off\(\)/);
+  for (const old of [["files", "[id]", "route.ts"], ["topic", "[id]", "route.ts"]]) {
+    assert.throws(() => readFileSync(path.join(__dirname, "..", "..", "app", "api", "site", "[token]", "documents", ...old)), /ENOENT/, `the old token-path ${old[0]} route is gone`);
+  }
+});
+
+test("SD-003: a failed incident save logs no typed text - the database's code only", async () => {
+  const typed = "Joe crushed two fingers on his left hand";
+  const dbErr = Object.assign(new Error(`Invalid \`prisma.incidentReport.create()\` invocation: { whatHappened: "${typed}" }`), { code: "P2003" });
+  const e = scrubbedError("Saving an incident report", dbErr);
+  assert.equal(e.message, "Saving an incident report failed (P2003)");
+  assert.ok(!String(e.stack).includes(typed) && !("cause" in e && (e as { cause?: unknown }).cause));
+  assert.equal(scrubbedError("x", new TypeError(typed)).message, "x failed (TypeError)");
+  // Through the route wrapper that logs failures: nothing typed reaches the log.
+  const { withErrorHandling } = await import("../apiHandler");
+  const { NextRequest } = await import("next/server");
+  const logged: string[] = [];
+  const orig = console.error;
+  console.error = (...a: unknown[]) => { logged.push(a.map((x) => (x instanceof Error ? `${x.message}\n${x.stack}` : String(x))).join(" ")); };
+  try {
+    const h = withErrorHandling(async () => { throw scrubbedError("Saving an incident report", dbErr); });
+    const res = await h(new NextRequest("http://x/api/site/abcdefghijklmnopqrstuvwxyz/documents/incident", { method: "POST" }), {});
+    assert.equal(res.status, 500);
+  } finally { console.error = orig; }
+  assert.ok(logged.length > 0 && logged.every((l) => !l.includes(typed) && !l.includes("Joe")), logged.join("|"));
+  const inc = readFileSync(path.join(__dirname, "incidents.ts"), "utf8");
+  assert.match(inc, /\} catch \(e\) \{\s*throw scrubbedError\("Saving an incident report", e\);/);
+});
+
+test("SD-004: the incident routes are never cached", () => {
+  const src = path.join(__dirname, "..", "..", "app", "api", "directors", "incidents");
+  for (const rel of [["route.ts"], ["[id]", "route.ts"], ["[id]", "photo", "[mediaId]", "route.ts"]]) assert.match(readFileSync(path.join(src, ...rel), "utf8"), /"Cache-Control", "no-store"|"Cache-Control": "no-store"/, rel.join("/"));
+});
+
+test("SD-005: a signature made after the person signed out is flagged (nothing stored)", () => {
+  const out = new Date("2026-11-25T05:00:00Z");
+  assert.equal(signedAfterSignOut(new Date("2026-11-25T05:30:00Z"), out), true);
+  assert.equal(signedAfterSignOut(new Date("2026-11-25T04:59:00Z"), out), false);
+  assert.equal(signedAfterSignOut(new Date("2026-11-25T05:30:00Z"), null), false, "still signed in");
+  const office = readFileSync(path.join(__dirname, "office.ts"), "utf8");
+  assert.match(office, /afterSignOut: s\.afterSignOut \}\)\)\)/, "the SWMS register carries it");
+  assert.match(office, /\(await withAfterSignOut\(r\.signatures\)\)/, "the record carries it");
+});
+
+test("SD-006: the report says the phone reported the SafeWork box was shown", () => {
+  const ui = readFileSync(path.join(__dirname, "..", "..", "components", "incidents", "Incidents.tsx"), "utf8");
+  assert.match(ui, /Phone reported the SafeWork box was shown/);
+  assert.doesNotMatch(ui, /The supervisor was shown/);
+  assert.match(readFileSync(path.join(__dirname, "incidents.ts"), "utf8"), /phoneReportedPromptShown: d\.promptShown/);
+});
+
+test("SD-010: a late arrival joins that week's toolbox talk any day of the week on that project; a pre-start same day only", () => {
+  const jobs = [
+    { id: id(1), projectId: id(70), day: "2026-11-27" }, // Friday, same project
+    { id: id(2), projectId: id(71), day: "2026-11-27" }, // another project
+    { id: id(3), projectId: id(70), day: "2026-11-30" }, // next Monday
+  ];
+  const tbx = { kind: "TOOLBOX", jobId: id(9), projectId: id(70), week: "2026-11-23" };
+  assert.deepEqual(lateSignOnJobs(tbx, jobs).map((j) => j.id), [id(1)], "Friday's job on the same project, not next week's or another project's");
+  assert.deepEqual(lateSignOnJobs({ ...tbx, projectId: null, jobId: id(1) }, jobs).map((j) => j.id), [id(1)], "no project: the same job only");
+  assert.deepEqual(lateSignOnJobs({ kind: "PRESTART", jobId: id(9), projectId: id(70), week: "2026-11-23" }, jobs), [], "a pre-start stays on its own job (day)");
+  assert.deepEqual(lateSignOnJobs({ kind: "PRESTART", jobId: id(1), projectId: id(70), week: "2026-11-23" }, jobs).map((j) => j.id), [id(1)]);
+  assert.match(readFileSync(path.join(__dirname, "store.ts"), "utf8"), /const jobs = lateSignOnJobs\(rec, await docJobs\(link, now\)\)/);
+});
+
+test("new SWMS alert: the supervisors booked on the project today + 7 days and those jobs' hand-over links; words only", () => {
+  const jobs = [{ id: id(1), crewIds: [id(500), id(501)] }, { id: id(2), crewIds: [id(502)] }];
+  const links = [
+    { id: "sup500", kind: "SUPERVISOR", resourceId: id(500), jobId: null }, { id: "sup502", kind: "SUPERVISOR", resourceId: id(502), jobId: null },
+    { id: "sup999", kind: "SUPERVISOR", resourceId: id(999), jobId: null }, { id: "hand1", kind: "HANDOVER", resourceId: id(777), jobId: id(1) },
+    { id: "hand9", kind: "HANDOVER", resourceId: id(777), jobId: id(9) }, { id: "drv500", kind: "DRIVER", resourceId: id(500), jobId: null },
+    { id: "off500", kind: "OFFICE", resourceId: id(500), jobId: null }, { id: "post", kind: "POSTER", resourceId: null, jobId: id(1) },
+  ];
+  assert.deepEqual(newSwmsRecipients(jobs, links).sort(), ["hand1", "sup500", "sup502"]);
+  const m = newSwmsAlert("Bondi Rd strip-out", 3);
+  assert.equal(m?.body, "New SWMS for Bondi Rd strip-out (v3) - get the crew to sign it at the next pre-start.");
+  assert.equal(m?.url, "?go=docs");
+  assert.ok(!newSwmsAlert("$450 job", 2)?.body.includes("$"));
+  const office = readFileSync(path.join(__dirname, "office.ts"), "utf8");
+  assert.match(office, /void alertNewSwms\(m\.projectId, row\.version \?\? 1\)/, "sent after a SWMS upload, never holding it up");
+  assert.match(office, /date: \{ gte: new Date\(`\$\{today\}T00:00:00\.000Z`\), lte: until \}/);
+  assert.match(office, /pushToSiteLinks\(to, msg/);
+  assert.match(office, /where: liveLinks\(/, "live links only");
 });

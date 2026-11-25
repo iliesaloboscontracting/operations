@@ -9,5 +9,6 @@ import { incidentList } from "@/lib/siteDocs/incidents";
 export const GET = withErrorHandling(async () => {
   const g = await guardIncidents();
   if ("denied" in g) return g.denied;
-  return NextResponse.json(await incidentList());
+  // SD-004: never kept by a browser or anything shared on the way.
+  return NextResponse.json(await incidentList(), { headers: { "Cache-Control": "no-store" } });
 });

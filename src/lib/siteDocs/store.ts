@@ -15,7 +15,7 @@ import { MEDIA_LIMITS } from "../media/rules";
 import { readSiteDocFile } from "./files";
 import { readSignature, type Signature } from "./checks";
 import {
-  LIMITS, SAME_SIGNATURE, allDifferent, allocateNumber, crewList, currentSwms, linkMayUse, mondayOf, parseRecord, parseSignOn, personKey, pickCrew,
+  LIMITS, SAME_SIGNATURE, allDifferent, allocateNumber, crewList, currentSwms, lateSignOnJobs, linkMayUse, mondayOf, parseRecord, parseSignOn, personKey, pickCrew,
   recordLabel, sydneyDay, topicLabel, type CrewRow, type PrestartInput, type ToolboxInput,
 } from "./rules";
 
@@ -184,7 +184,7 @@ export async function tileState(link: ResolvedLink, now = new Date()): Promise<{
 
 // A plan (not archived) or the CURRENT SWMS of a project this link has a job on today - or null. Never another
 // project's file, never a superseded or archived one, never a topic file (see topicFile).
-export async function linkFile(link: ResolvedLink, fileId: string, now = new Date()) {
+export async function linkFile(link: ResolvedLink, fileId: string, now = new Date(), read = true) {
   if (!/^[a-z0-9]{10,40}$/.test(fileId)) return null;
   const f = await prisma.siteDocFile.findUnique({ where: { id: fileId }, select: { id: true, projectId: true, kind: true, title: true, fileName: true, mime: true } });
   if (!f || !f.projectId || (f.kind !== "PLAN" && f.kind !== "SWMS")) return null;
@@ -192,18 +192,34 @@ export async function linkFile(link: ResolvedLink, fileId: string, now = new Dat
   if (!jobs.some((j) => j.projectId === f.projectId)) return null;
   if ((await archivedIds([f.id])).size) return null;
   if (f.kind === "SWMS" && (await projectSwms(f.projectId)).current?.id !== f.id) return null;
-  return { ...f, bytes: await readSiteDocFile(f.fileName) };
+  return { ...f, bytes: read ? await readSiteDocFile(f.fileName) : Buffer.alloc(0) };
 }
-// This week's topic PDF only.
-export async function topicFile(topicId: string, now = new Date()) {
+// This week's topic PDF only (any link that may use site documents - the topic is for every site).
+export async function topicFile(topicId: string, now = new Date(), read = true) {
   if (!/^[a-z0-9]{10,40}$/.test(topicId)) return null;
   const t = await topicFor(mondayOf(sydneyDay(now)));
   if (!t || t.id !== topicId || !t.fileId) return null;
   const f = await prisma.siteDocFile.findUnique({ where: { id: t.fileId }, select: { kind: true, title: true, fileName: true, mime: true } });
   if (!f || f.kind !== "TOPIC") return null;
-  return { ...f, bytes: await readSiteDocFile(f.fileName) };
+  return { ...f, bytes: read ? await readSiteDocFile(f.fileName) : Buffer.alloc(0) };
 }
 
+// SD-001: the link a document ticket was made for, by its id - the same rules as resolveLink (lib/siteLinks.ts): not
+// switched off, a hand-over link not past its day and with its job, a person's link whose person is still active, and
+// only SUPERVISOR / HANDOVER (linkMayUse). Never by the secret - the ticket address doesn't carry it.
+export async function linkById(id: string): Promise<ResolvedLink | null> {
+  if (!/^[a-z0-9]{10,40}$/.test(id)) return null;
+  const l = await prisma.siteLink.findUnique({ where: { id }, select: { id: true, kind: true, revokedAt: true, jobId: true, expiresAt: true, resource: { select: { id: true, name: true, active: true } } } });
+  if (!l || l.revokedAt || !l.resource || !l.resource.active) return null;
+  if (l.kind !== "SUPERVISOR" && l.kind !== "HANDOVER") return null;
+  if (l.kind === "HANDOVER" && (!l.expiresAt || l.expiresAt < new Date() || !l.jobId)) return null;
+  const link: ResolvedLink = { id: l.id, kind: l.kind, jobId: l.jobId, person: { id: l.resource.id, name: l.resource.name }, shared: false, toolboxes: [] };
+  return linkMayUse(link) ? link : null;
+}
+// May this link open this file right now? (Before a ticket is made, and again when it's used.)
+export async function linkMayOpen(link: ResolvedLink, kind: "F" | "T", id: string, now = new Date(), read = true) {
+  return kind === "F" ? linkFile(link, id, now, read) : topicFile(id, now, read);
+}
 // ---------- caps ----------
 
 async function todayCount(kind: "swms" | "records" | "lateSignOns" | "incidents", linkId: string, now: Date) {
@@ -335,17 +351,24 @@ export async function sendRecord(link: ResolvedLink, body: Record<string, unknow
 }
 
 // POST on the link: a late arrival signs on to a sent pre-start / toolbox talk - an added signature (late), never an
-// edit. The record's job must be one of this link's today; the person one of that job's sign-ins, not already on it.
+// edit. A pre-start: its own job, one of this link's today (same day). A toolbox talk (SD-010, Ilies 26 Nov 2026: "any
+// day that week"): any day of that Sydney week, on that job's project, while this link has a job there that day. The
+// person: one of that day's sign-ins on it, not already on the record.
 export async function lateSignOn(link: ResolvedLink, recordId: string, body: Record<string, unknown>, now = new Date()): Promise<{ record: LinkRecordDTO } | Fail> {
   if (!linkMayUse(link)) return { error: "This link can't do that.", status: 403 };
   if (!/^[a-z0-9]{10,40}$/.test(recordId)) return { error: "not found", status: 404 };
-  const rec = await prisma.siteDocRecord.findUnique({ where: { id: recordId }, select: { id: true, jobId: true } });
+  const rec = await prisma.siteDocRecord.findUnique({ where: { id: recordId }, select: { id: true, jobId: true, kind: true, projectId: true, week: true } });
   if (!rec) return { error: "not found", status: 404 };
-  const job = await docJob(link, rec.jobId, now);
-  if (!job) return { error: "That isn't one of your jobs today.", status: 403 };
+  const jobs = lateSignOnJobs(rec, await docJobs(link, now));
+  if (!jobs.length) return { error: rec.kind === "TOOLBOX" ? "That toolbox talk isn't on one of your jobs this week." : "That isn't one of your jobs today.", status: 403 };
   const p = parseSignOn(body, { allowSupervisor: false });
   if ("error" in p) return { error: p.error, status: 400 };
-  const c = pickCrew(await crewOf(job.id, link.person.id), p.attendanceId);
+  let job = jobs[0];
+  let c: Awaited<ReturnType<typeof crewOf>>[number] | { error: string } = { error: "Pick the person from today's crew." };
+  for (const j of jobs) {
+    c = pickCrew(await crewOf(j.id, link.person.id), p.attendanceId);
+    if (!("error" in c)) { job = j; break; }
+  }
   if ("error" in c) return { error: c.error, status: 400 };
   const sig = readSignature(p.signature, crewName(c));
   if ("error" in sig) return { error: sig.error, status: 400 };

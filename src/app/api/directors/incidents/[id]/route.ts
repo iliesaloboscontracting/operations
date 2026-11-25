@@ -10,5 +10,5 @@ export const GET = withErrorHandling(async (_req: NextRequest, { params: paramsP
   if ("denied" in g) return g.denied;
   const d = await incidentDetail((await paramsP).id);
   if (!d) return NextResponse.json({ error: "not found" }, { status: 404 });
-  return NextResponse.json({ incident: d });
+  return NextResponse.json({ incident: d }, { headers: { "Cache-Control": "no-store" } }); // SD-004
 });

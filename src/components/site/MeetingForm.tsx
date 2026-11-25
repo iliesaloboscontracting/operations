@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Check, ChevronLeft, Loader2, Send, UserPlus } from "lucide-react";
 import { serverErrorMessage } from "@/lib/apiFetch";
 import SignaturePad from "./SignaturePad";
+import { openDoc } from "./openDoc";
 import { CrewPicker, SignOnPanel, card, h2, input, primary, secondary } from "./CrewSignOn";
 import { LIMITS, PRESTART_TOPICS } from "@/lib/siteDocs/rules";
 import type { LinkJobDTO, LinkRecordDTO, LinkViewDTO } from "@/lib/siteDocs/store";
@@ -107,7 +108,7 @@ export function MeetingForm({ api, view, job, kind, onCancel, onSent }: { api: s
             <div className="rounded-xl border border-edge/70 bg-panel2/40 p-3">
               <p className="font-semibold text-gray-100">{view.topic.title}</p>
               {view.topic.points.length > 0 && <ul className="mt-1 list-disc pl-5 text-sm text-gray-300">{view.topic.points.map((p, i) => <li key={i}>{p}</li>)}</ul>}
-              {view.topic.hasPdf && <a className="mt-2 inline-block text-sm text-brand-300 underline" href={`${api}/documents/topic/${view.topic.id}`} target="_blank" rel="noreferrer">Open the topic PDF</a>}
+              {view.topic.hasPdf && <button type="button" className="mt-2 inline-block text-sm text-brand-300 underline" onClick={async () => { if (view.topic) setError(await openDoc(api, "topic", view.topic.id)); }}>Open the topic PDF</button>}
             </div>
           ) : (
             <input className={input} maxLength={LIMITS.title} placeholder="Topic - e.g. Working at heights" value={title} onChange={(e) => setTitle(e.target.value)} />

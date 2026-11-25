@@ -13,7 +13,7 @@ import { readSignature } from "./checks";
 import { crewOf, docJob, jsonList, overCap, serial } from "./store";
 import {
   EVENT_LABEL, STATUS_LABEL, alertRecipients, allocateNumber, incidentAlert, incidentEvent, incidentNo, incidentStatus, linkMayUse, parseIncident,
-  personKey, pickCrew, safeworkLabel, siteDocsOn, treatmentLabel, typeLabel, type EventKind, type IncidentStatus,
+  personKey, pickCrew, safeworkLabel, scrubbedError, siteDocsOn, treatmentLabel, typeLabel, type EventKind, type IncidentStatus,
 } from "./rules";
 
 type Fail = { error: string; status: number };
@@ -44,7 +44,11 @@ export async function sendIncident(link: ResolvedLink, body: Record<string, unkn
   }
   const made = await serial(async (): Promise<{ id: string; number: number } | Fail> => {
     if (await overCap("incidents", link.id, now)) return { error: "That's a lot of reports today - call the office.", status: 429 };
-    const { number, row } = await allocateNumber(
+    // SD-003 (Ilies approved 26 Nov 2026): a failed save is rethrown with the database's code only - the error a
+    // database gives can quote the row, and nothing typed on the report (health details) may reach a log.
+    let made: { number: number; row: { id: string } };
+    try {
+      made = await allocateNumber(
       async () => (await prisma.incidentReport.aggregate({ _max: { number: true } }))._max.number ?? 0,
       (number) => prisma.incidentReport.create({
         data: {
@@ -57,8 +61,11 @@ export async function sendIncident(link: ResolvedLink, body: Record<string, unkn
         },
         select: { id: true, number: true, day: true, type: true, createdAt: true },
       }),
-    );
-    return { id: row.id, number };
+      );
+    } catch (e) {
+      throw scrubbedError("Saving an incident report", e);
+    }
+    return { id: made.row.id, number: made.number };
   });
   if ("error" in made) return made;
   // The alert never holds up (or fails) the send.
@@ -86,7 +93,9 @@ export type IncidentRowDTO = {
 };
 export type IncidentDetailDTO = IncidentRowDTO & {
   bodyPart: string; location: string; people: { name: string; company: string | null; staff: boolean }[]; others: string | null;
-  whatHappened: string; immediateAction: string; witnesses: string | null; serious: boolean; promptShown: boolean; photoIds: string[];
+  whatHappened: string; immediateAction: string; witnesses: string | null; serious: boolean;
+  phoneReportedPromptShown: boolean; // SD-006: what the phone said - the red SafeWork box was on its screen before Send
+  photoIds: string[];
   linkKind: string; hasSignature: boolean;
   events: { kind: string; label: string; status: string; note: string; by: string; at: string }[];
 };
@@ -121,7 +130,7 @@ export async function incidentDetail(id: string): Promise<IncidentDetailDTO | nu
   return {
     ...row(d, incidentStatus(events)),
     bodyPart: d.bodyPart, location: d.location, people, others: d.others, whatHappened: d.whatHappened, immediateAction: d.immediateAction, witnesses: d.witnesses,
-    serious: d.serious, promptShown: d.promptShown, photoIds: jsonList(d.photoIds), linkKind: d.linkKind, hasSignature: !!d.signature,
+    serious: d.serious, phoneReportedPromptShown: d.promptShown, photoIds: jsonList(d.photoIds), linkKind: d.linkKind, hasSignature: !!d.signature,
     events: events.map((e) => ({ kind: e.kind, label: EVENT_LABEL[e.kind as EventKind] ?? e.kind, status: STATUS_LABEL[e.status as IncidentStatus] ?? e.status, note: e.note, by: e.byName, at: e.createdAt.toISOString() })),
   };
 }

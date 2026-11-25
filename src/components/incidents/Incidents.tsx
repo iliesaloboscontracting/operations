@@ -94,7 +94,7 @@ export function IncidentDetail({ id, back }: { id: string; back: string }) {
           {d.notifiable && (
             <div className="keep mb-4 border-2 border-red-700 p-2 text-sm">
               <div className="font-bold text-red-700">May be notifiable to SafeWork NSW</div>
-              <div className="text-xs text-gray-700">The supervisor was shown: &quot;{SAFEWORK_PROMPT}&quot;</div>
+              <div className="text-xs text-gray-700">Phone reported the SafeWork box was shown: <span className="font-semibold">{d.phoneReportedPromptShown ? "yes" : "no"}</span>. The box says: &quot;{SAFEWORK_PROMPT}&quot;</div>
               <div className="mt-1">Has SafeWork been called? <span className="font-semibold">{d.safework}</span>{d.serious ? " · ticked serious injury or illness" : ""}</div>
             </div>
           )}

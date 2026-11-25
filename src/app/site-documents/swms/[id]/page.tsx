@@ -62,7 +62,7 @@ export default function SwmsSheetPage({ params: paramsP }: { params: Promise<{ i
             {r.signatures.map((s, i) => (
               <tr key={s.id}>
                 <td className={td}>{i + 1}</td>
-                <td className={td}>{s.name}{s.role === "SUPERVISOR" ? " (supervisor)" : ""}</td>
+                <td className={td}>{s.name}{s.role === "SUPERVISOR" ? " (supervisor)" : ""}{s.afterSignOut ? <span className="block text-[10px] font-semibold text-red-700">Signed after they signed out</span> : null}</td>
                 <td className={td}>{s.company ?? (s.role === "SUPERVISOR" ? "Lobos" : "")}</td>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <td className={td}>{r.signaturesHidden ? <span className="italic text-gray-500">Signature hidden</span> : <img src={`/api/site-documents/swms/signature/${s.id}`} alt={`${s.name} signature`} className="h-12 w-auto max-w-full object-contain" />}</td>

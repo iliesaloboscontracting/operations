@@ -8,11 +8,13 @@ import { createHash } from "crypto";
 import { prisma } from "../prisma";
 import { todaySydney } from "../today";
 import { BUILDING_AGENT_EMAIL } from "../session";
+import { pushToSiteLinks } from "../push";
+import { liveLinks } from "../pushLinks";
 import { checkUpload } from "./checks";
 import { newFileName, readSiteDocFile, writeSiteDocFile } from "./files";
 import { crewOf, jsonList, projectSwms, serial, sydneyMidnight } from "./store";
 import {
-  LIMITS, allocateNumber, isAgentEmail, isRecordKind, mondayOf, parseArchive, parseFileMeta, parseTopic, personKey, recordLabel, safeFileName, sydneyDay, topicLabel,
+  LIMITS, allocateNumber, isAgentEmail, newSwmsAlert, newSwmsRecipients, signedAfterSignOut, siteDocsOn, isRecordKind, mondayOf, parseArchive, parseFileMeta, parseTopic, personKey, recordLabel, safeFileName, sydneyDay, topicLabel,
 } from "./rules";
 
 type Fail = { error: string; status: number };
@@ -24,6 +26,15 @@ async function archivedMap(ids: string[]) {
   if (!ids.length) return new Map<string, { note: string; by: string; at: string }>();
   const ev = await prisma.siteDocFileEvent.findMany({ where: { fileId: { in: ids }, action: "ARCHIVED" }, select: { fileId: true, note: true, byName: true, createdAt: true } });
   return new Map(ev.map((e) => [e.fileId, { note: e.note, by: e.byName, at: e.createdAt.toISOString() }]));
+}
+
+// SD-005 (Ilies approved 26 Nov 2026, detective only): a crew signature made after that person's sign-in was signed out
+// is flagged ("signed after they signed out") - the sign-in is only read; nothing is stored or refused.
+async function withAfterSignOut<T extends { attendanceId: string | null; createdAt: Date }>(sigs: T[]): Promise<(T & { afterSignOut: boolean })[]> {
+  const ids = [...new Set(sigs.map((s) => s.attendanceId).filter((x): x is string => !!x))];
+  const outs = ids.length ? await prisma.siteAttendance.findMany({ where: { id: { in: ids } }, select: { id: true, signOutAt: true } }) : [];
+  const by = new Map(outs.map((a) => [a.id, a.signOutAt]));
+  return sigs.map((s) => ({ ...s, afterSignOut: s.attendanceId ? signedAfterSignOut(s.createdAt, by.get(s.attendanceId)) : false }));
 }
 
 // ---------- projects ----------
@@ -116,6 +127,8 @@ export async function uploadFile(who: Who, body: Record<string, unknown>): Promi
       async () => (await prisma.siteDocFile.aggregate({ where: { projectId: m.projectId, kind: "SWMS" }, _max: { version: true } }))._max.version ?? 0,
       (version) => prisma.siteDocFile.create({ data: { ...data, version }, select: { id: true, version: true } }),
     );
+    // The supervisors on the project today and the next 7 days are told on their phones (never holds up the upload).
+    void alertNewSwms(m.projectId, row.version ?? 1).catch((e) => console.error("swms alert", e instanceof Error ? e.message : "failed"));
     return { file: row };
   });
 }
@@ -152,13 +165,13 @@ export async function swmsRegister(fileId: string) {
   if (!f || f.kind !== "SWMS" || !f.projectId) return null;
   const [p, sigs, sw] = await Promise.all([
     prisma.project.findUnique({ where: { id: f.projectId }, select: { id: true, name: true, jobNo: true, address: true } }),
-    prisma.swmsSignature.findMany({ where: { fileId }, orderBy: { createdAt: "asc" }, select: { id: true, role: true, name: true, company: true, createdAt: true, runBy: true, understood: true } }),
+    prisma.swmsSignature.findMany({ where: { fileId }, orderBy: { createdAt: "asc" }, select: { id: true, role: true, name: true, company: true, createdAt: true, runBy: true, understood: true, attendanceId: true } }),
     projectSwms(f.projectId),
   ]);
   return {
     file: { id: f.id, title: f.title, version: f.version, uploadedAt: f.createdAt.toISOString(), uploadedBy: f.uploadedBy, current: sw.current?.id === f.id, archived: sw.archived.has(f.id) },
     project: p,
-    signatures: sigs.map((s) => ({ id: s.id, role: s.role, name: s.name, company: s.company, at: s.createdAt.toISOString(), runBy: s.runBy, understood: s.understood })),
+    signatures: await withAfterSignOut(sigs).then((xs) => xs.map((s) => ({ id: s.id, role: s.role, name: s.name, company: s.company, at: s.createdAt.toISOString(), runBy: s.runBy, understood: s.understood, afterSignOut: s.afterSignOut }))),
     notSigned: sw.current?.id === f.id ? await notSignedToday(f.projectId, f.id) : [],
   };
 }
@@ -183,7 +196,7 @@ export async function recordDetail(id: string, who: Who) {
     where: { id },
     select: {
       id: true, kind: true, seq: true, day: true, week: true, projectId: true, projectName: true, jobNo: true, content: true, notes: true, topicTitle: true, supervisorName: true, linkKind: true, createdAt: true,
-      signatures: { orderBy: { createdAt: "asc" }, select: { id: true, role: true, name: true, company: true, understood: true, late: true, createdAt: true } },
+      signatures: { orderBy: { createdAt: "asc" }, select: { id: true, role: true, name: true, company: true, understood: true, late: true, createdAt: true, attendanceId: true } },
     },
   });
   if (!r) return null;
@@ -198,7 +211,7 @@ export async function recordDetail(id: string, who: Who) {
     notes: r.notes, supervisor: r.supervisorName, linkKind: r.linkKind, sentAt: r.createdAt.toISOString(),
     topics,
     toolbox: tb ? { source: tb.source === "OFFICE" ? "OFFICE" : "OWN", title: tb.title ?? r.topicTitle ?? "", officePoints: Array.isArray(tb.officePoints) ? tb.officePoints.filter((x) => typeof x === "string") : [], points: tb.points ?? "", sitePoints: tb.sitePoints ?? null } : null,
-    signatures: r.signatures.map((s) => ({ id: s.id, role: s.role, name: s.name, company: s.company, understood: s.understood, late: s.late, at: s.createdAt.toISOString() })),
+    signatures: (await withAfterSignOut(r.signatures)).map((s) => ({ id: s.id, role: s.role, name: s.name, company: s.company, understood: s.understood, late: s.late, at: s.createdAt.toISOString(), afterSignOut: s.afterSignOut })),
     signaturesHidden: isAgent(who),
   };
 }
@@ -269,4 +282,32 @@ export async function officeSummary() {
     projects.push({ id: pid, notSigned: n, hasSwms: !!cur });
   }
   return { today, projectsToday: pids.length, noSwms, notSigned, projects };
+}
+
+// ---------- the new SWMS alert (Ilies, 26 Nov 2026) ----------
+
+// "New SWMS for <project> (v3) - get the crew to sign it at the next pre-start." to the live SUPERVISOR links of the
+// people booked on the project's jobs today and the next 7 days, and those jobs' hand-over links - their own phones
+// (the existing link push, lib/push.ts pushToSiteLinks; a link with no phone turned on gets nothing). Words only. ->
+// devices reached. SITE_DOCS=off: none.
+export async function alertNewSwms(projectId: string, version: number, now = new Date()): Promise<number> {
+  if (!siteDocsOn()) return 0;
+  const p = await prisma.project.findUnique({ where: { id: projectId }, select: { name: true } });
+  if (!p) return 0;
+  const msg = newSwmsAlert(p.name, version);
+  if (!msg) return 0;
+  const today = sydneyDay(now);
+  const until = new Date(`${today}T00:00:00.000Z`); until.setUTCDate(until.getUTCDate() + 7);
+  const jobs = await prisma.job.findMany({
+    where: { projectId, cancelledAt: null, status: { notIn: ["INACTIVE", "STOOD_DOWN", "CANCELLED", "COMPLETED"] }, date: { gte: new Date(`${today}T00:00:00.000Z`), lte: until } },
+    select: { id: true, assignments: { select: { resourceId: true } } }, take: 200,
+  });
+  if (!jobs.length) return 0;
+  const crewIds = [...new Set(jobs.flatMap((j) => j.assignments.map((a) => a.resourceId)))];
+  const links = await prisma.siteLink.findMany({
+    where: liveLinks({ OR: [{ kind: "SUPERVISOR", resourceId: { in: crewIds } }, { kind: "HANDOVER", jobId: { in: jobs.map((j) => j.id) } }] }, now),
+    select: { id: true, kind: true, resourceId: true, jobId: true },
+  });
+  const to = newSwmsRecipients(jobs.map((j) => ({ id: j.id, crewIds: j.assignments.map((a) => a.resourceId) })), links);
+  return to.length ? pushToSiteLinks(to, msg, "normal") : 0;
 }

@@ -101,7 +101,7 @@ function ProjectPanel({ projectId }: { projectId: string }) {
               <a className="min-w-0 flex-1 text-brand-300 hover:underline" href={`/api/site-documents/files/${f.id}`} target="_blank" rel="noreferrer">{f.title}</a>
               <span className={`rounded-full px-2 py-0.5 text-xs ${f.current ? "bg-emerald-500/15 text-emerald-300" : f.archived ? "bg-gray-500/15 text-gray-400" : "bg-amber-500/15 text-amber-300"}`}>{f.current ? "Current" : f.archived ? "Archived" : "Superseded"}</span>
               <Link className="text-xs text-brand-300 hover:underline" href={`/site-documents/swms/${f.id}`}>{f.signed} signed · register / print</Link>
-              {!f.archived && <ArchiveButton id={f.id} onDone={load} />}
+              {!f.archived && <ArchiveButton id={f.id} onDone={load} warning={f.current ? swmsArchiveWarning(f.version, d.swms) : undefined} />}
             </li>
           ))}
           {d.swms.length === 0 && <li className="py-2 text-sm text-gray-500">No SWMS yet.</li>}
@@ -135,10 +135,19 @@ function FileList({ files, onChanged }: { files: Project["plans"]; onChanged: ()
   );
 }
 
-function ArchiveButton({ id, onDone }: { id: string; onDone: () => void }) {
+// SD-009 (Ilies, 26 Nov 2026: warn, keep signatures): archiving the CURRENT SWMS says which version becomes current again.
+function swmsArchiveWarning(version: number | null, all: Project["swms"]) {
+  const prev = all.filter((x) => !x.archived && (x.version ?? 0) < (version ?? 0)).sort((a, b) => (b.version ?? 0) - (a.version ?? 0))[0];
+  return prev
+    ? `This is the current SWMS (v${version}). Archiving it makes v${prev.version} current again on the supervisors' links - the signatures already on v${prev.version} stay valid, and anyone who only signed v${version} will need to sign v${prev.version}.`
+    : `This is the current SWMS (v${version}) and there's no earlier one - archiving it leaves this project with no SWMS on the links.`;
+}
+
+function ArchiveButton({ id, onDone, warning }: { id: string; onDone: () => void; warning?: string }) {
   const [busy, setBusy] = useState(false);
   return (
     <button disabled={busy} className="inline-flex items-center gap-1 text-xs text-gray-400 hover:text-amber-300 disabled:opacity-50" onClick={async () => {
+      if (warning && !window.confirm(warning)) return;
       const note = window.prompt("Why archive it? (It's hidden from the links, never deleted.)");
       if (!note) return;
       setBusy(true);

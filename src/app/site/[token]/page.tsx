@@ -71,6 +71,8 @@ export default function SitePhotosPage({ params: paramsP }: { params: Promise<{ 
   useEffect(() => {
     const go = new URLSearchParams(window.location.search).get("go");
     // ?go=yard - a new yard job alert on the yard's link; ?go=requests - "ready for collection" (4 Nov 2026).
+    // ?go=docs - "New SWMS for <project>" (Ilies, 26 Nov 2026): straight to Site documents.
+    if (go === "docs") { window.location.href = `${window.location.pathname.replace(/\/+$/, "")}/documents`; return; }
     if (go === "signin" || go === "log" || go === "purchases" || go === "yard" || go === "requests") {
       setMode(go);
       window.history.replaceState(null, "", window.location.pathname);

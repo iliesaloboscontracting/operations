@@ -411,3 +411,51 @@ export function parseArchive(b: Record<string, unknown>): { note: string } | Err
 export function currentSwms<T extends { id: string; version: number | null }>(versions: T[], archived: Set<string>): T | null {
   return [...versions].filter((v) => !archived.has(v.id) && v.version != null).sort((a, b) => (b.version ?? 0) - (a.version ?? 0))[0] ?? null;
 }
+
+// ---------- late sign-ons (SD-010, Ilies 26 Nov 2026) ----------
+
+// The link's jobs today a late sign-on may use for a sent record: a pre-start - its own job only (same day); a toolbox
+// talk - any of the link's jobs that day on the same project (or the same job, with no project) in the record's Sydney
+// week (Monday to Sunday).
+export function lateSignOnJobs<J extends { id: string; projectId: string | null; day: string }>(
+  rec: { kind: string; jobId: string; projectId: string | null; week: string }, jobs: J[],
+): J[] {
+  if (rec.kind !== "TOOLBOX") return jobs.filter((j) => j.id === rec.jobId);
+  return jobs.filter((j) => (rec.projectId ? j.projectId === rec.projectId : j.id === rec.jobId) && mondayOf(j.day) === rec.week);
+}
+
+// ---------- signed after signing out (SD-005, detective only) ----------
+
+// A signature made after the person's sign-in on the job was signed out - flagged on the office's register and record
+// (someone may have signed for them). Nothing is stored or refused.
+export const signedAfterSignOut = (signedAt: Date, signOutAt: Date | null | undefined) => !!signOutAt && signedAt.getTime() > signOutAt.getTime();
+
+// ---------- the new SWMS alert (Ilies, 26 Nov 2026) ----------
+
+// "New SWMS for <project> (v3) - get the crew to sign it at the next pre-start." to the supervisors' links booked on
+// the project today and the next 7 days. Words only, no money; opens the link's Site documents.
+export function newSwmsAlert(projectName: string, version: number) {
+  const msg = {
+    title: "New SWMS",
+    body: `New SWMS for ${linkLabel(projectName, "your job")} (v${version}) - get the crew to sign it at the next pre-start.`.slice(0, 160),
+    url: "?go=docs",
+    tag: `swms-${version}`,
+  };
+  return linkSafe(msg) ? msg : null;
+}
+// Which links: a SUPERVISOR link of someone booked on one of those jobs, or a HANDOVER link for one of them - live ones
+// only (the caller loads them with lib/pushLinks.ts liveLinks). One each.
+export function newSwmsRecipients(jobs: { id: string; crewIds: string[] }[], links: { id: string; kind: string; resourceId: string | null; jobId: string | null }[]): string[] {
+  const crew = new Set(jobs.flatMap((j) => j.crewIds));
+  const jobIds = new Set(jobs.map((j) => j.id));
+  return [...new Set(links.filter((l) => (l.kind === "SUPERVISOR" && !!l.resourceId && crew.has(l.resourceId)) || (l.kind === "HANDOVER" && !!l.jobId && jobIds.has(l.jobId))).map((l) => l.id))];
+}
+
+// ---------- scrubbed errors (SD-003) ----------
+
+// A failed save never carries what was typed into a log: only the database's error code or the error's name.
+export function scrubbedError(what: string, e: unknown): Error {
+  const code = (e as { code?: unknown } | null)?.code;
+  const name = e instanceof Error ? e.name : typeof e;
+  return new Error(`${what} failed (${typeof code === "string" && /^[A-Z0-9_]{1,12}$/.test(code) ? code : /^[A-Za-z]{1,40}$/.test(name) ? name : "error"})`);
+}

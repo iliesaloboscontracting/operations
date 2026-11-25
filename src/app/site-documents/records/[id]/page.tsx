@@ -76,7 +76,7 @@ export default function RecordPage({ params: paramsP }: { params: Promise<{ id: 
           <tbody>
             {r.signatures.map((s) => (
               <tr key={s.id}>
-                <td className={td}>{s.name}{s.role === "SUPERVISOR" ? " (supervisor)" : ""}{s.late ? <span className="block text-[10px] font-semibold text-red-700">Late sign-on</span> : null}</td>
+                <td className={td}>{s.name}{s.role === "SUPERVISOR" ? " (supervisor)" : ""}{s.late ? <span className="block text-[10px] font-semibold text-red-700">Late sign-on</span> : null}{s.afterSignOut ? <span className="block text-[10px] font-semibold text-red-700">Signed after they signed out</span> : null}</td>
                 <td className={td}>{s.company ?? (s.role === "SUPERVISOR" ? "Lobos" : "")}</td>
                 <td className={td}>{s.understood ? "✓" : ""}</td>
                 {/* eslint-disable-next-line @next/next/no-img-element */}

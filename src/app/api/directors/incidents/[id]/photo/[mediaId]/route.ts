@@ -12,5 +12,7 @@ export const GET = withErrorHandling(async (req: NextRequest, { params: paramsP 
   if ("denied" in g) return g.denied;
   const { id, mediaId } = await paramsP;
   if (!(await incidentHasPhoto(id, mediaId))) return NextResponse.json({ error: "not found" }, { status: 404 });
-  return mediaResponse(mediaRef(mediaId), req);
+  const res = await mediaResponse(mediaRef(mediaId), req);
+  res.headers.set("Cache-Control", "no-store"); // SD-004
+  return res;
 });

@@ -164,6 +164,24 @@ export function readTravelPassIssued(pass: unknown, deviceId: unknown, now = Dat
   return kind === "P" && resourceId && dev === deviceId.slice(0, 64) && Number(exp) >= now ? { resourceId, issuedAt: Number(exp) - PASS_MS } : null;
 }
 
+// --- site documents: a short-lived ticket to open one file (SD-001, Ilies approved 26 Nov 2026) ---------------------
+// A supervisor's phone asks for it on its link (POST .../documents/files/:id/ticket); the file then opens at
+// /api/site/doc/<ticket> - an address WITHOUT the link's secret in it, so a forwarded or remembered file address
+// never gives the link away. Bound to the kind (F = a plan / SWMS, T = this week's topic PDF), the file and the link,
+// 10 minutes. The GET re-checks everything (the link still active, the file still current) - this only says who asked.
+const DOC_TICKET_MS = 10 * 60_000;
+export const DOC_TICKET_MAX_MS = 15 * 60_000;
+export function makeDocTicket(kind: "F" | "T", fileId: string, linkId: string, now = Date.now()) {
+  return sign(`SD|${kind}|${fileId}|${linkId}|${now + DOC_TICKET_MS}`);
+}
+export function readDocTicket(ticket: unknown, now = Date.now()): { kind: "F" | "T"; fileId: string; linkId: string } | null {
+  const p = unsign(ticket);
+  if (!p) return null;
+  const [k, kind, fileId, linkId, exp] = p.split("|");
+  const e = Number(exp);
+  if (k !== "SD" || (kind !== "F" && kind !== "T") || !fileId || !linkId || !Number.isFinite(e)) return null;
+  return e >= now && e - now <= DOC_TICKET_MAX_MS ? { kind, fileId, linkId } : null;
+}
 // --- which jobs are open for sign-in -----------------------------------------
 // Today's running jobs, plus last night's night shift (crew sign out after
 // midnight). Stood-down / inactive / completed jobs don't take sign-ins.

@@ -6,6 +6,7 @@ import { serverErrorMessage } from "@/lib/apiFetch";
 import { CrewPicker, SignOnPanel, card, h2, primary, secondary } from "./CrewSignOn";
 import { MeetingForm, SentRecord } from "./MeetingForm";
 import IncidentForm from "./IncidentForm";
+import { openDoc } from "./openDoc";
 import { typeLabel } from "@/lib/siteDocs/rules";
 import type { LinkJobDTO, LinkRecordDTO, LinkViewDTO } from "@/lib/siteDocs/store";
 
@@ -114,6 +115,7 @@ export default function SiteDocumentsScreen({ api, onHome }: { api: string; onHo
 }
 
 function Plans({ api, job, onBack }: { api: string; job: LinkJobDTO; onBack: () => void }) {
+  const [error, setError] = useState<string | null>(null);
   return (
     <div className="space-y-4">
       <button onClick={onBack} className="flex items-center gap-1 py-2 text-sm text-gray-400"><ChevronLeft size={16} /> Back</button>
@@ -122,13 +124,14 @@ function Plans({ api, job, onBack }: { api: string; job: LinkJobDTO; onBack: () 
       {job.plans.length === 0 ? <div className={`${card} text-sm text-gray-400`}>None yet - ask the office to add them.</div> : (
         <div className="space-y-2">
           {job.plans.map((p) => (
-            <a key={p.id} href={`${api}/documents/files/${p.id}`} target="_blank" rel="noreferrer" className="flex min-h-[3.5rem] items-center gap-3 rounded-xl border border-edge bg-panel px-4 py-3 active:bg-panel2">
+            <button key={p.id} type="button" onClick={async () => setError(await openDoc(api, "files", p.id))} className="flex min-h-[3.5rem] w-full items-center gap-3 rounded-xl border border-edge bg-panel px-4 py-3 text-left active:bg-panel2">
               {p.kind === "pdf" ? <FileText size={20} className="shrink-0 text-brand-300" /> : <ImageIcon size={20} className="shrink-0 text-brand-300" />}
               <span className="text-base text-gray-100">{p.title}</span>
-            </a>
+            </button>
           ))}
         </div>
       )}
+      {error && <div className="rounded-xl bg-red-900/30 px-4 py-3 text-sm text-red-300">{error}</div>}
     </div>
   );
 }
@@ -139,7 +142,7 @@ function Swms({ api, job, onBack, onChanged }: { api: string; job: LinkJobDTO; o
   const [error, setError] = useState<string | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
   const sw = job.swms;
-  const open = sw ? `${api}/documents/files/${sw.id}` : "";
+  const open = async () => { if (sw) setError(await openDoc(api, "files", sw.id)); };
   if (sw && signing) {
     return (
       <SignOnPanel who={signing.name} tickText="I've read and understand this SWMS." busy={busy} error={error} onCancel={() => { setSigning(null); setError(null); }}
@@ -157,7 +160,7 @@ function Swms({ api, job, onBack, onChanged }: { api: string; job: LinkJobDTO; o
         <div className={card}>
           <p className="text-sm text-gray-400">SWMS v{sw.version}</p>
           <p className="text-base font-semibold text-gray-100">{sw.title}</p>
-          <a href={open} target="_blank" rel="noreferrer" className={`${secondary} mt-3`}><BookOpen size={18} /> Read the SWMS</a>
+          <button type="button" onClick={open} className={`${secondary} mt-3`}><BookOpen size={18} /> Read the SWMS</button>
         </div>
       </SignOnPanel>
     );
@@ -169,10 +172,11 @@ function Swms({ api, job, onBack, onChanged }: { api: string; job: LinkJobDTO; o
       {!sw ? <div className={`${card} text-sm text-gray-400`}>{job.hasProject ? "The office hasn't added a SWMS for this job yet." : "This job has no project, so it has no SWMS."}</div> : (
         <>
           {flash && <div className="rounded-xl bg-emerald-500/15 px-4 py-3 text-sm text-emerald-300">✓ {flash}</div>}
+          {error && <div className="rounded-xl bg-red-900/30 px-4 py-3 text-sm text-red-300">{error}</div>}
           <div className={card}>
             <p className="text-sm text-gray-400">Current version - v{sw.version}</p>
             <p className="text-base font-semibold text-gray-100">{sw.title}</p>
-            <a href={open} target="_blank" rel="noreferrer" className={`${primary} mt-3`}><BookOpen size={18} /> Open the SWMS</a>
+            <button type="button" onClick={open} className={`${primary} mt-3`}><BookOpen size={18} /> Open the SWMS</button>
             <p className="mt-2 text-xs text-gray-500">Read only. A new version from the office needs everyone to sign again.</p>
           </div>
           <section className={card}>
