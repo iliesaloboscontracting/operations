@@ -55,6 +55,10 @@ export const queryAudience = (target: QueryTarget, findingAudience: string) => (
 
 // ---------- raise ----------
 
+// LS-008: the status change a new query makes - only from OPEN or ACKNOWLEDGED, never from a closed finding.
+export const QUERY_ACTIONS_FROM: readonly string[] = ["OPEN", "ACKNOWLEDGED"];
+export const actionedOnQuery = (id: string) => ({ where: { id, status: { in: [...QUERY_ACTIONS_FROM] } }, data: { status: "ACTIONED" } });
+
 type FindingForQuery = { id: string; title: string; audience: string; severity: string; status: string; projectId: string | null; subjectName: string };
 
 export async function raiseQuery(f: FindingForQuery, body: Record<string, unknown>, actor: Actor): Promise<{ request: SiteRequest } | { error: string }> {
@@ -92,9 +96,12 @@ export async function raiseQuery(f: FindingForQuery, body: Record<string, unknow
   });
   if ("error" in made) return made;
   await addEvent(made.request.id, "ASKED_QUERY", actor.name, `To ${assigneeName}`);
+  // LS-008 (Ilies approved, 25 Nov 2026): only an OPEN or ACKNOWLEDGED finding becomes ACTIONED - checked by the
+  // database at write time, so one resolved or snoozed since this person loaded it stays closed (a count of 0 is
+  // fine: the query is kept, the status left alone).
   await prisma.$transaction([
     prisma.findingEvent.create({ data: { findingId: f.id, action: "QUERY_CREATED", by: actor.name, byUserId: actor.id, toValue: assigneeName, note: `${requestNo(made.request.number)}: ${question}` } }),
-    ...(["OPEN", "ACKNOWLEDGED"].includes(f.status) ? [prisma.finding.update({ where: { id: f.id }, data: { status: "ACTIONED" } })] : []),
+    prisma.finding.updateMany(actionedOnQuery(f.id)),
   ]);
   await notifyNewRequest(made.request).catch(() => undefined);
   return made;

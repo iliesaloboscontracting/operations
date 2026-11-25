@@ -53,6 +53,7 @@ const RANK: Record<string, number> = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, INFO: 3 
 export const CARD_LABEL: Record<string, string> = {
   NO_SUPERVISOR: "Crew with no supervisor or lead",
   LONE_WORKER: "One person alone on site",
+  DAY_NO_LEAD: "Day shift with no lead",
   NIGHT_NO_LEAD: "Night shift with no lead",
   START_NOT_READY: "Restart not ready",
   CREW_SHORT: "Crew short",

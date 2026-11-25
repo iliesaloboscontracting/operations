@@ -7,10 +7,11 @@ import type { UpcomingJob } from "../insights/kpis";
 import type { DateException } from "../dateExceptions";
 import { groupUncosted, lciDateExceptions, restartAlerts, supervisorGapsLci, uncostedDayCounts, type RestartProject } from "./lciRules";
 import { buildCard, cardIsMoneyFree, cardVariant, onCard, type CardFinding } from "./card";
-import { CARD, isNotASite, isTestProject, rulesOff } from "./config";
+import { CARD, COORDINATOR_KINDS, DIRECTOR_KINDS, isNotASite, isTestProject, rulesOff, screenFor } from "./config";
 import { applyFindingAction, coordinatorMayAct, type Actor } from "./actions";
 import { alertsDue, cleanupDue, closeReason, datedDay, planRun, pushMessages, type FindingState, type Op } from "./engine";
 import { applyOps, type FindingsTx } from "./apply";
+import { actionedOnQuery } from "./queries";
 import type { CardDTO, CardLine } from "./card";
 
 const lines = (c: CardDTO): CardLine[] => [...c.top, ...c.more].flatMap((e) => (e.kind === "ONE" ? [e.line] : e.items));
@@ -47,7 +48,7 @@ test("NO_SUPERVISOR: only a crew of 2+ with no Supervisor or Lead on the whole p
     assert.equal(x.kind, "LONE_WORKER");
     assert.equal(x.severity, "MEDIUM", "a lone worker is MEDIUM - on the card, never pushed (even tomorrow)");
     assert.equal(x.dedupeKey, `LONE_WORKER:PROJECT:${p}:2026-11-26`);
-    assert.match(x.title, /: one person alone on site, no supervisor booked$/);
+    assert.match(x.title, /: one person alone on site$/);
   }
   assert.ok(s.every((x) => operationalIsMoneyFree(x)));
   // Further out: MEDIUM, keyed by project + day.
@@ -56,38 +57,55 @@ test("NO_SUPERVISOR: only a crew of 2+ with no Supervisor or Lead on the whole p
   assert.equal(later[0].dedupeKey, "NO_SUPERVISOR:PROJECT:p1:2026-12-04");
 });
 
-test("LS-005 night shift: a night crew of 2+ with no lead on the night is NIGHT_NO_LEAD even when the day shift has one; one alone at night is LONE_WORKER", () => {
+test("LS-005 + LS-009: each shift checked when the day and night shifts split - DAY_NO_LEAD / NIGHT_NO_LEAD; one person alone (lead or not) is LONE_WORKER", () => {
   const gaps = supervisorGapsLci([
     job({ jobId: "d", projectId: "n1", projectName: "Mascot", shift: "DAY", ownCrewIds: ["a", "b"], hasLead: true }),
     job({ jobId: "n", projectId: "n1", projectName: "Mascot", shift: "NIGHT", ownCrewIds: ["c"], labourHire: 2 }), // night crew of 3, no lead
-    job({ jobId: "d2", projectId: "n2", projectName: "Newtown", shift: "DAY", ownCrewIds: ["a"], hasLead: true }),
-    job({ jobId: "n2", projectId: "n2", projectName: "Newtown", shift: "NIGHT", ownCrewIds: ["z"] }), // alone at night
-    job({ jobId: "d3", projectId: "n3", projectName: "Covered", shift: "DAY", ownCrewIds: ["a"], hasLead: true }),
-    job({ jobId: "n3", projectId: "n3", projectName: "Covered", shift: "NIGHT", ownCrewIds: ["b", "c"], hasLead: true }), // night has a lead
+    job({ jobId: "d5", projectId: "n5", projectName: "Day gap", shift: "DAY", ownCrewIds: ["b", "c"] }), // LS-009 a: day crew of 2, no lead,
+    job({ jobId: "n5", projectId: "n5", projectName: "Day gap", shift: "NIGHT", ownCrewIds: ["d", "e"], hasLead: true }), //   the lead on the night
+    job({ jobId: "d3", projectId: "n3", projectName: "Covered", shift: "DAY", ownCrewIds: ["a", "f"], hasLead: true }),
+    job({ jobId: "n3", projectId: "n3", projectName: "Covered", shift: "NIGHT", ownCrewIds: ["b", "c"], hasLead: true }), // both shifts led
     job({ jobId: "n4", projectId: "n4", projectName: "Night only", shift: "NIGHT", ownCrewIds: ["b", "c"] }), // no lead at all: NO_SUPERVISOR as before
-    job({ jobId: "d5", projectId: "n5", projectName: "Day gap", shift: "DAY", ownCrewIds: ["b", "c"] }), // day crew, lead on the night only:
-    job({ jobId: "n5", projectId: "n5", projectName: "Day gap", shift: "NIGHT", ownCrewIds: ["d"], hasLead: true }), //   covered, as before
+    job({ jobId: "d6", projectId: "n6", projectName: "Night alone", shift: "DAY", ownCrewIds: ["a", "b"], hasLead: true }),
+    job({ jobId: "n6", projectId: "n6", projectName: "Night alone", shift: "NIGHT", ownCrewIds: ["z"] }), // one person alone at night
+    job({ jobId: "s", projectId: "n7", projectName: "Supervisor alone", ownCrewIds: ["s"], hasLead: true }), // LS-009 b: a lead alone on site
+    job({ jobId: "s8", projectId: "n8", projectName: "Lead alone at night", shift: "DAY", ownCrewIds: ["a", "b"], hasLead: true }),
+    job({ jobId: "n8", projectId: "n8", projectName: "Lead alone at night", shift: "NIGHT", ownCrewIds: ["l"], hasLead: true }), // a lead alone on the night
     job({ jobId: "y", projectId: "yard", projectName: "Yard", shift: "NIGHT", ownCrewIds: ["a", "b"] }), // not a site
+    job({ jobId: "y2", projectId: "yard", projectName: "Yard", ownCrewIds: ["q"], hasLead: true }), // not a site
   ], TODAY, new Set());
-  assert.deepEqual(gaps.map((g) => `${g.projectId}:${g.kind}:${g.crew}`).sort(), ["n1:NIGHT_NO_LEAD:3", "n2:LONE_WORKER:1", "n4:NO_SUPERVISOR:2"]);
+  assert.deepEqual(gaps.map((g) => `${g.projectId}:${g.kind}:${g.crew}:${g.shift}`).sort(), [
+    "n1:NIGHT_NO_LEAD:3:NIGHT", "n4:NO_SUPERVISOR:2:null", "n5:DAY_NO_LEAD:2:DAY", "n6:LONE_WORKER:1:NIGHT", "n7:LONE_WORKER:1:DAY", "n8:LONE_WORKER:1:NIGHT",
+  ]);
   const s = supervisorSignals(gaps);
-  const night = s.find((x) => x.kind === "NIGHT_NO_LEAD")!;
-  assert.equal(night.severity, "MEDIUM"); // tomorrow, but never CRITICAL - never a push
-  assert.equal(night.dedupeKey, "NIGHT_NO_LEAD:PROJECT:n1:2026-11-26");
-  assert.match(night.title, /^Mascot 2026-11-26: night shift crew of 3 with no supervisor or lead \(the day shift has one\)$/);
-  assert.match(s.find((x) => x.kind === "LONE_WORKER")!.title, /one person alone on site on the night shift, no supervisor booked/);
-  assert.equal(s.find((x) => x.kind === "NO_SUPERVISOR")!.severity, "CRITICAL");
-  // Neither ever pushes, and both close as LAPSED when the day passes (engine.test.ts covers the close).
-  assert.equal(datedDay(night.dedupeKey), "2026-11-26");
+  const by = (k: string) => s.find((x) => x.kind === k)!;
+  for (const k of ["NIGHT_NO_LEAD", "DAY_NO_LEAD", "LONE_WORKER"]) assert.equal(by(k).severity, "MEDIUM", `${k}: tomorrow, but never CRITICAL - never a push`);
+  assert.equal(by("NIGHT_NO_LEAD").dedupeKey, "NIGHT_NO_LEAD:PROJECT:n1:2026-11-26");
+  assert.equal(by("DAY_NO_LEAD").dedupeKey, "DAY_NO_LEAD:PROJECT:n5:2026-11-26");
+  assert.match(by("NIGHT_NO_LEAD").title, /^Mascot 2026-11-26: night shift crew of 3 with no supervisor or lead \(the day shift has one\)$/);
+  assert.match(by("DAY_NO_LEAD").title, /^Day gap 2026-11-26: day shift crew of 2 with no supervisor or lead \(the night shift has one\)$/);
+  assert.equal(s.find((x) => x.projectId === "n6")!.title, "Night alone 2026-11-26: one person alone on site on the night shift");
+  assert.equal(s.find((x) => x.projectId === "n7")!.title, "Supervisor alone 2026-11-26: one person alone on site");
+  assert.equal(by("NO_SUPERVISOR").severity, "CRITICAL");
+  // None of the new ones ever pushes; all close as LAPSED when the day passes (dated key).
+  for (const k of ["NIGHT_NO_LEAD", "DAY_NO_LEAD", "LONE_WORKER"]) assert.equal(datedDay(by(k).dedupeKey), "2026-11-26");
   const planned = planRun(s, new Map(), { now: new Date(), today: TODAY, sydneyDay: () => TODAY });
   const pushed = alertsDue(planned, true).map((o) => o.key);
-  assert.ok(!pushed.some((k) => k.startsWith("LONE_WORKER") || k.startsWith("NIGHT_NO_LEAD")), JSON.stringify(pushed));
   assert.deepEqual(pushed, ["NO_SUPERVISOR:PROJECT:n4:2026-11-26"]);
-  // On the card, each its own group label.
-  const c = buildCard(planned.filter((o) => o.type === "create").map((o, i) => f({ id: `p${i}`, ruleCode: String(o.data.ruleCode), severity: String(o.data.severity), title: String(o.data.title) })), "OPERATIONS");
-  assert.deepEqual(lines(c).map((l) => l.label).sort(), ["Crew with no supervisor or lead", "Night shift with no lead", "One person alone on site"]);
+  // On the Operations card, each its own group label; never the coordinator's card or the Directors' screen.
+  const rows = planned.filter((o) => o.type === "create").map((o, i) => f({ id: `p${i}`, ruleCode: String(o.data.ruleCode), severity: String(o.data.severity), title: String(o.data.title) }));
+  assert.deepEqual([...new Set(lines(buildCard(rows, "OPERATIONS")).map((l) => l.label))].sort(), ["Crew with no supervisor or lead", "Day shift with no lead", "Night shift with no lead", "One person alone on site"]);
+  assert.equal(lines(buildCard(rows, "COORDINATOR")).length, 0);
+  for (const k of ["LONE_WORKER", "DAY_NO_LEAD", "NIGHT_NO_LEAD"]) assert.ok(!COORDINATOR_KINDS.has(k) && !DIRECTOR_KINDS.has(k) && screenFor({ ruleCode: k, audience: "OPERATIONAL" }) === "OPERATIONS", k);
 });
 
+test("LS-009 b: the same person on both shifts is one person alone; two people each alone on a split day (one a lead) is one LONE_WORKER for each shift", () => {
+  const same = supervisorGapsLci([job({ projectId: "a", shift: "DAY", ownCrewIds: ["x"], hasLead: true }), job({ projectId: "a", shift: "NIGHT", ownCrewIds: ["x"], hasLead: true })], TODAY, new Set());
+  assert.deepEqual(same.map((g) => `${g.kind}:${g.crew}`), ["LONE_WORKER:1"]);
+  const two = supervisorGapsLci([job({ projectId: "b", shift: "DAY", ownCrewIds: ["x"], hasLead: true }), job({ projectId: "b", shift: "NIGHT", ownCrewIds: ["y"] })], TODAY, new Set());
+  assert.deepEqual(two.map((g) => `${g.kind}:${g.crew}:${g.shift}`), ["LONE_WORKER:2:BOTH"]);
+  assert.match(supervisorSignals(two)[0].title, /one person alone on site on each shift$/);
+});
 test("not a site: the Yard and TEST projects, by name; a test project's allocations are never a cost gap", () => {
   assert.ok(isNotASite("Yard") && isNotASite(" yard ") && isNotASite("TEST – Ilies link testing") && isNotASite("Test job"));
   assert.ok(!isNotASite("New Yard - Warwick Farm") && !isNotASite("Testing Rd - Mosman") && !isNotASite("Mosman") && !isNotASite(null));
@@ -356,4 +374,23 @@ test("LS-004: the cleanup runs only within 7 days of its label date; its 'no lon
   assert.equal(closeReason(stale("HIRE_OVERDUE", true, "HIGH"), ctx, 2)?.outcome, "EFFECTIVE");
   assert.equal(closeReason(stale("DATE_COMPLETED_HAS_JOBS", false), ctx, 0), null);
   assert.equal(closeReason(stale("DATE_JOBS_NO_TIMES", false, "INFO"), ctx, 0)?.short, "the problem had already gone"); // INFO closes as it always did
+});
+test("LS-008: a query raised from a stale view never reopens a resolved finding - it only moves OPEN / ACKNOWLEDGED to ACTIONED", () => {
+  const rows = new Map<string, { status: string }>([["f1", { status: "OPEN" }], ["f2", { status: "ACKNOWLEDGED" }], ["f3", { status: "OPEN" }]]);
+  // What prisma.finding.updateMany does with the where clause.
+  const updateMany = (a: ReturnType<typeof actionedOnQuery>) => {
+    const r = rows.get(a.where.id);
+    if (!r || !a.where.status.in.includes(r.status)) return { count: 0 };
+    r.status = a.data.status;
+    return { count: 1 };
+  };
+  // Someone resolves f3 after Pat loaded it as OPEN; Pat then raises a query from that stale view.
+  rows.get("f3")!.status = "RESOLVED";
+  assert.deepEqual(updateMany(actionedOnQuery("f3")), { count: 0 });
+  assert.equal(rows.get("f3")!.status, "RESOLVED", "it stays resolved (the query itself is kept)");
+  assert.deepEqual(updateMany(actionedOnQuery("f1")), { count: 1 });
+  assert.equal(rows.get("f1")!.status, "ACTIONED");
+  updateMany(actionedOnQuery("f2"));
+  assert.equal(rows.get("f2")!.status, "ACTIONED");
+  for (const st of ["RESOLVED", "DISMISSED", "VERIFIED", "ACTIONED"]) assert.ok(!actionedOnQuery("x").where.status.in.includes(st), st);
 });

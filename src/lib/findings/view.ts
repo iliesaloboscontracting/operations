@@ -11,6 +11,7 @@ const KPI_OF: { prefix: string; kpi: string }[] = [
   { prefix: "START_NOT_READY", kpi: "O3" },
   { prefix: "NO_SUPERVISOR", kpi: "P4" },
   { prefix: "LONE_WORKER", kpi: "P4" },
+  { prefix: "DAY_NO_LEAD", kpi: "P4" },
   { prefix: "NIGHT_NO_LEAD", kpi: "P4" },
   { prefix: "CREW_SHORT", kpi: "P3" },
   { prefix: "DAYS_NOT_CLOSED", kpi: "O5" },

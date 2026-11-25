@@ -18,9 +18,9 @@
 //   (8) No outbound call.
 //   Security fixes (Ilies approved LS-001..LS-004 and LS-005 "Show both on the card", 25 Nov 2026): LS-001 the
 //   coordinator's snooze past 14 days 400, a Manager's to 9999-12-31 / 2026-02-31 / 91 days 400, nothing written;
-//   the card says its snooze limit (90 / 14). LS-005 LONE_WORKER and NIGHT_NO_LEAD: MEDIUM, dated, on the Operations
+//   the card says its snooze limit (90 / 14). LS-005 / LS-009 LONE_WORKER (a lead alone too), DAY_NO_LEAD and NIGHT_NO_LEAD: MEDIUM, dated, on the Operations
 //   card as their own lines, never on the coordinator's or the Directors'; NO_SUPERVISOR is a crew of 2+.
-// WRITES on the test copy: eight seeded findings (closed at the end - nothing deleted) and their events.
+// WRITES on the test copy: ten seeded findings (closed at the end - nothing deleted) and their events.
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { noMoney } from "../lib/context.mjs";
@@ -96,8 +96,8 @@ export default {
     t.ok(!sup.some((f) => f.dedupeKey.startsWith("NO_SUPERVISOR:JOB:")), "no NO_SUPERVISOR for a one-off job with no project");
     const crewOf = (f) => { let v = {}; try { v = JSON.parse(f.currentValue ?? "{}"); } catch { /* */ } return v.crew; };
     t.ok(sup.every((f) => crewOf(f) == null || crewOf(f) >= 2), "NO_SUPERVISOR is a crew of 2 or more (one person alone is LONE_WORKER - LS-005)");
-    const lone = openNow.filter((f) => f.ruleCode === "LONE_WORKER" || f.ruleCode === "NIGHT_NO_LEAD");
-    t.ok(lone.every((f) => f.severity === "MEDIUM" && !NOT_A_SITE(f.subjectName) && /:\d{4}-\d{2}-\d{2}$/.test(f.dedupeKey)), `LS-005: LONE_WORKER / NIGHT_NO_LEAD open ones are MEDIUM, dated, never the Yard / TEST (${lone.length} open)`);
+    const lone = openNow.filter((f) => ["LONE_WORKER", "DAY_NO_LEAD", "NIGHT_NO_LEAD"].includes(f.ruleCode));
+    t.ok(lone.every((f) => f.severity === "MEDIUM" && !NOT_A_SITE(f.subjectName) && /:\d{4}-\d{2}-\d{2}$/.test(f.dedupeKey)), `LS-005 / LS-009: LONE_WORKER / DAY_NO_LEAD / NIGHT_NO_LEAD open ones are MEDIUM, dated, never the Yard / TEST (${lone.length} open)`);
     t.ok(!openNow.some((f) => /^DATA_UNCOSTED:PROJECT:[^:]+$/.test(f.dedupeKey)), "no per-project DATA_UNCOSTED left (one per resource with no rate, or per project with no hours)");
     t.ok(openNow.filter((f) => f.ruleCode === "DATA_UNCOSTED").every((f) => /^DATA_UNCOSTED:(RESOURCE:[^:]+|PROJECT:[^:]+:HOURS)$/.test(f.dedupeKey)), "every open DATA_UNCOSTED is grouped by cause");
     t.ok(!openNow.some((f) => f.ruleCode === "DATE_NO_START" && NOT_A_SITE(f.subjectName)), "no DATE_NO_START for the Yard or a TEST project");
@@ -122,7 +122,9 @@ export default {
       gap: await seed({ k: "gap", ruleCode: "NO_SUPERVISOR", severity: "CRITICAL", audience: "OPERATIONAL", title: `RC ${tag} crew booked but no supervisor or lead`, href: `/command?date=${c.today}` }),
       dir: await seed({ k: "dir", ruleCode: "COST_VS_CONTRACT", severity: "CRITICAL", audience: "COMMERCIAL", title: `RC ${tag} cost vs contract (Act)`, href: "/tracking" }),
       info: await seed({ k: "info", ruleCode: "DATA_UNCOSTED", severity: "INFO", audience: "COMMERCIAL", title: `RC ${tag} has no rate` }),
-      lone: await seed({ k: "lone", ruleCode: "LONE_WORKER", severity: "MEDIUM", audience: "OPERATIONAL", title: `RC ${tag} ${c.today}: one person alone on site, no supervisor booked`, href: `/command?date=${c.today}` }),
+      lone: await seed({ k: "lone", ruleCode: "LONE_WORKER", severity: "MEDIUM", audience: "OPERATIONAL", title: `RC ${tag} ${c.today}: one person alone on site`, href: `/command?date=${c.today}` }),
+      leadAlone: await seed({ k: "leadalone", ruleCode: "LONE_WORKER", severity: "MEDIUM", audience: "OPERATIONAL", title: `RC ${tag} supervisor ${c.today}: one person alone on site`, href: `/command?date=${c.today}` }),
+      dayGap: await seed({ k: "day", ruleCode: "DAY_NO_LEAD", severity: "MEDIUM", audience: "OPERATIONAL", title: `RC ${tag} ${c.today}: day shift crew of 2 with no supervisor or lead (the night shift has one)`, href: `/command?date=${c.today}` }),
       night: await seed({ k: "night", ruleCode: "NIGHT_NO_LEAD", severity: "MEDIUM", audience: "OPERATIONAL", title: `RC ${tag} ${c.today}: night shift crew of 3 with no supervisor or lead (the day shift has one)`, href: `/command?date=${c.today}` }),
     };
     try {
@@ -137,7 +139,8 @@ export default {
         t.ok(ls.every((l) => l.severity !== "INFO") && (card?.dataGaps ?? []).every((l) => l.severity === "INFO"), `${who}: INFO only under data gaps`);
         t.ok(ls.some((l) => l.id === S.gap.id) && ls.some((l) => l.id === S.hire.id) && ls.some((l) => l.id === S.idle.id), `${who}: operational and commercial items are on it`);
         t.ok((card?.dataGaps ?? []).some((l) => l.id === S.info.id), `${who}: the data gap is in the drawer list`);
-        const lw = ls.find((l) => l.id === S.lone.id), nn = ls.find((l) => l.id === S.night.id);
+        const lw = ls.find((l) => l.id === S.lone.id), nn = ls.find((l) => l.id === S.night.id), dg = ls.find((l) => l.id === S.dayGap.id), la = ls.find((l) => l.id === S.leadAlone.id);
+        t.ok(dg?.label === "Day shift with no lead" && la?.label === "One person alone on site", `${who}: LS-009 day shift with no lead and a lead alone on site are on the card`);
         t.ok(lw?.label === "One person alone on site" && nn?.label === "Night shift with no lead", `${who}: LS-005 lone worker and night shift with no lead are on the card, each its own line`);
         t.ok(card?.snoozeMaxDays === 90, `${who}: snooze up to 90 days (LS-001)`);
         const rank = (e) => ({ CRITICAL: 0, HIGH: 1, MEDIUM: 2 })[(e.kind === "ONE" ? e.line : e).severity] ?? 9;
@@ -151,6 +154,7 @@ export default {
       const cls = lines(cc);
       t.ok(cc?.snoozeMaxDays === 14, "COORDINATOR: his snooze is up to 14 days (LS-001)");
       t.ok(cc?.variant === "COORDINATOR" && cls.every((l) => l.rule === "HIRE_OVERDUE"), "COORDINATOR: only his kind (hire past its off-hire date)", JSON.stringify(cls.map((l) => l.rule)));
+      t.ok(!cls.some((l) => [S.lone.id, S.night.id, S.dayGap.id, S.leadAlone.id, S.gap.id].includes(l.id)), "COORDINATOR: no lone worker / shift with no lead / supervisor gap on his card (Operations card only)");
       t.ok(cls.some((l) => l.id === S.hire.id) && !cls.some((l) => l.id === S.hireMoney.id), "COORDINATOR: his seeded item, never the one with a $ figure");
       t.ok(noMoney(co.text) && (cc?.dataGaps ?? []).length === 0, "COORDINATOR: no $ anywhere on his card, no data gaps");
       for (const who of ["VIEWER", "ACCOUNTS", "TIMESHEETS", "YARD", "DIRECTOR"]) t.status(await c.get("/api/findings/card", who), 403, `${who}: no card`);
@@ -192,7 +196,7 @@ export default {
       t.status(ov.status, 200, "Directors overview answers the owner");
       const df = ov.body?.findings ?? [];
       t.ok(df.every((f) => directorsScreen(f)), "the Directors' findings are Directors-screen kinds only", JSON.stringify(df.filter((f) => !directorsScreen(f)).map((f) => f.ruleCode)));
-      t.ok(!df.some((f) => [S.gap.id, S.hire.id, S.idle.id, S.info.id, S.lone.id, S.night.id].includes(f.id)) && df.some((f) => f.id === S.dir.id), "the seeded Directors kind is there, no operational one");
+      t.ok(!df.some((f) => [S.gap.id, S.hire.id, S.idle.id, S.info.id, S.lone.id, S.night.id, S.dayGap.id, S.leadAlone.id].includes(f.id)) && df.some((f) => f.id === S.dir.id), "the seeded Directors kind is there, no operational one");
     } finally {
       // Close the seeded ones (nothing deleted).
       await db.finding.updateMany({ where: { id: { in: Object.values(S).map((x) => x.id) }, status: { in: [...OPENISH, "DISMISSED"] } }, data: { status: "RESOLVED", openKey: null, resolvedBy: "release-check", resolution: "seeded by the release check" } }).catch(() => {});

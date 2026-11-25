@@ -725,9 +725,10 @@ business, without becoming unnecessarily complicated.
     real date at most 90 days ahead (the coordinator 14); the engine never overwrites a finding a person changed since
     its plan (status-guarded writes; the Done / Snooze route answers 409 "This item just changed"); at most 3
     Operations CRITICAL pushes a run, then one summary; the cleanup runs only until label + 7 days and closes
-    "no longer flags it" only for the rules Stage 1 changed (`CLEANUP_RULES`). LONE_WORKER (one person alone, no
-    supervisor booked) and NIGHT_NO_LEAD (a night crew of 2+ with no lead on the night while the day shift has one)
-    are their own MEDIUM dated rules on the card - never pushed.
+    "no longer flags it" only for the rules Stage 1 changed (`CLEANUP_RULES`). LONE_WORKER (one person alone on site or on
+    a shift - a Supervisor or Lead alone too, LS-009) and DAY_NO_LEAD / NIGHT_NO_LEAD (a shift's crew of 2+ with no lead
+    on it while the other shift has one) are their own MEDIUM dated rules on the card - never pushed. A query raised on
+    a finding moves it to ACTIONED only from OPEN / ACKNOWLEDGED (LS-008).
 - **Money-guard principle:** crew-facing/operational views (day sheets, Day
   Review, the Yard) never carry dollar figures — enforced at both the
   TypeScript type level (narrow DTOs with no money fields) and via a runtime
