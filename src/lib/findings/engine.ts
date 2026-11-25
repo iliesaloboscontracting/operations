@@ -26,8 +26,9 @@
 //    until the rule has stopped once - unless the severity rises
 import type { Signal } from "./signals";
 import type { Priority } from "../insights/kpis";
-import { daysBetween } from "../dates";
-import { FINDINGS_CONFIG, LCI_CLEANUP, MODULE_ALERTED_KINDS, NOT_A_FIX_OUTCOMES, RETIRED_RULES, screenFor, verifyAfterDays } from "./config";
+import { addDays, daysBetween } from "../dates";
+import { assertNoMoney } from "../moneyGuard";
+import { CLEANUP_RULES, FINDINGS_CONFIG, LCI_CLEANUP, MAX_OPS_PUSHES_PER_RUN, MODULE_ALERTED_KINDS, NOT_A_FIX_OUTCOMES, RETIRED_RULES, screenFor, verifyAfterDays } from "./config";
 
 export type FindingStatus = "OPEN" | "ACKNOWLEDGED" | "ACTIONED" | "RESOLVED" | "DISMISSED" | "VERIFIED";
 const OPENISH: FindingStatus[] = ["OPEN", "ACKNOWLEDGED", "ACTIONED"];
@@ -59,7 +60,9 @@ export type FindingFields = Record<string, unknown>;
 
 export type Op =
   | { type: "create"; key: string; data: FindingFields; events: EventInput[]; evidence: EvidenceInput[]; alert: boolean }
-  | { type: "update"; key: string; id: string; data: FindingFields; events: EventInput[]; evidence: EvidenceInput[]; alert: boolean };
+  // fromStatus (LS-002): the status the plan was made from - the store writes the op only if the finding still has
+  // it, so a person's tap in the meantime is never overwritten.
+  | { type: "update"; key: string; id: string; data: FindingFields; events: EventInput[]; evidence: EvidenceInput[]; alert: boolean; fromStatus?: string };
 
 // cleanup: the one-off cleanup run (lib/findings/store.ts runs it once, LCI_CLEANUP).
 export type RunContext = { now: Date; today: string; sydneyDay: (d: Date) => string; cleanup?: boolean };
@@ -85,15 +88,17 @@ export function closeReason(f: FindingState, ctx: RunContext, daysClear: number)
   const day = datedDay(f.dedupeKey);
   if (day && day < ctx.today) return { outcome: "LAPSED", why: `The day has passed (${day}) - it wasn't fixed in time`, short: "past day" };
   if (waitsForPerson(f)) return null;
-  if (ctx.cleanup) {
+  // The cleanup run (LS-004): only a rule Stage 1 changed closes straight away; every other rule the normal way.
+  if (ctx.cleanup && CLEANUP_RULES.has(f.ruleCode)) {
     if (f.signalClearedAt) return { outcome: "EFFECTIVE", why: "The problem had already gone - the rule no longer fires", short: "the problem had already gone" };
     return /^DATA_UNCOSTED:PROJECT:[^:]+$/.test(f.dedupeKey)
       ? { outcome: "RULE_CHANGED", why: "Regrouped: one item per resource with no rate, instead of one per project", short: "regrouped by cause" }
       : { outcome: "RULE_CHANGED", why: "The new rule no longer flags it", short: "the new rule no longer flags it" };
   }
-  if (FINDINGS_CONFIG.autoResolveSeverities.includes(f.severity)) return { outcome: "EFFECTIVE", why: "The rule no longer fires", short: "the rule no longer fires" };
+  const gone = ctx.cleanup ? "the problem had already gone" : "the rule no longer fires";
+  if (FINDINGS_CONFIG.autoResolveSeverities.includes(f.severity)) return { outcome: "EFFECTIVE", why: "The rule no longer fires", short: gone };
   if (f.signalClearedAt && daysClear >= verifyAfterDays(f.ruleCode)) {
-    return { outcome: "EFFECTIVE", why: `Clear for ${daysClear} day${daysClear === 1 ? "" : "s"} - the rule no longer fires`, short: "the rule no longer fires" };
+    return { outcome: "EFFECTIVE", why: `Clear for ${daysClear} day${daysClear === 1 ? "" : "s"} - the rule no longer fires`, short: gone };
   }
   return null;
 }
@@ -164,6 +169,11 @@ function createOp(s: Signal, now: Date, reopenedFromId: string | null, note: str
 // ---------- one problem ----------
 
 export function planKey(signal: Signal | null, f: FindingState | null, ctx: RunContext): Op | null {
+  const op = planKeyFor(signal, f, ctx);
+  return op && op.type === "update" && f ? { ...op, fromStatus: f.status } : op;
+}
+
+function planKeyFor(signal: Signal | null, f: FindingState | null, ctx: RunContext): Op | null {
   const { now, today } = ctx;
   if (signal && !f) return createOp(signal, now, null, null);
   if (!f) return null;
@@ -330,6 +340,37 @@ export function alertsDue(ops: Op[], pushOn: boolean): Op[] {
     if (screenFor({ ruleCode, audience: String(o.data.audience ?? "") }) === "DIRECTORS") return true;
     return pushOn && !MODULE_ALERTED_KINDS.has(ruleCode);
   });
+}
+
+// LS-004: is the one-off cleanup due this run? Not done yet, not switched off, and today (Sydney) no later than
+// the label date + its window. "LATE" = past the window: skipped (the store logs it once).
+export function cleanupDue(today: string, done: boolean, on: boolean): "RUN" | "DONE" | "OFF" | "LATE" {
+  if (done) return "DONE";
+  if (!on) return "OFF";
+  return today <= addDays(LCI_CLEANUP.label, LCI_CLEANUP.windowDays) ? "RUN" : "LATE";
+}
+
+// LS-003: the phone messages for one run's due alerts. Directors-screen ones one each, as before; Operations-screen
+// ones at most MAX_OPS_PUSHES_PER_RUN one each, and any more as one summary - words only, never a dollar figure.
+export type PushMessage = { title: string; body: string; url: string; tag: string };
+export function pushMessages(due: Op[], today: string): PushMessage[] {
+  const out: PushMessage[] = [];
+  const ops: Op[] = [];
+  for (const o of due) {
+    const ruleCode = String(o.data.ruleCode ?? o.key.split(":")[0]);
+    const raw = String(o.data.title ?? "Critical finding");
+    if (screenFor({ ruleCode, audience: String(o.data.audience ?? "") }) === "DIRECTORS") {
+      out.push({ title: `🔴 Critical: ${raw}`.slice(0, 120), body: "Needs attention - Directors", url: "/directors", tag: `finding-${o.key}` });
+    } else ops.push(o);
+  }
+  for (const o of ops.slice(0, MAX_OPS_PUSHES_PER_RUN)) {
+    const raw = String(o.data.title ?? "Critical finding");
+    const title = assertNoMoney(raw) ? raw : "Something needs attention on your board"; // never a $ on an Operations push
+    out.push({ title: `🔴 Critical: ${title}`.slice(0, 120), body: "Needs attention - on your board", url: "/command", tag: `finding-${o.key}` });
+  }
+  const rest = ops.length - MAX_OPS_PUSHES_PER_RUN;
+  if (rest > 0) out.push({ title: `🔴 ${rest} critical item${rest === 1 ? "" : "s"} need${rest === 1 ? "s" : ""} attention on your board`, body: "Open the Needs attention card", url: "/command", tag: `findings-summary-${today}` });
+  return out;
 }
 
 export function summarise(ops: Op[]) {

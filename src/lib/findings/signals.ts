@@ -24,7 +24,7 @@ export type SignalKind =
   | "COST_VS_CONTRACT" | "DATA_NO_CONTRACT_VALUE" | "DATA_UNCOSTED"
   | "HIRE_UNINVOICED" | "HIRE_IDLE" | "HIRE_NO_FINISH" | "HIRE_OVERDUE"
   | DateExceptionCode
-  | "START_NOT_READY" | "NO_SUPERVISOR" | "DAYS_NOT_CLOSED" | "CREW_SHORT" | "DATA_PLANT_NOT_BOOKED"
+  | "START_NOT_READY" | "NO_SUPERVISOR" | "LONE_WORKER" | "NIGHT_NO_LEAD" | "DAYS_NOT_CLOSED" | "CREW_SHORT" | "DATA_PLANT_NOT_BOOKED"
   | "TENDER_WON_NO_PROJECT" | "XERO_UNMATCHED" | "XERO_REAUTH" | "LABOUR_HOURS_VS_BUDGET"
   | "TIP_DOCKET_UNINVOICED" | "TIP_INVOICE_NO_DOCKET";
 
@@ -236,25 +236,31 @@ export function startSignals(starts: (StartAlertDTO & { restart?: boolean })[]):
   }));
 }
 
-// NO_SUPERVISOR (LCI Stage 1): one per project-day (lib/findings/lciRules.ts
-// supervisorGapsLci); a single worker alone is INFO "solo on site" - never on
-// the card (Decision 1: only crews of 2 or more raise a gap).
-export function supervisorSignals(gaps: (SupervisorGap & { solo?: boolean; crew?: number })[]): Signal[] {
+// NO_SUPERVISOR (LCI Stage 1): one per project-day, a crew of 2+ (lib/findings/lciRules.ts supervisorGapsLci).
+// LS-005 (Ilies, 25 Nov 2026: "Show both on the card"): LONE_WORKER (one person alone, no supervisor booked) and
+// NIGHT_NO_LEAD (a night crew of 2+ with no lead on the night, the day shift has one) - both MEDIUM always, so on
+// the card but never a phone push. All keyed KIND:PROJECT:<id>:<date> so they close as LAPSED once the day passes.
+type GapIn = SupervisorGap & { kind?: "NO_SUPERVISOR" | "LONE_WORKER" | "NIGHT_NO_LEAD"; crew?: number; night?: boolean };
+export function supervisorSignals(gaps: GapIn[]): Signal[] {
   return gaps.map((g) => {
+    const kind = g.kind ?? "NO_SUPERVISOR";
     // A project's day; a one-off job (no project) by its own id.
     const subject = g.projectId
       ? { type: "PROJECT" as const, id: g.projectId, name: g.name }
       : { type: "JOB" as const, id: g.jobId ?? `${g.name}|${g.date}`, name: g.name };
+    const title = kind === "LONE_WORKER"
+      ? `${g.name} ${g.date}: one person alone on site${g.night ? " on the night shift" : ""}, no supervisor booked`
+      : kind === "NIGHT_NO_LEAD"
+        ? `${g.name} ${g.date}: night shift crew of ${g.crew} with no supervisor or lead (the day shift has one)`
+        : `${g.name} on ${g.date}: crew booked but no supervisor or lead`;
     return {
-      kind: "NO_SUPERVISOR", subject, projectId: g.projectId,
-      dedupeKey: dedupeKeyOf("NO_SUPERVISOR", subject.type, subject.id, g.projectId ? g.date : undefined),
-      severity: g.solo ? "INFO" : g.daysAway <= 2 ? "CRITICAL" : "MEDIUM", audience: "OPERATIONAL",
-      title: g.solo
-        ? `${g.name} on ${g.date}: one worker on their own (solo on site) - information only`
-        : `${g.name} on ${g.date}: crew booked but no supervisor or lead`,
-      provisional: false, confidence: "HIGH",
+      kind, subject, projectId: g.projectId,
+      dedupeKey: dedupeKeyOf(kind, subject.type, subject.id, g.projectId ? g.date : undefined),
+      severity: kind === "NO_SUPERVISOR" && g.daysAway <= 2 ? "CRITICAL" : "MEDIUM", audience: "OPERATIONAL",
+      title, provisional: false, confidence: "HIGH",
       evidence: [g.projectId ? projectRef(g.projectId, g.name) : { recordType: "Job", recordId: g.jobId ?? "", label: g.name }],
-      href: `/command?date=${g.date}`, values: { date: g.date, daysAway: g.daysAway, ...(g.crew != null ? { crew: g.crew } : {}), ...(g.solo ? { solo: true } : {}) },
+      href: `/command?date=${g.date}`,
+      values: { date: g.date, daysAway: g.daysAway, ...(g.crew != null ? { crew: g.crew } : {}), ...(g.night ? { night: true } : {}) },
     } satisfies Signal;
   });
 }
@@ -425,7 +431,7 @@ export type SignalInputs = {
   overdueHire: OverdueHireItem[];
   dates: ProjectDateExceptions[];
   starts: (StartAlertDTO & { restart?: boolean })[];
-  supervisorGaps: (SupervisorGap & { solo?: boolean; crew?: number })[];
+  supervisorGaps: GapIn[];
   uncosted?: UncostedInput | null; // LCI Stage 1: DATA_UNCOSTED grouped by cause
   crewShortDays: CrewDay[];
   crewAvailable: number;

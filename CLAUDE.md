@@ -706,7 +706,7 @@ business, without becoming unnecessarily complicated.
     (not "fixed", never verified); a retired rule's as RETIRED (`RETIRED_RULES`: DATE_INACTIVE_HAS_JOBS - inactive
     with jobs is normal; restarts on inactive projects are checked like starts).
   - Rule fixes (findings only - the Directors overview and the Projects page keep their own lists, `lciRules.ts`):
-    NO_SUPERVISOR per project-day, crews of 2+ only (a solo worker is INFO), never the Yard / TEST (`NOT_A_SITE`) or a
+    NO_SUPERVISOR per project-day, crews of 2+ only (one person alone is LONE_WORKER, below), never the Yard / TEST (`NOT_A_SITE`) or a
     one-off job; DATE_START_MISMATCH only over 7 days on projects first booked in the last 60 days; DATE_NO_START not
     for the Yard / TEST; DATA_UNCOSTED one per resource with no rate / per project with no hours (last 30 days or
     days not closed).
@@ -721,6 +721,13 @@ business, without becoming unnecessarily complicated.
   - CRITICAL Operations-screen findings push to the owner only, never a kind whose module already alerts
     (`MODULE_ALERTED_KINDS`). Kill switches: `LCI_RULES_OFF=<codes>`, `LCI_CARD=off`, `LCI_PUSH=off`,
     `LCI_CLEANUP=off`. Release check `107-lci-stage1`. Stages 2-3 (new rules, Accounts lines, Monday push) not built.
+  - Security fixes (Ilies approved LS-001..LS-004 and LS-005 "Show both on the card", 25 Nov 2026): a snooze is a
+    real date at most 90 days ahead (the coordinator 14); the engine never overwrites a finding a person changed since
+    its plan (status-guarded writes; the Done / Snooze route answers 409 "This item just changed"); at most 3
+    Operations CRITICAL pushes a run, then one summary; the cleanup runs only until label + 7 days and closes
+    "no longer flags it" only for the rules Stage 1 changed (`CLEANUP_RULES`). LONE_WORKER (one person alone, no
+    supervisor booked) and NIGHT_NO_LEAD (a night crew of 2+ with no lead on the night while the day shift has one)
+    are their own MEDIUM dated rules on the card - never pushed.
 - **Money-guard principle:** crew-facing/operational views (day sheets, Day
   Review, the Yard) never carry dollar figures — enforced at both the
   TypeScript type level (narrow DTOs with no money fields) and via a runtime

@@ -11,9 +11,9 @@
 // LCI_PUSH=off stops them).
 import { prisma } from "../prisma";
 import { pushToUsers } from "../push";
-import { assertNoMoney } from "../moneyGuard";
-import { FINDINGS_CONFIG, LCI_CLEANUP, lciCleanupOn, lciPushOn, screenFor } from "./config";
-import { alertsDue, cleanupCounts, latestByKey, planRun, summarise, type CleanupCounts, type FindingState, type Op } from "./engine";
+import { FINDINGS_CONFIG, LCI_CLEANUP, lciCleanupOn, lciPushOn } from "./config";
+import { alertsDue, cleanupCounts, cleanupDue, latestByKey, planRun, pushMessages, summarise, type CleanupCounts, type FindingState, type Op } from "./engine";
+import { applyOps, type FindingsTx } from "./apply";
 import { loadSignals } from "./load";
 
 const SYDNEY_DAY = new Intl.DateTimeFormat("en-CA", { timeZone: "Australia/Sydney", year: "numeric", month: "2-digit", day: "2-digit" });
@@ -41,57 +41,47 @@ export async function runFindings(opts: { force?: boolean; now?: Date } = {}): P
         audience: true, outcomeResult: true,
       },
     });
-    // The one-off cleanup: only while it hasn't been recorded.
-    const cleanup = lciCleanupOn() && !(await prisma.findingCleanup.findUnique({ where: { label: LCI_CLEANUP.label }, select: { id: true } }));
+    // The one-off cleanup: only while it hasn't been recorded, and only within its window (LS-004).
+    const due = cleanupDue(today, !!(await prisma.findingCleanup.findUnique({ where: { label: LCI_CLEANUP.label }, select: { id: true } })), lciCleanupOn());
+    if (due === "LATE" && !lateLogged) {
+      lateLogged = true;
+      console.log(`findings: the ${LCI_CLEANUP.label} cleanup never ran and its ${LCI_CLEANUP.windowDays}-day window has passed - skipped`);
+    }
+    const cleanup = due === "RUN";
     const latest = latestByKey(rows as (FindingState & { createdAt: Date })[]);
     const ops = planRun(signals, latest, { now, today, sydneyDay, cleanup }, notChecked);
-    const counts = cleanup ? cleanupCounts(ops, new Map(rows.map((r) => [r.id, r.ruleCode])), rows.filter((r) => OPENISH.includes(r.status)).length) : null;
-    await apply(ops, now, counts);
-    await alert(ops);
-    return { ...summarise(ops), today, signals: signals.length, cleanup: counts };
+    const openBefore = rows.filter((r) => OPENISH.includes(r.status)).length;
+    const ruleOf = new Map(rows.map((r) => [r.id, r.ruleCode]));
+    const { written, counts } = await apply(ops, now, cleanup ? (w) => cleanupCounts(w, ruleOf, openBefore) : null);
+    await alert(written, today);
+    return { ...summarise(written), today, signals: signals.length, cleanup: counts };
   } finally {
     running = false;
   }
 }
+let lateLogged = false;
 
-async function apply(ops: Op[], now: Date, cleanup: CleanupCounts | null) {
-  if (!ops.length && !cleanup) return;
-  await prisma.$transaction(async (tx) => {
-    for (const op of ops) {
-      const id = op.type === "create"
-        ? (await tx.finding.create({ data: op.data as Parameters<typeof tx.finding.create>[0]["data"], select: { id: true } })).id
-        : (await tx.finding.update({ where: { id: op.id }, data: op.data, select: { id: true } })).id;
-      if (op.events.length) {
-        await tx.findingEvent.createMany({ data: op.events.map((e) => ({ findingId: id, action: e.action, by: "System", fromValue: e.fromValue ?? null, toValue: e.toValue ?? null, note: e.note ?? null, at: now })) });
-      }
-      if (op.evidence.length) {
-        await tx.findingEvidence.createMany({ data: op.evidence.map((e) => ({ findingId: id, kind: e.kind, recordType: e.recordType ?? null, recordId: e.recordId ?? null, label: e.label, value: e.value ?? null, asOf: now, capturedAt: now })) });
-      }
-    }
-    // Written in the same transaction: the cleanup happens exactly once, or not at all.
-    if (cleanup) await tx.findingCleanup.create({ data: { label: LCI_CLEANUP.label, closed: cleanup.closed, left: cleanup.left, byRule: JSON.stringify(cleanup.byRule), at: now } });
+// One transaction: the plan (applyOps - LS-002, a changed finding is skipped), then the cleanup's row with the
+// counts of what was actually written - so the cleanup happens exactly once, or not at all.
+async function apply(ops: Op[], now: Date, countCleanup: ((written: Op[]) => CleanupCounts) | null) {
+  if (!ops.length && !countCleanup) return { written: [] as Op[], counts: null };
+  return prisma.$transaction(async (tx) => {
+    const written = await applyOps(tx as unknown as FindingsTx, ops, now);
+    const counts = countCleanup ? countCleanup(written) : null;
+    if (counts) await tx.findingCleanup.create({ data: { label: LCI_CLEANUP.label, closed: counts.closed, left: counts.left, byRule: JSON.stringify(counts.byRule), at: now } });
+    return { written, counts };
   }, { timeout: 60_000 });
 }
 
 // CRITICAL on open / escalate / reopen -> the configured logins' phones (if
-// they've turned alerts on) - the owner only, never every Admin. Words only:
-// the title and where to look, never a dollar figure on an Operations one.
-async function alert(ops: Op[]) {
-  const due = alertsDue(ops, lciPushOn());
-  if (!due.length) return;
+// they've turned alerts on) - the owner only, never every Admin. Words only on
+// an Operations one; at most MAX_OPS_PUSHES_PER_RUN of those, then a summary (LS-003).
+async function alert(ops: Op[], today: string) {
+  const msgs = pushMessages(alertsDue(ops, lciPushOn()), today);
+  if (!msgs.length) return;
   const users = await prisma.user.findMany({ where: { email: { in: FINDINGS_CONFIG.criticalAlertRecipients }, active: true }, select: { id: true } });
   if (!users.length) return;
-  for (const o of due) {
-    const ruleCode = String(o.data.ruleCode ?? o.key.split(":")[0]);
-    const directors = screenFor({ ruleCode, audience: String(o.data.audience ?? "") }) === "DIRECTORS";
-    const raw = String(o.data.title ?? "Critical finding");
-    // No dollar figure in an Operations phone notification - the card has the detail.
-    const title = directors || assertNoMoney(raw) ? raw : "Something needs attention on your board";
-    await pushToUsers(users.map((u) => u.id), {
-      title: `🔴 Critical: ${title}`.slice(0, 120),
-      body: directors ? "Needs attention - Directors" : "Needs attention - on your board",
-      url: directors ? "/directors" : "/command",
-      tag: `finding-${o.key}`, sticky: true,
-    }, "high").catch((e) => console.error("finding alert", e));
+  for (const m of msgs) {
+    await pushToUsers(users.map((u) => u.id), { ...m, sticky: true }, "high").catch((e) => console.error("finding alert", e));
   }
 }

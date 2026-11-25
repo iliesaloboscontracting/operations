@@ -8,7 +8,12 @@ import type { DateException } from "../dateExceptions";
 import { groupUncosted, lciDateExceptions, restartAlerts, supervisorGapsLci, uncostedDayCounts, type RestartProject } from "./lciRules";
 import { buildCard, cardIsMoneyFree, cardVariant, onCard, type CardFinding } from "./card";
 import { CARD, isNotASite, isTestProject, rulesOff } from "./config";
-import { coordinatorMayAct } from "./actions";
+import { applyFindingAction, coordinatorMayAct, type Actor } from "./actions";
+import { alertsDue, cleanupDue, closeReason, datedDay, planRun, pushMessages, type FindingState, type Op } from "./engine";
+import { applyOps, type FindingsTx } from "./apply";
+import type { CardDTO, CardLine } from "./card";
+
+const lines = (c: CardDTO): CardLine[] => [...c.top, ...c.more].flatMap((e) => (e.kind === "ONE" ? [e.line] : e.items));
 import { supervisorSignals, uncostedSignals, operationalIsMoneyFree, startSignals } from "./signals";
 
 const TODAY = "2026-11-25";
@@ -32,21 +37,55 @@ test("NO_SUPERVISOR: only a crew of 2+ with no Supervisor or Lead on the whole p
   ], TODAY, new Set(["p6|2026-11-27"]));
   const by = Object.fromEntries(gaps.map((g) => [g.projectId, g]));
   assert.deepEqual(Object.keys(by).sort(), ["p1", "p2", "p3", "p7"]);
-  assert.equal(by.p1.solo, false);
+  assert.equal(by.p1.kind, "NO_SUPERVISOR");
   assert.equal(by.p1.crew, 2);
-  for (const p of ["p2", "p3", "p7"]) assert.equal(by[p].solo, true, p);
+  for (const p of ["p2", "p3", "p7"]) assert.equal(by[p].kind, "LONE_WORKER", p); // LS-005
   const s = supervisorSignals(gaps);
   assert.equal(s.find((x) => x.projectId === "p1")!.severity, "CRITICAL"); // tomorrow
   for (const p of ["p2", "p3", "p7"]) {
     const x = s.find((y) => y.projectId === p)!;
-    assert.equal(x.severity, "INFO", "solo on site is information only - never on the card");
-    assert.match(x.title, /solo on site/);
+    assert.equal(x.kind, "LONE_WORKER");
+    assert.equal(x.severity, "MEDIUM", "a lone worker is MEDIUM - on the card, never pushed (even tomorrow)");
+    assert.equal(x.dedupeKey, `LONE_WORKER:PROJECT:${p}:2026-11-26`);
+    assert.match(x.title, /: one person alone on site, no supervisor booked$/);
   }
   assert.ok(s.every((x) => operationalIsMoneyFree(x)));
   // Further out: MEDIUM, keyed by project + day.
   const later = supervisorSignals(supervisorGapsLci([job({ date: "2026-12-04", ownCrewIds: ["x", "y"] })], TODAY, new Set()));
   assert.equal(later[0].severity, "MEDIUM");
   assert.equal(later[0].dedupeKey, "NO_SUPERVISOR:PROJECT:p1:2026-12-04");
+});
+
+test("LS-005 night shift: a night crew of 2+ with no lead on the night is NIGHT_NO_LEAD even when the day shift has one; one alone at night is LONE_WORKER", () => {
+  const gaps = supervisorGapsLci([
+    job({ jobId: "d", projectId: "n1", projectName: "Mascot", shift: "DAY", ownCrewIds: ["a", "b"], hasLead: true }),
+    job({ jobId: "n", projectId: "n1", projectName: "Mascot", shift: "NIGHT", ownCrewIds: ["c"], labourHire: 2 }), // night crew of 3, no lead
+    job({ jobId: "d2", projectId: "n2", projectName: "Newtown", shift: "DAY", ownCrewIds: ["a"], hasLead: true }),
+    job({ jobId: "n2", projectId: "n2", projectName: "Newtown", shift: "NIGHT", ownCrewIds: ["z"] }), // alone at night
+    job({ jobId: "d3", projectId: "n3", projectName: "Covered", shift: "DAY", ownCrewIds: ["a"], hasLead: true }),
+    job({ jobId: "n3", projectId: "n3", projectName: "Covered", shift: "NIGHT", ownCrewIds: ["b", "c"], hasLead: true }), // night has a lead
+    job({ jobId: "n4", projectId: "n4", projectName: "Night only", shift: "NIGHT", ownCrewIds: ["b", "c"] }), // no lead at all: NO_SUPERVISOR as before
+    job({ jobId: "d5", projectId: "n5", projectName: "Day gap", shift: "DAY", ownCrewIds: ["b", "c"] }), // day crew, lead on the night only:
+    job({ jobId: "n5", projectId: "n5", projectName: "Day gap", shift: "NIGHT", ownCrewIds: ["d"], hasLead: true }), //   covered, as before
+    job({ jobId: "y", projectId: "yard", projectName: "Yard", shift: "NIGHT", ownCrewIds: ["a", "b"] }), // not a site
+  ], TODAY, new Set());
+  assert.deepEqual(gaps.map((g) => `${g.projectId}:${g.kind}:${g.crew}`).sort(), ["n1:NIGHT_NO_LEAD:3", "n2:LONE_WORKER:1", "n4:NO_SUPERVISOR:2"]);
+  const s = supervisorSignals(gaps);
+  const night = s.find((x) => x.kind === "NIGHT_NO_LEAD")!;
+  assert.equal(night.severity, "MEDIUM"); // tomorrow, but never CRITICAL - never a push
+  assert.equal(night.dedupeKey, "NIGHT_NO_LEAD:PROJECT:n1:2026-11-26");
+  assert.match(night.title, /^Mascot 2026-11-26: night shift crew of 3 with no supervisor or lead \(the day shift has one\)$/);
+  assert.match(s.find((x) => x.kind === "LONE_WORKER")!.title, /one person alone on site on the night shift, no supervisor booked/);
+  assert.equal(s.find((x) => x.kind === "NO_SUPERVISOR")!.severity, "CRITICAL");
+  // Neither ever pushes, and both close as LAPSED when the day passes (engine.test.ts covers the close).
+  assert.equal(datedDay(night.dedupeKey), "2026-11-26");
+  const planned = planRun(s, new Map(), { now: new Date(), today: TODAY, sydneyDay: () => TODAY });
+  const pushed = alertsDue(planned, true).map((o) => o.key);
+  assert.ok(!pushed.some((k) => k.startsWith("LONE_WORKER") || k.startsWith("NIGHT_NO_LEAD")), JSON.stringify(pushed));
+  assert.deepEqual(pushed, ["NO_SUPERVISOR:PROJECT:n4:2026-11-26"]);
+  // On the card, each its own group label.
+  const c = buildCard(planned.filter((o) => o.type === "create").map((o, i) => f({ id: `p${i}`, ruleCode: String(o.data.ruleCode), severity: String(o.data.severity), title: String(o.data.title) })), "OPERATIONS");
+  assert.deepEqual(lines(c).map((l) => l.label).sort(), ["Crew with no supervisor or lead", "Night shift with no lead", "One person alone on site"]);
 });
 
 test("not a site: the Yard and TEST projects, by name; a test project's allocations are never a cost gap", () => {
@@ -236,4 +275,85 @@ test("kill switch LCI_RULES_OFF parses codes, any case, ignoring blanks", () => 
   assert.deepEqual([...rulesOff(" no_supervisor, ,HIRE_IDLE ")], ["NO_SUPERVISOR", "HIRE_IDLE"]);
   assert.deepEqual([...rulesOff("")], []);
   assert.deepEqual([...rulesOff(undefined)], []);
+});
+
+// ---------- security fixes (Ilies approved LS-001..LS-004, 25 Nov 2026) ----------
+
+const actor: Actor = { id: "u1", name: "Pat", email: "pat@x", role: "MANAGER", directorAccess: false };
+const openF = { status: "OPEN", severity: "HIGH", dedupeKey: "HIRE_OVERDUE:RESOURCE:h", signalClearedAt: null, resolvedBy: null, resolvedWhileFiring: false, ownerUserId: null };
+const snooze = (until: string, maxSnoozeDays?: number) =>
+  applyFindingAction(openF, "DISMISS", { kind: "ACCEPTED_RISK", reason: "waiting on the supplier", until }, { actor, now: new Date(), today: TODAY, maxSnoozeDays });
+
+test("LS-001: a snooze is a real date, at most 90 days ahead (14 for the coordinator)", () => {
+  const err = (r: ReturnType<typeof snooze>) => ("error" in r ? r.error : null);
+  assert.equal(err(snooze("9999-12-31")), "Snooze for at most 90 days.");
+  assert.equal(err(snooze("2026-02-31")), "That date doesn't exist - pick another.");
+  assert.equal(err(snooze("2027-02-29")), "That date doesn't exist - pick another.");
+  assert.equal(err(snooze("2027-02-24")), "Snooze for at most 90 days."); // today + 91
+  assert.equal(err(snooze("2027-02-23")), null); // today + 90
+  assert.equal(err(snooze("2026-12-09")), null); // today + 14
+  assert.equal(err(snooze("2026-12-09", 14)), null); // coordinator: today + 14
+  assert.equal(err(snooze("2026-12-10", 14)), "Snooze for at most 14 days."); // coordinator: today + 15
+  assert.equal(err(snooze(TODAY)), "Pick a date after today.");
+});
+
+test("LS-002: the store writes an engine update only if the finding still has the status it was planned from", async () => {
+  const status: Record<string, string> = { a: "OPEN", b: "DISMISSED" }; // b: a person snoozed it after the plan was made
+  const events: unknown[] = [], evidence: unknown[] = [];
+  const tx: FindingsTx = {
+    finding: {
+      create: async () => ({ id: "new" }),
+      updateMany: async ({ where }) => ({ count: where.status === undefined || status[where.id] === where.status ? 1 : 0 }),
+    },
+    findingEvent: { createMany: async ({ data }) => { events.push(...data); } },
+    findingEvidence: { createMany: async ({ data }) => { evidence.push(...data); } },
+  };
+  const close = (id: string): Op => ({ type: "update", key: `K:${id}`, id, fromStatus: "OPEN", data: { status: "RESOLVED" }, events: [{ action: "AUTO_RESOLVED" }], evidence: [{ kind: "METRIC", label: "x" }], alert: false });
+  const written = await applyOps(tx, [close("a"), close("b")], new Date());
+  assert.deepEqual(written.map((o) => (o.type === "update" ? o.id : "")), ["a"]);
+  assert.equal(events.length, 1, "the skipped op's events aren't written");
+  assert.equal(evidence.length, 1, "nor its evidence");
+  // planKey carries the status it planned from.
+  const fs: FindingState = { id: "x", dedupeKey: "HIRE_OVERDUE:RESOURCE:x", ruleCode: "HIRE_OVERDUE", severity: "HIGH", status: "ACKNOWLEDGED", currentValue: null, signalClearedAt: null, clearRuns: 0, resolvedWhileFiring: false, resolvedAt: null, verifiedAt: null, dismissKind: null, suppressUntil: null, seenCount: 1 };
+  const op = planRun([], new Map([[fs.dedupeKey, fs]]), { now: new Date(), today: TODAY, sydneyDay: () => TODAY })[0];
+  assert.ok(op.type === "update" && op.fromStatus === "ACKNOWLEDGED");
+});
+
+const crit = (k: string, ruleCode = "NO_SUPERVISOR", audience = "OPERATIONAL", title = `Crew at ${k}`): Op =>
+  ({ type: "create", key: `${ruleCode}:PROJECT:${k}`, data: { ruleCode, audience, title, severity: "CRITICAL" }, events: [], evidence: [], alert: true });
+
+test("LS-003: at most 3 Operations CRITICAL pushes a run, then one money-free summary; Directors pushes as before", () => {
+  const m = pushMessages([crit("a"), crit("b"), crit("c"), crit("d"), crit("e"), crit("x", "COST_VS_CONTRACT", "COMMERCIAL", "Job X at $120,000")], TODAY);
+  const ops = m.filter((x) => x.url === "/command");
+  assert.equal(ops.length, 4, "3 individual + 1 summary");
+  assert.deepEqual(ops.slice(0, 3).map((x) => x.tag), ["finding-NO_SUPERVISOR:PROJECT:a", "finding-NO_SUPERVISOR:PROJECT:b", "finding-NO_SUPERVISOR:PROJECT:c"]);
+  assert.match(ops[3].title, /2 critical items need attention on your board/);
+  assert.ok(ops.every((x) => !/\$\s?\d/.test(x.title + x.body)));
+  assert.deepEqual(m.filter((x) => x.url === "/directors").length, 1);
+  assert.equal(pushMessages([crit("a"), crit("b"), crit("c")], TODAY).length, 3, "3 due: no summary");
+  assert.match(pushMessages([crit("a", "START_NOT_READY", "OPERATIONAL", "Costs $5,000")], TODAY)[0].title, /Something needs attention on your board/);
+});
+
+const stale = (ruleCode: string, cleared: boolean, severity: FindingState["severity"] = "MEDIUM"): FindingState => ({
+  id: ruleCode, dedupeKey: `${ruleCode}:PROJECT:p`, ruleCode, severity, status: "OPEN", currentValue: null,
+  signalClearedAt: cleared ? new Date("2026-11-24T00:00:00Z") : null, clearRuns: 0, resolvedWhileFiring: false, resolvedAt: null, verifiedAt: null,
+  dismissKind: null, suppressUntil: null, seenCount: 1, audience: "OPERATIONAL",
+});
+
+test("LS-004: the cleanup runs only within 7 days of its label date; its 'no longer flags it' close only for the rules Stage 1 changed", () => {
+  assert.equal(cleanupDue("2026-11-25", false, true), "RUN");
+  assert.equal(cleanupDue("2026-12-02", false, true), "RUN");
+  assert.equal(cleanupDue("2026-12-03", false, true), "LATE");
+  assert.equal(cleanupDue("2026-11-26", true, true), "DONE");
+  assert.equal(cleanupDue("2026-11-26", false, false), "OFF");
+  const ctx = { now: new Date(), today: TODAY, sydneyDay: () => TODAY, cleanup: true };
+  // A changed rule still firing until now: closed straight away.
+  assert.equal(closeReason(stale("DATE_START_MISMATCH", false), ctx, 0)?.outcome, "RULE_CHANGED");
+  assert.equal(closeReason(stale("NO_SUPERVISOR", false), ctx, 0)?.outcome, "RULE_CHANGED");
+  // Any other rule: the normal path - not closed until its window has passed, and never as RULE_CHANGED.
+  assert.equal(closeReason(stale("HIRE_OVERDUE", false, "HIGH"), ctx, 0), null);
+  assert.equal(closeReason(stale("HIRE_OVERDUE", true, "HIGH"), ctx, 1), null); // 1 day of hire's 2
+  assert.equal(closeReason(stale("HIRE_OVERDUE", true, "HIGH"), ctx, 2)?.outcome, "EFFECTIVE");
+  assert.equal(closeReason(stale("DATE_COMPLETED_HAS_JOBS", false), ctx, 0), null);
+  assert.equal(closeReason(stale("DATE_JOBS_NO_TIMES", false, "INFO"), ctx, 0)?.short, "the problem had already gone"); // INFO closes as it always did
 });

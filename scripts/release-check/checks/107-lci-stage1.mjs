@@ -16,7 +16,11 @@
 //   (6) The Directors' list: only Directors-screen kinds, never a seeded operational one.
 //   (7) The card is on the board under Pre-starts today (Managers / Admins) and on the coordinator page (source).
 //   (8) No outbound call.
-// WRITES on the test copy: six seeded findings (closed at the end - nothing deleted) and their events.
+//   Security fixes (Ilies approved LS-001..LS-004 and LS-005 "Show both on the card", 25 Nov 2026): LS-001 the
+//   coordinator's snooze past 14 days 400, a Manager's to 9999-12-31 / 2026-02-31 / 91 days 400, nothing written;
+//   the card says its snooze limit (90 / 14). LS-005 LONE_WORKER and NIGHT_NO_LEAD: MEDIUM, dated, on the Operations
+//   card as their own lines, never on the coordinator's or the Directors'; NO_SUPERVISOR is a crew of 2+.
+// WRITES on the test copy: eight seeded findings (closed at the end - nothing deleted) and their events.
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { noMoney } from "../lib/context.mjs";
@@ -90,7 +94,10 @@ export default {
     const sup = openNow.filter((f) => f.ruleCode === "NO_SUPERVISOR");
     t.ok(!sup.some((f) => NOT_A_SITE(f.subjectName)), "no NO_SUPERVISOR for the Yard or a TEST project");
     t.ok(!sup.some((f) => f.dedupeKey.startsWith("NO_SUPERVISOR:JOB:")), "no NO_SUPERVISOR for a one-off job with no project");
-    t.ok(sup.every((f) => { let v = {}; try { v = JSON.parse(f.currentValue ?? "{}"); } catch { /* */ } return v.solo ? f.severity === "INFO" : true; }), "a solo worker is INFO only");
+    const crewOf = (f) => { let v = {}; try { v = JSON.parse(f.currentValue ?? "{}"); } catch { /* */ } return v.crew; };
+    t.ok(sup.every((f) => crewOf(f) == null || crewOf(f) >= 2), "NO_SUPERVISOR is a crew of 2 or more (one person alone is LONE_WORKER - LS-005)");
+    const lone = openNow.filter((f) => f.ruleCode === "LONE_WORKER" || f.ruleCode === "NIGHT_NO_LEAD");
+    t.ok(lone.every((f) => f.severity === "MEDIUM" && !NOT_A_SITE(f.subjectName) && /:\d{4}-\d{2}-\d{2}$/.test(f.dedupeKey)), `LS-005: LONE_WORKER / NIGHT_NO_LEAD open ones are MEDIUM, dated, never the Yard / TEST (${lone.length} open)`);
     t.ok(!openNow.some((f) => /^DATA_UNCOSTED:PROJECT:[^:]+$/.test(f.dedupeKey)), "no per-project DATA_UNCOSTED left (one per resource with no rate, or per project with no hours)");
     t.ok(openNow.filter((f) => f.ruleCode === "DATA_UNCOSTED").every((f) => /^DATA_UNCOSTED:(RESOURCE:[^:]+|PROJECT:[^:]+:HOURS)$/.test(f.dedupeKey)), "every open DATA_UNCOSTED is grouped by cause");
     t.ok(!openNow.some((f) => f.ruleCode === "DATE_NO_START" && NOT_A_SITE(f.subjectName)), "no DATE_NO_START for the Yard or a TEST project");
@@ -115,6 +122,8 @@ export default {
       gap: await seed({ k: "gap", ruleCode: "NO_SUPERVISOR", severity: "CRITICAL", audience: "OPERATIONAL", title: `RC ${tag} crew booked but no supervisor or lead`, href: `/command?date=${c.today}` }),
       dir: await seed({ k: "dir", ruleCode: "COST_VS_CONTRACT", severity: "CRITICAL", audience: "COMMERCIAL", title: `RC ${tag} cost vs contract (Act)`, href: "/tracking" }),
       info: await seed({ k: "info", ruleCode: "DATA_UNCOSTED", severity: "INFO", audience: "COMMERCIAL", title: `RC ${tag} has no rate` }),
+      lone: await seed({ k: "lone", ruleCode: "LONE_WORKER", severity: "MEDIUM", audience: "OPERATIONAL", title: `RC ${tag} ${c.today}: one person alone on site, no supervisor booked`, href: `/command?date=${c.today}` }),
+      night: await seed({ k: "night", ruleCode: "NIGHT_NO_LEAD", severity: "MEDIUM", audience: "OPERATIONAL", title: `RC ${tag} ${c.today}: night shift crew of 3 with no supervisor or lead (the day shift has one)`, href: `/command?date=${c.today}` }),
     };
     try {
       const seen = [];
@@ -128,6 +137,9 @@ export default {
         t.ok(ls.every((l) => l.severity !== "INFO") && (card?.dataGaps ?? []).every((l) => l.severity === "INFO"), `${who}: INFO only under data gaps`);
         t.ok(ls.some((l) => l.id === S.gap.id) && ls.some((l) => l.id === S.hire.id) && ls.some((l) => l.id === S.idle.id), `${who}: operational and commercial items are on it`);
         t.ok((card?.dataGaps ?? []).some((l) => l.id === S.info.id), `${who}: the data gap is in the drawer list`);
+        const lw = ls.find((l) => l.id === S.lone.id), nn = ls.find((l) => l.id === S.night.id);
+        t.ok(lw?.label === "One person alone on site" && nn?.label === "Night shift with no lead", `${who}: LS-005 lone worker and night shift with no lead are on the card, each its own line`);
+        t.ok(card?.snoozeMaxDays === 90, `${who}: snooze up to 90 days (LS-001)`);
         const rank = (e) => ({ CRITICAL: 0, HIGH: 1, MEDIUM: 2 })[(e.kind === "ONE" ? e.line : e).severity] ?? 9;
         const ranks = [...(card?.top ?? []), ...(card?.more ?? [])].map(rank);
         t.ok(ranks.every((r, i) => i === 0 || ranks[i - 1] <= r), `${who}: worst first`, JSON.stringify(ranks));
@@ -137,6 +149,7 @@ export default {
       t.status(co.status, 200, "COORDINATOR: his card answers");
       let cc = null; try { cc = JSON.parse(co.text); } catch { /* */ }
       const cls = lines(cc);
+      t.ok(cc?.snoozeMaxDays === 14, "COORDINATOR: his snooze is up to 14 days (LS-001)");
       t.ok(cc?.variant === "COORDINATOR" && cls.every((l) => l.rule === "HIRE_OVERDUE"), "COORDINATOR: only his kind (hire past its off-hire date)", JSON.stringify(cls.map((l) => l.rule)));
       t.ok(cls.some((l) => l.id === S.hire.id) && !cls.some((l) => l.id === S.hireMoney.id), "COORDINATOR: his seeded item, never the one with a $ figure");
       t.ok(noMoney(co.text) && (cc?.dataGaps ?? []).length === 0, "COORDINATOR: no $ anywhere on his card, no data gaps");
@@ -145,12 +158,21 @@ export default {
 
       // Actions.
       const post = (id, who, body) => c.post(`/api/findings/${id}`, who, body);
-      const until = new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10);
+      const plus = (n) => new Date(Date.parse(c.today + "T00:00:00Z") + n * 86_400_000).toISOString().slice(0, 10); // from Sydney today
+      const until = plus(7);
       t.status(await post(S.hire.id, "COORDINATOR", { action: "DISMISS", kind: "FALSE_ALARM", reason: "rc" }), 403, "COORDINATOR: false alarm refused");
       t.status(await post(S.hire.id, "COORDINATOR", { action: "ACKNOWLEDGE" }), 403, "COORDINATOR: acknowledge refused");
       t.status(await post(S.gap.id, "COORDINATOR", { action: "RESOLVE", note: "rc" }), 404, "COORDINATOR: another kind - not found");
       t.status(await post(S.idle.id, "COORDINATOR", { action: "RESOLVE", note: "rc" }), 404, "COORDINATOR: a commercial one - not found");
       t.status(await c.get(`/api/findings/${S.hire.id}`, "COORDINATOR"), 404, "COORDINATOR: no detail view");
+      // LS-001: his snooze is at most 14 days; nobody's goes past 90 or to a date that doesn't exist.
+      const tooFar = await post(S.hire.id, "COORDINATOR", { action: "DISMISS", kind: "ACCEPTED_RISK", until: plus(15), reason: "rc" });
+      const tf = await tooFar.json().catch(() => null);
+      t.ok(tooFar.status === 400 && tf?.error === "Snooze for at most 14 days.", "LS-001 COORDINATOR: snooze 15 days -> 400 \"Snooze for at most 14 days.\"", `${tooFar.status} ${JSON.stringify(tf)}`);
+      for (const [d, why] of [["9999-12-31", "9999-12-31"], ["2026-02-31", "a date that doesn't exist (2026-02-31)"], [plus(91), "91 days ahead"]]) {
+        t.status(await post(S.gap.id, "MANAGER", { action: "DISMISS", kind: "ACCEPTED_RISK", until: d, reason: "rc" }), 400, `LS-001 MANAGER: snooze to ${why}`);
+      }
+      t.ok((await db.finding.findUnique({ where: { id: S.gap.id }, select: { status: true } }))?.status === "OPEN" && (await db.finding.findUnique({ where: { id: S.hire.id }, select: { status: true } }))?.status === "OPEN", "LS-001: nothing written by the refused snoozes");
       const snooze = await post(S.hire.id, "COORDINATOR", { action: "DISMISS", kind: "ACCEPTED_RISK", until, reason: "Supplier collecting Friday" });
       const sj = await snooze.json().catch(() => null);
       t.ok(snooze.status === 200 && sj?.ok === true && Object.keys(sj).length === 1, "COORDINATOR: snooze to a date with a reason -> 200, just ok (no detail back)", JSON.stringify(sj));
@@ -170,7 +192,7 @@ export default {
       t.status(ov.status, 200, "Directors overview answers the owner");
       const df = ov.body?.findings ?? [];
       t.ok(df.every((f) => directorsScreen(f)), "the Directors' findings are Directors-screen kinds only", JSON.stringify(df.filter((f) => !directorsScreen(f)).map((f) => f.ruleCode)));
-      t.ok(!df.some((f) => [S.gap.id, S.hire.id, S.idle.id, S.info.id].includes(f.id)) && df.some((f) => f.id === S.dir.id), "the seeded Directors kind is there, no operational one");
+      t.ok(!df.some((f) => [S.gap.id, S.hire.id, S.idle.id, S.info.id, S.lone.id, S.night.id].includes(f.id)) && df.some((f) => f.id === S.dir.id), "the seeded Directors kind is there, no operational one");
     } finally {
       // Close the seeded ones (nothing deleted).
       await db.finding.updateMany({ where: { id: { in: Object.values(S).map((x) => x.id) }, status: { in: [...OPENISH, "DISMISSED"] } }, data: { status: "RESOLVED", openKey: null, resolvedBy: "release-check", resolution: "seeded by the release check" } }).catch(() => {});

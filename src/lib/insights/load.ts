@@ -62,7 +62,7 @@ export async function gatherDirectorInputs() {
     prisma.job.findMany({
       where: { notRunning: false, cancelledAt: null, date: { gte: dayStart(today), lt: dayStart(addDays(today, THRESHOLDS.lookaheadDays)) } },
       select: {
-        id: true, projectId: true, title: true, date: true, project: { select: { name: true } },
+        id: true, projectId: true, title: true, date: true, shift: true, project: { select: { name: true } },
         assignments: { select: { role: true, resourceId: true, resource: { select: { type: true, category: true } } } },
       },
     }),
@@ -105,7 +105,7 @@ export async function gatherDirectorInputs() {
     return {
       jobId: j.id, projectId: j.projectId, projectName: j.project?.name ?? j.title, date: isoOf(j.date),
       ownCrewIds: own.map((a) => a.resourceId), labourHire: hire.length,
-      hasLead: j.assignments.some((a) => isLeadRole(a.role)),
+      hasLead: j.assignments.some((a) => isLeadRole(a.role)), shift: j.shift,
     };
   });
   const capacity = crewDemand(upcoming, crewCount, today);

@@ -45,7 +45,7 @@ export default function NeedsAttentionCard({ variant }: { variant: "board" | "co
       </button>
       {open && (
         <div className="mt-2 max-h-72 space-y-1 overflow-y-auto pl-5">
-          {data.top.map((e) => <Entry key={e.kind === "ONE" ? e.line.id : e.rule} e={e} onDone={load} />)}
+          {data.top.map((e) => <Entry key={e.kind === "ONE" ? e.line.id : e.rule} e={e} onDone={load} max={data.snoozeMaxDays} />)}
           {(moreCount > 0 || data.dataGaps.length > 0) && (
             <button onClick={() => setDrawer(true)} className="text-xs text-brand-300 hover:underline">
               {moreCount > 0 ? `+ ${moreCount} more` : ""}{moreCount > 0 && data.dataGaps.length > 0 ? " · " : ""}{data.dataGaps.length > 0 ? `${data.dataGaps.length} data gaps` : ""}
@@ -61,9 +61,9 @@ export default function NeedsAttentionCard({ variant }: { variant: "board" | "co
               <button onClick={() => setDrawer(false)} className="text-gray-500 hover:text-gray-200" aria-label="Close"><X size={16} /></button>
             </div>
             <div className="space-y-1">
-              {[...data.top, ...data.more].map((e) => <Entry key={e.kind === "ONE" ? e.line.id : e.rule} e={e} onDone={load} />)}
+              {[...data.top, ...data.more].map((e) => <Entry key={e.kind === "ONE" ? e.line.id : e.rule} e={e} onDone={load} max={data.snoozeMaxDays} />)}
             </div>
-            {data.dataGaps.length > 0 && <DataGaps lines={data.dataGaps} onDone={load} />}
+            {data.dataGaps.length > 0 && <DataGaps lines={data.dataGaps} onDone={load} max={data.snoozeMaxDays} />}
           </div>
         </div>
       )}
@@ -71,7 +71,7 @@ export default function NeedsAttentionCard({ variant }: { variant: "board" | "co
   );
 }
 
-function DataGaps({ lines, onDone }: { lines: CardLine[]; onDone: () => void }) {
+function DataGaps({ lines, onDone, max }: { lines: CardLine[]; onDone: () => void; max: number }) {
   const [open, setOpen] = useState(false);
   return (
     <div className="mt-4 border-t border-edge pt-3">
@@ -79,14 +79,14 @@ function DataGaps({ lines, onDone }: { lines: CardLine[]; onDone: () => void }) 
         {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />} Data gaps ({lines.length})
       </button>
       <p className="mt-0.5 text-xs text-gray-500">Missing rates, dates or times - information only. They clear themselves once filled in.</p>
-      {open && <div className="mt-2 space-y-1">{lines.map((l) => <Line key={l.id} l={l} onDone={onDone} />)}</div>}
+      {open && <div className="mt-2 space-y-1">{lines.map((l) => <Line key={l.id} l={l} onDone={onDone} max={max} />)}</div>}
     </div>
   );
 }
 
-function Entry({ e, onDone }: { e: CardEntry; onDone: () => void }) {
+function Entry({ e, onDone, max }: { e: CardEntry; onDone: () => void; max: number }) {
   const [open, setOpen] = useState(false);
-  if (e.kind === "ONE") return <Line l={e.line} onDone={onDone} />;
+  if (e.kind === "ONE") return <Line l={e.line} onDone={onDone} max={max} />;
   return (
     <div>
       <button onClick={() => setOpen(!open)} className="flex w-full items-center gap-2 text-left text-xs" aria-expanded={open}>
@@ -95,12 +95,12 @@ function Entry({ e, onDone }: { e: CardEntry; onDone: () => void }) {
         <span className="font-medium text-gray-100">{e.label}: {e.items.length}</span>
         <span className="shrink-0 text-gray-500">{since(e.since)}</span>
       </button>
-      {open && <div className="mt-1 space-y-1 pl-5">{e.items.map((l) => <Line key={l.id} l={l} onDone={onDone} />)}</div>}
+      {open && <div className="mt-1 space-y-1 pl-5">{e.items.map((l) => <Line key={l.id} l={l} onDone={onDone} max={max} />)}</div>}
     </div>
   );
 }
 
-function Line({ l, onDone }: { l: CardLine; onDone: () => void }) {
+function Line({ l, onDone, max }: { l: CardLine; onDone: () => void; max: number }) {
   const [mode, setMode] = useState<null | "SNOOZE" | "DONE">(null);
   const [reason, setReason] = useState("");
   const [until, setUntil] = useState(inDays(7));
@@ -134,7 +134,7 @@ function Line({ l, onDone }: { l: CardLine; onDone: () => void }) {
         <div className="mt-1 flex flex-wrap items-center gap-2 pl-4">
           {mode === "SNOOZE" && (
             <label className="flex items-center gap-1 text-gray-400">until
-              <input type="date" value={until} min={inDays(1)} onChange={(ev) => setUntil(ev.target.value)} className="rounded border border-edge bg-panel2 px-1.5 py-0.5 text-gray-200" />
+              <input type="date" value={until} min={inDays(1)} max={inDays(max)} onChange={(ev) => setUntil(ev.target.value)} className="rounded border border-edge bg-panel2 px-1.5 py-0.5 text-gray-200" />
             </label>
           )}
           <input value={reason} onChange={(ev) => setReason(ev.target.value)} maxLength={500} placeholder={mode === "SNOOZE" ? "Why it can wait" : "What was done"}

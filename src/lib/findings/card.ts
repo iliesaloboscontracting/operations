@@ -16,7 +16,7 @@
 //     disappearing.
 import { isOwner } from "../owner";
 import { assertNoMoney } from "../moneyGuard";
-import { CARD, COORDINATOR_KINDS, screenFor } from "./config";
+import { CARD, COORDINATOR_KINDS, SNOOZE_MAX_DAYS, screenFor } from "./config";
 
 export type CardViewer = { email: string; role: string; directorAccess?: boolean | null };
 export type CardVariant = "OPERATIONS" | "COORDINATOR";
@@ -43,6 +43,7 @@ export type CardDTO = {
   variant: CardVariant;
   counts: { urgent: number; toDo: number; dataGaps: number }; // urgent = CRITICAL + HIGH, to do = MEDIUM (lines, not groups)
   top: CardEntry[]; more: CardEntry[]; dataGaps: CardLine[];
+  snoozeMaxDays: number; // LS-001: the furthest a snooze may go for this login (the route refuses later dates too)
 };
 
 const OPENISH = ["OPEN", "ACKNOWLEDGED", "ACTIONED"];
@@ -51,6 +52,8 @@ const RANK: Record<string, number> = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, INFO: 3 
 // How each rule reads as a line or group heading on the card.
 export const CARD_LABEL: Record<string, string> = {
   NO_SUPERVISOR: "Crew with no supervisor or lead",
+  LONE_WORKER: "One person alone on site",
+  NIGHT_NO_LEAD: "Night shift with no lead",
   START_NOT_READY: "Restart not ready",
   CREW_SHORT: "Crew short",
   DAYS_NOT_CLOSED: "Days not closed",
@@ -114,6 +117,7 @@ export function buildCard(findings: CardFinding[], variant: CardVariant, off: Re
   }
   return {
     variant,
+    snoozeMaxDays: variant === "COORDINATOR" ? SNOOZE_MAX_DAYS.coordinator : SNOOZE_MAX_DAYS.everyone,
     counts: {
       urgent: main.filter((l) => l.severity === "CRITICAL" || l.severity === "HIGH").length,
       toDo: main.filter((l) => l.severity === "MEDIUM").length,

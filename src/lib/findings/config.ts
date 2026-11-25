@@ -101,7 +101,22 @@ export const LCI_RULES = {
 // first run after deploy closes what the new rules no longer flag, once, with
 // this reason on every closed finding. Recorded in FindingCleanup (one row per
 // label) so it never runs twice. LCI_CLEANUP=off skips it.
-export const LCI_CLEANUP = { label: "2026-11-25", prefix: "Closed in the 25 Nov cleanup" } as const;
+// LS-004 (Ilies approved, 25 Nov 2026): it runs only within windowDays of the
+// label date (Sydney); after that it's skipped (logged once). In the cleanup run
+// the "the new rule no longer flags it" close applies only to the rules Stage 1
+// changed (CLEANUP_RULES) - every other rule closes the normal way, after its
+// clear window.
+export const LCI_CLEANUP = { label: "2026-11-25", prefix: "Closed in the 25 Nov cleanup", windowDays: 7 } as const;
+export const CLEANUP_RULES: ReadonlySet<string> = new Set([
+  "NO_SUPERVISOR", "START_NOT_READY", "DATE_START_MISMATCH", "DATE_NO_START", "DATA_UNCOSTED", "DATE_INACTIVE_HAS_JOBS",
+]);
+
+// LS-001: a snooze (accepted risk until a date) is at most this many days ahead.
+export const SNOOZE_MAX_DAYS = { everyone: 90, coordinator: 14 } as const;
+
+// LS-003: at most this many individual Operations-screen CRITICAL pushes per
+// engine run; any more go as one summary push to the owner.
+export const MAX_OPS_PUSHES_PER_RUN = 3;
 
 // Outcomes that are a close, not a fix - never auto-verified as "effective".
 //   LAPSED       a dated finding whose day passed before it was fixed

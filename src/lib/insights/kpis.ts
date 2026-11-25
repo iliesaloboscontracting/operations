@@ -148,6 +148,7 @@ export const isLeadRole = (role: string | null | undefined) => role === "Supervi
 export type UpcomingJob = {
   jobId?: string; projectId: string | null; projectName: string; date: string;
   ownCrewIds: string[]; labourHire: number; hasLead: boolean;
+  shift?: string; // DAY | NIGHT - read only by the findings' night-shift rule (LS-005); the Directors' KPIs ignore it
 };
 
 // Booked crew per day over the look-ahead vs own crew available. Weekdays

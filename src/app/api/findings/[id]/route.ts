@@ -4,7 +4,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { todaySydney } from "@/lib/today";
 import { applyFindingAction, canActOnThisFinding, canSeeThisFinding, coordinatorMayAct } from "@/lib/findings/actions";
-import { screenFor } from "@/lib/findings/config";
+import { SNOOZE_MAX_DAYS, screenFor } from "@/lib/findings/config";
 import { toFindingDTO } from "@/lib/findings/view";
 import { requestNo, STATUS_FOR_OFFICE } from "@/lib/requestTypes";
 
@@ -64,12 +64,10 @@ export const POST = withErrorHandling(async (req: NextRequest, { params: paramsP
   if (user.role === "COORDINATOR") {
     if (!f || !coordinatorMayAct(user, f)) return NextResponse.json({ error: "Not found." }, { status: 404 });
     if (!coordinatorMayAct(user, f, String(body.action ?? ""), body)) return NextResponse.json({ error: "From your card you can mark it done or snooze it to a date." }, { status: 403 });
-    const out = applyFindingAction(f, String(body.action), body, { actor: user, now: new Date(), today: todaySydney(), owner: null });
+    // LS-001: his snooze is at most 14 days.
+    const out = applyFindingAction(f, String(body.action), body, { actor: user, now: new Date(), today: todaySydney(), owner: null, maxSnoozeDays: SNOOZE_MAX_DAYS.coordinator });
     if ("error" in out) return NextResponse.json({ error: out.error }, { status: 400 });
-    await prisma.$transaction([
-      prisma.finding.update({ where: { id: f.id }, data: out.data }),
-      prisma.findingEvent.create({ data: { findingId: f.id, action: out.event.action, by: user.name, byUserId: user.id, fromValue: out.event.fromValue ?? null, toValue: out.event.toValue ?? null, note: out.event.note ?? null } }),
-    ]);
+    if (!(await writeGuarded(f.id, f.status, out, user))) return NextResponse.json({ error: CHANGED }, { status: 409 });
     return NextResponse.json({ ok: true });
   }
   if (!f || !canSeeThisFinding(user, f)) return NextResponse.json({ error: "Not found." }, { status: 404 });
@@ -81,14 +79,31 @@ export const POST = withErrorHandling(async (req: NextRequest, { params: paramsP
   const owner = candidate && canActOnThisFinding(candidate, f) ? { id: candidate.id, name: candidate.name } : null;
   const out = applyFindingAction(f, String(body.action ?? ""), body, { actor: user, now: new Date(), today: todaySydney(), owner });
   if ("error" in out) return NextResponse.json({ error: out.error }, { status: 400 });
+  let written = false;
   try {
-    await prisma.$transaction([
-      ...(Object.keys(out.data).length ? [prisma.finding.update({ where: { id: f.id }, data: out.data })] : []),
-      prisma.findingEvent.create({ data: { findingId: f.id, action: out.event.action, by: user.name, byUserId: user.id, fromValue: out.event.fromValue ?? null, toValue: out.event.toValue ?? null, note: out.event.note ?? null } }),
-    ]);
+    written = await writeGuarded(f.id, f.status, out, user);
   } catch {
     // Reopening onto a key another open finding already holds (the unique openKey).
     return NextResponse.json({ error: "Another open finding already covers this - refresh and look at that one." }, { status: 409 });
   }
+  if (!written) return NextResponse.json({ error: CHANGED }, { status: 409 });
   return NextResponse.json(detail((await load(f.id))!, true));
 });
+
+// LS-002: write a person's action only if the finding is still in the status they saw (the engine, or someone else,
+// may have changed it since) - then its event, in the same transaction. False = it changed: nothing written.
+const CHANGED = "This item just changed, refresh and try again";
+async function writeGuarded(
+  id: string, seenStatus: string,
+  out: { data: Record<string, unknown>; event: { action: string; fromValue?: string | null; toValue?: string | null; note?: string | null } },
+  user: { id: string; name: string },
+): Promise<boolean> {
+  return prisma.$transaction(async (tx) => {
+    if (Object.keys(out.data).length) {
+      const r = await tx.finding.updateMany({ where: { id, status: seenStatus }, data: out.data });
+      if (r.count === 0) return false;
+    }
+    await tx.findingEvent.create({ data: { findingId: id, action: out.event.action, by: user.name, byUserId: user.id, fromValue: out.event.fromValue ?? null, toValue: out.event.toValue ?? null, note: out.event.note ?? null } });
+    return true;
+  });
+}

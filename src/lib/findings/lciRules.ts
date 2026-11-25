@@ -22,31 +22,51 @@ import { LCI_RULES, RETIRED_RULES, isNotASite } from "./config";
 
 // ---------- NO_SUPERVISOR ----------
 
-export type SupervisorGapLci = { jobId: string | null; projectId: string; name: string; date: string; daysAway: number; crew: number; solo: boolean };
+// LS-005 (Ilies, 25 Nov 2026: "Show both on the card") - three kinds, each its own rule code so the card groups
+// them apart and the dated "lapsed" close works (key KIND:PROJECT:<id>:<date>):
+//   NO_SUPERVISOR  a crew of 2+ with nobody marked Supervisor or Lead anywhere on the project-day (as before)
+//   LONE_WORKER    one person alone on site with no supervisor booked: the whole project-day is one person with no
+//                  lead, or one person alone on a night shift whose project-day lead is on the day shift (MEDIUM)
+//   NIGHT_NO_LEAD  a night-shift crew of 2+ with no Supervisor or Lead on that night shift, even though the day shift
+//                  has one (MEDIUM)
+// The Yard, TEST projects and one-off jobs with no project never count; a start day is left to the start check.
+export type GapKind = "NO_SUPERVISOR" | "LONE_WORKER" | "NIGHT_NO_LEAD";
+export type SupervisorGapLci = { kind: GapKind; jobId: string | null; projectId: string; name: string; date: string; daysAway: number; crew: number; night: boolean };
 
 const isLead = (role: string | null | undefined) => role === "Supervisor" || role === "Lead";
+type Crew = { crew: Set<string>; hire: number; lead: boolean };
+const emptyCrew = (): Crew => ({ crew: new Set<string>(), hire: 0, lead: false });
+const addCrew = (c: Crew, j: UpcomingJob) => { for (const id of j.ownCrewIds) c.crew.add(id); c.hire += j.labourHire; c.lead ||= j.hasLead; };
+const size = (c: Crew) => c.crew.size + c.hire;
 
 export function supervisorGapsLci(jobs: UpcomingJob[], today: string, startKeys: Set<string>): SupervisorGapLci[] {
   const end = addDays(today, THRESHOLDS.lookaheadDays - 1);
-  const days = new Map<string, { jobId: string | null; projectId: string; name: string; date: string; crew: Set<string>; hire: number; lead: boolean }>();
+  const days = new Map<string, { jobId: string | null; projectId: string; name: string; date: string; all: Crew; night: Crew }>();
   for (const j of jobs) {
     if (!j.projectId) continue; // a one-off job with no project
     if (j.date < today || j.date > end) continue;
     if (isNotASite(j.projectName)) continue; // the Yard, a test project
     const k = `${j.projectId}|${j.date}`;
-    const d = days.get(k) ?? { jobId: j.jobId ?? null, projectId: j.projectId, name: j.projectName, date: j.date, crew: new Set<string>(), hire: 0, lead: false };
-    for (const id of j.ownCrewIds) d.crew.add(id);
-    d.hire += j.labourHire;
-    d.lead ||= j.hasLead; // any running job that day with a Supervisor or Lead covers the project-day
+    const d = days.get(k) ?? { jobId: j.jobId ?? null, projectId: j.projectId, name: j.projectName, date: j.date, all: emptyCrew(), night: emptyCrew() };
+    addCrew(d.all, j); // any running job that day with a Supervisor or Lead covers the project-day
+    if (j.shift === "NIGHT") addCrew(d.night, j);
     days.set(k, d);
   }
-  return [...days.entries()]
-    .filter(([k, d]) => !startKeys.has(k) && !d.lead && d.crew.size + d.hire > 0)
-    .map(([, d]) => {
-      const crew = d.crew.size + d.hire;
-      return { jobId: d.jobId, projectId: d.projectId, name: d.name, date: d.date, daysAway: daysBetween(today, d.date), crew, solo: crew === 1 };
-    })
-    .sort((a, b) => a.date.localeCompare(b.date) || a.name.localeCompare(b.name));
+  const out: SupervisorGapLci[] = [];
+  for (const [k, d] of days) {
+    if (startKeys.has(k)) continue;
+    const base = { jobId: d.jobId, projectId: d.projectId, name: d.name, date: d.date, daysAway: daysBetween(today, d.date) };
+    if (!d.all.lead) {
+      const crew = size(d.all);
+      if (crew >= 2) out.push({ ...base, kind: "NO_SUPERVISOR", crew, night: false });
+      else if (crew === 1) out.push({ ...base, kind: "LONE_WORKER", crew, night: size(d.night) === 1 });
+    } else if (!d.night.lead && size(d.night) > 0) {
+      // The day shift has the lead; the night shift is on its own.
+      const crew = size(d.night);
+      out.push({ ...base, kind: crew >= 2 ? "NIGHT_NO_LEAD" : "LONE_WORKER", crew, night: true });
+    }
+  }
+  return out.sort((a, b) => a.date.localeCompare(b.date) || a.name.localeCompare(b.name) || a.kind.localeCompare(b.kind));
 }
 
 // ---------- restarts ----------

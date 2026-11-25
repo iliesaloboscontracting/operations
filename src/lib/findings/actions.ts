@@ -10,7 +10,8 @@
 // Timesheets / Accounts / Coordinator / Yard logins see none (the accounts login answers queries
 // on her Invoices page, not findings).
 import { isOwner } from "../owner";
-import { COORDINATOR_KINDS, screenFor } from "./config";
+import { COORDINATOR_KINDS, SNOOZE_MAX_DAYS, screenFor } from "./config";
+import { addDays } from "../dates";
 
 export type Actor = { id: string; name: string; email: string; role: string; directorAccess: boolean };
 export type FindingAction = "ACKNOWLEDGE" | "ASSIGN" | "RESOLVE" | "DISMISS" | "COMMENT" | "VERIFY";
@@ -76,7 +77,7 @@ export function applyFindingAction(
   f: FindingForAction,
   action: string,
   body: Record<string, unknown>,
-  ctx: { actor: Actor; now: Date; today: string; owner?: { id: string; name: string } | null },
+  ctx: { actor: Actor; now: Date; today: string; owner?: { id: string; name: string } | null; maxSnoozeDays?: number },
 ): ActionResult {
   const { actor, now, today } = ctx;
   const open = OPENISH.includes(f.status);
@@ -118,7 +119,12 @@ export function applyFindingAction(
       if (kind === "ACCEPTED_RISK") {
         until = typeof body.until === "string" && ISO.test(body.until) ? body.until : null;
         if (!until) return { error: "Pick the date to look at it again." };
+        // LS-001: a real calendar day (2026-02-31 isn't), and not too far ahead.
+        const [y, m, d] = until.split("-").map(Number);
+        if (new Date(Date.UTC(y, m - 1, d)).toISOString().slice(0, 10) !== until) return { error: "That date doesn't exist - pick another." };
         if (until <= today) return { error: "Pick a date after today." };
+        const maxDays = ctx.maxSnoozeDays ?? SNOOZE_MAX_DAYS.everyone;
+        if (until > addDays(today, maxDays)) return { error: `Snooze for at most ${maxDays} days.` };
       }
       return {
         data: { status: "DISMISSED", openKey: null, dismissedAt: now, dismissedBy: actor.name, dismissKind: kind, dismissReason: reason, suppressUntil: until, signalClearedAt: null },
