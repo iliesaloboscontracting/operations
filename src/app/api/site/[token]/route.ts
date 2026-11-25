@@ -10,6 +10,8 @@ import { LINK_WHERE } from "@/lib/siteRequests";
 import { isPilotLink, logCard } from "@/lib/dailyLog/store";
 import { GUIDE_VERSION } from "@/lib/dailyLog/guide";
 import { linkMayFill, variationsOn } from "@/lib/variations/rules";
+import { linkMayUse, siteDocsOn } from "@/lib/siteDocs/rules";
+import { tileState } from "@/lib/siteDocs/store";
 
 // GET /api/site/:token -> who the link belongs to and their toolbox(es) with
 // the tools in each (for picking a tool when reporting a fault). Tool names
@@ -59,5 +61,8 @@ export const GET = withErrorHandling(async (_req: NextRequest, { params: paramsP
       : {};
   // Variation / day dockets (25 Nov 2026): the tile on a supervisor's link and a hand-over link - not with VARIATION_DOCKETS=off.
   const variations = linkMayFill(link) && variationsOn() ? { variations: true } : {};
-  return NextResponse.json({ person: link.person.name, kind: link.kind, shared: link.shared, toolboxes, openRequests, needsAnswer, todo, hireItems: hire.length, hireToCheck: hire.filter((h) => h.askNow).length, ...(dailyLog ? { dailyLog } : {}), ...(hasLog ? { guide: GUIDE_VERSION } : {}), ...receipts, ...yard, ...variations });
+  // Site documents (25 Nov 2026): the tile on a supervisor's link and a hand-over link - not with SITE_DOCS=off. Says
+  // whether this week's toolbox talk is still due on one of its jobs.
+  const siteDocs = linkMayUse(link) && siteDocsOn() ? { siteDocs: await tileState(link) } : {};
+  return NextResponse.json({ person: link.person.name, kind: link.kind, shared: link.shared, toolboxes, openRequests, needsAnswer, todo, hireItems: hire.length, hireToCheck: hire.filter((h) => h.askNow).length, ...(dailyLog ? { dailyLog } : {}), ...(hasLog ? { guide: GUIDE_VERSION } : {}), ...receipts, ...yard, ...variations, ...siteDocs });
 });

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState, use } from "react";
-import { ArrowLeft, BookOpen, Camera, Car, ClipboardList, Container, ListChecks, Loader2, NotebookPen, PackageCheck, QrCode as QrIcon, ImagePlus, ClipboardCheck, FilePen, ReceiptText, ScanLine, Send, ShoppingCart, Truck, Wrench, Wallet } from "lucide-react";
+import { ArrowLeft, BookOpen, Camera, Car, ClipboardList, Container, ListChecks, Loader2, NotebookPen, PackageCheck, QrCode as QrIcon, ImagePlus, ClipboardCheck, FilePen, FolderOpen, ReceiptText, ScanLine, Send, ShoppingCart, Truck, Wrench, Wallet } from "lucide-react";
 import YardJobs from "@/components/yard/YardJobs";
 import PhotoPicker from "@/components/tools/PhotoPicker";
 import DailyLog from "@/components/site/DailyLog";
@@ -49,6 +49,7 @@ type SiteInfo = {
   yardJobs?: number; // the yard's shared link: jobs to get ready (4 Nov 2026)
   readyToCollect?: number; // a supervisor's link: their requests ready at the yard
   variations?: boolean; // variation / day dockets - supervisor and hand-over links (25 Nov 2026)
+  siteDocs?: { toolboxDue: boolean; jobs: number }; // site documents - supervisor and hand-over links (25 Nov 2026)
 };
 type Mode = "home" | "register" | "check" | "checkPhotos" | "fault" | "signin" | "request" | "requests" | "todo" | "purchases" | "hire" | "log" | "receipt" | "receipts" | "hours" | "reimburse" | "yard" | "bins" | "howto";
 
@@ -202,6 +203,14 @@ export default function SitePhotosPage({ params: paramsP }: { params: Promise<{ 
             {/* Variation / day docket (Ilies, 25 Nov 2026): supervisor and hand-over links only - its own page. */}
             {info.variations && (info.kind === "SUPERVISOR" || info.kind === "HANDOVER") && (
               <Big icon={<FilePen size={22} />} title="Variation docket" text="Extra work, labour hire, materials, rubbish - the client signs on your phone" onClick={() => { window.location.href = `/site/${params.token}/variation`; }} />
+            )}
+            {/* Site documents (Ilies, 25 Nov 2026): supervisor and hand-over links only - plans, SWMS, pre-start, toolbox talk,
+                incident report - its own page. */}
+            {info.siteDocs && (info.kind === "SUPERVISOR" || info.kind === "HANDOVER") && (
+              <Big icon={<FolderOpen size={22} />} title="Site documents"
+                text={info.siteDocs.jobs === 0 ? "Plans, SWMS, pre-start, toolbox talk, incident report" : info.siteDocs.toolboxDue ? "Toolbox talk due this week · plans, SWMS, pre-start, incidents" : "Toolbox talk done this week ✓ · plans, SWMS, pre-start, incidents"}
+                alert={info.siteDocs.jobs > 0 && info.siteDocs.toolboxDue}
+                onClick={() => { window.location.href = `/site/${params.token}/documents`; }} />
             )}
             {info.kind !== "OFFICE" && !driver && (<>
               <Big icon={<Send size={22} />} title="Make a request" text="Labour, trucks, hire, tools, materials - straight to the office" onClick={() => { setFlash(null); setMode("request"); }} />

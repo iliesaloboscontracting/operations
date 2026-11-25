@@ -39,7 +39,8 @@ export const GET = withErrorHandling(async (req: NextRequest, { params: paramsP 
   const link = await linkFor(token);
   if (!link) return GONE();
   if (!/^[a-z0-9]{10,40}$/.test(id)) return NextResponse.json({ error: "not found" }, { status: 404 });
-  const row = await prisma.mediaObject.findUnique({ where: { id }, select: { siteLinkId: true, state: true } });
-  if (!row || row.siteLinkId !== link.id || row.state !== "READY") return NextResponse.json({ error: "not found" }, { status: 404 });
+  const row = await prisma.mediaObject.findUnique({ where: { id }, select: { siteLinkId: true, state: true, area: true } });
+  // An incident report's photo is never read back here (25 Nov 2026) - only the owner and DIRECTOR logins see it.
+  if (!row || row.siteLinkId !== link.id || row.state !== "READY" || row.area === "INCIDENT") return NextResponse.json({ error: "not found" }, { status: 404 });
   return mediaResponse(mediaRef(id), req);
 });
