@@ -220,7 +220,8 @@ export default {
     // (9) Option b: "None of this batch is asbestos".
     await c.post(`/api/receipts/${ids.C}`, "MANAGER", { op: "CORRECT", fields: { asbestos: true } }); // someone answered C: yes
     await c.post(`/api/receipts/${ids.A2}`, "MANAGER", { op: "REJECT", reason: "Release check - same docket twice" });
-    for (const role of ["VIEWER", "COORDINATOR", "YARD", "ACCOUNTS", "TIMESHEETS", "DIRECTOR"]) {
+    // The coordinator may (Ilies approved 25 Nov 2026 - tip dockets, see and check; checks/110-coordinator-tips.mjs).
+    for (const role of ["VIEWER", "YARD", "ACCOUNTS", "TIMESHEETS", "DIRECTOR"]) {
       if (!c.users[role]) continue;
       t.status(await c.post(`/api/receipts/batches/${b1.body.id}/no-asbestos`, role, {}), [401, 403], `option b: ${role} refused`);
     }

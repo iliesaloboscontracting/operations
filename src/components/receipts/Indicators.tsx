@@ -14,14 +14,16 @@ const day = (iso: string) => new Date(`${iso.slice(0, 10)}T00:00:00`).toLocaleDa
 const th = "px-3 py-1.5 text-left text-[11px] font-medium uppercase tracking-wide text-gray-500";
 const td = "px-3 py-1.5 text-sm tabular-nums";
 
-export default function Indicators() {
-  const [data, setData] = useState<{ jobs: JobIndicatorDTO[]; trucks: TruckIndicatorDTO[] } | null>(null);
+// tipsOnly (the coordinator, Ilies approved 25 Nov 2026): the tip loads by job only - the server sends no trucks to him -
+// and the job names as plain text (Tracking isn't one of his pages).
+export default function Indicators({ tipsOnly }: { tipsOnly?: boolean }) {
+  const [data, setData] = useState<{ jobs: JobIndicatorDTO[]; trucks?: TruckIndicatorDTO[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     apiFetch("/api/receipts?indicators=1").then(async (r) => (r.ok ? setData(await r.json()) : setError(await serverErrorMessage(r, "Couldn't load the indicators."))));
   }, []);
   if (!data) return <p className="py-8 text-center text-sm text-gray-500">{error ?? "Loading..."}</p>;
-  const trucks = data.trucks.filter((t) => t.lastKm != null || t.fuelByWeek.length || t.tipLoads);
+  const trucks = (data.trucks ?? []).filter((t) => t.lastKm != null || t.fuelByWeek.length || t.tipLoads);
   return (
     <div className="space-y-6">
       <section>
@@ -35,7 +37,7 @@ export default function Indicators() {
                 {data.jobs.map((j) => (
                   <tr key={j.projectId}>
                     <td className="px-3 py-1.5 text-sm text-gray-200">
-                      <Link href={`/tracking/${j.projectId}`} className="hover:underline">{j.projectName}</Link>
+                      {tipsOnly ? j.projectName : <Link href={`/tracking/${j.projectId}`} className="hover:underline">{j.projectName}</Link>}
                       {j.newSites.length > 0 && <div className="text-[11px] text-sky-300">New tip site: {j.newSites.map((s) => `${s.tipSite} (${day(s.day)})`).join(", ")}</div>}
                     </td>
                     <td className={td}>{j.loads}</td>
@@ -51,6 +53,7 @@ export default function Indicators() {
           </div>
         )}
       </section>
+      {!tipsOnly && (<>
       <section className="mb-5">
         <div className="mb-1 text-sm font-semibold text-gray-100">Trucks &amp; vehicles</div>
         <p className="mb-2 text-xs text-gray-500">From odometer photos at truck sign-in and fuel receipts, last 8 weeks. Fuel is tracked per truck - it&apos;s in the truck&apos;s day rate, not a job cost.</p>
@@ -65,6 +68,7 @@ export default function Indicators() {
           <div className="grid gap-3 md:grid-cols-2">{trucks.filter((t) => t.group === "PLANT").map((t) => <TruckPanel key={t.vehicleId} t={t} titled />)}</div>
         )}
       </section>
+      </>)}
     </div>
   );
 }

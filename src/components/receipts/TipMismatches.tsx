@@ -12,7 +12,11 @@ import type { TipMismatches as Data } from "@/lib/receipts/tipStore";
 const money = (n: number) => n.toLocaleString("en-AU", { style: "currency", currency: "AUD" });
 const day = (iso: string) => new Date(`${iso}T00:00:00`).toLocaleDateString("en-AU", { day: "numeric", month: "short" });
 
-export default function TipMismatches() {
+// tipsOnly (the coordinator, 25 Nov 2026): the project names show as plain text - Tracking isn't one of his pages.
+const ProjectName = ({ id, name, tipsOnly }: { id: string; name: string; tipsOnly?: boolean }) =>
+  tipsOnly ? <span className="text-xs text-gray-300">{name}</span> : <Link href={`/tracking/${id}`} className="text-xs text-brand-300 hover:underline">{name}</Link>;
+
+export default function TipMismatches({ tipsOnly }: { tipsOnly?: boolean }) {
   const [data, setData] = useState<Data | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
@@ -30,7 +34,7 @@ export default function TipMismatches() {
               <li key={d.id} className="flex flex-wrap items-baseline gap-x-3 px-4 py-2 text-sm">
                 <span className="w-14 text-xs text-gray-500">{day(d.day)}</span>
                 <span className="min-w-0 flex-1 text-gray-200">{d.tipSite ?? "Tip"}{d.docketNo && <span className="text-gray-500"> #{d.docketNo}</span>}{d.tonnes != null && <span className="text-gray-500"> · {d.tonnes} t</span>}</span>
-                <Link href={`/tracking/${d.projectId}`} className="text-xs text-brand-300 hover:underline">{d.projectName}</Link>
+                <ProjectName id={d.projectId} name={d.projectName} tipsOnly={tipsOnly} />
               </li>
             ))}
           </ul>
@@ -46,7 +50,7 @@ export default function TipMismatches() {
                 <span className="w-14 text-xs text-gray-500">{day(i.weekEnding)}</span>
                 <span className="min-w-0 flex-1 text-gray-200">{i.vendor}{i.invoiceNo && <span className="text-gray-500"> #{i.invoiceNo}</span>}</span>
                 <span className="tabular-nums text-gray-100">{money(i.amountExGst)}</span>
-                <Link href={`/tracking/${i.projectId}`} className="text-xs text-brand-300 hover:underline">{i.projectName}</Link>
+                <ProjectName id={i.projectId} name={i.projectName} tipsOnly={tipsOnly} />
               </li>
             ))}
           </ul>

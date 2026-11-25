@@ -10,6 +10,7 @@ import type { ReceiptLink } from "../siteLinks";
 import { saveReceiptPhoto } from "./files";
 import { KIND_LABEL, LIMITS, PURPOSE_LABEL, STATUS_LABEL, parseReceipt, parseReimbursement, reimburseStatus, type Purpose, type ReceiptKind, type ReceiptLinkDTO } from "./rules";
 import { MAX_TRIES, logOf, readOdometerSoon, readReceiptSoon } from "./runner";
+import { filtersFor } from "./tipsAccess";
 
 type Problem = { error: string; status: number };
 const since24h = () => new Date(Date.now() - 24 * 3_600_000);
@@ -258,13 +259,17 @@ export type ReceiptFilters = { day?: string; jobId?: string; vehicleId?: string;
 const reasonsOf = (s: string | null) => { try { const v = s ? JSON.parse(s) : []; return Array.isArray(v) ? v.map(String) : []; } catch { return []; } };
 const iso = (d: Date | null) => (d ? d.toISOString() : null);
 
-export async function officeList(f: ReceiptFilters): Promise<{ rows: ReceiptOfficeDTO[]; jobs: { id: string; label: string }[]; trucks: { id: string; label: string }[]; people: string[]; toCheck: number }> {
+// tipsOnly (the coordinator - Ilies approved 25 Nov 2026, ./tipsAccess.ts): TIP dockets only, in the query itself - no
+// FUEL, no odometer, no PURCHASE / own-money receipt, no truck list, senders and the "Check these" count from tip dockets.
+export async function officeList(fIn: ReceiptFilters, opts: { tipsOnly?: boolean } = {}): Promise<{ rows: ReceiptOfficeDTO[]; jobs: { id: string; label: string }[]; trucks: { id: string; label: string }[]; people: string[]; toCheck: number }> {
+  const tipsOnly = opts.tipsOnly === true;
+  const f = filtersFor(fIn, tipsOnly); // the route did this already - again here, so no caller can skip it
   const day = f.day && /^\d{4}-\d{2}-\d{2}$/.test(f.day) ? f.day : null;
   const check = f.check === "1";
   // One Sydney day, or the last 30 days ("Check these": everything still to check from the last 90 days).
   const from = day ? sydneyMidnight(day) : new Date(Date.now() - (check ? 90 : 30) * 86_400_000);
   const to = day ? sydneyMidnight(nextDay(day)) : new Date(Date.now() + 60_000);
-  const wantOdo = !f.kind || f.kind === "ODOMETER";
+  const wantOdo = !tipsOnly && (!f.kind || f.kind === "ODOMETER");
   const wantReceipts = !f.kind || f.kind === "TIP" || f.kind === "FUEL";
   // Own-money purchases (PURCHASE) belong to accounts' Reimbursements - never on this list.
   const statusWhere = check ? { status: { in: ["CHECK", "SENT"] } } : {};
@@ -273,7 +278,7 @@ export async function officeList(f: ReceiptFilters): Promise<{ rows: ReceiptOffi
       ? prisma.receipt.findMany({
           where: {
             sentAt: { gte: from, lt: to }, ...statusWhere,
-            kind: f.kind === "TIP" || f.kind === "FUEL" ? f.kind : { in: ["TIP", "FUEL"] },
+            ...(tipsOnly ? { kind: "TIP", ownMoney: false } : { kind: f.kind === "TIP" || f.kind === "FUEL" ? f.kind : { in: ["TIP", "FUEL"] } }),
             ...(f.jobId ? { jobId: f.jobId } : {}),
             ...(f.vehicleId ? { vehicleId: f.vehicleId } : {}),
             ...(f.person ? { sentBy: f.person } : {}),
@@ -295,7 +300,9 @@ export async function officeList(f: ReceiptFilters): Promise<{ rows: ReceiptOffi
   // A docket added from another receipt's photo shows that receipt's photo(s).
   const sharedFrom = [...new Set(receipts.map((r) => r.photoFromReceiptId).filter((x): x is string => !!x))];
   const sharedPhotos = new Map<string, string[]>();
-  for (const p of sharedFrom.length ? await prisma.receiptPhoto.findMany({ where: { receiptId: { in: sharedFrom } }, select: { id: true, receiptId: true }, orderBy: { createdAt: "asc" } }) : []) {
+  // tipsOnly: only photos of a TIP docket (a docket added from a fuel receipt's photo shows no photo to him).
+  const sharedWhere = tipsOnly ? { receiptId: { in: sharedFrom }, receipt: { kind: "TIP", ownMoney: false } } : { receiptId: { in: sharedFrom } };
+  for (const p of sharedFrom.length ? await prisma.receiptPhoto.findMany({ where: sharedWhere, select: { id: true, receiptId: true }, orderBy: { createdAt: "asc" } }) : []) {
     sharedPhotos.set(p.receiptId!, [...(sharedPhotos.get(p.receiptId!) ?? []), p.id]);
   }
   const recent = { sentAt: { gte: new Date(Date.now() - 60 * 86_400_000) } };
@@ -309,10 +316,10 @@ export async function officeList(f: ReceiptFilters): Promise<{ rows: ReceiptOffi
   const [jobRows, siteRows, trucks, senders, odoSenders, toCheck] = await Promise.all([
     prisma.job.findMany({ where: { id: { in: jobIds } }, select: { id: true, title: true, shift: true, date: true, project: { select: { name: true } } } }),
     prisma.project.findMany({ where: { id: { in: siteIds } }, select: { id: true, name: true } }),
-    fuelAssets(),
-    prisma.receipt.findMany({ where: recent, select: { sentBy: true }, distinct: ["sentBy"] }),
-    prisma.odometerReading.findMany({ where: recent, select: { sentBy: true }, distinct: ["sentBy"] }),
-    countToCheck(),
+    tipsOnly ? Promise.resolve([] as Awaited<ReturnType<typeof fuelAssets>>) : fuelAssets(),
+    prisma.receipt.findMany({ where: tipsOnly ? { ...recent, kind: "TIP", ownMoney: false } : recent, select: { sentBy: true }, distinct: ["sentBy"] }),
+    tipsOnly ? Promise.resolve([] as { sentBy: string }[]) : prisma.odometerReading.findMany({ where: recent, select: { sentBy: true }, distinct: ["sentBy"] }),
+    countToCheck({ tipsOnly }),
   ]);
   const extra = (status: string, reading: string | null, reasons: string[]) => {
     const log = logOf(reading);
@@ -363,13 +370,15 @@ export async function officeList(f: ReceiptFilters): Promise<{ rows: ReceiptOffi
 }
 
 // How many are waiting for a person (to check, or unreadable) - the tab's count.
-export async function countToCheck(): Promise<number> {
+// tipsOnly (the coordinator): tip dockets only.
+export async function countToCheck(opts: { tipsOnly?: boolean } = {}): Promise<number> {
   const since = new Date(Date.now() - 90 * 86_400_000);
+  const kinds = opts.tipsOnly ? { kind: "TIP", ownMoney: false } : { kind: { not: "PURCHASE" } };
   const [checks, odoChecks, sent, odoSent] = await Promise.all([
-    prisma.receipt.count({ where: { status: "CHECK", kind: { not: "PURCHASE" }, sentAt: { gte: since } } }),
-    prisma.odometerReading.count({ where: { status: "CHECK", sentAt: { gte: since } } }),
-    prisma.receipt.findMany({ where: { status: "SENT", kind: { not: "PURCHASE" }, sentAt: { gte: since } }, select: { reading: true } }),
-    prisma.odometerReading.findMany({ where: { status: "SENT", sentAt: { gte: since } }, select: { reading: true } }),
+    prisma.receipt.count({ where: { status: "CHECK", ...kinds, sentAt: { gte: since } } }),
+    opts.tipsOnly ? Promise.resolve(0) : prisma.odometerReading.count({ where: { status: "CHECK", sentAt: { gte: since } } }),
+    prisma.receipt.findMany({ where: { status: "SENT", ...kinds, sentAt: { gte: since } }, select: { reading: true } }),
+    opts.tipsOnly ? Promise.resolve([] as { reading: string | null }[]) : prisma.odometerReading.findMany({ where: { status: "SENT", sentAt: { gte: since } }, select: { reading: true } }),
   ]);
   return checks + odoChecks + [...sent, ...odoSent].filter((r) => (logOf(r.reading).tries ?? 0) >= MAX_TRIES).length;
 }
