@@ -783,7 +783,9 @@ business, without becoming unnecessarily complicated.
   (<supervisor>)" - no health detail. Never to any AI (not the Assistant, not LCI). (F) Truck & plant pre-starts: today's
   checks on the job's booked trucks / Lobos machines, read only. Office: `/site-documents` (+ `/topic`, `/records/<id>`,
   `/swms/<id>` printable) for Managers, Admins and the coordinator (`guardSiteDocs`, COORDINATOR_PAGES - never
-  incidents); the Building Agent reads lists only - no signature, upload, archive or topic (403). Files in
+  incidents); the coordinator also uploads from a "Site documents" card on /coordinator (Ilies: "allow him to upload
+  documents aswell from his dashboard which the crew get on their apps" - project, plan or new SWMS version, topic of
+  the week; "SWMS not signed by people on site today: N" from `?summary=1`); the Building Agent reads lists only - no signature, upload, archive or topic (403). Files in
   `SITE_DOC_FILE_DIR` (server `/srv/operations/sitedoc-files`, nightly backup `sitedoc-files-<stamp>.tar.gz` + the
   off-site copy), 7 MB a file; archive = its own `SiteDocFileEvent` (never deleted). Append-only: no update / delete
   path for any of these tables. No price anywhere ("$" refused; `linkSafe` on every link reply). Nothing touches
