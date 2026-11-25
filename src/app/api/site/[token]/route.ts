@@ -9,6 +9,7 @@ import { hireForLink } from "@/lib/hireCheck";
 import { LINK_WHERE } from "@/lib/siteRequests";
 import { isPilotLink, logCard } from "@/lib/dailyLog/store";
 import { GUIDE_VERSION } from "@/lib/dailyLog/guide";
+import { linkMayFill, variationsOn } from "@/lib/variations/rules";
 
 // GET /api/site/:token -> who the link belongs to and their toolbox(es) with
 // the tools in each (for picking a tool when reporting a fault). Tool names
@@ -56,5 +57,7 @@ export const GET = withErrorHandling(async (_req: NextRequest, { params: paramsP
     : link.kind !== "OFFICE"
       ? { readyToCollect: await prisma.siteRequest.count({ where: { siteLinkId: link.id, ...LINK_WHERE, status: "READY" } }) }
       : {};
-  return NextResponse.json({ person: link.person.name, kind: link.kind, shared: link.shared, toolboxes, openRequests, needsAnswer, todo, hireItems: hire.length, hireToCheck: hire.filter((h) => h.askNow).length, ...(dailyLog ? { dailyLog } : {}), ...(hasLog ? { guide: GUIDE_VERSION } : {}), ...receipts, ...yard });
+  // Variation / day dockets (25 Nov 2026): the tile on a supervisor's link and a hand-over link - not with VARIATION_DOCKETS=off.
+  const variations = linkMayFill(link) && variationsOn() ? { variations: true } : {};
+  return NextResponse.json({ person: link.person.name, kind: link.kind, shared: link.shared, toolboxes, openRequests, needsAnswer, todo, hireItems: hire.length, hireToCheck: hire.filter((h) => h.askNow).length, ...(dailyLog ? { dailyLog } : {}), ...(hasLog ? { guide: GUIDE_VERSION } : {}), ...receipts, ...yard, ...variations });
 });

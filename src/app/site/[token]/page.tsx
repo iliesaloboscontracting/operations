@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState, use } from "react";
-import { ArrowLeft, BookOpen, Camera, Car, ClipboardList, Container, ListChecks, Loader2, NotebookPen, PackageCheck, QrCode as QrIcon, ImagePlus, ClipboardCheck, ReceiptText, ScanLine, Send, ShoppingCart, Truck, Wrench, Wallet } from "lucide-react";
+import { ArrowLeft, BookOpen, Camera, Car, ClipboardList, Container, ListChecks, Loader2, NotebookPen, PackageCheck, QrCode as QrIcon, ImagePlus, ClipboardCheck, FilePen, ReceiptText, ScanLine, Send, ShoppingCart, Truck, Wrench, Wallet } from "lucide-react";
 import YardJobs from "@/components/yard/YardJobs";
 import PhotoPicker from "@/components/tools/PhotoPicker";
 import DailyLog from "@/components/site/DailyLog";
@@ -48,6 +48,7 @@ type SiteInfo = {
   receiptsToday?: number; // supervisor and driver links (Receipts)
   yardJobs?: number; // the yard's shared link: jobs to get ready (4 Nov 2026)
   readyToCollect?: number; // a supervisor's link: their requests ready at the yard
+  variations?: boolean; // variation / day dockets - supervisor and hand-over links (25 Nov 2026)
 };
 type Mode = "home" | "register" | "check" | "checkPhotos" | "fault" | "signin" | "request" | "requests" | "todo" | "purchases" | "hire" | "log" | "receipt" | "receipts" | "hours" | "reimburse" | "yard" | "bins" | "howto";
 
@@ -197,6 +198,10 @@ export default function SitePhotosPage({ params: paramsP }: { params: Promise<{ 
             {/* Accounts stage 2: the supervisor approves the day's hours after sign-out (supervisor links only). */}
             {info.kind === "SUPERVISOR" && (
               <Big icon={<ClipboardCheck size={22} />} title="Approve hours" text="Check your crew's hours for the day and approve" onClick={() => { setFlash(null); setMode("hours"); }} />
+            )}
+            {/* Variation / day docket (Ilies, 25 Nov 2026): supervisor and hand-over links only - its own page. */}
+            {info.variations && (info.kind === "SUPERVISOR" || info.kind === "HANDOVER") && (
+              <Big icon={<FilePen size={22} />} title="Variation docket" text="Extra work, labour hire, materials, rubbish - the client signs on your phone" onClick={() => { window.location.href = `/site/${params.token}/variation`; }} />
             )}
             {info.kind !== "OFFICE" && !driver && (<>
               <Big icon={<Send size={22} />} title="Make a request" text="Labour, trucks, hire, tools, materials - straight to the office" onClick={() => { setFlash(null); setMode("request"); }} />
