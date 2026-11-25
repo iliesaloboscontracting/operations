@@ -65,7 +65,7 @@ export default function ProposeChange({
     setBusy(false);
     if (!res || !res.ok) return setError(res ? await serverErrorMessage(res, "Couldn't propose it.") : "Couldn't reach the server.");
     const d = await res.json();
-    onDone(`Proposed P-${String(d.number).padStart(4, "0")} - it changes nothing until someone else approves it on Changes.`);
+    onDone(`Proposed P-${String(d.number).padStart(4, "0")} - it changes nothing until someone else approves it on Approvals.`);
   }
 
   return (

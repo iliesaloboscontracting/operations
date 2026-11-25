@@ -7,10 +7,10 @@ import { apiFetch } from "@/lib/apiFetch";
 import ChangeCard from "./ChangeCard";
 import type { ChangeDTO } from "@/lib/changes/store";
 
-// "Changes to approve" on the Directors overview (LCI phase 4, step 4f): the
+// "Approvals waiting" (was "Changes to approve" until 25 Nov 2026) on the Directors overview (LCI phase 4, step 4f): the
 // COMMERCIAL proposals only - contract values, which Nick and Yoel approve
-// (Ilies, 25 Oct 2026). Approve / Reject right here: DIRECTOR logins can't
-// open Operations' Changes page. Never an operational change. Hidden when
+// (Ilies, 25 Oct 2026). Approve / Decline right here: DIRECTOR logins can't
+// open Operations' Approvals page (/changes). Never an operational change. Hidden when
 // nothing is waiting. othersOnly (the overview, 10 Nov 2026): just the ones this
 // login can't approve - its own are under Waiting on you.
 export default function DirectorChanges({ othersOnly = false }: { othersOnly?: boolean }) {
@@ -29,7 +29,7 @@ export default function DirectorChanges({ othersOnly = false }: { othersOnly?: b
   if (!rows.length && !flash) return null;
   return (
     <Card className="mb-4">
-      <div className="mb-1 text-sm font-semibold text-gray-100">{othersOnly ? "Waiting on another director" : "Changes to approve"} <span className="font-normal text-gray-500">· {rows.length}</span></div>
+      <div className="mb-1 text-sm font-semibold text-gray-100">{othersOnly ? "Approvals waiting on another director" : "Approvals waiting"} <span className="font-normal text-gray-500">· {rows.length}</span></div>
       <p className="mb-2 text-[11px] text-gray-500">{othersOnly ? "Contract values proposed and waiting for someone else to approve - yours to approve are under Waiting on you." : "Contract values proposed from answered questions. Nothing changes until one of you approves it - never the person who gave the figure."}</p>
       {flash && <p className="mb-2 rounded-lg bg-emerald-500/15 px-3 py-2 text-sm text-emerald-300">{flash}</p>}
       <div className="space-y-2">{rows.map((c) => <ChangeCard key={c.id} c={c} me={user?.name ?? ""} onDone={(m) => { setFlash(m); load(); }} />)}</div>

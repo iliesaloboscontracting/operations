@@ -20,8 +20,8 @@ const OPERATIONS = [
   { href: "/purchases", label: "Purchases" },
   { href: "/questions", label: "My questions" },
   { href: "/messages", label: "Messages" },
-  // Changes has no tab (Ilies, 3 Nov 2026: "hide the tab only") - /changes still works from the phone
-  // alert link and the Directors "Changes to approve" box.
+  // Approvals (/changes; called Changes until 25 Nov 2026) has no tab (Ilies, 3 Nov 2026: "hide the tab only") -
+  // /changes (and /approvals) still work from the phone alert link and the Directors "Approvals waiting" box.
   { href: "/completed", label: "Completed" },
   { href: "/day-review", label: "Day Review" },
   { href: "/receipts", label: "Receipts" },

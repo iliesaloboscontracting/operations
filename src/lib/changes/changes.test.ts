@@ -6,7 +6,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "crypto";
-import { A3_RULES, CHANGE_KINDS, LESSON_PUBLISHERS, isAdminKind } from "./config";
+import { A3_RULES, approvalsWaiting, CHANGE_KINDS, LESSON_PUBLISHERS, isAdminKind } from "./config";
 import {
   canProposeKind, canViewKind, cannotApprove, canonical, expiryFor, fingerprintPayload, isExpired, kindEnabled, noChange,
   openKeyOf, parseAfter, parseSources, pickValue, proposalRef, samePerson, SYSTEM_ACTOR, type ChangeUser,
@@ -123,4 +123,14 @@ test("the system proposes only off-hire dates (from a supervisor's hire check), 
   for (const k of ["PROJECT_CONTRACT_VALUE", "PROJECT_JOB_NO", "PROJECT_QUOTE_NO"] as const) assert.ok(!canProposeKind(SYSTEM_ACTOR, k), k);
   assert.ok(cannotApprove(SYSTEM_ACTOR, { kind: "HIRE_OFF_HIRE_DATE", requestedBy: "Alex", sourcePerson: null }));
   assert.equal(cannotApprove(ilies, { kind: "HIRE_OFF_HIRE_DATE", requestedBy: "System", sourcePerson: "Tom" }), null, "any Admin approves a system proposal");
+});
+
+test("the words people read call it Approvals (Ilies, 25 Nov 2026) - the phone alert title too", async () => {
+  assert.equal(approvalsWaiting(1), "1 approval waiting");
+  assert.equal(approvalsWaiting(3), "3 approvals waiting");
+  const { readFileSync } = await import("fs");
+  const store = readFileSync(new URL("./store.ts", import.meta.url), "utf8");
+  assert.match(store, /title: approvalsWaiting\(waiting\)/, "the owner's phone alert says how many approvals are waiting");
+  assert.doesNotMatch(store, /changes? to approve/i);
+  assert.match((await import("./rules")).SWITCHED_OFF, /^Approvals are switched off/);
 });

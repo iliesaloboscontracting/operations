@@ -96,7 +96,11 @@ export const A3_RULES: Record<ChangeKind, KindRule> = {
 };
 
 // SEC-011: shown to an Admin on a pay / engagement / ticket / document change card.
-export const PROPOSER_HINT = "The proposer can't see current values - don't quote them in a reject reason.";
+export const PROPOSER_HINT = "The proposer can't see current values - don't quote them in a reason for declining.";
+
+// What people read (Ilies, 25 Nov 2026: "yes rename to approvals"): the feature is called Approvals on every screen
+// and phone alert. Only the words changed - the code, routes (/changes, /api/changes), tables and switches keep "change".
+export const approvalsWaiting = (n: number) => `${n} approval${n === 1 ? "" : "s"} waiting`;
 
 export const isAdminKind = (k: ChangeKind) => A3_RULES[k].audience === "ADMIN";
 

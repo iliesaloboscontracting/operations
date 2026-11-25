@@ -165,7 +165,7 @@ test("the yard lands on /yard and opens only its pages", () => {
   for (const p of ["/yard?x=1", "/yard/", "/yard/job123", "/tools/", "/tools/faults#x"]) assert.ok(isYardPage(p), p);
   for (const p of ["/command", "/projects", "/tracking", "/tracking/abc", "/tools/site", "/hire", "/purchases", "/timesheets", "/attendance",
     "/day-review", "/calendar", "/messages", "/documents", "/assistant", "/users", "/accounts", "/directors", "/coordinator", "/invoices",
-    "/requests", "/labour", "/plant", "/vehicles", "/receipts", "/changes", "/estimating", "/yardx", "/daily-report/abc"])
+    "/requests", "/labour", "/plant", "/vehicles", "/receipts", "/changes", "/approvals", "/estimating", "/yardx", "/daily-report/abc"])
     assert.equal(isYardPage(p), false, p);
   assert.equal(isCoordinatorPage("/yard"), false, "the coordinator doesn't get /yard from this");
   assert.equal(yardHref("/tools/faults", true), "/tools/faults");

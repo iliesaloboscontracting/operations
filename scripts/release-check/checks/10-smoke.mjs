@@ -21,6 +21,11 @@ export default {
     // The Invoices tab was removed on 28 Oct 2026 (Ilies); its old address forwards to Accounts data.
     const inv = await c.get("/invoices", "ADMIN");
     t.ok([307, 308].includes(inv.status) && (inv.headers.get("location") ?? "").includes("/accounts/xero"), "old /invoices forwards to /accounts/xero", inv.status);
+    // The Changes page is called Approvals since 25 Nov 2026 (Ilies); /approvals forwards to it, /changes stays.
+    const apv = await c.get("/approvals", "ADMIN");
+    t.ok([307, 308].includes(apv.status) && (apv.headers.get("location") ?? "").endsWith("/changes"), "/approvals forwards to /changes", apv.status);
+    const chg = await (await c.get("/changes", "ADMIN")).text();
+    t.ok(/Approvals/.test(chg), "the /changes page is titled Approvals");
     const apis = [`/api/jobs?date=${today}`, `/api/calendar?from=${today}&to=${today}`, `/api/attendance?date=${today}`, "/api/timesheets", "/api/requests",
       "/api/hire-alerts", `/api/alerts?date=${today}`, "/api/resources", "/api/tracking", `/api/day-review?date=${today}`, "/api/tools",
       "/api/invoice-inbox", `/api/projects/${project.id}`, "/api/site-links", "/api/auth/me", "/api/receipts", "/api/production"];

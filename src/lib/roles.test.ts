@@ -36,7 +36,7 @@ test("his pages, and only those", () => {
   for (const p of COORDINATOR_PAGES) assert.ok(isCoordinatorPage(p), p);
   for (const p of ["/day-review?x=1", "/tools/", "/daily-report/abc123", "/hire#x"]) assert.ok(isCoordinatorPage(p), p);
   for (const p of ["/command", "/projects", "/tracking", "/tracking/abc", "/tools/site", "/assistant", "/users", "/accounts", "/directors",
-    "/invoices", "/requests", "/labour", "/plant", "/vehicles", "/receipts", "/changes", "/estimating", "/daily-report", "/daily-report/a/b", "/hire/x"])
+    "/invoices", "/requests", "/labour", "/plant", "/vehicles", "/receipts", "/changes", "/approvals", "/estimating", "/daily-report", "/daily-report/a/b", "/hire/x"])
     assert.equal(isCoordinatorPage(p), false, p);
 });
 

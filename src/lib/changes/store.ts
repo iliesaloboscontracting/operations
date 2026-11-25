@@ -13,7 +13,7 @@ import { OWNER_EMAIL } from "../owner";
 import { pushToUsers } from "../push";
 import { alertSafely } from "../messages/alertGuard";
 import { isOperationsAi } from "../infoRequests/rules";
-import { A3_RULES, CHANGE_KINDS, isAdminKind, type ChangeKind } from "./config";
+import { A3_RULES, approvalsWaiting, CHANGE_KINDS, isAdminKind, type ChangeKind } from "./config";
 import {
   SWITCHED_OFF, aiChangeLimit, aiProposerIds, alertBody, SYSTEM_ACTOR, canProposeKind, canViewKind, canViewProposal, cannotApprove, expiryFor, fingerprintPayload, isExpired, isKind, kindEnabled, maskedNote, masksBefore, undoRefusal, viewCard, conflictAtProposal, afterClaim, recordOutcome,
   noChange, openKeyOf, parseAfter, parseSources, pickValue, proposalRef, samePerson, sameValue,
@@ -200,7 +200,7 @@ async function alertOwner(p: Proposal, now: Date) {
     async () => {
       const who = (await proposersByAi([p.requestedByUserId])).has(p.requestedByUserId ?? "") ? "Operations AI" : p.requestedBy;
       await pushToUsers([ownerId], {
-        title: `${waiting} change${waiting === 1 ? "" : "s"} to approve`,
+        title: approvalsWaiting(waiting),
         body: alertBody(who, isKind(p.kind) ? A3_RULES[p.kind].label : p.kind, p.recordName),
         url: "/changes", tag: "change-approve",
       }, "high");

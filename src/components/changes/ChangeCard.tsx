@@ -6,16 +6,18 @@ import { whenText } from "@/lib/requestTypes";
 import type { ChangeDTO } from "@/lib/changes/store";
 import { PROPOSER_HINT } from "@/lib/changes/config";
 
-// One proposed change (LCI phase 4): record -> field -> before -> after, why,
+// One approval (LCI phase 4; called Approvals on screen since 25 Nov 2026): record -> field -> before -> after, why,
 // where it came from, who proposed it, when it expires, its fingerprint and
-// what else it moves. Approve (runs it, after re-checking), Reject, Withdraw,
+// what else it moves. Approve (runs it, after re-checking), Decline (the REJECT action), Withdraw,
 // or Propose undo on one that went in.
 
 const STATUS: Record<string, { word: string; tone: string }> = {
   PROPOSED: { word: "Waiting for approval", tone: "text-amber-300" }, APPROVED: { word: "Approved - applying", tone: "text-sky-300" },
   EXECUTED: { word: "Done", tone: "text-emerald-300" }, STALE: { word: "Not applied - changed meanwhile", tone: "text-red-300" },
-  REJECTED: { word: "Rejected", tone: "text-red-300" }, WITHDRAWN: { word: "Withdrawn", tone: "text-gray-400" }, EXPIRED: { word: "Expired", tone: "text-gray-400" },
+  REJECTED: { word: "Declined", tone: "text-red-300" }, WITHDRAWN: { word: "Withdrawn", tone: "text-gray-400" }, EXPIRED: { word: "Expired", tone: "text-gray-400" },
 };
+// The history line's words (the stored actions keep their names).
+const EVENT_WORD: Record<string, string> = { REJECTED: "declined" };
 
 export default function ChangeCard({ c, me, onDone }: { c: ChangeDTO; me: string; onDone: (message: string) => void }) {
   const [busy, setBusy] = useState(false);
@@ -30,12 +32,12 @@ export default function ChangeCard({ c, me, onDone }: { c: ChangeDTO; me: string
     if (!res || !res.ok) { setError(res ? await serverErrorMessage(res, "Couldn't do that.") : "Couldn't reach the server."); return; }
     const d = await res.json();
     window.dispatchEvent(new Event("requests-changed"));
-    onDone(action === "APPROVE" ? `${c.ref} applied: ${c.label} for ${c.recordName} is now ${c.after}.` : action === "UNDO" ? `Undo proposed as P-${String(d.number).padStart(4, "0")} - it needs approving too.` : `${c.ref} ${d.status.toLowerCase()}.`);
+    onDone(action === "APPROVE" ? `${c.ref} applied: ${c.label} for ${c.recordName} is now ${c.after}.` : action === "UNDO" ? `Undo proposed as P-${String(d.number).padStart(4, "0")} - it needs approving too.` : `${c.ref} ${(STATUS[d.status]?.word ?? String(d.status)).toLowerCase()}.`);
   }
   const approve = () => {
     if (confirm(`Approve as ${me}?\n\n${c.label} for ${c.recordName}: ${c.before} -> ${c.after}\n\nThis changes the record now (after re-checking it hasn't changed since).`)) act("APPROVE", { fingerprint: c.fingerprint });
   };
-  const reject = () => { const r = prompt("Why is it rejected? (the person who proposed it sees this)"); if (r && r.trim()) act("REJECT", { reason: r }); };
+  const decline = () => { const r = prompt("Why are you declining it? (the person who proposed it sees this)"); if (r && r.trim()) act("REJECT", { reason: r }); };
 
   return (
     <div className="rounded-xl border border-edge bg-panel p-3">
@@ -55,7 +57,7 @@ export default function ChangeCard({ c, me, onDone }: { c: ChangeDTO; me: string
       {error && <p className="mt-2 text-sm text-red-400">{error}</p>}
       <div className="mt-2 flex flex-wrap items-center gap-2">
         {c.canApprove && <button disabled={busy} onClick={approve} className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-40">Approve as {me.split(" ")[0]}</button>}
-        {c.status === "PROPOSED" && !c.whyNot && <button disabled={busy} onClick={reject} className="rounded-lg border border-red-500/40 px-3 py-1.5 text-sm text-red-300 disabled:opacity-40">Reject</button>}
+        {c.status === "PROPOSED" && !c.whyNot && <button disabled={busy} onClick={decline} className="rounded-lg border border-red-500/40 px-3 py-1.5 text-sm text-red-300 disabled:opacity-40">Decline</button>}
         {c.canWithdraw && <button disabled={busy} onClick={() => act("WITHDRAW")} className="rounded-lg border border-edge px-3 py-1.5 text-sm text-gray-300 disabled:opacity-40">Withdraw</button>}
         {c.canUndo && <button disabled={busy} onClick={() => act("UNDO")} className="rounded-lg border border-edge px-3 py-1.5 text-sm text-gray-300 disabled:opacity-40">Propose undo</button>}
         {c.status === "PROPOSED" && c.whyNot && <span className="text-xs text-gray-500">{c.whyNot}</span>}
@@ -63,7 +65,7 @@ export default function ChangeCard({ c, me, onDone }: { c: ChangeDTO; me: string
       </div>
       {showLog && (
         <ol className="mt-2 space-y-0.5 text-[11px] text-gray-400">
-          {c.events.map((e, i) => <li key={i}>{whenText(e.at)} · {e.by} · {e.action.toLowerCase()}{e.note ? ` - ${e.note}` : ""}</li>)}
+          {c.events.map((e, i) => <li key={i}>{whenText(e.at)} · {e.by} · {EVENT_WORD[e.action] ?? e.action.toLowerCase()}{e.note ? ` - ${e.note}` : ""}</li>)}
         </ol>
       )}
     </div>

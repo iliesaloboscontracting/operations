@@ -22,7 +22,7 @@ export function kindEnabled(kind: ChangeKind, env: { all?: string; off?: string 
   const off = (env.off ?? "").split(",").map((s) => s.trim().toUpperCase()).filter(Boolean);
   return A3_RULES[kind].enabled && !off.includes(kind);
 }
-export const SWITCHED_OFF = "Controlled changes are switched off for this kind - make the change by hand, or ask the lead to switch them on.";
+export const SWITCHED_OFF = "Approvals are switched off for this kind - make the change by hand, or ask the lead to switch them on.";
 
 // ---------- people ----------
 

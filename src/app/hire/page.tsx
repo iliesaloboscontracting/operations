@@ -193,7 +193,7 @@ function ComingOffHire({ onChanged }: { onChanged?: () => void }) {
                 {a.proposed ? (
                   <span className="rounded bg-sky-500/15 px-1.5 py-0.5 text-[11px] text-sky-300">
                     New date{a.proposed.offHireDate ? ` ${short(a.proposed.offHireDate)}` : ""} proposed (P-{String(a.proposed.number).padStart(4, "0")}) - waiting for approval
-                    {canEdit && <> · <a href="/changes" className="underline hover:text-sky-200">Changes</a></>}
+                    {canEdit && <> · <a href="/changes" className="underline hover:text-sky-200">Approvals</a></>}
                   </span>
                 ) : (
                   canEdit && <button onClick={() => setProposing(a)} className="text-brand-400 underline hover:text-brand-300">Propose new date</button>
