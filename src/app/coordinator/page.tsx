@@ -6,6 +6,7 @@ import PageShell from "@/components/PageShell";
 import { useAuth } from "@/components/AuthProvider";
 import BinsOutCard from "@/components/bins/BinsOutCard";
 import PushToggle from "@/components/PushToggle";
+import NeedsAttentionCard from "@/components/findings/NeedsAttentionCard";
 
 // The project coordinator's dashboard (Alex, 2 Nov 2026 - Ilies "approve phase 1"): his own screen, like the
 // Directors and Accounts screens - one tile per page he uses (lib/roles.ts COORDINATOR_PAGES). Every other
@@ -32,6 +33,8 @@ export default function CoordinatorPage() {
     <PageShell title="Coordinator" subtitle={user ? `G'day ${user.name.split(" ")[0]} - everything you work on, in one place.` : undefined}>
       {/* Bins out (Ilies, 23 Nov 2026) - view only; client's bins highlighted (variations). */}
       <div className="mb-4 flex max-w-5xl flex-wrap items-start gap-3">
+        {/* For you (LCI Stage 1, 25 Nov 2026): the things he can fix from his own pages - money-free; hidden when empty. */}
+        {coordinatorOnly && <div className="w-full max-w-md empty:hidden"><NeedsAttentionCard variant="coordinator" /></div>}
         <div className="w-full max-w-md"><BinsOutCard /></div>
         {/* Alerts on this phone (Ilies, 23 Nov 2026: "all fine for alex"): a client's bin delivered - and office chat and his
             own purchase decisions. His own devices only (/api/push). */}

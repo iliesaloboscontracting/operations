@@ -85,16 +85,13 @@ export function closeReason(f: FindingState, ctx: RunContext, daysClear: number)
   const day = datedDay(f.dedupeKey);
   if (day && day < ctx.today) return { outcome: "LAPSED", why: `The day has passed (${day}) - it wasn't fixed in time`, short: "past day" };
   if (waitsForPerson(f)) return null;
-  if (FINDINGS_CONFIG.autoResolveSeverities.includes(f.severity)) {
-    return ctx.cleanup && !f.signalClearedAt && /^DATA_UNCOSTED:PROJECT:[^:]+$/.test(f.dedupeKey)
-      ? { outcome: "RULE_CHANGED", why: "Regrouped: one item per resource with no rate, instead of one per project", short: "regrouped by cause" }
-      : { outcome: "EFFECTIVE", why: "The rule no longer fires", short: "the rule no longer fires" };
-  }
   if (ctx.cleanup) {
-    return f.signalClearedAt
-      ? { outcome: "EFFECTIVE", why: "The problem had already gone - the rule no longer fires", short: "the problem had already gone" }
+    if (f.signalClearedAt) return { outcome: "EFFECTIVE", why: "The problem had already gone - the rule no longer fires", short: "the problem had already gone" };
+    return /^DATA_UNCOSTED:PROJECT:[^:]+$/.test(f.dedupeKey)
+      ? { outcome: "RULE_CHANGED", why: "Regrouped: one item per resource with no rate, instead of one per project", short: "regrouped by cause" }
       : { outcome: "RULE_CHANGED", why: "The new rule no longer flags it", short: "the new rule no longer flags it" };
   }
+  if (FINDINGS_CONFIG.autoResolveSeverities.includes(f.severity)) return { outcome: "EFFECTIVE", why: "The rule no longer fires", short: "the rule no longer fires" };
   if (f.signalClearedAt && daysClear >= verifyAfterDays(f.ruleCode)) {
     return { outcome: "EFFECTIVE", why: `Clear for ${daysClear} day${daysClear === 1 ? "" : "s"} - the rule no longer fires`, short: "the rule no longer fires" };
   }

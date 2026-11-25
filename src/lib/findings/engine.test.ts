@@ -366,11 +366,11 @@ test("the cleanup run closes every open finding the new rules no longer flag, ea
     sig("COST_VS_CONTRACT", "x", "CRITICAL"),
   ], "2026-11-20", 9);
   // 24 Nov: the completed-has-jobs problem went away (signal cleared, but before the new auto-close existed it waited).
-  s.run([
+  s.run(([
     dated("NO_SUPERVISOR", "p", "2026-11-21"), { ...sig("DATE_START_MISMATCH", "r", "MEDIUM"), audience: "OPERATIONAL" },
     sig("DATA_UNCOSTED", "u"), { ...sig("HIRE_OVERDUE", "h", "HIGH"), audience: "OPERATIONAL" }, sig("COST_VS_CONTRACT", "x", "CRITICAL"),
     { ...sig("DATE_INACTIVE_HAS_JOBS", "q", "MEDIUM"), audience: "OPERATIONAL" },
-  ].filter((x) => x.kind !== "NO_SUPERVISOR"), "2026-11-20", 10);
+  ] as Signal[]).filter((x) => x.kind !== "NO_SUPERVISOR"), "2026-11-20", 10);
   const before = s.rows.length;
   // 25 Nov, the cleanup run: the new rules still flag the hire item and the cost one only.
   const ops = s.run([{ ...sig("HIRE_OVERDUE", "h", "HIGH"), audience: "OPERATIONAL" }, sig("COST_VS_CONTRACT", "x", "CRITICAL")], "2026-11-25", 9, true);

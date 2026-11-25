@@ -10,7 +10,7 @@
 // Timesheets / Accounts / Coordinator / Yard logins see none (the accounts login answers queries
 // on her Invoices page, not findings).
 import { isOwner } from "../owner";
-import { screenFor } from "./config";
+import { COORDINATOR_KINDS, screenFor } from "./config";
 
 export type Actor = { id: string; name: string; email: string; role: string; directorAccess: boolean };
 export type FindingAction = "ACKNOWLEDGE" | "ASSIGN" | "RESOLVE" | "DISMISS" | "COMMENT" | "VERIFY";
@@ -49,6 +49,15 @@ export function canActOnThisFinding(u: Pick<Actor, "email" | "role" | "directorA
   if (screenFor(f) === "DIRECTORS") return canActOnFindings(u);
   return isOwner(u.email) || u.role === "ADMIN" || u.role === "MANAGER";
 }
+
+// LCI Stage 1 (25 Nov 2026): the coordinator marks Done or Snooze from his "For you" card on the operational
+// kinds he can already fix from his own pages (COORDINATOR_KINDS) - and nothing else: no detail, no queries, no
+// lessons, no list (his audiences stay empty). Only /api/findings/:id's POST uses this, for those two actions.
+export const COORDINATOR_ACTIONS: readonly FindingAction[] = ["RESOLVE", "DISMISS"];
+export const coordinatorMayAct = (u: Pick<Actor, "role">, f: FindingRef & { status?: string }, action?: string, body?: Record<string, unknown>) =>
+  u.role === "COORDINATOR" && COORDINATOR_KINDS.has(f.ruleCode) && f.audience === "OPERATIONAL" && screenFor(f) === "OPERATIONS"
+  && (action === undefined || (COORDINATOR_ACTIONS as string[]).includes(action))
+  && !(action === "DISMISS" && body?.kind !== "ACCEPTED_RISK"); // a snooze to a date, never "false alarm"
 
 // ---------- one action ----------
 

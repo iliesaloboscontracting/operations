@@ -28,6 +28,7 @@ import JobFormModal from "./JobFormModal";
 import CommandAssistant from "./CommandAssistant";
 import UpcomingAlerts from "./UpcomingAlerts";
 import PrestartToday from "./faults/PrestartToday";
+import NeedsAttentionCard from "./findings/NeedsAttentionCard";
 import { useAuth } from "./AuthProvider";
 import { addDays } from "@/lib/dates";
 import { buildDaySheet, DaySheetJob } from "@/lib/daySheet";
@@ -602,6 +603,12 @@ As an Admin you can go over the limit. Why? (kept on record) - or Cancel to leav
         <div className="mt-3 empty:hidden">
           <PrestartToday enabled={canEdit} />
         </div>
+        {/* Needs attention (LCI Stage 1, Ilies 25 Nov 2026): the owner, Admins and Managers - the route refuses anyone else. */}
+        {canEdit && (
+          <div className="mt-3 empty:hidden">
+            <NeedsAttentionCard variant="board" />
+          </div>
+        )}
       </header>
 
       <SentBanner sent={boardGuard.sent} />
