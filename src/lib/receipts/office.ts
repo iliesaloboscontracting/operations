@@ -8,9 +8,10 @@ import { ASBESTOS, docketDate, normDocket, normRego, num } from "./checks";
 import { MAX_TRIES, logOf, readOdometer, readReceipt, readingEnabled, type ReadingLog } from "./runner";
 import { syncTipMatchesSoon, truckRegos, vehicleForRego } from "./tipStore";
 import { tipsOnlyMayAct } from "./tipsAccess";
+import { DAILY_CAP_MESSAGE, nextManualReads, receiptCapProblem, takeDailyReadAgain } from "./readAgain";
 
 type Problem = { error: string; status: number };
-type Who = { name: string };
+type Who = { name: string; id?: string }; // id: the login, for the daily Read again cap (CT-001)
 
 // The fields a person can correct, and how each is read from the form.
 const TEXT = (v: unknown) => (typeof v === "string" ? v.trim().slice(0, 120) || null : null);
@@ -117,7 +118,11 @@ export async function receiptAction(who: Who, id: string, body: Record<string, u
     if (!readingEnabled()) return { error: "Reading is switched off (RECEIPT_READING=off).", status: 503 };
     if (log.corrections?.length) return { error: "Someone has corrected it - reading it again would undo that.", status: 409 };
     if (!["SENT", "CHECK", "READ"].includes(row.status)) return { error: "Only a receipt that's waiting, read, or to check can be read again.", status: 409 };
-    await save({ status: "SENT", reading: JSON.stringify({ ...log, tries: 0, lastError: undefined }) });
+    // CT-001 (Ilies approved 25 Nov 2026), every role: 3 manual re-reads per receipt, 40 per login per Sydney day.
+    const capped = receiptCapProblem(log);
+    if (capped) return { error: capped, status: 429 };
+    if (!takeDailyReadAgain(who.id ?? `name:${who.name}`)) return { error: DAILY_CAP_MESSAGE, status: 429 };
+    await save({ status: "SENT", reading: JSON.stringify({ ...log, tries: 0, lastError: undefined, manualReads: nextManualReads(log) }) });
     await (isOdo ? readOdometer(id) : readReceipt(id));
     const after = isOdo ? await prisma.odometerReading.findUnique({ where: { id } }) : await prisma.receipt.findUnique({ where: { id } });
     return { ok: true, status: after?.status ?? "SENT" };
