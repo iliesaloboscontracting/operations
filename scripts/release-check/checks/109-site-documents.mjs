@@ -190,7 +190,8 @@ export default {
       t.status((await open(L.sup, "files", photoPId)).mint, 404, "an archived plan - no ticket");
       t.status((await open(L.sup, "files", "z".repeat(25))).mint, 404, "a made-up file");
       for (const [name, link] of [["driver", L.driver], ["poster", L.poster], ["office", L.office], ["switched-off", L.off], ["expired hand-over", L.expired]]) t.status((await call("POST", link, `/documents/files/${planPId}/ticket`, {})).status, 404, `SD-001: a ${name} link can't get a ticket`);
-      t.status((await call("GET", L.sup, `/documents/files/${planPId}`)).status, [404, 405], "SD-001: the old token-path file address is gone");
+      // (Not added to the link replies scanned for "$" - a route that no longer exists answers with Next's own 404 page.)
+      t.status(await c.req("GET", c.site(L.sup, `/documents/files/${planPId}`), null), [404, 405], "SD-001: the old token-path file address is gone");
       t.status(await getUrl(pf.url.slice(0, -2) + (pf.url.endsWith("AA") ? "BB" : "AA")), 404, "SD-001: a tampered ticket");
       t.status(await getUrl("/api/site/doc/not-a-ticket"), 404, "SD-001: a made-up ticket");
       if (secret) {
