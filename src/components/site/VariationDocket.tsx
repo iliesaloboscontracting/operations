@@ -300,6 +300,8 @@ function DocketForm({ api, view, onCancel, onSent }: { api: string; view: LinkVi
           <input className={input} maxLength={LIMITS.name} autoComplete="off" placeholder="Client's name" value={customerName} onChange={(e) => setCustomerName(e.target.value)} />
           <input className={input} maxLength={LIMITS.position} autoComplete="off" placeholder="Position (e.g. site manager)" value={customerPosition} onChange={(e) => setCustomerPosition(e.target.value)} />
           <SignaturePad label="Client's signature" onChange={setCustomerSig} />
+          {/* VD-005 (Ilies approved 25 Nov 2026): the one line the client reads before signing. */}
+          <p className="text-xs text-gray-400">Lobos keeps this docket, your name and signature as the record of this work.</p>
           <p className="text-xs text-gray-500">Date: today, when it&apos;s sent.</p>
         </div>
       </section>

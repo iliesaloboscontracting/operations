@@ -140,8 +140,8 @@ export default function VariationDocketPage({ params: paramsP }: { params: Promi
           )}
 
           <section className="vd-block mb-4 grid grid-cols-2 gap-4">
-            <SignOff title="Customer sign-off" name={d.customerName} position={d.customerPosition} date={sydDay(d.signedAt)} img={d.signatures.customer ? `${base}/signature/customer` : null} />
-            <SignOff title="Lobos sign-off" name={d.lobosName} position={d.lobosPosition} date={sydDay(d.signedAt)} img={d.signatures.lobos ? `${base}/signature/lobos` : null} />
+            <SignOff title="Customer sign-off" name={d.customerName} position={d.customerPosition} date={sydDay(d.signedAt)} img={d.signatures.customer ? `${base}/signature/customer` : null} hidden={d.filesHidden} />
+            <SignOff title="Lobos sign-off" name={d.lobosName} position={d.lobosPosition} date={sydDay(d.signedAt)} img={d.signatures.lobos ? `${base}/signature/lobos` : null} hidden={d.filesHidden} />
           </section>
 
           <footer className="vd-block border-t border-gray-400 pt-2 text-center text-[11px] text-gray-600">
@@ -155,7 +155,11 @@ export default function VariationDocketPage({ params: paramsP }: { params: Promi
             <p>Sent {when(d.signedAt)} from {d.linkKind === "HANDOVER" ? "a hand-over link" : "the supervisor's link"} by {d.lobosName}.</p>
             <p className="mt-1">A signed docket can&apos;t be changed. A correction comes in as a new docket that says which one it replaces.</p>
             {d.replacesId && <p className="mt-1"><Link className="text-brand-300 hover:underline" href={`/variations/${d.replacesId}`}>Open {d.replaces}</Link></p>}
-            {d.replacedById && <p className="mt-1"><Link className="text-brand-300 hover:underline" href={`/variations/${d.replacedById}`}>Open {d.replacedBy}</Link></p>}
+            {/* VD-001: every correction of this docket, oldest first. */}
+            {d.corrections.length > 0 && (
+              <p className="mt-1">Replaced by {d.corrections.map((x, i) => <span key={x.id}>{i ? ", " : ""}<Link className="text-brand-300 hover:underline" href={`/variations/${x.id}`}>{x.number}</Link></span>)}</p>
+            )}
+            {d.filesHidden && <p className="mt-1 text-amber-300">The Building Agent login sees the docket&apos;s words only - no signatures or photos, and no status changes.</p>}
           </div>
         </aside>
       </div>
@@ -163,7 +167,7 @@ export default function VariationDocketPage({ params: paramsP }: { params: Promi
   );
 }
 
-function SignOff({ title, name, position, date, img }: { title: string; name: string; position: string | null; date: string; img: string | null }) {
+function SignOff({ title, name, position, date, img, hidden }: { title: string; name: string; position: string | null; date: string; img: string | null; hidden: boolean }) {
   return (
     <div className="border border-gray-400 p-2">
       <div className="mb-1 text-xs font-bold uppercase tracking-wide text-gray-700">{title}</div>
@@ -171,7 +175,7 @@ function SignOff({ title, name, position, date, img }: { title: string; name: st
         <dt className="text-gray-600">Name</dt><dd>{name}</dd>
         <dt className="text-gray-600">Signature</dt>
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <dd>{img ? <img src={img} alt={`${title} signature`} className="h-20 w-auto max-w-full border-b border-gray-400 object-contain" /> : <span className="text-gray-400">-</span>}</dd>
+        <dd>{hidden ? <span className="text-gray-500 italic">Signature hidden</span> : img ? <img src={img} alt={`${title} signature`} className="h-20 w-auto max-w-full border-b border-gray-400 object-contain" /> : <span className="text-gray-400">-</span>}</dd>
         <dt className="text-gray-600">Position</dt><dd>{position ?? ""}</dd>
         <dt className="text-gray-600">Date</dt><dd>{date}</dd>
       </dl>

@@ -13,7 +13,9 @@
 import { assertNoMoney } from "../moneyGuard";
 import { linkLabel, stripMoney } from "../dailyLog/money";
 
-// Kill switch: VARIATION_DOCKETS=off hides the tile and every route refuses.
+// Kill switch: VARIATION_DOCKETS=off turns off the link side (the tile, the link routes and their photo uploads - 503)
+// and the phone alerts. The office still reads, prints and prices the dockets already sent (/variations and
+// /api/variations/* keep working) - VD-003, Ilies approved 25 Nov 2026.
 export const variationsOn = (env: Record<string, string | undefined> = process.env) => (env.VARIATION_DOCKETS ?? "").trim().toLowerCase() !== "off";
 export const OFF_MESSAGE = "Variation dockets are switched off right now - use a paper docket and tell the office.";
 
@@ -223,6 +225,26 @@ export function parseDocket(b: Record<string, unknown>): DocketInput | Err {
   };
 }
 
+// VD-001 (Ilies approved 25 Nov 2026): a correction may replace only a docket the same person sent, on the same project
+// (or the same board job when there's no project). -> the refusal, or null when it may.
+export function replaceRefusal(
+  replaced: { number: number; jobId: string; projectId: string | null; resourceId: string | null } | null,
+  job: { id: string; projectId: string | null },
+  personId: string | null,
+  asked: number,
+): string | null {
+  const same = replaced && (job.projectId ? replaced.projectId === job.projectId : replaced.jobId === job.id);
+  if (!replaced || !same) return `${docketNo(asked)} isn't a docket on this job.`;
+  if (!personId || replaced.resourceId !== personId) return `You can only correct a docket you sent. Ask the supervisor who sent ${docketNo(replaced.number)}, or the office.`;
+  return null;
+}
+
+// VD-002 (Ilies approved 25 Nov 2026): the Building Agent login (Operations AI) may look at the list and a docket, but
+// never changes a status and never sees a signature or a photo. (The email is lib/session.ts BUILDING_AGENT_EMAIL.)
+export const isAgentEmail = (email: string | null | undefined, agentEmail: string) => (email ?? "").trim().toLowerCase() === agentEmail.toLowerCase();
+export const AGENT_NO_STATUS = "The Building Agent login can't change a docket's status.";
+export const AGENT_NO_FILES = "The Building Agent login can't open signatures or photos.";
+
 // ---------- the office's status (kept apart from the signed docket) ----------
 
 export const STATUSES = ["TO_PRICE", "PRICED", "SENT_TO_CLIENT"] as const;
@@ -230,8 +252,9 @@ export type Status = (typeof STATUSES)[number];
 export const STATUS_LABEL: Record<Status, string> = { TO_PRICE: "To price", PRICED: "Priced", SENT_TO_CLIENT: "Sent to client" };
 export const isStatus = (x: unknown): x is Status => (STATUSES as readonly unknown[]).includes(x);
 // The current status: the newest event's, or To price when there is none.
-export const currentStatus = (events: { status: string; createdAt: Date }[]): Status => {
-  const last = [...events].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
+// The same rule the office's status filter uses in SQL (store.ts statusIs): newest by time, then by id.
+export const currentStatus = (events: { id?: string; status: string; createdAt: Date }[]): Status => {
+  const last = [...events].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime() || ((b.id ?? "") > (a.id ?? "") ? 1 : (b.id ?? "") < (a.id ?? "") ? -1 : 0))[0];
   return last && isStatus(last.status) ? last.status : "TO_PRICE";
 };
 // A change: to another status; forward (To price -> Priced -> Sent to client) any time, back a step only with a note
@@ -304,11 +327,13 @@ export type OfficeRowDTO = {
 };
 export type OfficeDetailDTO = OfficeRowDTO & {
   jobId: string; address: string | null; otherText: string | null; note: string | null; customerPosition: string | null;
-  lobosName: string; lobosPosition: string | null; signedAt: string; linkKind: string; replacesId: string | null; replacedById: string | null;
+  lobosName: string; lobosPosition: string | null; signedAt: string; linkKind: string; replacesId: string | null;
+  corrections: { id: string; number: string }[]; // every docket that replaces this one, oldest first (VD-001)
   taskRows: { n: number; description: string; men: number | null; start: string | null; finish: string | null; hours: number | null; hoursCalc: number | null; edited: boolean }[];
   itemRows: { n: number; quantity: number | null; unit: string; type: string; comment: string | null }[];
   photoIds: string[];
   signatures: { customer: boolean; lobos: boolean };
+  filesHidden: boolean; // VD-002: the Building Agent login - "Signature hidden", no photos
   history: { status: string; label: string; from: string; note: string | null; by: string; at: string }[];
   canSetStatus: boolean;
 };

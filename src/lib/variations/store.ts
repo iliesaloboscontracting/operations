@@ -14,11 +14,13 @@ import { MEDIA_LIMITS } from "../media/rules";
 import { fromSydneyLocal } from "../shiftTimes";
 import { pushToUsers } from "../push";
 import { OWNER_EMAIL } from "../owner";
+import { Prisma } from "@prisma/client";
+import { BUILDING_AGENT_EMAIL } from "../session";
 import {
-  LIMITS, STATUS_LABEL, alertRecipients, allocateNumber, currentStatus, docketNo, linkMayFill, mayReadVariations, parseDocket, signedAlert,
-  statusChange, totalHours, variationsOn, type LinkDocketDTO, type LinkJobDTO, type LinkViewDTO, type OfficeDetailDTO, type OfficeRowDTO, type Status,
+  AGENT_NO_STATUS, LIMITS, STATUS_LABEL, alertRecipients, allocateNumber, currentStatus, docketNo, isAgentEmail, isStatus, linkMayFill, mayReadVariations, parseDocket,
+  replaceRefusal, signedAlert, statusChange, totalHours, variationsOn, type LinkDocketDTO, type LinkJobDTO, type LinkViewDTO, type OfficeDetailDTO, type OfficeRowDTO, type Status,
 } from "./rules";
-import { parseSignature } from "./signature";
+import { IDENTICAL_SIGNATURES, identicalSignatures, parseSignature } from "./signature";
 
 const isoDay = (d: Date) => d.toISOString().slice(0, 10);
 const sydneyDay = (d: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: "Australia/Sydney" }).format(d);
@@ -125,14 +127,16 @@ export async function sendDocket(link: ResolvedLink, body: Record<string, unknow
   if ("error" in cust) return { error: cust.error, status: 400 };
   const lobos = parseSignature(p.lobosSignature, "Lobos");
   if ("error" in lobos) return { error: lobos.error, status: 400 };
+  if (identicalSignatures(cust, lobos)) return { error: IDENTICAL_SIGNATURES, status: 400 }; // VD-004
   const job = (await variationJobs(link, now)).find((j) => j.id === p.jobId);
   if (!job) return { error: "That job isn't one you can do a docket for today.", status: 403 };
 
+  // VD-001: only the person who sent a docket corrects it (same project / job).
   let replacesId: string | null = null;
   if (p.replaces !== null) {
-    const r = await prisma.variationDocket.findUnique({ where: { number: p.replaces }, select: { id: true, jobId: true, projectId: true } });
-    const same = r && (job.projectId ? r.projectId === job.projectId : r.jobId === job.id);
-    if (!r || !same) return { error: `${docketNo(p.replaces)} isn't a docket on this job.`, status: 400 };
+    const r = await prisma.variationDocket.findUnique({ where: { number: p.replaces }, select: { id: true, number: true, jobId: true, projectId: true, resourceId: true } });
+    const refused = replaceRefusal(r, job, link.person.id, p.replaces);
+    if (refused || !r) return { error: refused ?? "not found", status: 400 };
     replacesId = r.id;
   }
   if (p.photoIds.length) {
@@ -191,7 +195,9 @@ export async function alertSigned(docketId: string): Promise<number> {
 
 // ---------- the office ----------
 
-type Who = { id: string; name: string; role: string };
+type Who = { id: string; name: string; role: string; email: string };
+// VD-002: the Building Agent login (Operations AI) looks only - no status change, no signature, no photo.
+export const isAgent = (who: { email: string }) => isAgentEmail(who.email, BUILDING_AGENT_EMAIL);
 const OFFICE_ROW = {
   id: true, number: true, day: true, projectId: true, projectName: true, jobNo: true, client: true, ticks: true, lobosName: true,
   customerName: true, createdAt: true, replacesId: true, photoIds: true,
@@ -199,48 +205,72 @@ const OFFICE_ROW = {
 } as const;
 
 async function statusesOf(ids: string[]): Promise<Map<string, Status>> {
-  const ev = ids.length ? await prisma.variationStatusEvent.findMany({ where: { docketId: { in: ids } }, select: { docketId: true, status: true, createdAt: true } }) : [];
-  const by = new Map<string, { status: string; createdAt: Date }[]>();
+  const ev = ids.length ? await prisma.variationStatusEvent.findMany({ where: { docketId: { in: ids } }, select: { id: true, docketId: true, status: true, createdAt: true } }) : [];
+  const by = new Map<string, { id: string; status: string; createdAt: Date }[]>();
   for (const e of ev) by.set(e.docketId, [...(by.get(e.docketId) ?? []), e]);
   return new Map(ids.map((id) => [id, currentStatus(by.get(id) ?? [])]));
 }
-async function replacedByOf(ids: string[]): Promise<Map<string, { id: string; number: string }>> {
+
+// Bug fix (25 Nov 2026): the status filter and the coordinator's card ask the database, so they're complete however
+// many dockets there are. A docket's status is its newest event's (by time, then id - currentStatus() agrees), or
+// To price when it has none. The (docketId, createdAt) index makes the inner look-up cheap.
+const statusIs = (status: Status) => Prisma.sql`COALESCE((SELECT e."status" FROM "VariationStatusEvent" e WHERE e."docketId" = d."id" ORDER BY e."createdAt" DESC, e."id" DESC LIMIT 1), 'TO_PRICE') = ${status}`;
+const projectIs = (projectId?: string) => (projectId ? Prisma.sql`AND d."projectId" = ${projectId}` : Prisma.empty);
+async function idsWithStatus(status: Status, projectId: string | undefined, limit: number): Promise<string[]> {
+  const rows = await prisma.$queryRaw<{ id: string }[]>(Prisma.sql`SELECT d."id" AS id FROM "VariationDocket" d WHERE ${statusIs(status)} ${projectIs(projectId)} ORDER BY d."number" DESC LIMIT ${limit}`);
+  return rows.map((r) => r.id);
+}
+async function countWithStatus(status: Status): Promise<number> {
+  const rows = await prisma.$queryRaw<{ n: bigint | number }[]>(Prisma.sql`SELECT COUNT(*) AS n FROM "VariationDocket" d WHERE ${statusIs(status)}`);
+  return Number(rows[0]?.n ?? 0);
+}
+
+// VD-001: EVERY docket that replaces each of these, oldest first ("Replaced by V-0015, V-0018").
+async function correctionsOf(ids: string[]): Promise<Map<string, { id: string; number: string }[]>> {
   const rows = ids.length ? await prisma.variationDocket.findMany({ where: { replacesId: { in: ids } }, select: { id: true, number: true, replacesId: true }, orderBy: { number: "asc" } }) : [];
-  const m = new Map<string, { id: string; number: string }>();
-  for (const r of rows) m.set(r.replacesId!, { id: r.id, number: docketNo(r.number) }); // the newest correction wins
+  const m = new Map<string, { id: string; number: string }[]>();
+  for (const r of rows) m.set(r.replacesId!, [...(m.get(r.replacesId!) ?? []), { id: r.id, number: docketNo(r.number) }]);
   return m;
 }
 
 type Row = { id: string; number: number; day: string; projectId: string | null; projectName: string; jobNo: string | null; client: string | null; ticks: string; lobosName: string; customerName: string; createdAt: Date; replacesId: string | null; photoIds: string; tasks: { hours: number | null }[]; _count: { items: number } };
-function officeRow(r: Row, status: Status, repl: Map<string, string>, by: Map<string, { id: string; number: string }>): OfficeRowDTO {
+function officeRow(r: Row, status: Status, repl: Map<string, string>, by: Map<string, { id: string; number: string }[]>): OfficeRowDTO {
+  const fixes = by.get(r.id) ?? [];
   return {
     id: r.id, number: docketNo(r.number), day: r.day, projectId: r.projectId ?? "", project: r.projectName, jobNo: r.jobNo, client: r.client,
     ticks: jsonList(r.ticks), supervisor: r.lobosName, customerName: r.customerName, sentAt: r.createdAt.toISOString(),
-    status, statusLabel: STATUS_LABEL[status], replaces: r.replacesId ? repl.get(r.replacesId) ?? null : null, replacedBy: by.get(r.id)?.number ?? null,
+    status, statusLabel: STATUS_LABEL[status], replaces: r.replacesId ? repl.get(r.replacesId) ?? null : null, replacedBy: fixes.length ? fixes.map((x) => x.number).join(", ") : null,
     tasks: r.tasks.length, items: r._count.items, photos: jsonList(r.photoIds).length, hours: totalHours(r.tasks),
   };
 }
 
-// /variations: newest first, filtered by project and by office status.
+const LIST_MAX = 500;
+// /variations: newest first, by project and by office status. With a status the database picks the dockets (so an old
+// "To price" one is never left out); without one, the newest 500.
 export async function officeList(f: { projectId?: string; status?: string }) {
-  const rows = await prisma.variationDocket.findMany({ where: f.projectId ? { projectId: f.projectId } : {}, orderBy: { number: "desc" }, take: 500, select: OFFICE_ROW });
-  const ids = rows.map((r) => r.id);
+  const status = isStatus(f.status) ? f.status : null;
+  const ids = status ? await idsWithStatus(status, f.projectId, LIST_MAX) : null;
+  const rows = await prisma.variationDocket.findMany({
+    where: { ...(f.projectId ? { projectId: f.projectId } : {}), ...(ids ? { id: { in: ids } } : {}) },
+    orderBy: { number: "desc" }, take: LIST_MAX, select: OFFICE_ROW,
+  });
+  const rowIds = rows.map((r) => r.id);
   const [st, repl, by, projects] = await Promise.all([
-    statusesOf(ids), numbersOf(rows.map((r) => r.replacesId)), replacedByOf(ids),
+    status ? Promise.resolve(new Map(rowIds.map((id) => [id, status] as const))) : statusesOf(rowIds), numbersOf(rows.map((r) => r.replacesId)), correctionsOf(rowIds),
     prisma.variationDocket.findMany({ where: { projectId: { not: null } }, distinct: ["projectId"], select: { projectId: true, projectName: true }, orderBy: { projectName: "asc" } }),
   ]);
-  const list = rows.map((r) => officeRow(r, st.get(r.id) ?? "TO_PRICE", repl, by)).filter((r) => !f.status || r.status === f.status);
-  return { rows: list, projects: projects.map((p) => ({ id: p.projectId!, label: p.projectName })), statuses: Object.entries(STATUS_LABEL).map(([key, label]) => ({ key, label })) };
+  return {
+    rows: rows.map((r) => officeRow(r, st.get(r.id) ?? "TO_PRICE", repl, by)),
+    projects: projects.map((p) => ({ id: p.projectId!, label: p.projectName })), statuses: Object.entries(STATUS_LABEL).map(([key, label]) => ({ key, label })),
+  };
 }
 
-// The coordinator's "Variations to price" card: how many, and the latest few.
+// The coordinator's "Variations to price" card: how many (one COUNT), and the latest few - never every docket.
 export async function toPriceCard(latest = 5) {
-  const all = await prisma.variationDocket.findMany({ orderBy: { number: "desc" }, take: 2000, select: { id: true } });
-  const st = await statusesOf(all.map((r) => r.id));
-  const toPrice = all.filter((r) => st.get(r.id) === "TO_PRICE").map((r) => r.id);
-  const rows = toPrice.length ? await prisma.variationDocket.findMany({ where: { id: { in: toPrice.slice(0, latest) } }, orderBy: { number: "desc" }, select: OFFICE_ROW }) : [];
+  const [count, ids] = await Promise.all([countWithStatus("TO_PRICE"), idsWithStatus("TO_PRICE", undefined, latest)]);
+  const rows = ids.length ? await prisma.variationDocket.findMany({ where: { id: { in: ids } }, orderBy: { number: "desc" }, select: OFFICE_ROW }) : [];
   const repl = await numbersOf(rows.map((r) => r.replacesId));
-  return { count: toPrice.length, latest: rows.map((r) => officeRow(r, "TO_PRICE", repl, new Map())) };
+  return { count, latest: rows.map((r) => officeRow(r, "TO_PRICE", repl, new Map())) };
 }
 
 // One docket, for the printable page.
@@ -257,32 +287,35 @@ export async function officeDetail(id: string, who: Who): Promise<OfficeDetailDT
   });
   if (!d) return null;
   const [events, repl, by] = await Promise.all([
-    prisma.variationStatusEvent.findMany({ where: { docketId: id }, orderBy: { createdAt: "asc" } }),
-    numbersOf([d.replacesId]), replacedByOf([id]),
+    prisma.variationStatusEvent.findMany({ where: { docketId: id }, orderBy: [{ createdAt: "asc" }, { id: "asc" }] }),
+    numbersOf([d.replacesId]), correctionsOf([id]),
   ]);
   const status = currentStatus(events);
+  const agent = isAgent(who);
   return {
     ...officeRow(d, status, repl, by),
     jobId: d.jobId, address: d.address, otherText: d.otherText, note: d.note, customerPosition: d.customerPosition,
     lobosName: d.lobosName, lobosPosition: d.lobosPosition, signedAt: d.signedAt.toISOString(), linkKind: d.linkKind,
-    replacesId: d.replacesId, replacedById: by.get(id)?.id ?? null,
+    replacesId: d.replacesId, corrections: by.get(id) ?? [],
     taskRows: d.tasks.map((t) => ({ ...t, edited: t.hours != null && t.hoursCalc != null && Math.abs(t.hours - t.hoursCalc) > 0.001 })),
     itemRows: d.items,
-    photoIds: jsonList(d.photoIds),
+    photoIds: agent ? [] : jsonList(d.photoIds),
     signatures: { customer: d.signatures.some((s) => s.role === "CUSTOMER"), lobos: d.signatures.some((s) => s.role === "LOBOS") },
+    filesHidden: agent,
     history: events.map((e) => ({ status: e.status, label: STATUS_LABEL[e.status as Status] ?? e.status, from: STATUS_LABEL[e.fromStatus as Status] ?? e.fromStatus, note: e.note, by: e.byName, at: e.createdAt.toISOString() })),
-    canSetStatus: mayReadVariations(who.role),
+    canSetStatus: mayReadVariations(who.role) && !agent,
   };
 }
 
 // The office status: a new event (never an edit), one at a time; the docket itself is never touched.
 export async function setStatus(id: string, who: Who, body: Record<string, unknown>): Promise<{ status: Status } | Fail> {
   if (!mayReadVariations(who.role)) return { error: "You don't have permission to do that", status: 403 };
+  if (isAgent(who)) return { error: AGENT_NO_STATUS, status: 403 }; // VD-002
   if (typeof id !== "string" || !/^[a-z0-9]{10,40}$/.test(id)) return { error: "not found", status: 404 };
   return serial(async () => {
     const d = await prisma.variationDocket.findUnique({ where: { id }, select: { id: true } });
     if (!d) return { error: "not found", status: 404 };
-    const events = await prisma.variationStatusEvent.findMany({ where: { docketId: id }, select: { status: true, createdAt: true } });
+    const events = await prisma.variationStatusEvent.findMany({ where: { docketId: id }, select: { id: true, status: true, createdAt: true } });
     const current = currentStatus(events);
     const c = statusChange(current, body);
     if ("error" in c) return { error: c.error, status: body.from !== undefined && body.from !== current ? 409 : 400 };
