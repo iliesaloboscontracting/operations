@@ -2811,7 +2811,7 @@ model HourMeterEvent {
 // lib/media/.
 model MediaObject {
   id           String    @id @default(cuid())
-  area         String // DAILY_LOG | DELAY | BEFORE_AFTER | FAULT | WALKAROUND | HOUR_METER
+  area         String // DAILY_LOG | DELAY | BEFORE_AFTER | FAULT | WALKAROUND | HOUR_METER | VARIATION (docket photos, 25 Nov 2026)
   kind         String // PHOTO | VIDEO
   mime         String // the type the phone declared - pinned in the signed upload address
   bytes        Int // the size the phone declared at the start (the caps count this)
@@ -2983,4 +2983,110 @@ model BinPhoto {
 
   @@index([siteLinkId, createdAt])
   @@index([movementId])
+}
+
+// Variation / Day docket (Ilies approved 25 Nov 2026: "yes build it, deploy once it passes") - his paper "Variation /
+// Day Docket", made digital (src/lib/variations/). A supervisor (SUPERVISOR link, or a HANDOVER link on its own job)
+// fills it in on site, the client signs with a finger on the phone, the supervisor signs, Send. A sent docket is
+// never changed or deleted (no update / delete path anywhere): a correction is a NEW docket with replacesId. No price,
+// rate or amount is stored here at all. Hours are a record only - never sign-ins, timesheets, JobActual, allocations or
+// costs. Plain ids to Job / Project / SiteLink / Resource (like BinMovement) - nothing existing is changed.
+model VariationDocket {
+  id               String               @id @default(cuid())
+  number           Int                  @unique // V-0001, V-0002 ... assigned on send (max + 1, the unique index decides)
+  jobId            String
+  projectId        String? // null only for a board job with no project
+  day              String // YYYY-MM-DD - the job's date (the docket's Date)
+  // The project details as they were when it was sent (the paper's "Project details").
+  projectName      String
+  jobNo            String?
+  address          String?
+  client           String?
+  ticks            String // JSON list: VARIATION | LABOUR_HIRE | MATERIALS | RUBBISH | TOOL_HIRE | OTHER
+  otherText        String? // what "Other" is
+  note             String?
+  photoIds         String               @default("[]") // JSON list of MediaObject ids (area VARIATION, this link's, READY)
+  customerName     String
+  customerPosition String?
+  lobosName        String // the link's person
+  lobosPosition    String?
+  signedAt         DateTime             @default(now()) // both signatures are taken on the phone just before Send
+  replacesId       String? // a correction: the docket this one replaces (that one is left exactly as it was)
+  siteLinkId       String
+  linkKind         String // SUPERVISOR | HANDOVER
+  resourceId       String? // the link's person
+  createdAt        DateTime             @default(now())
+  tasks            VariationTask[]
+  items            VariationItem[]
+  signatures       VariationSignature[]
+
+  @@index([jobId])
+  @@index([projectId, createdAt])
+  @@index([siteLinkId, createdAt])
+  @@index([createdAt])
+  @@index([replacesId])
+}
+
+// "Variation works" rows: Task #, description (scope, no. of men...), start, finish, total hours. hoursCalc is what
+// plain code worked out from the times and men (lib/variations/rules.ts taskHours); hours is what was sent (editable).
+model VariationTask {
+  id          String          @id @default(cuid())
+  docketId    String
+  docket      VariationDocket @relation(fields: [docketId], references: [id], onDelete: Restrict)
+  n           Int // Task # (1, 2, 3 ...)
+  description String
+  men         Int?
+  start       String? // HH:MM (24 h)
+  finish      String? // HH:MM - before the start = past midnight
+  hours       Float?
+  hoursCalc   Float?
+
+  @@index([docketId])
+}
+
+// "Equipment / tool / materials used / waste removal" rows: quantity (or total m3), unit, type, comments. No price.
+model VariationItem {
+  id       String          @id @default(cuid())
+  docketId String
+  docket   VariationDocket @relation(fields: [docketId], references: [id], onDelete: Restrict)
+  n        Int
+  quantity Float?
+  unit     String // M3 | EACH | HRS | OTHER
+  type     String
+  comment  String?
+
+  @@index([docketId])
+}
+
+// The two finger signatures (CUSTOMER, LOBOS) as small PNGs, kept IN the database so they are in the nightly SQLite
+// backup, the Lightsail snapshot and the off-site OneDrive copy with the docket itself (a few KB each, capped at
+// 200 KB, checked by their first bytes). Served only to the office logins that read /variations.
+model VariationSignature {
+  id        String          @id @default(cuid())
+  docketId  String
+  docket    VariationDocket @relation(fields: [docketId], references: [id], onDelete: Restrict)
+  role      String // CUSTOMER | LOBOS
+  png       Bytes
+  bytes     Int
+  sha256    String
+  createdAt DateTime        @default(now())
+
+  @@unique([docketId, role])
+}
+
+// The office's own status for a docket, kept apart from the signed docket (append-only - the latest row is the
+// status; no row = TO_PRICE): TO_PRICE -> PRICED -> SENT_TO_CLIENT, set by the coordinator or a Manager / Admin. A
+// status change never touches the docket. No price is ever stored here.
+model VariationStatusEvent {
+  id         String   @id @default(cuid())
+  docketId   String
+  status     String // TO_PRICE | PRICED | SENT_TO_CLIENT
+  fromStatus String
+  note       String?
+  byUserId   String
+  byName     String
+  createdAt  DateTime @default(now())
+
+  @@index([docketId, createdAt])
+  @@index([createdAt])
 }

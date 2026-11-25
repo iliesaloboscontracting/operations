@@ -8,6 +8,7 @@ import { SESSION_COOKIE, sessionMaxAgeFor, signSession, verifySession } from "./
 import { isOwner } from "./owner";
 import { coordinatorOr, faultsWorker, NO_DIRECTOR_ACCESS_ROLES, toolsWorkerOr, yardOr, type Role } from "./roles";
 import { UNKNOWN_RANK, rankAtLeast, rankOf } from "./roleRank";
+import { mayReadVariations } from "./variations/rules";
 
 const scrypt = promisify(scryptCb) as (pw: string, salt: Buffer, len: number) => Promise<Buffer>;
 
@@ -146,6 +147,16 @@ export async function guardFaults(): Promise<{ denied: NextResponse } | { user: 
   const user = await getCurrentUser();
   if (!user) return { denied: NextResponse.json({ error: "Not signed in" }, { status: 401 }) };
   if (!faultsWorker(user.role)) return { denied: NextResponse.json({ error: "You don't have permission to do that" }, { status: 403 }) };
+  return { user };
+}
+
+// Variation / day dockets (/variations, /api/variations/*, Ilies approved 25 Nov 2026): Managers, Admins (the owner is
+// one) and the coordinator - exactly those, by name (lib/variations/rules.ts mayReadVariations). Never VIEWER,
+// TIMESHEETS, ACCOUNTS, DIRECTOR or YARD. Returns the user, whose name goes on a status change. Never by loosening guard().
+export async function guardVariations(): Promise<{ denied: NextResponse } | { user: AuthUser }> {
+  const user = await getCurrentUser();
+  if (!user) return { denied: NextResponse.json({ error: "Not signed in" }, { status: 401 }) };
+  if (!mayReadVariations(user.role)) return { denied: NextResponse.json({ error: "You don't have permission to do that" }, { status: 403 }) };
   return { user };
 }
 
