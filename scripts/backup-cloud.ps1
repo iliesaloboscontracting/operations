@@ -90,7 +90,10 @@ try {
   # Suppliers' quote files on purchase / hire requests (PURCHASE_FILE_DIR, 2 Nov 2026, PQ-006) - optional too, until
   # the server's nightly backup makes purchase-files-<date>.tar.gz.
   $purchases = @($list | Where-Object { $_ -like "purchase-files-*.tar.gz" })[0]
-  $files = @($db, $photos) + @($invoices, $estimating, $receipts, $compliance, $purchases | Where-Object { $_ })
+  # Site documents - plans, SWMS versions, topic-of-the-week PDFs (SITE_DOC_FILE_DIR, 25 Nov 2026) - optional too, until
+  # the server's nightly backup makes sitedoc-files-<date>.tar.gz.
+  $sitedocs = @($list | Where-Object { $_ -like "sitedoc-files-*.tar.gz" })[0]
+  $files = @($db, $photos) + @($invoices, $estimating, $receipts, $compliance, $purchases, $sitedocs | Where-Object { $_ })
   # The names come from the server's own listing; anything but a plain file name never reaches a remote command.
   foreach ($f in $files) { if ($f -notmatch '^[A-Za-z0-9._-]+$') { throw "unexpected backup file name on the server: $f" } }
   # Newest set already fully downloaded (e.g. before 1:30am, today's isn't made yet).
