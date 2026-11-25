@@ -25,6 +25,13 @@
 //  (10) The kill switch VARIATION_DOCKETS=off (the routes run in a tsx child): 503 with plain words, the home has no
 //       `variations`.
 //  (11) No dollar figure in any link reply or in the alert; no outbound call.
+//   Security fixes (Ilies approved VD-001..VD-006, 25 Nov 2026): VD-001 a docket is corrected only by the person who
+//   sent it (another person on the same job 400 with the plain words, nothing saved) and the office shows every
+//   correction; VD-002 the Building Agent login lists and reads a docket (no signatures, no photos, canSetStatus false)
+//   but gets 403 on status, signature and photo with nothing saved; VD-003 with the switch off the office still reads
+//   the dockets (the store, run in the tsx child); VD-004 a signature with an injected tEXt chunk or the same image
+//   twice is refused, the signature route sends a sandboxing CSP; VD-006 an expired hand-over link 404 on GET, POST and
+//   a photo start, TIMESHEETS / ACCOUNTS / DIRECTOR / YARD 403 on the photo route, a status POST from another site 403.
 // WRITES on the test copy: made-up people, two projects with a job today each, links of every kind, dockets (kept -
 // they're append-only), status events, a docket photo, test phone-alert devices. Links revoked and people switched off
 // at the end.
@@ -37,6 +44,19 @@ import { noMoney } from "../lib/context.mjs";
 import { makeLink } from "../lib/setup.mjs";
 
 const PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+// A real canvas signature: canvas.toDataURL("image/png") from Chrome 156 (25 Nov 2026) - IHDR, IDAT, IDAT, IEND.
+const CHROME_PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADAAAAAQCAYAAABQrvyxAAABAElEQVR4AdSU0Q2DIBRFXzqIMziAMziAiziD/07iJM7gAK7Q9jS5BBpTqQJRE3L1AXIOUR7Pm18Pu/mVVGBZFqOV3JMkAkAPw2B1XbvGM/XcMqcEAAS0foOTgvXr6qOm/pR5SAAYgAUnoL7vbRxHa5pGpc8npbEaz3w34OTNXwIsLBhSawO+rquRXdfZNE02z3MRmSiBGHDJKKuqshIyPwWOgEvAz5wymwKpwH0J3aeWCQRygkvAzxQygYBOCS3CT6mfU7VcGSvTtm2A4ATYfV5Cb0lw1vtucOwdAJrjBJjE8VdqxwWwl3D5MhzP1DTPCVDwO3i+WtviCwSuBhzD8wIAAP//z7+xigAAAAZJREFUAwDlCsFw2LDIgQAAAABJRU5ErkJggg==";
+// The same PNG with a tEXt chunk put in before IEND (a correct CRC) - VD-004 refuses it.
+const crcTable = Array.from({ length: 256 }, (_, n) => { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; return c >>> 0; });
+const crc32 = (b) => { let c = 0xffffffff; for (const x of b) c = crcTable[(c ^ x) & 0xff] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; };
+const withText = (dataUrl) => {
+  const png = Buffer.from(dataUrl.slice(22), "base64");
+  const data = Buffer.from("Comment\0<script>alert(1)</script>", "latin1");
+  const len = Buffer.alloc(4); len.writeUInt32BE(data.length);
+  const td = Buffer.concat([Buffer.from("tEXt", "latin1"), data]);
+  const crc = Buffer.alloc(4); crc.writeUInt32BE(crc32(td));
+  return "data:image/png;base64," + Buffer.concat([png.subarray(0, png.length - 12), len, td, crc, png.subarray(png.length - 12)]).toString("base64");
+};
 const JPEG_AS_PNG = "data:image/png;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAAMCAgICAgMCAgIDAwMDBAYEBAQEBAgGBgUGCQgKCgkICQkKDA8MCgsOCwkJDRENDg8QEBEQ";
 const HTML_AS_PNG = `data:image/png;base64,${Buffer.from("<html><script>alert(1)</script></html>").toString("base64")}`;
 const JPEG_HEAD = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00]);
@@ -54,6 +74,7 @@ export default {
     const db = c.db;
     if (!db) return t.block("no test database handle");
     for (const k of [...OFFICE_YES, ...OFFICE_NO]) if (!c.users[k]) return t.block(`no ${k} test login`);
+    if (!c.users.OPS_AI) return t.block("no Building Agent (OPS_AI) test login");
     const net0 = netLines(c);
     const tag = Date.now().toString(36);
     const made = { people: [], links: [], projects: [] };
@@ -88,6 +109,7 @@ export default {
         poster: await makeLink(db, "POSTER", null, { projectId: P.id }),
         office: await makeLink(db, "OFFICE", O.id),
         off: await makeLink(db, "SUPERVISOR", S.id, { revokedAt: new Date() }),
+        expired: await makeLink(db, "HANDOVER", H.id, { jobId: J.id, expiresAt: new Date(Date.now() - 60_000) }),
       };
       for (const l of Object.values(L)) made.links.push(l.id);
       const fake = { secret: "x".repeat(32) };
@@ -96,12 +118,12 @@ export default {
         jobId: J.id, ticks: ["VARIATION", "RUBBISH"], otherText: "",
         tasks: [{ description: `RC extra partition wall ${tag}`, men: 3, start: "07:00", finish: "10:30" }, { description: "RC night cut", men: 2, start: "22:00", finish: "01:00", hours: 5 }],
         items: [{ quantity: 6, unit: "M3", type: "Mixed waste", comment: "two skips" }],
-        note: "", photoIds: [], customerName: "Sam Client", customerPosition: "Site manager", customerSignature: PNG, lobosPosition: "Supervisor", lobosSignature: PNG, ...x,
+        note: "", photoIds: [], customerName: "Sam Client", customerPosition: "Site manager", customerSignature: PNG, lobosPosition: "Supervisor", lobosSignature: CHROME_PNG, ...x,
       });
 
       // ---- (1) links ----
       const n0 = await dockets();
-      for (const [name, link, want] of [["supervisor", L.sup, 200], ["hand-over", L.handover, 200], ["driver", L.driver, 404], ["poster", L.poster, 404], ["office", L.office, 404], ["switched-off", L.off, 404], ["made-up", fake, 404]]) {
+      for (const [name, link, want] of [["supervisor", L.sup, 200], ["hand-over", L.handover, 200], ["driver", L.driver, 404], ["poster", L.poster, 404], ["office", L.office, 404], ["switched-off", L.off, 404], ["expired hand-over", L.expired, 404], ["made-up", fake, 404]]) {
         t.status((await call("GET", link, "/variation")).status, want, `GET variation on a ${name} link`);
         if (want !== 200) t.status((await send(link, base())).status, 404, `POST variation on a ${name} link`);
       }
@@ -120,8 +142,11 @@ export default {
       t.ok(hv?.jobs?.length === 1 && hv.jobs[0].id === J.id && hv.lobosName === H.name, "the hand-over link sees only its own job");
 
       // ---- (2) refused, nothing saved ----
+      t.status((await call("POST", L.expired, "/variation/media/start", { jobId: J.id, kind: "PHOTO", mime: "image/jpeg", size: 1000 })).status, 404, "VD-006: a photo start on an expired hand-over link");
       const n1 = await dockets();
       const refuse = [
+        ["VD-004: a tEXt chunk in the Lobos signature", base({ lobosSignature: withText(CHROME_PNG) }), 400],
+        ["VD-004: the same image as both signatures", base({ lobosSignature: PNG }), 400],
         ["no client signature", base({ customerSignature: null }), 400],
         ["no Lobos signature", base({ lobosSignature: "" }), 400],
         ["a JPEG as the client's signature", base({ customerSignature: JPEG_AS_PNG }), 400],
@@ -134,6 +159,7 @@ export default {
         ["another supervisor's job", base({ jobId: J2.id }), 403],
       ];
       for (const [name, body, want] of refuse) t.status((await send(L.sup, body)).status, want, name);
+      t.ok(/can't be identical/.test((await send(L.sup, base({ lobosSignature: PNG }))).body?.error ?? ""), "VD-004: \"The two signatures can't be identical\"");
       t.status((await send(L.handover, base({ jobId: J2.id }))).status, 403, "a hand-over link on a job it doesn't cover");
       t.ok((await dockets()) === n1, "nothing saved by any refused send");
 
@@ -174,6 +200,7 @@ export default {
       const sr = await c.get(`/api/variations/${id1}/signature/customer`, "COORDINATOR");
       const sb = Buffer.from(await sr.arrayBuffer());
       t.ok(sr.status === 200 && sr.headers.get("content-type") === "image/png" && sb.subarray(0, 4).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47])) && /no-store/.test(sr.headers.get("cache-control") ?? ""), "the signature is a PNG, never cached");
+      t.ok(sr.headers.get("content-security-policy") === "default-src 'none'; sandbox" && sr.headers.get("x-content-type-options") === "nosniff", "VD-004: the signature is served with a sandboxing CSP and nosniff", sr.headers.get("content-security-policy"));
       t.status(await c.get(`/api/variations/${id1}/signature/other`, "MANAGER"), 404, "an unknown signature role");
       for (const who of ["MANAGER", "COORDINATOR"]) {
         t.status(await c.get("/variations", who), 200, `the Variations page loads for ${who}`);
@@ -187,6 +214,18 @@ export default {
       // ---- (6) status + (4) never edited ----
       const snap = async (id) => JSON.stringify(await db.variationDocket.findUnique({ where: { id }, include: { tasks: { orderBy: { n: "asc" } }, items: { orderBy: { n: "asc" } }, signatures: { select: { role: true, sha256: true, bytes: true } } } }));
       const before = await snap(id1);
+      const evCount = () => db.variationStatusEvent.count({ where: { docketId: id1 } });
+      const e0 = await evCount();
+      t.status(await c.req("POST", `/api/variations/${id1}/status`, "COORDINATOR", { status: "PRICED", from: "TO_PRICE" }, { Origin: "https://evil.example" }), 403, "VD-006: a status POST from another site");
+      // VD-002: the Building Agent login looks only.
+      t.status(await c.get("/api/variations", "OPS_AI"), 200, "VD-002: the Building Agent login lists the dockets");
+      const ag = await c.json(`/api/variations/${id1}`, "OPS_AI");
+      t.ok(ag.status === 200 && ag.body?.docket?.canSetStatus === false && ag.body.docket.filesHidden === true && ag.body.docket.photoIds?.length === 0, "VD-002: ...and reads one with no status buttons, signatures or photos", JSON.stringify({ s: ag.status, c: ag.body?.docket?.canSetStatus, h: ag.body?.docket?.filesHidden }));
+      const agS = await c.post(`/api/variations/${id1}/status`, "OPS_AI", { status: "PRICED", from: "TO_PRICE" });
+      const agSb = await agS.json().catch(() => ({}));
+      t.ok(agS.status === 403 && agSb.error === "The Building Agent login can't change a docket's status.", "VD-002: the Building Agent login can't change the status", `${agS.status} ${agSb.error}`);
+      for (const role of ["customer", "lobos"]) t.status(await c.get(`/api/variations/${id1}/signature/${role}`, "OPS_AI"), 403, `VD-002: the Building Agent login can't open the ${role} signature`);
+      t.ok((await evCount()) === e0, "VD-002 / VD-006: nothing saved by the refused status changes");
       const card0 = (await c.json("/api/variations?summary=1", "COORDINATOR")).body;
       const p1 = await c.post(`/api/variations/${id1}/status`, "COORDINATOR", { status: "PRICED", from: "TO_PRICE" });
       t.status(p1, 201, "the coordinator marks it Priced");
@@ -214,7 +253,19 @@ export default {
       t.status(fix.status, 201, "a correction is sent as a new docket naming the one it replaces");
       t.ok(fix.body?.docket?.replaces === num1 && fix.body.docket.number !== num1, "...with its own number, replacing the old one");
       t.ok((await snap(id1)) === before, "the original docket is unchanged");
-      t.ok((await c.json(`/api/variations/${id1}`, "MANAGER")).body?.docket?.replacedBy === fix.body?.docket?.number, "the office sees it replaced by the correction");
+      t.ok((await c.json(`/api/variations/${id1}`, "MANAGER")).body?.docket?.replacedBy?.startsWith(fix.body?.docket?.number ?? "-"), "the office sees it replaced by the correction");
+      const n2 = await dockets();
+      const hx = await send(L.handover, base({ replaces: num1 }));
+      t.ok(hx.status === 400 && hx.body?.error === `You can only correct a docket you sent. Ask the supervisor who sent ${num1}, or the office.`, "VD-001: another person on the same job can't correct it", `${hx.status} ${hx.body?.error}`);
+      t.ok((await dockets()) === n2, "VD-001: nothing saved");
+      const fix2 = await send(L.sup, base({ replaces: num1, note: "corrected again: finish 11:00" }));
+      t.status(fix2.status, 201, "VD-001: the sender corrects it a second time");
+      const dd = (await c.json(`/api/variations/${id1}`, "MANAGER")).body?.docket;
+      t.ok(JSON.stringify(dd?.corrections?.map((x) => x.number)) === JSON.stringify([fix.body?.docket?.number, fix2.body?.docket?.number]) && dd?.replacedBy === `${fix.body?.docket?.number}, ${fix2.body?.docket?.number}`,
+        "VD-001: the office shows every correction, oldest first", JSON.stringify({ c: dd?.corrections?.map((x) => x.number), r: dd?.replacedBy }));
+      const listed = (await c.json("/api/variations", "MANAGER")).body?.rows?.find?.((r) => r.id === id1);
+      t.ok(listed?.replacedBy === dd?.replacedBy, "VD-001: ...on the list too", listed?.replacedBy);
+      t.ok((await snap(id1)) === before, "the original is still unchanged after two corrections");
       const other = await send(L.sup2, base({ jobId: J2.id }));
       t.status(other.status, 201, "another supervisor sends one on their job");
       t.status((await send(L.sup, base({ replaces: other.body?.docket?.number }))).status, 400, "replacing another job's docket");
@@ -244,6 +295,7 @@ export default {
         const pr = await c.get(`/api/variations/${pid}/photo/${up.id}`, "MANAGER");
         t.ok(pr.status === 302 && /no-store/.test(pr.headers.get("cache-control") ?? ""), "the office opens the photo (a no-store redirect to a signed read)", `${pr.status}`);
         t.status(await c.get(`/api/variations/${pid}/photo/${up.id}`, "VIEWER"), 403, "a Viewer can't");
+        for (const who of ["TIMESHEETS", "ACCOUNTS", "DIRECTOR", "YARD", "OPS_AI"]) t.status(await c.get(`/api/variations/${pid}/photo/${up.id}`, who), 403, `VD-006 / VD-002: ${who} can't open the photo`);
         t.status(await c.get(`/api/variations/${id1}/photo/${up.id}`, "MANAGER"), 404, "a photo another docket doesn't cite");
         t.status((await call("GET", L.sup2, `/variation/media/${up.id}`)).status, 404, "another link can't read it back");
       } else t.note(`docket photos couldn't start (${up.start}) - the media bucket isn't set up on this run`);
@@ -309,16 +361,24 @@ export default {
           `const g = await v.GET(new Request("http://x/"), ctx); const p = await v.POST(new Request("http://x/", { method: "POST", body: "{}" }), ctx);`,
           `const ms = await m.POST(new Request("http://x/", { method: "POST", body: "{}" }), { params: Promise.resolve({ token: ${JSON.stringify(L.sup.secret)}, op: "start" }) });`,
           `const home = await (await h.GET(new Request("http://x/"), ctx)).json();`,
-          `console.log("RESULT " + JSON.stringify({ g: g.status, gBody: await g.json(), p: p.status, ms: ms.status, homeHas: "variations" in home, homePerson: home.person })); process.exit(0);`,
+          // VD-003: the office side never looks at the switch - its data still comes back (the store the office routes call).
+          `const st = await import(${JSON.stringify(fileUrl("src/lib/variations/store.ts"))});`,
+          `const list = await st.officeList({}); const card = await st.toPriceCard(); const one = await st.officeDetail(${JSON.stringify(id1)}, { id: "x", name: "RC", role: "MANAGER", email: "rc@release-check.test" });`,
+          `const office = { list: list.rows.some((r) => r.id === ${JSON.stringify(id1)}), card: typeof card.count === "number", one: one?.id === ${JSON.stringify(id1)} };`,
+          `console.log("RESULT " + JSON.stringify({ g: g.status, gBody: await g.json(), p: p.status, ms: ms.status, homeHas: "variations" in home, homePerson: home.person, office })); process.exit(0);`,
         ]);
         t.ok(k?.g === 503 && k?.p === 503 && k?.ms === 503 && /switched off/.test(k?.gBody?.error ?? ""), "VARIATION_DOCKETS=off: the link routes 503 with plain words", JSON.stringify(k));
         t.ok(k?.homePerson === S.name && k?.homeHas === false, "...and the link's home has no Variation docket tile");
+        t.ok(k?.office?.list === true && k.office.card === true && k.office.one === true, "VD-003: with the switch off the office still reads the dockets (list, card, docket) - 200", JSON.stringify(k?.office));
+        const offSrc = ["src/app/api/variations/route.ts", "src/app/api/variations/[id]/route.ts", "src/app/api/variations/[id]/status/route.ts"].map((rel) => { try { return readFileSync(path.join(c.p.appDir, rel), "utf8"); } catch { return "variationsOn"; } });
+        t.ok(offSrc.every((x) => !x.includes("variationsOn")), "VD-003: the office routes never check the switch (source)");
       } else t.block("no tsx in the candidate's node_modules - the alert and the kill switch couldn't be run");
 
       // ---- source: the tile, the office pages ----
       const src = (rel) => { try { return readFileSync(path.join(c.p.appDir, rel), "utf8"); } catch { return ""; } };
       t.ok(/info\.variations && \(info\.kind === "SUPERVISOR" \|\| info\.kind === "HANDOVER"\)/.test(src("src/app/site/[token]/page.tsx")), "the tile shows on supervisor and hand-over links only (source)");
       t.ok(/disabled=\{!!missing \|\| busy\}/.test(src("src/components/site/VariationDocket.tsx")) && /!customerSig \? "The client needs to sign\."/.test(src("src/components/site/VariationDocket.tsx")), "Send stays off until the client has signed (source)");
+      t.ok(src("src/components/site/VariationDocket.tsx").includes("Lobos keeps this docket, your name and signature as the record of this work."), "VD-005: the record line under the client's signature pad (source)");
       t.ok(/VariationsCard/.test(src("src/app/coordinator/page.tsx")), "the Variations to price card on the coordinator's dashboard (source)");
 
       // ---- (11) ----
