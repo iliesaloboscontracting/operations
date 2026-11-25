@@ -1,16 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCurrentUser, guard } from "@/lib/auth";
+import { getCurrentUser, guard, guardTipsOrManager } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { addRate, listRates } from "@/lib/receipts/tipStore";
 
 // Tip rates (Receipts R3): $/tonne ex GST per tip site and waste type, by the date they start.
 // GET  -> every rate (in force, superseded, retired) and the site + waste combinations on dockets
-//         that no rate covers yet. Manager+ (money: never a Viewer, never a link).
-// POST { tipSite, wasteType, ratePerTonneExGst, validFrom, source, note? } -> a new rate. Admin only;
-//         a price change is a new rate with a later start date (the old one stays as history).
+//         that no rate covers yet. Manager+ (money: never a Viewer, never a link), and the coordinator read-only
+//         (Ilies approved 25 Nov 2026 - tip dockets "with $").
+// POST { tipSite, wasteType, ratePerTonneExGst, validFrom, source, note? } -> a new rate. Admin only (never the
+//         coordinator); a price change is a new rate with a later start date (the old one stays as history).
 export const GET = withErrorHandling(async () => {
-  const denied = await guard("MANAGER");
-  if (denied) return denied;
+  const g = await guardTipsOrManager();
+  if ("denied" in g) return g.denied;
   return NextResponse.json(await listRates());
 });
 

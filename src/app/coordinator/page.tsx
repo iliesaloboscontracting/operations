@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { CalendarDays, ClipboardCheck, Clock, Container, FilePen, FileSearch, Mail, MessageSquare, ShoppingCart, Truck, UserCheck, Wrench } from "lucide-react";
+import { CalendarDays, ClipboardCheck, Clock, Container, FilePen, FileSearch, Mail, MessageSquare, Receipt, ShoppingCart, Truck, UserCheck, Wrench } from "lucide-react";
 import PageShell from "@/components/PageShell";
 import { useAuth } from "@/components/AuthProvider";
 import BinsOutCard from "@/components/bins/BinsOutCard";
@@ -23,6 +23,7 @@ const TILES = [
   { href: "/hire", label: "Hire", what: "Add, extend and off-hire - suppliers, dates, status and the project it's for.", icon: Truck },
   { href: "/bins", label: "Bins", what: "Bins on site and picked up, with the photos. Client's bins are the ones charged to the client. View only.", icon: Container },
   { href: "/variations", label: "Variations", what: "Variation / day dockets the client signed on site - print or save as PDF, and mark Priced / Sent to client.", icon: FilePen },
+  { href: "/receipts", label: "Tip dockets", what: "Tip dockets from site and the office - check what was read, confirm, correct, move to the right job. Tip rates, mismatches and tip loads by job.", icon: Receipt },
   { href: "/purchases", label: "Purchase requests", what: "Buy or hire something, with suppliers' quotes - Ilies or a director approves.", icon: ShoppingCart },
   { href: "/messages", label: "Messages", what: "The office chat and your one-to-ones.", icon: MessageSquare },
   { href: "/documents", label: "Documents", what: "Search the site & safety folders - SWMS, scopes, drawings.", icon: FileSearch },

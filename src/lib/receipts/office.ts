@@ -7,6 +7,7 @@ import { jobLabel, signinDates } from "../signin";
 import { ASBESTOS, docketDate, normDocket, normRego, num } from "./checks";
 import { MAX_TRIES, logOf, readOdometer, readReceipt, readingEnabled, type ReadingLog } from "./runner";
 import { syncTipMatchesSoon, truckRegos, vehicleForRego } from "./tipStore";
+import { tipsOnlyMayAct } from "./tipsAccess";
 
 type Problem = { error: string; status: number };
 type Who = { name: string };
@@ -21,13 +22,17 @@ const FIELDS: Record<"TIP" | "FUEL", Record<string, (v: unknown) => unknown>> = 
 };
 const same = (a: unknown, b: unknown) => JSON.stringify(a instanceof Date ? a.toISOString() : a) === JSON.stringify(b instanceof Date ? b.toISOString() : b);
 
-export async function receiptAction(who: Who, id: string, body: Record<string, unknown>): Promise<{ ok: true; status: string; id?: string } | Problem> {
+// tipsOnly (the coordinator - Ilies approved 25 Nov 2026, ./tipsAccess.ts): only a TIP docket that isn't own money; an
+// odometer reading, FUEL, PURCHASE or own-money receipt is "Not found" (404), whatever the op.
+export async function receiptAction(who: Who, id: string, body: Record<string, unknown>, opts: { tipsOnly?: boolean } = {}): Promise<{ ok: true; status: string; id?: string } | Problem> {
   const op = String(body.op ?? "").toUpperCase();
   const isOdo = body.type === "ODOMETER";
+  if (opts.tipsOnly && isOdo) return { error: "Not found", status: 404 };
   const row = isOdo ? await prisma.odometerReading.findUnique({ where: { id } }) : await prisma.receipt.findUnique({ where: { id } });
   if (!row) return { error: "Not found", status: 404 };
   // Own-money purchases belong to accounts (Reimbursements), never to the Operations receipts list.
   if (!isOdo && (row as { kind: string }).kind === "PURCHASE") return { error: "Not found", status: 404 };
+  if (opts.tipsOnly && !tipsOnlyMayAct({ isOdometer: isOdo, kind: (row as { kind?: string }).kind ?? null, ownMoney: (row as { ownMoney?: boolean }).ownMoney ?? null })) return { error: "Not found", status: 404 };
   const log: ReadingLog = logOf(row.reading);
   const now = new Date();
   const save = (data: Record<string, unknown>) => (isOdo ? prisma.odometerReading.update({ where: { id }, data }) : prisma.receipt.update({ where: { id }, data }));

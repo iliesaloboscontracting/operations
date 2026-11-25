@@ -101,6 +101,7 @@ business, without becoming unnecessarily complicated.
   `src/lib/coordinatorHire.ts`); raises his own purchase requests and sees everyone's read-only, prices included (never approves); office chat;
   site & safety documents only, not the Assistant. Never director access. Only the owner gives, takes away or creates a COORDINATOR login (Ilies, 2 Nov 2026: "Only you (the owner)"). Outlook (phase 2) is a
   placeholder only. Release check `63-coordinator`.
+  Receipts (Ilies, 25 Nov 2026: "See and check, with $", "Tip dockets only"): on `/receipts` ("Tip dockets") he sees and checks TIP dockets only, prices included - confirm / correct / move job / set aside, the batch no-asbestos, tip rates read-only, Mismatches, per-job tip indicators - filtered on the server (`guardTipsOrManager()`, `src/lib/receipts/tipsAccess.ts`); fuel, odometer, reimbursements / own-money receipts and the truck indicators never; batch upload stays Manager+. Release check `110-coordinator-tips`.
   `YARD` (4 Nov 2026, Ilies - the yard computer downstairs) works the same way - below VIEWER,
   `guardOrYard()` / `guardTools()` only, home `/yard`, pages `/yard/*` + the Tools pages; never money,
   never director access. Only the owner creates, renames, resets, switches off or re-roles a YARD (or

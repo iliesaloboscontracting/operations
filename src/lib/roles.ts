@@ -97,6 +97,7 @@ export const COORDINATOR_PAGES = [
   "/timesheets/labour-hire", // labour hire hours, view + export (Ilies, 11 Nov 2026: "Managers + Admins + Alex")
   "/bins", // bins out and picked up, view only - client's bins are variations he tracks (Ilies, 23 Nov 2026)
   "/variations", // variation / day dockets signed on site - he sets To price / Priced / Sent to client (Ilies, 25 Nov 2026)
+  "/receipts", // tip dockets only - see and check, with $ (Ilies, 25 Nov 2026; lib/receipts/tipsAccess.ts, guardTipsOrManager)
 ] as const;
 export function isCoordinatorPage(path: string): boolean {
   const p = (path.split(/[?#]/)[0] || "/").replace(/\/+$/, "") || "/";

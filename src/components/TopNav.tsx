@@ -140,6 +140,7 @@ const COORDINATOR = [
   { href: "/hire", label: "Hire" },
   { href: "/bins", label: "Bins" }, // view only (23 Nov 2026)
   { href: "/variations", label: "Variations" }, // signed dockets - he sets the office status (25 Nov 2026)
+  { href: "/receipts", label: "Tip dockets" }, // tip dockets only - see and check, with $ (25 Nov 2026)
   { href: "/purchases", label: "Purchases" },
   { href: "/messages", label: "Messages" },
   { href: "/documents", label: "Documents" },

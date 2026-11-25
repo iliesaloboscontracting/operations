@@ -9,6 +9,7 @@ import { isOwner } from "./owner";
 import { coordinatorOr, faultsWorker, NO_DIRECTOR_ACCESS_ROLES, toolsWorkerOr, yardOr, type Role } from "./roles";
 import { UNKNOWN_RANK, rankAtLeast, rankOf } from "./roleRank";
 import { mayReadVariations } from "./variations/rules";
+import { mayReadTipDockets, tipsOnlyFor } from "./receipts/tipsAccess";
 
 const scrypt = promisify(scryptCb) as (pw: string, salt: Buffer, len: number) => Promise<Buffer>;
 
@@ -158,6 +159,17 @@ export async function guardVariations(): Promise<{ denied: NextResponse } | { us
   if (!user) return { denied: NextResponse.json({ error: "Not signed in" }, { status: 401 }) };
   if (!mayReadVariations(user.role)) return { denied: NextResponse.json({ error: "You don't have permission to do that" }, { status: 403 }) };
   return { user };
+}
+
+// Receipts (/receipts, /api/receipts/*) and the tip rates' GET: Managers and Admins as before (tipsOnly false), plus the
+// coordinator with tipsOnly true - tip dockets only, every route filtering on the server (Ilies approved 25 Nov 2026:
+// "See and check, with $", "Tip dockets only"; lib/receipts/tipsAccess.ts). Never VIEWER, TIMESHEETS, ACCOUNTS, DIRECTOR
+// or YARD. Starting a batch upload and every tip-rate change keep guard("MANAGER") / guard("ADMIN"). Never by loosening guard().
+export async function guardTipsOrManager(): Promise<{ denied: NextResponse } | { user: AuthUser; tipsOnly: boolean }> {
+  const user = await getCurrentUser();
+  if (!user) return { denied: NextResponse.json({ error: "Not signed in" }, { status: 401 }) };
+  if (!mayReadTipDockets(user.role)) return { denied: NextResponse.json({ error: "You don't have permission to do that" }, { status: 403 }) };
+  return { user, tipsOnly: tipsOnlyFor(user.role) };
 }
 
 // Looking at timesheets: Managers and Admins, plus the review-only
