@@ -142,6 +142,9 @@ async function main() {
     await checkDenied("GET /api/faults (Managers, Admins, coordinator, yard only)", "/api/faults");
     await checkDenied("GET /api/faults/flags (Managers, Admins, coordinator, yard only)", "/api/faults/flags");
     await checkDenied("GET /api/faults/checks (Managers, Admins, coordinator, yard only)", "/api/faults/checks");
+    // Variation / day dockets (25 Nov 2026): Managers, Admins and the coordinator only - never a Viewer.
+    await checkDenied("GET /api/variations (Managers, Admins, coordinator only)", "/api/variations");
+    await checkDenied("GET /api/variations?summary=1 (Managers, Admins, coordinator only)", "/api/variations?summary=1");
     // Plant pre-start QR stickers (stage 2, 10 Nov 2026): printing / listing them is Managers and Admins only.
     await checkDenied("GET /api/plant/qr (Managers and Admins only)", "/api/plant/qr");
     // PS-060 (12 Nov 2026): a vehicle / plant item's service history reaches a Viewer as date, provider, work and

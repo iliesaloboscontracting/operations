@@ -729,6 +729,24 @@ business, without becoming unnecessarily complicated.
     a shift - a Supervisor or Lead alone too, LS-009) and DAY_NO_LEAD / NIGHT_NO_LEAD (a shift's crew of 2+ with no lead
     on it while the other shift has one) are their own MEDIUM dated rules on the card - never pushed. A query raised on
     a finding moves it to ACTIONED only from OPEN / ACKNOWLEDGED (LS-008).
+- **Variation / day dockets** (25 Nov 2026, Ilies: "yes build it, deploy once it passes"; `src/lib/variations/`):
+  his paper "Variation / Day Docket" on the phone. A SUPERVISOR link, or a HANDOVER link on its own job ("Variation
+  docket" tile -> `/site/<link>/variation`, `/api/site/<link>/variation`, rides the photos tunnel); never DRIVER /
+  POSTER / OFFICE / the yard's link or login. Job picked from the daily log's list (`loggableJobs`), project details
+  filled in; ticks, task rows (hours = start-finish x men in plain code, editable - both kept), equipment / materials
+  rows (m3 / each / hrs / other), optional photos (media bucket, area VARIATION), then the client signs with a finger
+  (name + position typed), then the supervisor; Send stays off until the client has signed. `V-0001` numbers on Send
+  (max + 1, `number` unique, one send at a time + retry). Append-only: no update / delete path (`VariationDocket`,
+  `VariationTask`, `VariationItem`, `VariationSignature`); a correction is a new docket with `replacesId`. Signatures
+  are PNGs checked by their bytes (200 KB cap) and stored IN the database - so they are in the nightly SQLite backup
+  and the off-site copy with the docket; served only by `/api/variations/:id/signature/*`. No price, rate or amount
+  anywhere (a "$" or money phrase in any box is refused). Hours never touch sign-ins, timesheets, JobActual or costs.
+  No email - the office prints / saves `/variations/<id>` (A4) and sends it. Office: `/variations` (newest first, by
+  job / status) for Managers, Admins and the coordinator (`guardVariations`, COORDINATOR_PAGES); the status To price
+  -> Priced -> Sent to client is its own append-only `VariationStatusEvent` (back a step needs a reason). Push on
+  each signed docket to the active COORDINATOR login(s) + the owner only ("Variation V-0012 signed - <project>
+  (<supervisor>)"). "Variations to price" card on /coordinator. 30 dockets a link a day. Kill switch
+  `VARIATION_DOCKETS=off`. Release check `108-variation-dockets`.
 - **Money-guard principle:** crew-facing/operational views (day sheets, Day
   Review, the Yard) never carry dollar figures — enforced at both the
   TypeScript type level (narrow DTOs with no money fields) and via a runtime
