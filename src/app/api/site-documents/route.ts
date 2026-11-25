@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { guardSiteDocs } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
-import { officeProject, officeProjects, recordList } from "@/lib/siteDocs/office";
+import { officeProject, officeProjects, officeSummary, recordList } from "@/lib/siteDocs/office";
 
 // GET /api/site-documents -> the projects (with how many plans / SWMS versions / records each) and the latest
 // pre-starts and toolbox talks; ?projectId= -> one project: plans, SWMS versions (current / superseded / archived, how
@@ -10,6 +10,9 @@ import { officeProject, officeProjects, recordList } from "@/lib/siteDocs/office
 export const GET = withErrorHandling(async (req: NextRequest) => {
   const g = await guardSiteDocs();
   if ("denied" in g) return g.denied;
+  // ?summary=1 -> the coordinator's dashboard card: projects with a job today, how many have no SWMS, how many people on
+  // site today haven't signed the current one (counts only).
+  if (req.nextUrl.searchParams.get("summary") === "1") return NextResponse.json(await officeSummary());
   const projectId = req.nextUrl.searchParams.get("projectId")?.slice(0, 40);
   if (projectId) {
     const p = await officeProject(projectId);

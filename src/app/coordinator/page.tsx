@@ -1,11 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { CalendarDays, ClipboardCheck, Clock, Container, FilePen, FileSearch, Mail, MessageSquare, ShoppingCart, Truck, UserCheck, Wrench } from "lucide-react";
+import { CalendarDays, ClipboardCheck, Clock, Container, FilePen, FileSearch, FolderOpen, Mail, MessageSquare, ShoppingCart, Truck, UserCheck, Wrench } from "lucide-react";
 import PageShell from "@/components/PageShell";
 import { useAuth } from "@/components/AuthProvider";
 import BinsOutCard from "@/components/bins/BinsOutCard";
 import VariationsCard from "@/components/variations/VariationsCard";
+import SiteDocsCard from "@/components/siteDocs/SiteDocsCard";
 import PushToggle from "@/components/PushToggle";
 import NeedsAttentionCard from "@/components/findings/NeedsAttentionCard";
 
@@ -25,6 +26,7 @@ const TILES = [
   { href: "/variations", label: "Variations", what: "Variation / day dockets the client signed on site - print or save as PDF, and mark Priced / Sent to client.", icon: FilePen },
   { href: "/purchases", label: "Purchase requests", what: "Buy or hire something, with suppliers' quotes - Ilies or a director approves.", icon: ShoppingCart },
   { href: "/messages", label: "Messages", what: "The office chat and your one-to-ones.", icon: MessageSquare },
+  { href: "/site-documents", label: "Site documents", what: "Plans, SWMS and who has signed them, pre-starts and toolbox talks from site, the topic of the week.", icon: FolderOpen },
   { href: "/documents", label: "Documents", what: "Search the site & safety folders - SWMS, scopes, drawings.", icon: FileSearch },
 ];
 
@@ -40,6 +42,9 @@ export default function CoordinatorPage() {
         <div className="w-full max-w-md"><BinsOutCard /></div>
         {/* Variations to price (Ilies, 25 Nov 2026) - signed variation / day dockets still To price. */}
         <div className="w-full max-w-md"><VariationsCard /></div>
+        {/* Site documents (Ilies, 25 Nov 2026: "allow him to upload documents aswell from his dashboard which the crew get on
+            their apps") - pick the project, upload a plan or a new SWMS version, or set the topic of the week. */}
+        <div className="w-full max-w-md"><SiteDocsCard /></div>
         {/* Alerts on this phone (Ilies, 23 Nov 2026: "all fine for alex"): a client's bin delivered - and office chat and his
             own purchase decisions. His own devices only (/api/push). */}
         {coordinatorOnly && (

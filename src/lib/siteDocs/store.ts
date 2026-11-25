@@ -161,7 +161,7 @@ export async function linkView(link: ResolvedLink, now = new Date()): Promise<Li
     });
   }
   return {
-    on: true, supervisor: link.person.name, jobs: out, week,
+    on: true, supervisor: linkLabel(link.person.name, "Supervisor"), jobs: out, week,
     topic: topic ? { id: topic.id, week: topic.week, title: linkLabel(topic.title, "Topic of the week"), points: jsonList(topic.points).map((p) => linkLabel(p, "")).filter(Boolean), hasPdf: !!topic.fileId } : null,
     incidents: incidents.map((i) => ({ number: `INC-${String(i.number).padStart(4, "0")}`, day: i.day, type: i.type, sentAt: i.createdAt.toISOString() })),
     limits: { crewPerSend: LIMITS.crewPerSend, photos: LIMITS.photos, people: LIMITS.people },

@@ -210,6 +210,22 @@ export default {
       t.status((await call("GET", L.sup, `/documents/files/${v1?.id}`)).status, 404, "the link can't open the superseded SWMS");
       t.status((await call("GET", L.sup, `/documents/files/${v2?.id}`)).status, 200, "...it opens the current one");
       t.status(await c.get(`/site-documents/swms/${v2?.id}`, "MANAGER"), 200, "the A4 sign-on sheet page loads");
+      // The coordinator from his dashboard (Ilies, 25 Nov 2026: "allow him to upload documents aswell from his dashboard
+      // which the crew get on their apps"): a plan and a new SWMS version, then they're on the supervisor's link.
+      const cPlan = await up("COORDINATOR", { projectId: P.id, kind: "PLAN", title: `RC coordinator drawing ${tag}`, fileName: "drawing.pdf", dataUrl: dataUrl("application/pdf", PDF("coord plan")) });
+      t.status(cPlan, 201, "the coordinator uploads a plan");
+      const cPlanId = (await cPlan.json().catch(() => ({})))?.file?.id ?? "-";
+      const cSw = await up("COORDINATOR", { projectId: P.id, kind: "SWMS", title: "Demolition SWMS rev C", fileName: "swms-c.pdf", dataUrl: dataUrl("application/pdf", PDF("swms v3")) });
+      const v3 = (await cSw.json().catch(() => ({})))?.file;
+      t.ok(cSw.status === 201 && v3?.version === 3, "the coordinator uploads a new SWMS version (v3)", JSON.stringify(v3));
+      const vc = (await call("GET", L.sup, "/documents")).body?.jobs?.find?.((j) => j.id === J.id);
+      t.ok(vc?.plans?.some?.((p) => p.id === cPlanId) && vc?.swms?.id === v3?.id && vc.swms.version === 3 && vc.crew.every((x) => x.swmsSigned === false), "...both show on the supervisor's link for that project (v3 current, nobody signed it yet)");
+      t.status((await call("GET", L.sup, `/documents/files/${cPlanId}`)).status, 200, "...and the supervisor opens the coordinator's plan");
+      t.status((await call("GET", L.sup2, `/documents/files/${cPlanId}`)).status, 404, "...another project's supervisor can't");
+      const sum = (await c.json("/api/site-documents?summary=1", "COORDINATOR")).body;
+      t.ok(typeof sum?.notSigned === "number" && sum.projects?.some?.((p) => p.id === P.id && p.hasSwms && p.notSigned >= 3), "the coordinator's card summary: people on site today who haven't signed the current SWMS", JSON.stringify(sum?.projects?.find?.((p) => p.id === P.id)));
+      for (const who of ["VIEWER", "DIRECTOR", "ACCOUNTS", "YARD"]) t.status(await c.get("/api/site-documents?summary=1", who), 403, `${who} reading the card summary`);
+      t.status(await c.get("/coordinator", "COORDINATOR"), 200, "the coordinator's dashboard loads");
 
       // ---- (5) pre-start ----
       const rec = (link, body) => call("POST", link, "/documents/records", body);
@@ -443,6 +459,7 @@ export default {
       // ---- source: the tile ----
       const src = (rel) => { try { return readFileSync(path.join(c.p.appDir, rel), "utf8"); } catch { return ""; } };
       t.ok(/info\.siteDocs && \(info\.kind === "SUPERVISOR" \|\| info\.kind === "HANDOVER"\)/.test(src("src/app/site/[token]/page.tsx")), "the tile shows on supervisor and hand-over links only (source)");
+      t.ok(/<SiteDocsCard \/>/.test(src("src/app/coordinator/page.tsx")) && /api\/site-documents\/files/.test(src("src/components/siteDocs/UploadForm.tsx")), "the Site documents card (upload) on the coordinator's dashboard (source)");
       t.ok(src("src/components/site/IncidentForm.tsx").includes("SAFEWORK_PROMPT") && src("src/lib/siteDocs/rules.ts").includes("This may need to be reported to SafeWork NSW straight away."), "the red SafeWork box wording (source)");
 
       // ---- (11) ----

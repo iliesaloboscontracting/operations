@@ -87,6 +87,9 @@ export function MeetingForm({ api, view, job, kind, onCancel, onSent }: { api: s
       <h1 className="text-xl font-semibold text-gray-100">{toolbox ? "Toolbox talk" : n ? `Pre-start ${n + 1}` : "Pre-start meeting"}</h1>
       <p className="text-sm text-gray-400">{job.label}</p>
 
+      {/* Once someone has signed, what they signed for is locked on this phone (take them off to change it). */}
+      <fieldset disabled={signed.length > 0} className="space-y-4 disabled:opacity-80">
+      {signed.length > 0 && <p className="text-xs text-amber-300">Locked - {signed.length} signed for this. Take them off below to change it.</p>}
       {toolbox ? (
         <section className={card}>
           <h2 className={h2}>1. The topic</h2>
@@ -139,6 +142,7 @@ export function MeetingForm({ api, view, job, kind, onCancel, onSent }: { api: s
         <h2 className={h2}>2. General notes (optional)</h2>
         <textarea className={`${input} min-h-[80px]`} maxLength={LIMITS.note} value={notes} onChange={(e) => setNotes(e.target.value)} />
       </section>
+      </fieldset>
 
       <section className={card}>
         <h2 className={h2}>3. Crew sign on</h2>

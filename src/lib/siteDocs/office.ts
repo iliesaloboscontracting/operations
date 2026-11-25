@@ -251,3 +251,22 @@ export async function setTopic(who: Who, body: Record<string, unknown>): Promise
     return { topic: row };
   });
 }
+
+// The coordinator's "Site documents" card (Ilies, 25 Nov 2026): across the projects with a job today - how many have no
+// SWMS from the office, and how many people on site today haven't signed their project's current SWMS. A handful of
+// queries a project with a job today (no more than the board's day) - names stay on the project page.
+export async function officeSummary() {
+  const today = todaySydney();
+  const jobs = await prisma.job.findMany({ where: { date: new Date(`${today}T00:00:00.000Z`), projectId: { not: null }, cancelledAt: null, status: { notIn: ["INACTIVE", "STOOD_DOWN", "CANCELLED"] } }, select: { projectId: true }, take: 300 });
+  const pids = [...new Set(jobs.map((j) => j.projectId!))].slice(0, 80);
+  let notSigned = 0, noSwms = 0;
+  const projects: { id: string; notSigned: number; hasSwms: boolean }[] = [];
+  for (const pid of pids) {
+    const cur = (await projectSwms(pid)).current;
+    const n = cur ? (await notSignedToday(pid, cur.id)).length : 0;
+    if (!cur) noSwms++;
+    notSigned += n;
+    projects.push({ id: pid, notSigned: n, hasSwms: !!cur });
+  }
+  return { today, projectsToday: pids.length, noSwms, notSigned, projects };
+}
