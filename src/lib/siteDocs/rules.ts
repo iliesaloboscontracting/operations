@@ -434,12 +434,14 @@ export const signedAfterSignOut = (signedAt: Date, signOutAt: Date | null | unde
 
 // "New SWMS for <project> (v3) - get the crew to sign it at the next pre-start." to the supervisors' links booked on
 // the project today and the next 7 days. Words only, no money; opens the link's Site documents.
-export function newSwmsAlert(projectName: string, version: number) {
+// SD-014 (Ilies approved 26 Nov 2026): the tag names the project too, so a new SWMS on one project never replaces the
+// alert for another project's on the same phone.
+export function newSwmsAlert(projectId: string, projectName: string, version: number) {
   const msg = {
     title: "New SWMS",
     body: `New SWMS for ${linkLabel(projectName, "your job")} (v${version}) - get the crew to sign it at the next pre-start.`.slice(0, 160),
     url: "?go=docs",
-    tag: `swms-${version}`,
+    tag: `swms-${projectId.slice(-8)}-${version}`,
   };
   return linkSafe(msg) ? msg : null;
 }

@@ -143,7 +143,12 @@ export async function addIncidentEvent(id: string, who: { id: string; name: stri
     const current = incidentStatus(await prisma.incidentEvent.findMany({ where: { incidentId: id }, select: { id: true, status: true, createdAt: true } }));
     const e = incidentEvent(current, body);
     if ("error" in e) return { error: e.error, status: body.from !== undefined && body.from !== current ? 409 : 400 };
-    await prisma.incidentEvent.create({ data: { incidentId: id, kind: e.kind, status: e.status, note: e.note, byUserId: who.id, byName: who.name.slice(0, 80) } });
+    // SD-012 (Ilies approved 26 Nov 2026): a failed save never carries the typed note into a log - the code only.
+    try {
+      await prisma.incidentEvent.create({ data: { incidentId: id, kind: e.kind, status: e.status, note: e.note, byUserId: who.id, byName: who.name.slice(0, 80) } });
+    } catch (err) {
+      throw scrubbedError("Saving a follow-up note", err);
+    }
     return { status: e.status };
   });
 }

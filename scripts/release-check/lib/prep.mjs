@@ -12,7 +12,11 @@ export function sensitiveRows(file) {
   const { DatabaseSync } = process.getBuiltinModule("node:sqlite");
   const db = new DatabaseSync(file, { readOnly: true });
   try {
-    const out = { IncidentReport: has(db, "IncidentReport") ? count(db, `select count(*) as n from "IncidentReport"`) : 0 };
+    // SD-013: IncidentEvent counted too - follow-up notes (health details) left behind without their report.
+    const out = {
+      IncidentReport: has(db, "IncidentReport") ? count(db, `select count(*) as n from "IncidentReport"`) : 0,
+      IncidentEvent: has(db, "IncidentEvent") ? count(db, `select count(*) as n from "IncidentEvent"`) : 0,
+    };
     for (const t of SIG_TABLES) out[t] = has(db, t) ? count(db, `select count(*) as n from "${t}" where length("png") > 0`) : 0;
     return out;
   } finally { db.close(); }
@@ -38,4 +42,14 @@ export function prepCopy(file) {
     throw e;
   } finally { db.close(); }
   return done;
+}
+
+// SD-013 (Ilies approved 26 Nov 2026): which files prep-snapshot refuses - checked on the REAL path (fs.realpathSync), so
+// a symlink or junction to dev.db or to anything under /srv is refused too. -> the reason, or null.
+export function refusePath(realPath) {
+  const p = String(realPath).replace(/\\/g, "/");
+  if (!/\.db$/i.test(p)) return "not a .db file";
+  if (/(^|\/)dev\.db$/i.test(p)) return "that's dev.db";
+  if (/^\/srv\//.test(p)) return "that's under /srv (the server's)";
+  return null;
 }

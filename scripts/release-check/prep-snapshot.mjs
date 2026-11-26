@@ -6,15 +6,17 @@
 //   node scripts/release-check/prep-snapshot.mjs prisma\rc-1126-prepped.db
 //
 // Refuses prisma/dev.db, anything under /srv and anything that isn't a .db file.
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import path from "node:path";
-import { isClean, prepCopy, sensitiveRows } from "./lib/prep.mjs";
+import { isClean, prepCopy, refusePath, sensitiveRows } from "./lib/prep.mjs";
 
 const file = process.argv[2];
 if (!file || !existsSync(file)) { console.error("Usage: node scripts/release-check/prep-snapshot.mjs <a COPY of the database (.db)>"); process.exit(2); }
-const abs = path.resolve(file);
-if (!/\.db$/i.test(abs) || /[\\/]dev\.db$/i.test(abs) || /^\/srv\//.test(abs.replace(/\\/g, "/"))) {
-  console.error(`Refusing ${abs} - give it a COPY (not dev.db, not the server's).`);
+// SD-013: the guards run on the real path - a symlink / junction to dev.db or under /srv is refused like the file itself.
+const abs = realpathSync(path.resolve(file));
+const why = refusePath(abs) ?? refusePath(path.resolve(file));
+if (why) {
+  console.error(`Refusing ${abs} (${why}) - give it a COPY (not dev.db, not the server's).`);
   process.exit(2);
 }
 const before = sensitiveRows(abs);

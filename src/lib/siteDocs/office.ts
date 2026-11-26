@@ -294,7 +294,7 @@ export async function alertNewSwms(projectId: string, version: number, now = new
   if (!siteDocsOn()) return 0;
   const p = await prisma.project.findUnique({ where: { id: projectId }, select: { name: true } });
   if (!p) return 0;
-  const msg = newSwmsAlert(p.name, version);
+  const msg = newSwmsAlert(projectId, p.name, version);
   if (!msg) return 0;
   const today = sydneyDay(now);
   const until = new Date(`${today}T00:00:00.000Z`); until.setUTCDate(until.getUTCDate() + 7);

@@ -480,6 +480,25 @@ test("SD-003: a failed incident save logs no typed text - the database's code on
   assert.match(inc, /\} catch \(e\) \{\s*throw scrubbedError\("Saving an incident report", e\);/);
 });
 
+test("SD-012: a failed follow-up note save logs no typed text - the database's code only", async () => {
+  const typed = "Worker still can't grip with his right hand";
+  const dbErr = Object.assign(new Error(`Invalid \`prisma.incidentEvent.create()\` invocation: { note: "${typed}" }`), { code: "P2003" });
+  const e = scrubbedError("Saving a follow-up note", dbErr);
+  assert.equal(e.message, "Saving a follow-up note failed (P2003)");
+  const { withErrorHandling } = await import("../apiHandler");
+  const { NextRequest } = await import("next/server");
+  const logged: string[] = [];
+  const orig = console.error;
+  console.error = (...a: unknown[]) => { logged.push(a.map((x) => (x instanceof Error ? `${x.message}\n${x.stack}` : String(x))).join(" ")); };
+  try {
+    const h = withErrorHandling(async () => { throw scrubbedError("Saving a follow-up note", dbErr); });
+    assert.equal((await h(new NextRequest("http://x/api/directors/incidents/abc/events", { method: "POST" }), {})).status, 500);
+  } finally { console.error = orig; }
+  assert.ok(logged.length > 0 && logged.every((l) => !l.includes(typed) && !l.includes("grip")), logged.join("|"));
+  const inc = readFileSync(path.join(__dirname, "incidents.ts"), "utf8");
+  assert.match(inc, /\} catch \(err\) \{\s*throw scrubbedError\("Saving a follow-up note", err\);/);
+});
+
 test("SD-004: the incident routes are never cached", () => {
   const src = path.join(__dirname, "..", "..", "app", "api", "directors", "incidents");
   for (const rel of [["route.ts"], ["[id]", "route.ts"], ["[id]", "photo", "[mediaId]", "route.ts"]]) assert.match(readFileSync(path.join(src, ...rel), "utf8"), /"Cache-Control", "no-store"|"Cache-Control": "no-store"/, rel.join("/"));
@@ -525,10 +544,13 @@ test("new SWMS alert: the supervisors booked on the project today + 7 days and t
     { id: "off500", kind: "OFFICE", resourceId: id(500), jobId: null }, { id: "post", kind: "POSTER", resourceId: null, jobId: id(1) },
   ];
   assert.deepEqual(newSwmsRecipients(jobs, links).sort(), ["hand1", "sup500", "sup502"]);
-  const m = newSwmsAlert("Bondi Rd strip-out", 3);
+  const m = newSwmsAlert(id(70), "Bondi Rd strip-out", 3);
+  assert.equal(m?.tag, `swms-${id(70).slice(-8)}-3`, "SD-014: the tag names the project and the version");
+  assert.notEqual(newSwmsAlert(id(71), "Other job", 3)?.tag, m?.tag, "SD-014: another project's v3 has its own tag");
+  assert.match(readFileSync(path.join(__dirname, "office.ts"), "utf8"), /newSwmsAlert\(projectId, p\.name, version\)/);
   assert.equal(m?.body, "New SWMS for Bondi Rd strip-out (v3) - get the crew to sign it at the next pre-start.");
   assert.equal(m?.url, "?go=docs");
-  assert.ok(!newSwmsAlert("$450 job", 2)?.body.includes("$"));
+  assert.ok(!newSwmsAlert(id(70), "$450 job", 2)?.body.includes("$"));
   const office = readFileSync(path.join(__dirname, "office.ts"), "utf8");
   assert.match(office, /void alertNewSwms\(m\.projectId, row\.version \?\? 1\)/, "sent after a SWMS upload, never holding it up");
   assert.match(office, /date: \{ gte: new Date\(`\$\{today\}T00:00:00\.000Z`\), lte: until \}/);
