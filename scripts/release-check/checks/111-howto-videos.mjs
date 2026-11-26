@@ -68,7 +68,9 @@ export default {
       const hrefs = [...list.text.matchAll(/href="(\/site\/videos[^"]*)"/g)].map((m) => m[1]);
       for (const s of slugs) t.ok(hrefs.includes(`/site/videos/${s}`), `the list links /site/videos/${s}`, hrefs.join(","));
       t.ok(hrefs.every((h) => /^\/site\/videos\/[a-z0-9-]+$/.test(h)), "every video address on the list is /site/videos/<slug> - nothing else in it", hrefs.join(","));
-      t.ok(/Signing in and out/.test(list.text) && /Variation dockets/.test(list.text) && /\d:\d\d min/.test(list.text), "the list shows each title and its length");
+      const listWords = visibleText(list.text);
+      t.ok(/Signing in and out/.test(listWords) && /Variation dockets/.test(listWords) && (listWords.match(/\b\d:\d\d min\b/g) ?? []).length === slugs.length,
+        "the list shows each title and its length", listWords.slice(0, 200));
       t.ok(noMoney(visibleText(list.text)) && noSecret(list.text), "no $ and no link secret on the list page");
 
       // (3) Each player.

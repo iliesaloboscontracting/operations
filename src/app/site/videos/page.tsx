@@ -37,7 +37,7 @@ export default function HowtoVideosPage() {
               <span className="min-w-0 flex-1">
                 <span className="block text-base font-semibold text-gray-100">{v.title}</span>
                 <span className="block text-sm text-gray-500">{v.blurb}</span>
-                {len && <span className="mt-1 block text-xs text-gray-400">{len} min</span>}
+                {len && <span className="mt-1 block text-xs text-gray-400">{`${len} min`}</span>}
               </span>
             </a>
           );
