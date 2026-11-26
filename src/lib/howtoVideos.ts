@@ -40,7 +40,15 @@ export const HOWTO_VIDEOS: readonly HowtoVideo[] = [
     short: "variation dockets",
     audience: ["supervisor"],
   },
-  // "site-documents" comes after the 26 Nov 2026 site-documents deploy: import it, then add its entry here.
+  {
+    // Ilies 26 Nov 2026: "ok yes". Supervisor and hand-over links only - a driver link has no Site documents tile.
+    slug: "site-documents",
+    file: "site-documents.html",
+    title: "Site documents",
+    blurb: "Plans, signing the SWMS, the pre-start, the weekly toolbox talk and an incident report - all on your phone.",
+    short: "site documents",
+    audience: ["supervisor"],
+  },
 ] as const;
 
 /** The list page (token-free, so forwarding it gives nothing away). */

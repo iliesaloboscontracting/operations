@@ -38,7 +38,8 @@ export default {
     // (1) Source.
     const lib = read("src/lib/howtoVideos.ts");
     const slugs = [...lib.matchAll(/^\s*slug: "([a-z0-9-]+)",$/gm)].map((m) => m[1]);
-    t.ok(slugs.length >= 2 && slugs.includes("sign-in") && slugs.includes("variation-docket"), "lib/howtoVideos.ts lists sign-in and variation-docket", slugs.join(","));
+    t.ok(slugs.length >= 3 && slugs.includes("sign-in") && slugs.includes("variation-docket") && slugs.includes("site-documents"), "lib/howtoVideos.ts lists sign-in, variation-docket and site-documents", slugs.join(","));
+    t.ok(/slug: "site-documents",[\s\S]{0,400}?audience: \["supervisor"\],/.test(lib), "site-documents is for supervisor / hand-over links only (not drivers or the sign-in screen)");
     t.ok(!/slug: "[^"]*lci/i.test(lib), "the LCI explainer is not a crew video");
     t.ok(!/\bfetch\(|prisma|\/api\/|localStorage|from "node:fs"/.test(lib), "the catalogue is plain data - no fetch, API, database or file reading");
     const route = read("src/app/site/videos/[slug]/route.ts");
@@ -69,7 +70,7 @@ export default {
       for (const s of slugs) t.ok(hrefs.includes(`/site/videos/${s}`), `the list links /site/videos/${s}`, hrefs.join(","));
       t.ok(hrefs.every((h) => /^\/site\/videos\/[a-z0-9-]+$/.test(h)), "every video address on the list is /site/videos/<slug> - nothing else in it", hrefs.join(","));
       const listWords = visibleText(list.text);
-      t.ok(/Signing in and out/.test(listWords) && /Variation dockets/.test(listWords) && (listWords.match(/\b\d:\d\d min\b/g) ?? []).length === slugs.length,
+      t.ok(/Signing in and out/.test(listWords) && /Variation dockets/.test(listWords) && /Site documents/.test(listWords) && (listWords.match(/\b\d:\d\d min\b/g) ?? []).length === slugs.length,
         "the list shows each title and its length", listWords.slice(0, 200));
       t.ok(noMoney(visibleText(list.text)) && noSecret(list.text), "no $ and no link secret on the list page");
 
@@ -98,7 +99,7 @@ export default {
 
       // (4) Refused.
       for (const bad of ["/site/videos/nope", "/site/videos/SIGN-IN", "/site/videos/sign-in.html", "/site/videos/sign-in%20", "/site/videos/lci",
-        "/site/videos/lci-explainer", "/site/videos/manifest.json", "/site/videos/manifest", "/site/videos/site-documents", "/site/videos/__proto__",
+        "/site/videos/lci-explainer", "/site/videos/manifest.json", "/site/videos/manifest", "/site/videos/site-document", "/site/videos/site-documents.html", "/site/videos/__proto__",
         "/site/videos/%2E%2E%2Fpackage.json", "/site/videos/..%2F..%2F.env", "/site/videos/sign-in%2F..%2F..%2F.env", "/site/videos/..%5Cpackage.json",
         "/site/videos/sign-in/extra"]) {
         const r = await c.get(bad, null);

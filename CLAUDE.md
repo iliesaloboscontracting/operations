@@ -820,14 +820,14 @@ business, without becoming unnecessarily complicated.
   player runs in its own opaque origin - never `allow-same-origin` - so it can't read the photos origin's storage; the
   player's own voice / theme choice isn't remembered between opens); plus nosniff, `public, max-age=21600,
   must-revalidate` + ETag (304), `X-Robots-Tag: noindex`. Who sees what: SUPERVISOR / HANDOVER links a "Watch how-to
-  videos" tile (the list: Sign-in, Variation docket), DRIVER links "Watch the sign-in video", the QR sign-in screen a
+  videos" tile (the list: Sign-in, Variation docket, Site documents - Ilies 26 Nov 2026: "ok yes"), DRIVER links "Watch the sign-in video", the QR sign-in screen a
   "Watch the sign-in video" link in its own tab (the sign-in underneath is never reset) - the same screen for
   supervisor QRs, posters and the Office / Yard / truck points, so every QR sign-in shows it (HV-004, Ilies: "Yes, show
-  it on every sign-in screen"); OFFICE link pages nothing. The LCI explainer is for directors and the office - never on a crew screen. **Update or add a video:**
+  it on every sign-in screen"); OFFICE link pages nothing. **Update or add a video:**
   `node scripts/howto/import-video.mjs "<player .html>" <slug>` (wraps it in a doctype / html / head skeleton with
   charset + viewport, adds the Back link to its top bar, refuses a $ figure, any outside address but Google Fonts or
   anything that would fetch / send; LF; length + sha256 into `howto-videos/manifest.json`), then commit; a NEW slug also
-  needs its entry in `HOWTO_VIDEOS`. Site documents comes next. Release check `111-howto-videos`.
+  needs its entry in `HOWTO_VIDEOS`. The LCI explainer is not served anywhere (Ilies 26 Nov 2026: "the lci no"). Release check `111-howto-videos`.
 - **Money-guard principle:** crew-facing/operational views (day sheets, Day
   Review, the Yard) never carry dollar figures — enforced at both the
   TypeScript type level (narrow DTOs with no money fields) and via a runtime

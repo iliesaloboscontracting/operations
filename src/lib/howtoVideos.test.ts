@@ -9,7 +9,7 @@ test("only the listed slugs are found - exact match, nothing normalised", () => 
   assert.equal(findHowtoVideo("sign-in")?.file, "sign-in.html");
   assert.equal(findHowtoVideo("variation-docket")?.file, "variation-docket.html");
   for (const bad of ["", "Sign-in", "sign-in ", " sign-in", "sign-in.html", "sign-in/", "../sign-in", "..", "../../.env", "..%2F.env",
-    "sign%2Din", "lci", "lci-explainer", "site-documents", "manifest", "manifest.json", "constructor", "__proto__", "toString"]) {
+    "sign%2Din", "lci", "lci-explainer", "site-document", "site-documents.html", "manifest", "manifest.json", "constructor", "__proto__", "toString"]) {
     assert.equal(findHowtoVideo(bad), null, `"${bad}" is not a video`);
   }
   for (const bad of [undefined, null, 1, {}, ["sign-in"]]) assert.equal(findHowtoVideo(bad), null);
@@ -47,7 +47,7 @@ test("the LCI explainer is never a crew video", () => {
 });
 
 test("who sees which: supervisors get the list, drivers and crew the sign-in video only", () => {
-  assert.deepEqual(howtoVideosFor("supervisor").map((v) => v.slug), ["sign-in", "variation-docket"]);
+  assert.deepEqual(howtoVideosFor("supervisor").map((v) => v.slug), ["sign-in", "variation-docket", "site-documents"]);
   assert.deepEqual(howtoVideosFor("driver").map((v) => v.slug), ["sign-in"]);
   assert.deepEqual(howtoVideosFor("crew").map((v) => v.slug), ["sign-in"]);
 });
