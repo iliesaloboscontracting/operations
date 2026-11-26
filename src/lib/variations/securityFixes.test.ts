@@ -33,8 +33,9 @@ test("VD-004: real canvas PNGs pass - Chrome's IHDR, IDAT x N, IEND; the CRC is 
   assert.deepEqual(chunksOf(buf(ONE)), ["IHDR", "IDAT", "IEND"]);
   assert.ok(!err(parseSignature(`data:image/png;base64,${CHROME}`, "client")));
   assert.equal(crc32(Buffer.from("IEND", "latin1")), 0xae426082, "IEND's well-known CRC");
-  // Safari / ImageIO may add a colour profile, pHYs or iDOT - allowed; a palette PNG's PLTE / tRNS too.
-  for (const t of ["sRGB", "gAMA", "pHYs", "iCCP", "cHRM", "iDOT", "tRNS"]) {
+  // Safari / ImageIO may add a colour profile or pHYs - kept; a palette PNG's PLTE / tRNS too. (iDOT: always stripped, IS-001.)
+  assert.ok(!ALLOWED_CHUNKS.includes("iDOT"), "IS-001: iDOT is never kept");
+  for (const t of ["sRGB", "gAMA", "pHYs", "iCCP", "cHRM", "tRNS"]) {
     assert.ok(ALLOWED_CHUNKS.includes(t), t);
     assert.ok(!err(checkPng(inject(buf(CHROME), chunk(t, Buffer.from([0, 0, 0, 1, 0, 0, 0, 1, 1]))))), `${t} is allowed`);
   }
@@ -52,11 +53,17 @@ test("iPhone fix: text, EXIF and other optional chunks are stripped - never stor
     assert.ok(!ok.png.includes(Buffer.from("<script>")), "its data is gone");
     assert.deepEqual(chunksOf(ok.png), ["IHDR", "IDAT", "IDAT", "IEND"], "the rebuilt file passes the walk again");
   }
-  // Safari's iDOT holds byte offsets - dropped as well whenever anything else is stripped.
+  // IS-001: Safari's iDOT (byte offsets Apple decodes from) is always stripped - on its own too - and every kept chunk's
+  // CRC still checks out in the rebuilt file.
   const withIdot = Buffer.concat([png.subarray(0, 33), chunk("iDOT", Buffer.alloc(28)), chunk("eXIf", Buffer.from("MM\0*")), png.subarray(33)]);
   const r2 = checkPng(withIdot) as { png: Buffer; stripped: string[] };
   assert.deepEqual(r2.stripped.sort(), ["eXIf", "iDOT"]);
   assert.ok(r2.png.equals(png));
+  const idotOnly = Buffer.concat([png.subarray(0, 33), chunk("iDOT", Buffer.alloc(28)), png.subarray(33)]);
+  const r3 = checkPng(idotOnly) as { png: Buffer; stripped: string[]; chunks: string[] };
+  assert.deepEqual(r3.stripped, ["iDOT"], "iDOT alone is stripped too");
+  assert.ok(r3.png.equals(png) && !r3.chunks.includes("iDOT"));
+  assert.deepEqual(chunksOf(r3.png), ["IHDR", "IDAT", "IDAT", "IEND"], "the rebuilt file passes the walk (CRCs) again");
   // parseSignature stores the stripped bytes, and its hash is of them.
   const s = parseSignature(`data:image/png;base64,${inject(png, chunk("tEXt", Buffer.from("x\0y"))).toString("base64")}`, "client") as { png: Buffer; bytes: number };
   assert.ok(s.png.equals(png) && s.bytes === png.length);

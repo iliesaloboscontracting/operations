@@ -9,13 +9,14 @@
 //
 // What phones really send (canvas.toDataURL("image/png")): Chrome / Edge / Android Chrome (Skia) write IHDR, IDAT x N,
 // IEND - tested 25 Nov 2026 on Chrome 156; Firefox the same. Safari (WebKit -> Apple ImageIO) can add a colour profile
-// (iCCP, or sRGB / gAMA / cHRM) and pHYs, and ImageIO's iDOT (byte offsets for parallel decoding, no text) - allowed
-// here so an iPhone signature isn't refused.
+// (iCCP, or sRGB / gAMA / cHRM) and pHYs - kept - and ImageIO's iDOT (byte offsets for parallel decoding) - always
+// stripped since IS-001 (Ilies approved 26 Nov 2026): Apple decodes the picture in pieces from iDOT's offsets, so a
+// crafted iDOT could make one file show a different signature on an iPhone than on a PC or a printout.
 import { createHash } from "crypto";
 import { LIMITS } from "./rules";
 
 const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
-export const ALLOWED_CHUNKS: readonly string[] = ["IHDR", "PLTE", "IDAT", "IEND", "tRNS", "sRGB", "gAMA", "pHYs", "iCCP", "cHRM", "iDOT"];
+export const ALLOWED_CHUNKS: readonly string[] = ["IHDR", "PLTE", "IDAT", "IEND", "tRNS", "sRGB", "gAMA", "pHYs", "iCCP", "cHRM"];
 
 // CRC-32 (the PNG / zlib one), from a small table - no dependency on the Node version.
 const CRC_TABLE = (() => {
@@ -45,7 +46,7 @@ export const MAX_CHUNKS = 256;
 // chunk Safari writes - is no longer a refusal: it's STRIPPED, and `png` is the rebuilt file without it, so its data is
 // never stored or served. A REQUIRED chunk that isn't IHDR / PLTE / IDAT / IEND is still refused, and so is everything
 // else here (CRCs, IHDR first, an IDAT, IEND at the very end, the size and byte caps). iDOT (Apple's byte offsets to the
-// IDATs) is dropped too whenever anything is stripped, because its offsets would then be wrong.
+// IDATs) is not on the list, so it is always stripped (IS-001).
 export function checkPng(png: Buffer): { width: number; height: number; chunks: string[]; stripped: string[]; png: Buffer } | Refused {
   if (png.length < 8 + 25 + 12) return { error: "too small" };
   if (png.length > LIMITS.signatureBytes) return { error: "too big" };
@@ -89,10 +90,8 @@ export function checkPng(png: Buffer): { width: number; height: number; chunks: 
   }
   if (!idat) return { error: "no image data" };
   if (!stripped.length) return { width, height, chunks, stripped, png };
-  // Rebuild without the stripped chunks (and without iDOT, whose offsets no longer hold).
-  const keep = kept.filter((k) => k.type !== "iDOT");
-  if (keep.length !== kept.length) stripped.push("iDOT");
-  return { width, height, chunks: keep.map((k) => k.type), stripped, png: Buffer.concat([PNG_MAGIC, ...keep.map((k) => k.bytes)]) };
+  // Rebuild from the kept chunks only.
+  return { width, height, chunks, stripped, png: Buffer.concat([PNG_MAGIC, ...kept.map((k) => k.bytes)]) };
 }
 
 // A refused or tidied signature goes in the server log - chunk names and sizes only, never the image or any text from
