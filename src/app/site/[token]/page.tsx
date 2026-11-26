@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState, use } from "react";
-import { ArrowLeft, BookOpen, Camera, Car, ClipboardList, Container, ListChecks, Loader2, NotebookPen, PackageCheck, QrCode as QrIcon, ImagePlus, ClipboardCheck, FilePen, FolderOpen, ReceiptText, ScanLine, Send, ShoppingCart, Truck, Wrench, Wallet } from "lucide-react";
+import { ArrowLeft, BookOpen, Camera, Car, CirclePlay, ClipboardList, Container, ListChecks, Loader2, NotebookPen, PackageCheck, QrCode as QrIcon, ImagePlus, ClipboardCheck, FilePen, FolderOpen, ReceiptText, ScanLine, Send, ShoppingCart, Truck, Wrench, Wallet } from "lucide-react";
 import YardJobs from "@/components/yard/YardJobs";
 import PhotoPicker from "@/components/tools/PhotoPicker";
 import DailyLog from "@/components/site/DailyLog";
@@ -20,6 +20,7 @@ import SiteQuestions from "@/components/site/SiteQuestions";
 import CrewMessages from "@/components/site/CrewMessages";
 import { HowToGuideView } from "@/components/site/HowToGuide";
 import { guideForLink } from "@/lib/howTo";
+import { HOWTO_LIST_PATH, howtoVideoPath, howtoVideosFor } from "@/lib/howtoVideos";
 import CheckResultView from "@/components/tools/CheckResultView";
 import ToolboxTickList from "@/components/site/ToolboxTickList";
 import InstallApp from "@/components/InstallApp";
@@ -268,6 +269,14 @@ export default function SitePhotosPage({ params: paramsP }: { params: Promise<{ 
             </>)}
             {howTo && (
               <Big icon={<BookOpen size={22} />} title="How to use" text={driver ? "Signing in, truck checks, receipts and bins - step by step" : "What each button does - step by step"} onClick={() => { setFlash(null); setMode("howto"); window.scrollTo(0, 0); }} />
+            )}
+            {/* How-to videos (Ilies asked 26 Nov 2026): the narrated players at /site/videos - token-free addresses, no login,
+                no money. Supervisor and hand-over links get the list; a driver link gets the sign-in video only. */}
+            {(info.kind === "SUPERVISOR" || info.kind === "HANDOVER") && (
+              <Big icon={<CirclePlay size={22} />} title="Watch how-to videos" text={`Short videos with a voice-over: ${howtoVideosFor("supervisor").map((v) => v.short).join(", ")}`} onClick={() => { window.location.href = HOWTO_LIST_PATH; }} />
+            )}
+            {driver && (
+              <Big icon={<CirclePlay size={22} />} title="Watch the sign-in video" text="Signing in and out - a short video with a voice-over" onClick={() => { window.location.href = howtoVideoPath("sign-in"); }} />
             )}
           </div>
           <p className="mt-8 text-center text-xs text-gray-600">

@@ -1,0 +1,16 @@
+{
+  "sign-in": {
+    "seconds": 294.9,
+    "bytes": 6192147,
+    "sha256": "5c52059aaa77af65826fa68edb70dedec6ea3f2b15657410a0aee7a375382ece",
+    "source": "Sign-in how-to video - voiced (26 Nov 2026).html",
+    "imported": "2026-11-26"
+  },
+  "variation-docket": {
+    "seconds": 295.2,
+    "bytes": 6317362,
+    "sha256": "ecd9759943326160762306a0fe1859a92feec3cfdb0c15c687a64d432922b8b1",
+    "source": "Variation docket how-to video - voiced (26 Nov 2026).html",
+    "imported": "2026-11-26"
+  }
+}

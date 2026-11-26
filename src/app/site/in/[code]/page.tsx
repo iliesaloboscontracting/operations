@@ -6,7 +6,8 @@ import PrestartCheck, { type PrestartResult } from "@/components/site/PrestartCh
 import CrewMessages from "@/components/site/CrewMessages";
 import { HowToLink } from "@/components/site/HowToGuide";
 import { SIGNIN_GUIDE } from "@/lib/howTo";
-import { Camera, Car, Home, Loader2, LogIn, LogOut, Truck } from "lucide-react";
+import { howtoVideoPath } from "@/lib/howtoVideos";
+import { Camera, Car, CirclePlay, Home, Loader2, LogIn, LogOut, Truck } from "lucide-react";
 import { serverErrorMessage } from "@/lib/apiFetch";
 import { resizePhoto } from "@/lib/imageResize";
 import { deviceId, ME_KEY, PASS_KEY, store, useQuietGps } from "@/lib/signinDevice";
@@ -258,6 +259,11 @@ export default function CrewSignInPage({ params: paramsP }: { params: Promise<{ 
       {!(done && (odometer || prestart)) && (
         <div className="mt-8 text-center">
           <HowToLink guide={SIGNIN_GUIDE} label="How signing in works" />
+          {/* The sign-in video (Ilies asked 26 Nov 2026): its own tab, so the sign-in here is never reset or held up
+              (the QR's code moves on while it plays); Back in the video closes that tab. Token-free, no login, no $. */}
+          <a href={howtoVideoPath("sign-in")} target="_blank" rel="noopener" className="mx-auto flex w-fit items-center gap-1.5 py-2 text-sm text-brand-300 underline" data-testid="howto-video-link">
+            <CirclePlay size={15} /> Watch the sign-in video
+          </a>
         </div>
       )}
     </div>
