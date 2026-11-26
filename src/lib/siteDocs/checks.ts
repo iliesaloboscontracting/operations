@@ -1,6 +1,6 @@
 // Site documents - the checks that read bytes (server only: Buffer, crypto). The plain rules are ./rules.ts.
 import { createHash } from "crypto";
-import { checkPng } from "../variations/signature";
+import { checkPng, logSignature } from "../variations/signature";
 import { FILE_TYPES, LIMITS, line, type FileKind } from "./rules";
 
 type Err = { error: string };
@@ -13,10 +13,12 @@ export function readSignature(dataUrl: unknown, who: string): Signature | { erro
   if (typeof dataUrl !== "string" || !dataUrl.startsWith(prefix)) return { error: `${who}: sign in the white box first.` };
   const b64 = dataUrl.slice(prefix.length);
   if (b64.length > Math.ceil((LIMITS.signatureBytes * 4) / 3) + 4) return { error: `${who}: that signature is too big - clear it and sign again.` };
-  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(b64)) return refuse;
-  const png = Buffer.from(b64, "base64");
-  const ok = checkPng(png);
-  if ("error" in ok) return ok.error === "too big" ? { error: `${who}: that signature is too big - clear it and sign again.` } : refuse;
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(b64)) { logSignature("site documents", "refused: not clean base64"); return refuse; }
+  const raw = Buffer.from(b64, "base64");
+  const ok = checkPng(raw);
+  if ("error" in ok) { logSignature("site documents", `refused: ${ok.error} (${raw.length} bytes)`); return ok.error === "too big" ? { error: `${who}: that signature is too big - clear it and sign again.` } : refuse; }
+  if (ok.stripped.length) logSignature("site documents", `stripped ${ok.stripped.join(",")} (${raw.length} -> ${ok.png.length} bytes)`);
+  const png = ok.png; // optional chunks the phone added (e.g. Safari's) are stripped - see checkPng
   return { png, bytes: png.length, sha256: createHash("sha256").update(png).digest("hex") };
 }
 

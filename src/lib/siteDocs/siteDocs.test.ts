@@ -194,7 +194,8 @@ test("signatures: real PNG bytes (the variation docket's checks), each person's 
   const a = readSignature(PNG, "a") as { sha256: string }, b = readSignature(PNG2, "b") as { sha256: string };
   assert.ok(allDifferent([a, b]) && !allDifferent([a, b, a]), "the same drawing twice is refused");
   const checks = readFileSync(path.join(__dirname, "checks.ts"), "utf8");
-  assert.match(checks, /import \{ checkPng \} from "\.\.\/variations\/signature"/, "reuses the variation PNG checks");
+  assert.match(checks, /import \{ checkPng, logSignature \} from "\.\.\/variations\/signature"/, "reuses the variation PNG checks");
+  assert.match(checks, /const png = ok\.png;/, "stores the PNG with optional chunks stripped (iPhone fix, 26 Nov 2026)");
 });
 
 // ---------- files ----------

@@ -46,14 +46,15 @@ import { makeLink } from "../lib/setup.mjs";
 const PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
 // A real canvas signature: canvas.toDataURL("image/png") from Chrome 156 (25 Nov 2026) - IHDR, IDAT, IDAT, IEND.
 const CHROME_PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADAAAAAQCAYAAABQrvyxAAABAElEQVR4AdSU0Q2DIBRFXzqIMziAMziAiziD/07iJM7gAK7Q9jS5BBpTqQJRE3L1AXIOUR7Pm18Pu/mVVGBZFqOV3JMkAkAPw2B1XbvGM/XcMqcEAAS0foOTgvXr6qOm/pR5SAAYgAUnoL7vbRxHa5pGpc8npbEaz3w34OTNXwIsLBhSawO+rquRXdfZNE02z3MRmSiBGHDJKKuqshIyPwWOgEvAz5wymwKpwH0J3aeWCQRygkvAzxQygYBOCS3CT6mfU7VcGSvTtm2A4ATYfV5Cb0lw1vtucOwdAJrjBJjE8VdqxwWwl3D5MhzP1DTPCVDwO3i+WtviCwSuBhzD8wIAAP//z7+xigAAAAZJREFUAwDlCsFw2LDIgQAAAABJRU5ErkJggg==";
-// The same PNG with a tEXt chunk put in before IEND (a correct CRC) - VD-004 refuses it.
+// The same PNG with an extra chunk put in before IEND (a correct CRC). Since the iPhone fix (26 Nov 2026) an optional
+// chunk such as tEXt is stripped, not refused; an unknown REQUIRED chunk (upper-case first letter, "ABCD") is refused.
 const crcTable = Array.from({ length: 256 }, (_, n) => { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; return c >>> 0; });
 const crc32 = (b) => { let c = 0xffffffff; for (const x of b) c = crcTable[(c ^ x) & 0xff] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; };
-const withText = (dataUrl) => {
+const withText = (dataUrl, type = "ABCD") => {
   const png = Buffer.from(dataUrl.slice(22), "base64");
   const data = Buffer.from("Comment\0<script>alert(1)</script>", "latin1");
   const len = Buffer.alloc(4); len.writeUInt32BE(data.length);
-  const td = Buffer.concat([Buffer.from("tEXt", "latin1"), data]);
+  const td = Buffer.concat([Buffer.from(type, "latin1"), data]);
   const crc = Buffer.alloc(4); crc.writeUInt32BE(crc32(td));
   return "data:image/png;base64," + Buffer.concat([png.subarray(0, png.length - 12), len, td, crc, png.subarray(png.length - 12)]).toString("base64");
 };
@@ -145,7 +146,7 @@ export default {
       t.status((await call("POST", L.expired, "/variation/media/start", { jobId: J.id, kind: "PHOTO", mime: "image/jpeg", size: 1000 })).status, 404, "VD-006: a photo start on an expired hand-over link");
       const n1 = await dockets();
       const refuse = [
-        ["VD-004: a tEXt chunk in the Lobos signature", base({ lobosSignature: withText(CHROME_PNG) }), 400],
+        ["VD-004: an unknown required chunk in the Lobos signature", base({ lobosSignature: withText(CHROME_PNG) }), 400],
         ["VD-004: the same image as both signatures", base({ lobosSignature: PNG }), 400],
         ["no client signature", base({ customerSignature: null }), 400],
         ["no Lobos signature", base({ lobosSignature: "" }), 400],

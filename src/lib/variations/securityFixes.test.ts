@@ -40,9 +40,37 @@ test("VD-004: real canvas PNGs pass - Chrome's IHDR, IDAT x N, IEND; the CRC is 
   }
 });
 
-test("VD-004: text, EXIF and unknown chunks, a bad CRC, no IDAT and anything after IEND are refused", () => {
+test("iPhone fix: text, EXIF and other optional chunks are stripped - never stored - and the rebuilt PNG is valid", () => {
   const png = buf(CHROME);
-  for (const t of ["tEXt", "zTXt", "iTXt", "eXIf", "abCd", "evIL"]) assert.equal(err(checkPng(inject(png, chunk(t, Buffer.from("Comment\0<script>alert(1)</script>", "latin1"))))), `chunk ${t}`, t);
+  for (const t of ["tEXt", "zTXt", "iTXt", "eXIf", "abCd", "evIL", "cICP", "mDCV"]) {
+    const r = checkPng(inject(png, chunk(t, Buffer.from("Comment\0<script>alert(1)</script>", "latin1"))));
+    assert.ok(!err(r), `${t} is stripped, not refused`);
+    const ok = r as { png: Buffer; stripped: string[]; chunks: string[] };
+    assert.deepEqual(ok.stripped, [t]);
+    assert.deepEqual(ok.chunks, ["IHDR", "IDAT", "IDAT", "IEND"]);
+    assert.ok(ok.png.equals(png), "the rebuilt file is exactly the PNG without that chunk");
+    assert.ok(!ok.png.includes(Buffer.from("<script>")), "its data is gone");
+    assert.deepEqual(chunksOf(ok.png), ["IHDR", "IDAT", "IDAT", "IEND"], "the rebuilt file passes the walk again");
+  }
+  // Safari's iDOT holds byte offsets - dropped as well whenever anything else is stripped.
+  const withIdot = Buffer.concat([png.subarray(0, 33), chunk("iDOT", Buffer.alloc(28)), chunk("eXIf", Buffer.from("MM\0*")), png.subarray(33)]);
+  const r2 = checkPng(withIdot) as { png: Buffer; stripped: string[] };
+  assert.deepEqual(r2.stripped.sort(), ["eXIf", "iDOT"]);
+  assert.ok(r2.png.equals(png));
+  // parseSignature stores the stripped bytes, and its hash is of them.
+  const s = parseSignature(`data:image/png;base64,${inject(png, chunk("tEXt", Buffer.from("x\0y"))).toString("base64")}`, "client") as { png: Buffer; bytes: number };
+  assert.ok(s.png.equals(png) && s.bytes === png.length);
+});
+
+test("VD-004 (kept): unknown REQUIRED chunks, a bad CRC, no IDAT, too many chunks and anything after IEND are refused", () => {
+  const png = buf(CHROME);
+  for (const t of ["ABCD", "EvIL", "TEXT"]) assert.equal(err(checkPng(inject(png, chunk(t, Buffer.from("Comment\0<script>alert(1)</script>", "latin1"))))), `chunk ${t}`, t);
+  let many = png;
+  for (let i = 0; i < 260; i++) many = inject(many, chunk("tEXt", Buffer.from("a\0b")));
+  assert.equal(err(checkPng(many)), "too many chunks");
+  // A bad CRC on a chunk that would have been stripped is still refused.
+  const badOpt = chunk("tEXt", Buffer.from("a\0b")); badOpt[badOpt.length - 1] ^= 0xff;
+  assert.equal(err(checkPng(inject(png, badOpt))), "bad CRC");
   const bad = Buffer.from(png); bad[45] ^= 0xff; // a byte inside the first IDAT's data (IHDR is bytes 8-32, the IDAT's data starts at 41)
   assert.equal(err(checkPng(bad)), "bad CRC");
   const ihdr = png.subarray(8, 8 + 25);
@@ -54,7 +82,7 @@ test("VD-004: text, EXIF and unknown chunks, a bad CRC, no IDAT and anything aft
   assert.equal(err(checkPng(inject(png, ihdr))), "not a PNG", "a second IHDR");
   assert.equal(err(checkPng(Buffer.concat([png.subarray(0, png.length - 12), chunk("IEND", Buffer.from([0]))]))), "not a PNG", "IEND with data");
   // parseSignature turns every one of these into the plain "sign again" words.
-  assert.match(err(parseSignature(`data:image/png;base64,${inject(png, chunk("tEXt", Buffer.from("x\0y"))).toString("base64")}`, "client")) ?? "", /sign again/);
+  assert.match(err(parseSignature(`data:image/png;base64,${inject(png, chunk("ABCD", Buffer.from("x\0y"))).toString("base64")}`, "client")) ?? "", /sign again/);
 });
 
 test("VD-004: the client's and the supervisor's signatures can't be the same image", () => {
