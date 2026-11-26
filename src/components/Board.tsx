@@ -29,6 +29,7 @@ import CommandAssistant from "./CommandAssistant";
 import UpcomingAlerts from "./UpcomingAlerts";
 import PrestartToday from "./faults/PrestartToday";
 import NeedsAttentionCard from "./findings/NeedsAttentionCard";
+import SiteDocsCard from "./siteDocs/SiteDocsCard";
 import { useAuth } from "./AuthProvider";
 import { addDays } from "@/lib/dates";
 import { buildDaySheet, DaySheetJob } from "@/lib/daySheet";
@@ -607,6 +608,14 @@ As an Admin you can go over the limit. Why? (kept on record) - or Cancel to leav
         {canEdit && (
           <div className="mt-3 empty:hidden">
             <NeedsAttentionCard variant="board" />
+          </div>
+        )}
+        {/* Site documents (Ilies, 26 Nov 2026: "yes add it to my board"): the same upload card as the coordinator's
+            dashboard - pick the project, upload a plan or a new SWMS version, or set the topic of the week. The routes
+            allow Managers, Admins and the coordinator only. */}
+        {canEdit && (
+          <div className="mt-3 max-w-md">
+            <SiteDocsCard />
           </div>
         )}
       </header>

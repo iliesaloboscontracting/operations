@@ -4,7 +4,7 @@
 // dashboard which the crew get on their apps"): pick the project, then upload a plan / drawing or a new SWMS version
 // - it shows on the supervisors' links for that project straight away - or set the toolbox talk topic of the week.
 // A short summary first: people on site today who haven't signed their project's current SWMS, projects with no SWMS.
-// Managers / Admins see the same card if they open /coordinator. Never incidents.
+// Managers / Admins see the same card on the board (Ilies, 26 Nov 2026) and if they open /coordinator. Never incidents.
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { FolderOpen, Megaphone } from "lucide-react";
