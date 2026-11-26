@@ -816,11 +816,14 @@ business, without becoming unnecessarily complicated.
   address is token-free. Only a slug listed in `HOWTO_VIDEOS` is served, from the file name that list gives (the request
   never reaches a path); anything else 404. Own CSP on the players (`howtoVideoCsp`): `default-src 'none'`, inline script
   and style, `style-src` fonts.googleapis.com, `font-src` fonts.gstatic.com, `img-src data:`, `media-src data:`,
-  `connect-src 'none'`, no frames / objects / forms, `frame-ancestors 'none'`; plus nosniff, `public, max-age=21600,
+  `connect-src 'none'`, no frames / objects / forms, `frame-ancestors 'none'`, `sandbox allow-scripts` (HV-001: the
+  player runs in its own opaque origin - never `allow-same-origin` - so it can't read the photos origin's storage; the
+  player's own voice / theme choice isn't remembered between opens); plus nosniff, `public, max-age=21600,
   must-revalidate` + ETag (304), `X-Robots-Tag: noindex`. Who sees what: SUPERVISOR / HANDOVER links a "Watch how-to
   videos" tile (the list: Sign-in, Variation docket), DRIVER links "Watch the sign-in video", the QR sign-in screen a
-  "Watch the sign-in video" link in its own tab (the sign-in underneath is never reset); POSTER / OFFICE screens
-  nothing. The LCI explainer is for directors and the office - never on a crew screen. **Update or add a video:**
+  "Watch the sign-in video" link in its own tab (the sign-in underneath is never reset) - the same screen for
+  supervisor QRs, posters and the Office / Yard / truck points, so every QR sign-in shows it (HV-004, Ilies: "Yes, show
+  it on every sign-in screen"); OFFICE link pages nothing. The LCI explainer is for directors and the office - never on a crew screen. **Update or add a video:**
   `node scripts/howto/import-video.mjs "<player .html>" <slug>` (wraps it in a doctype / html / head skeleton with
   charset + viewport, adds the Back link to its top bar, refuses a $ figure, any outside address but Google Fonts or
   anything that would fetch / send; LF; length + sha256 into `howto-videos/manifest.json`), then commit; a NEW slug also

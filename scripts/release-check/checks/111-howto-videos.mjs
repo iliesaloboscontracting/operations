@@ -17,7 +17,7 @@ import { noMoney } from "../lib/context.mjs";
 import { makeLink } from "../lib/setup.mjs";
 
 // Written out here on purpose (not imported from the app), so a change to the app's CSP has to be made in both places.
-const CSP = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src data:; media-src data:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+const CSP = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src data:; media-src data:; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; sandbox allow-scripts";
 const stripData = (s) => s.replace(/data:[a-z]+\/[a-z0-9.+-]+;base64,[A-Za-z0-9+/=]+/gi, "DATA");
 const visibleText = (html) => html
   .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ")

@@ -78,6 +78,9 @@ export const HOWTO_CSP_DIRECTIVES: readonly (readonly [string, string])[] = [
   ["base-uri", "'none'"],
   ["form-action", "'none'"],
   ["frame-ancestors", "'none'"],
+  // HV-001 (Ilies approved 26 Nov 2026): the player runs in its own sealed, opaque origin - its script can't read the
+  // photos origin's storage (the crew's travel pass, sign-in identity) or cookies, whatever a future import carries.
+  ["sandbox", "allow-scripts"],
 ];
 
 export function howtoVideoCsp(): string {

@@ -34,5 +34,6 @@ export async function GET(req: Request, { params }: { params: Promise<{ slug: st
   if (seen && seen.split(",").map((s) => s.trim().replace(/^W\//, "")).includes(entry.etag)) {
     return new Response(null, { status: 304, headers });
   }
-  return new Response(new Uint8Array(entry.body), { status: 200, headers });
+  // HV-002 (Ilies approved 26 Nov 2026): a view of the cached bytes, not a fresh 6 MB copy per request.
+  return new Response(new Uint8Array(entry.body.buffer as ArrayBuffer, entry.body.byteOffset, entry.body.byteLength), { status: 200, headers });
 }

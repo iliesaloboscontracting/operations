@@ -73,7 +73,9 @@ test("the CSP allows exactly inline script / style, Google Fonts and data: image
     "base-uri": "'none'",
     "form-action": "'none'",
     "frame-ancestors": "'none'",
+    sandbox: "allow-scripts",
   });
+  assert.ok(!/allow-same-origin/.test(csp), "HV-001: never same-origin - the player can't reach the link's storage");
   assert.ok(!/unsafe-eval|blob:|\*|'self'|http:/.test(csp), "no eval, blob:, wildcard, self or plain http");
 });
 
