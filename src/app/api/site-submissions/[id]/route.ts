@@ -2,11 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { guard, getCurrentUser } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
+import { applyFault } from "@/lib/toolFaultStore";
 
 // PATCH /api/site-submissions/:id
 //   { status: "REJECTED", note? }                 - not used (e.g. duplicate, blurry)
 //   { status: "APPLIED", appliedRef }             - REGISTER: after the tool was saved (appliedRef = tool id)
 //   { status: "APPLIED", notWorking? }            - FAULT: logs the fault on the tool now
+//   { status: "APPLIED", toolId, notWorking? }    - FAULT sent as "Not in the list": the tool the office picked (any
+//                                                   tool on the register - a suggestion or one they just added)
 export const PATCH = withErrorHandling(async (req: NextRequest, { params: paramsP }: { params: Promise<{ id: string }> }) => {
   const params = await paramsP;
   const denied = await guard("MANAGER");
@@ -36,16 +39,11 @@ export const PATCH = withErrorHandling(async (req: NextRequest, { params: params
     return NextResponse.json(await prisma.siteSubmission.update({ where: { id: sub.id }, data: { ...done, status: "APPLIED", appliedRef: tool.id } }));
   }
 
-  if (sub.kind === "FAULT" && sub.toolId) {
-    const photoId = (JSON.parse(sub.photoIds) as string[])[0] ?? null;
-    const [issue] = await prisma.$transaction([
-      prisma.toolIssue.create({
-        data: { toolId: sub.toolId, description: sub.description ?? "", photoId, reportedBy: `${sub.siteLink.resource?.name ?? sub.siteLink.label ?? "Shared link"} (site)` },
-      }),
-      ...(photoId ? [prisma.toolPhoto.update({ where: { id: photoId }, data: { toolId: sub.toolId } })] : []),
-      ...(body.notWorking !== false ? [prisma.tool.update({ where: { id: sub.toolId }, data: { condition: "Needs repair" } })] : []),
-    ]);
-    return NextResponse.json(await prisma.siteSubmission.update({ where: { id: sub.id }, data: { ...done, status: "APPLIED", appliedRef: issue.id } }));
+  if (sub.kind === "FAULT") {
+    // A "Not in the list" fault (27 Nov 2026) has no tool yet - the office picks it here (body.toolId).
+    const r = await applyFault(sub.id, body.toolId, body.notWorking !== false, done.reviewedBy);
+    if (!r.ok) return NextResponse.json({ error: r.error }, { status: r.status });
+    return NextResponse.json(await prisma.siteSubmission.findUnique({ where: { id: sub.id } }));
   }
   return NextResponse.json({ error: "Nothing to apply for this item." }, { status: 400 });
 });

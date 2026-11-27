@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { guard } from "@/lib/auth";
 import { withErrorHandling } from "@/lib/apiHandler";
+import { parseUnlisted, suggestMatches } from "@/lib/toolFaults";
+import { matchTools } from "@/lib/toolFaultStore";
 
 // GET /api/site-submissions -> what's come in from site: everything waiting
 // for the office, plus the last 14 days of handled items and supervisors'
@@ -40,6 +42,10 @@ export const GET = withErrorHandling(async () => {
       return null;
     }
   };
+  // "Not in the list" faults (27 Nov 2026): what the photo showed, and likely tools from the register - plain-code
+  // matching (lib/toolFaults.ts), worked out fresh each time so it follows the register. A suggestion only.
+  const unlisted = new Map(rows.filter((r) => r.kind === "FAULT").map((r) => [r.id, parseUnlisted(r.reading)] as const).filter(([, u]) => !!u));
+  const register = rows.some((r) => r.status === "PENDING" && unlisted.has(r.id) && unlisted.get(r.id)?.seen) ? await matchTools() : [];
   return NextResponse.json(
     rows.map(({ siteLink, ...r }) => ({
       ...r,
@@ -47,7 +53,10 @@ export const GET = withErrorHandling(async () => {
       photoIds: parse(r.photoIds) ?? [],
       // Which photo is which - a site submission may have either, both or none.
       photos: ((parse(r.photoIds) ?? []) as string[]).map((id) => ({ id, kind: photoKinds.find((p) => p.id === id)?.kind ?? "" })),
-      reading: parse(r.reading),
+      reading: unlisted.has(r.id) ? null : parse(r.reading),
+      ...(unlisted.has(r.id)
+        ? { unlisted: { status: unlisted.get(r.id)!.status, reason: unlisted.get(r.id)!.reason ?? null, seen: unlisted.get(r.id)!.seen ?? null, suggestions: r.status === "PENDING" ? suggestMatches(unlisted.get(r.id)!.seen, register) : [] } }
+        : {}),
       tool: tools.find((t) => t.id === r.toolId) ?? null,
       toolbox: boxes.find((b) => b.id === r.toolboxId) ?? null,
       checkResult: parse(checks.find((c) => c.id === r.checkId)?.result),

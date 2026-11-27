@@ -11,6 +11,8 @@ import { apiFetch, serverErrorMessage } from "@/lib/apiFetch";
 import type { CheckResult } from "@/lib/toolboxCheck";
 import type { ResourceDTO, ToolboxDTO, ToolDTO } from "@/lib/types";
 import { isLead } from "@/lib/leads";
+import type { FaultPhotoSeen, Suggestion } from "@/lib/toolFaults";
+import UnlistedFault, { unlistedPrefill } from "@/components/tools/UnlistedFault";
 
 const btn = "rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-500 disabled:opacity-50";
 const quiet = "rounded-lg border border-edge px-3 py-1.5 text-xs text-gray-300 hover:bg-panel2 disabled:opacity-50";
@@ -27,6 +29,8 @@ type Submission = {
   tool: { id: string; tag: string; name: string; serialNumber: string | null } | null;
   toolbox: { id: string; name: string } | null;
   checkResult: CheckResult | null;
+  // A fault sent as "Not in the list" (27 Nov 2026): what the photo showed and likely tools - the office picks one.
+  unlisted?: { status: "WAITING" | "READ" | "NOT_READ"; reason: string | null; seen: FaultPhotoSeen | null; suggestions: Suggestion[] };
   reviewedBy: string | null;
   createdAt: string;
 };
@@ -58,6 +62,8 @@ export default function FromSitePage() {
   const [newLinkFor, setNewLinkFor] = useState("");
   const [people, setPeople] = useState<ResourceDTO[]>([]);
   const [toCheck, setToCheck] = useState<ToolDTO[]>([]);
+  const [allTools, setAllTools] = useState<ToolDTO[]>([]);
+  const [registerFor, setRegisterFor] = useState<Submission | null>(null); // a "Not in the list" fault: add the tool, then log it
   const [madeLink, setMadeLink] = useState<{ name: string; url: string } | null>(null);
   const [copied, setCopied] = useState(false);
   // Switched-off links are history (photos / sign-ins sent through them), so
@@ -73,7 +79,11 @@ export default function FromSitePage() {
       apiFetch("/api/resources?type=PERSONNEL"),
     ]);
     if (s.ok) setSubs(await s.json());
-    if (t.ok) setToCheck(((await t.json()) as ToolDTO[]).filter((x) => x.needsCheck));
+    if (t.ok) {
+      const all = (await t.json()) as ToolDTO[];
+      setAllTools(all.filter((x) => x.condition !== "Swapped out"));
+      setToCheck(all.filter((x) => x.needsCheck));
+    }
     if (p.ok) setPeople(((await p.json()) as ResourceDTO[]).filter((x) => x.type === "PERSONNEL"));
     if (l.ok) setLinks(await l.json());
     if (b.ok) setBoxes(await b.json());
@@ -152,7 +162,7 @@ export default function FromSitePage() {
                   <div key={s.id} className="rounded-xl border border-edge bg-panel p-4 shadow-soft">
                     <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-gray-400">
                       {s.kind === "REGISTER" ? <Camera size={14} className="text-brand-300" /> : <Wrench size={14} className="text-amber-500" />}
-                      <span className="font-semibold text-gray-100">{s.kind === "REGISTER" ? "New tool" : `Fault on ${s.tool?.tag ?? "a tool"}`}</span>
+                      <span className="font-semibold text-gray-100">{s.kind === "REGISTER" ? "New tool" : s.unlisted ? "Fault - tool not in the list" : `Fault on ${s.tool?.tag ?? "a tool"}`}</span>
                       <span>from {s.from} · {when(s.createdAt)}</span>
                     </div>
                     <div className="flex flex-wrap gap-3">
@@ -179,6 +189,15 @@ export default function FromSitePage() {
                           ) : (
                             <div className="text-xs text-gray-400">The plate couldn&apos;t be read - fill it in from the photo.</div>
                           )
+                        ) : s.unlisted ? (
+                          <UnlistedFault
+                            description={s.description}
+                            info={s.unlisted}
+                            tools={allTools}
+                            canEdit={canEdit}
+                            onLog={(toolId) => act(() => json(`/api/site-submissions/${s.id}`, "PATCH", { status: "APPLIED", toolId, notWorking: true }), "Couldn't log the fault.")}
+                            onAddTool={() => setRegisterFor(s)}
+                          />
                         ) : (
                           <>
                             <div className="text-xs text-gray-400">{s.tool?.name}{s.tool?.serialNumber ? ` · ${s.tool.serialNumber}` : ""}</div>
@@ -192,7 +211,7 @@ export default function FromSitePage() {
                       <div className="mt-3 flex flex-wrap gap-2">
                         {s.kind === "REGISTER" ? (
                           <button className={btn} onClick={() => setRegistering(s)}>Check and register</button>
-                        ) : (
+                        ) : s.unlisted ? null : (
                           <button className={btn} onClick={() => act(() => json(`/api/site-submissions/${s.id}`, "PATCH", { status: "APPLIED", notWorking: true }), "Couldn't log the fault.")}>
                             Log fault (marks Needs repair)
                           </button>
@@ -216,7 +235,7 @@ export default function FromSitePage() {
                     <div className="flex flex-wrap items-center gap-2">
                       {s.kind === "CHECK" ? <ScanLine size={13} className="text-brand-300" /> : s.kind === "REGISTER" ? <Camera size={13} className="text-gray-400" /> : <Wrench size={13} className="text-gray-400" />}
                       <span className="text-gray-200">
-                        {s.kind === "CHECK" ? `Toolbox check${s.checkResult?.method === "TICK" ? " (ticked)" : ""} - ${s.toolbox?.name ?? ""}` : s.kind === "REGISTER" ? "New tool" : `Fault on ${s.tool?.tag ?? "a tool"}`}
+                        {s.kind === "CHECK" ? `Toolbox check${s.checkResult?.method === "TICK" ? " (ticked)" : ""} - ${s.toolbox?.name ?? ""}` : s.kind === "REGISTER" ? "New tool" : `Fault on ${s.tool?.tag ?? (s.unlisted ? "a tool not in the list" : "a tool")}`}
                       </span>
                       <span className="text-gray-500">{s.from} · {when(s.createdAt)}</span>
                       {s.kind === "CHECK" && s.checkResult ? (
@@ -373,6 +392,18 @@ export default function FromSitePage() {
             )}
           </section>
         </div>
+      )}
+
+      {registerFor && (
+        <RegisterByPhoto
+          prefill={unlistedPrefill(registerFor.photoIds[0] ?? null, registerFor.unlisted?.seen ?? null, registerFor.description)}
+          onCreated={async (toolId) => {
+            const res = await json(`/api/site-submissions/${registerFor.id}`, "PATCH", { status: "APPLIED", toolId, notWorking: true });
+            if (!res.ok) throw new Error(await serverErrorMessage(res, "The tool was saved but the fault couldn't be logged on it - pick it from the list."));
+          }}
+          onSaved={load}
+          onClose={() => setRegisterFor(null)}
+        />
       )}
 
       {registering && (

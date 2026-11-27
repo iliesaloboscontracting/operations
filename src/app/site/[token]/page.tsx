@@ -23,6 +23,7 @@ import { guideForLink } from "@/lib/howTo";
 import { HOWTO_LIST_PATH, howtoVideoPath, howtoVideosFor } from "@/lib/howtoVideos";
 import CheckResultView from "@/components/tools/CheckResultView";
 import ToolboxTickList from "@/components/site/ToolboxTickList";
+import ReportFault from "@/components/site/ReportFault";
 import InstallApp from "@/components/InstallApp";
 import SiteBrand from "@/components/site/SiteBrand";
 import PushToggle from "@/components/PushToggle";
@@ -263,10 +264,12 @@ export default function SitePhotosPage({ params: paramsP }: { params: Promise<{ 
             {(info.kind === "OFFICE" || hasTools) && (<>
             <Big icon={<Camera size={22} />} title="Add a tool" text="Photos and/or type the details" onClick={() => { setFlash(null); setMode("register"); }} />
             <Big icon={<ScanLine size={22} />} title={info.kind === "OFFICE" ? "Check a toolbox" : "Check my toolbox"} text={info.kind === "OFFICE" ? "Photo of the tools laid out" : "Tick each tool: here or missing"} onClick={() => { setFlash(null); setMode("check"); }} />
-            {info.kind !== "OFFICE" && (
+            </>)}
+            {/* Report a fault on ANY Lobos tool (Ilies, 27 Nov 2026 - "Any tool, plus 'not in the list'"): on every
+                supervisor's link, toolbox or not - an empty toolbox no longer stops a fault being sent. */}
+            {info.kind === "SUPERVISOR" && (
               <Big icon={<Wrench size={22} />} title="Report a fault" text="Not working, damaged, needs a Hilti swap" onClick={() => { setFlash(null); setMode("fault"); }} />
             )}
-            </>)}
             {howTo && (
               <Big icon={<BookOpen size={22} />} title="How to use" text={driver ? "Signing in, truck checks, receipts and bins - step by step" : "What each button does - step by step"} onClick={() => { setFlash(null); setMode("howto"); window.scrollTo(0, 0); }} />
             )}
@@ -293,7 +296,7 @@ export default function SitePhotosPage({ params: paramsP }: { params: Promise<{ 
               behind "Use photos instead". The office link keeps the photo check as before. */}
           {mode === "check" && info.kind === "SUPERVISOR" && <ToolboxTickList api={api} toolboxes={info.toolboxes} onUsePhotos={() => setMode("checkPhotos")} />}
           {(mode === "checkPhotos" || (mode === "check" && info.kind !== "SUPERVISOR")) && <CheckBox api={api} info={info} />}
-          {mode === "fault" && <ReportFault api={api} info={info} onDone={finished} />}
+          {mode === "fault" && <ReportFault api={api} toolboxes={info.toolboxes} post={post} onDone={finished} />}
           {mode === "signin" && <SignInCrew api={api} />}
           {mode === "request" && <RequestForm api={api} who={who} onDone={finished} />}
           {mode === "requests" && <MyRequests api={api} />}
@@ -610,51 +613,6 @@ function CheckBox({ api, info }: { api: string; info: SiteInfo }) {
         }}
       >
         {busy && <Loader2 size={18} className="animate-spin" />} {busy ? "Checking…" : "Check toolbox"}
-      </button>
-    </div>
-  );
-}
-
-function ReportFault({ api, info, onDone }: { api: string; info: SiteInfo; onDone: (m: string) => void }) {
-  const [toolId, setToolId] = useState("");
-  const [text, setText] = useState("");
-  const [photo, setPhoto] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  return (
-    <div className="space-y-4">
-      <h1 className="text-xl font-semibold text-gray-100">Report a fault</h1>
-      <select className={input} value={toolId} onChange={(e) => setToolId(e.target.value)}>
-        <option value="">Which tool?</option>
-        {info.toolboxes.map((b) => (
-          <optgroup key={b.id} label={b.name}>
-            {b.tools.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.tag} · {t.name}{t.serialNumber ? ` · ${t.serialNumber}` : ""}
-              </option>
-            ))}
-          </optgroup>
-        ))}
-      </select>
-      <textarea className={`${input} min-h-[110px]`} placeholder="What's wrong? e.g. not hammering, cuts out, cracked housing" value={text} onChange={(e) => setText(e.target.value)} />
-      <PhotoPicker big kind="FAULT" uploadUrl={`${api}/photos`} label="Photo of the fault (optional)" photoId={photo} onChange={setPhoto} />
-      {error && <div className="rounded-lg bg-red-900/30 px-3 py-2 text-sm text-red-300">{error}</div>}
-      <button
-        className={primary}
-        disabled={!toolId || !text.trim() || busy}
-        onClick={async () => {
-          setBusy(true);
-          setError(null);
-          try {
-            const r = await post(api, { kind: "FAULT", toolId, description: text, photoId: photo });
-            onDone(r.message);
-          } catch (e) {
-            setError((e as Error).message);
-            setBusy(false);
-          }
-        }}
-      >
-        {busy && <Loader2 size={18} className="animate-spin" />} {busy ? "Sending…" : "Send to the office"}
       </button>
     </div>
   );

@@ -6,6 +6,7 @@ import RegisterPage, { StatusPill } from "@/components/RegisterPage";
 import ToolsTabs from "@/components/tools/ToolsTabs";
 import RegisterByPhoto from "@/components/tools/RegisterByPhoto";
 import ToolDetail from "@/components/tools/ToolDetail";
+import SupervisorToolGap from "@/components/tools/SupervisorToolGap";
 import { OWNERSHIP_LABEL, RETIRE_REASONS, TOOL_CONDITIONS, TOOL_OWNERSHIP } from "@/lib/pickTool";
 import { ToolDTO } from "@/lib/types";
 import { useAuth } from "@/components/AuthProvider";
@@ -64,14 +65,18 @@ export default function ToolsPage() {
           statusOptions: TOOL_CONDITIONS.map((c) => ({ value: c, label: c })),
           newDefaults: { condition: "Good", heldBy: "Yard", ownership: "OWNED" },
           header: (rows) => (
-            <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-6">
-              <Tile label="Registered" value={rows.filter((t) => t.condition !== "Swapped out").length} />
-              <Tile label="In a toolbox" value={rows.filter((t) => t.toolboxId).length} />
-              <Tile label="Open faults" value={rows.reduce((n, t) => n + (t.openIssues ?? 0), 0)} />
-              <Tile label="Missing" value={rows.filter((t) => t.condition === "Missing").length} />
-              <Tile label="To check (from site)" value={rows.filter((t) => t.needsCheck).length} />
-              <Tile label="Plate not readable" value={rows.filter((t) => t.plateUnreadable && t.condition !== "Swapped out").length} />
-            </div>
+            <>
+              {/* The empty-toolbox gap (Ilies, 27 Nov 2026) - Managers and Admins only, information only. */}
+              {canEdit && <SupervisorToolGap />}
+              <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-6">
+                <Tile label="Registered" value={rows.filter((t) => t.condition !== "Swapped out").length} />
+                <Tile label="In a toolbox" value={rows.filter((t) => t.toolboxId).length} />
+                <Tile label="Open faults" value={rows.reduce((n, t) => n + (t.openIssues ?? 0), 0)} />
+                <Tile label="Missing" value={rows.filter((t) => t.condition === "Missing").length} />
+                <Tile label="To check (from site)" value={rows.filter((t) => t.needsCheck).length} />
+                <Tile label="Plate not readable" value={rows.filter((t) => t.plateUnreadable && t.condition !== "Swapped out").length} />
+              </div>
+            </>
           ),
           columns: [
             { label: "Tag", render: (t) => <span className="font-mono text-xs">{t.tag}</span> },

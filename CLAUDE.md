@@ -160,7 +160,22 @@ business, without becoming unnecessarily complicated.
   rating-plate / condition / toolbox photos with Claude (`src/lib/toolVision.ts`,
   `claude-opus-5-5`) — the second outbound network call after the assistant;
   readings are suggestions a person confirms, matching is plain code
-  (`src/lib/toolboxCheck.ts`). Photos live outside the app in
+  (`src/lib/toolboxCheck.ts`).
+  **Report a fault on any tool** (27 Nov 2026, Ilies: "Their toolbox first, then every other Lobos tool, plus
+  'Not in the list' with a photo; the photo reader suggests the tool and the office confirms. Shows the
+  empty-toolbox gap to the office too." - Omar's toolboxes were empty, so he couldn't report a damaged rattle gun;
+  `src/lib/toolFaults.ts`, `toolFaultStore.ts`): the tile is on every SUPERVISOR link (toolbox or not; never
+  HANDOVER / OFFICE / DRIVER). Picker = own toolbox(es) as before, then "Other Lobos tools" from
+  `GET /api/site/<link>/fault-tools` (tag + name only, grouped by toolbox, "Not in a toolbox" last), then "Not in the
+  list" (photo required). The server accepts any tool on the register (not retired / swapped out). "Not in the list" =
+  a FAULT SiteSubmission with no tool (no schema change - toolId was already optional); its photo is read just after
+  the reply (`readFaultPhoto`, same Claude connection, 10 a link / 60 in all per Sydney day, kill switch
+  `TOOL_FAULT_READING=off`, nothing read without the key) into `reading` `{ unlisted, status, seen }` - untrusted text,
+  cleaned, shown as data. From site shows the photo, what it shows and likely tools (plain code: tag, serial, model,
+  name); a person picks the tool (or adds it with Register by photo) and Log fault links it - nothing automatic.
+  The Tools page shows Managers / Admins the supervisors with no tools in any toolbox (`/api/tools/supervisor-gaps`,
+  guard MANAGER - coordinator / yard unchanged). Release check `112-fault-any-tool`.
+  Photos live outside the app in
   `TOOL_PHOTO_DIR` (`C:\Users\ilies\Documents\operations-tool-photos`) — not
   yet in the nightly backup. Supervisors send photos from site through a
   private link (`/site/<secret>`, `src/lib/siteLinks.ts`; only a hash is

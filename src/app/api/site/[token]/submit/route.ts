@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { withErrorHandling } from "@/lib/apiHandler";
 import { resolveLink, type ResolvedLink } from "@/lib/siteLinks";
@@ -8,12 +8,15 @@ import { moveTool } from "@/lib/toolMoves";
 import { createTool, duplicateMessage, findDuplicate } from "@/lib/toolCreate";
 import { TICK_LIMIT_MESSAGE, buildTickResult, tickReply } from "@/lib/toolboxTick";
 import { checkIdFor, markToolMissing, saveTickCheck } from "@/lib/toolboxTickStore";
+import { faultTarget, reportable } from "@/lib/toolFaults";
+import { readUnlistedFault, saveUnlistedFault } from "@/lib/toolFaultStore";
 
 // POST /api/site/:token/submit
 //   { kind: "READ", platePhotoId?, conditionPhotoId? }          -> details read from the photos (nothing saved)
 //   { kind: "REGISTER", fields, plateUnreadable?, platePhotoId?, conditionPhotoId?, toolboxId?, note? }
 //                                                                -> saved straight into the inventory
-//   { kind: "FAULT", toolId, description, photoId? }             -> office inbox (supervisor links)
+//   { kind: "FAULT", toolId, description, photoId? }             -> office inbox (supervisor links): any tool on the register,
+//                                                                   or toolId "UNLISTED" with a required photo (27 Nov 2026)
 //   { kind: "CHECK", toolboxId, photoIds }                        -> checked now, result returned
 //   { kind: "TICK_CHECK", toolboxId, marks: { toolId: "HERE" | "MISSING" } } -> the tick list (SUPERVISOR links), same record
 //   { kind: "CHECK_ACTION", action: "MINE" | "MISSING", toolId, toolboxId, checkId? } -> checkId: the one the check reply carried
@@ -156,15 +159,25 @@ async function register(link: ResolvedLink, body: Record<string, unknown>, name:
   );
 }
 
+// A fault (Ilies, 27 Nov 2026 - "Any tool, plus 'not in the list'"): any tool on the register, not just the
+// supervisor's own toolbox - still checked here (on the register, not retired, not swapped out). Or "Not in the list"
+// with its required photo: sent with no tool, and the photo is read just after the reply to suggest the tool to the
+// office (lib/toolFaultStore.ts). Either way it waits for the office, as before.
 async function fault(link: ResolvedLink, body: Record<string, unknown>) {
-  const description = typeof body.description === "string" ? body.description.trim() : "";
+  const description = typeof body.description === "string" ? body.description.trim().slice(0, 1000) : "";
   if (!description) return bad("Write what's wrong with the tool.");
-  const tool = typeof body.toolId === "string"
-    ? await prisma.tool.findUnique({ where: { id: body.toolId }, select: { id: true, tag: true, toolboxId: true } })
-    : null;
-  if (!tool || !ownBox(link, tool.toolboxId)) return bad("Pick a tool from your toolbox.");
+  const target = faultTarget(body);
+  if (target.kind === "ERROR") return bad(target.error);
   const photo = body.photoId ? await linkPhotos(link, [body.photoId], "FAULT") : [];
   if (!photo) return bad("The fault photo didn't upload - take it again.");
+  if (target.kind === "UNLISTED") {
+    const subId = await saveUnlistedFault(link.id, description, photo[0].id);
+    const fileName = photo[0].fileName;
+    after(() => readUnlistedFault(subId, link.id, fileName));
+    return NextResponse.json({ ok: true, message: "Fault sent to the office with your photo - they'll find the tool." }, { status: 201 });
+  }
+  const tool = await prisma.tool.findUnique({ where: { id: target.toolId }, select: { id: true, tag: true, toolboxId: true, retiredAt: true, condition: true } });
+  if (!tool || !reportable(tool)) return bad("That tool isn't on the register - pick another, or 'Not in the list'.");
   await prisma.siteSubmission.create({
     data: {
       siteLinkId: link.id,

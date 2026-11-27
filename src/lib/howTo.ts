@@ -182,11 +182,12 @@ const RECEIPTS_BINS: HowToSection = {
 };
 
 const TOOLS: HowToSection = {
-  title: "Tools (if you have a toolbox)",
+  title: "Tools",
   steps: [
-    { lead: "Add a tool:", text: "photo of the rating plate and the whole tool - the details are read for you. Check them, then Add to inventory." },
-    { lead: "Check my toolbox:", text: "lay the tools out, labels up, and take 1 to 4 photos." },
-    { lead: "Report a fault:", text: "pick the tool, say what's wrong, add a photo." },
+    { lead: "Add a tool:", text: "(if you have a toolbox) photo of the rating plate and the whole tool - the details are read for you. Check them, then Add to inventory." },
+    { lead: "Check my toolbox:", text: "(if you have a toolbox) lay the tools out, labels up, and take 1 to 4 photos." },
+    // 27 Nov 2026 (Ilies, "Any tool, plus 'not in the list'"): on every supervisor's link.
+    { lead: "Report a fault:", text: "pick the tool - your toolbox first, then every other Lobos tool (search by tag or name). Can't find it? Pick Not in the list and take a photo of the tool. Say what's wrong, add a photo." },
   ],
 };
 
