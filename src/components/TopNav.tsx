@@ -9,6 +9,7 @@ import { localISODate } from "@/lib/resource";
 import { useAuth } from "./AuthProvider";
 import { isOwner } from "@/lib/owner";
 import FormModal from "./FormModal";
+import GroupedNav, { groupNav, type NavEntry } from "./NavMenu";
 
 export const PRESTARTS_HREF = "/faults?tab=checks";
 // Same nav model as the old left Sidebar - just laid out as a single horizontal row.
@@ -261,14 +262,51 @@ export default function TopNav() {
     : href === "/yard" ? path === "/yard" // the stock take is its own tab
     : href === "/day-review" ? isActive(href) || path.startsWith("/daily-report/") : isActive(href));
 
+  // The Operations tabs this login sees - one list for the flat row and the grouped menus (27 Nov 2026), so both
+  // always show exactly the same pages.
+  const opsVisible = OPERATIONS.filter((i) => (i.href !== "/tracking" && i.href !== "/invoices" && i.href !== "/assistant" && i.href !== "/attendance" && i.href !== PRESTARTS_HREF && i.href !== "/timesheets" && i.href !== "/timesheets/labour-hire" && i.href !== "/requests" && i.href !== "/office-requests" && i.href !== "/purchases" && i.href !== "/questions" && i.href !== "/messages" && i.href !== "/receipts" && i.href !== "/bins" && i.href !== "/variations" && i.href !== "/incidents" && i.href !== "/documents") || canEdit).filter((i) => i.href !== "/incidents" || incidentsOk).filter((i) => i.href !== "/questions" || myQuestions >= 0);
+  const opsBadge = (href: string) => href === "/calendar" ? startingSoon : href === "/requests" ? requests : href === "/office-requests" ? officeRequests : href === "/questions" ? Math.max(myQuestions, 0) : href === "/messages" ? messages : undefined;
+  const opsBadgeTitle = (href: string) => href === "/requests" ? "Site requests waiting on a decision, and reminders due" : href === "/office-requests" ? "Directors and accounts queries and actions waiting on a decision" : href === "/calendar" ? "Projects starting within a week" : href === "/questions" ? "Questions for you" : href === "/messages" ? "Unread messages" : undefined;
+  const regVisible = REGISTERS.filter((i) => i.href !== "/faults" || canEdit);
+  // Grouped menus between 768 px and 3440 px wide (NavMenu.tsx): the Operations screen and the coordinator's screen,
+  // the two with too many tabs for a laptop. Phones and wide screens keep the flat row; so do the Directors, Accounts
+  // and Yard screens.
+  const grouped: NavEntry[] | null = loading || (!!onePage && !coordinatorOnly) ? null
+    : screen === "coordinator"
+      ? groupNav(screenTabs.map((i) => ({ href: i.href, label: i.label, active: tabActive(i.href), badge: i.href === "/messages" ? messages : undefined, badgeTitle: i.href === "/messages" ? "Unread messages" : undefined })))
+    : screen ? null
+    : groupNav([
+        ...opsVisible.map((i) => ({ href: i.href, label: i.label, active: isActive(i.href), badge: opsBadge(i.href), badgeTitle: opsBadgeTitle(i.href) })),
+        ...regVisible.map((i) => ({ href: i.href, label: i.label, active: isActive(i.href), badge: i.href === "/hire" ? offHire : undefined, badgeTitle: i.href === "/hire" ? "Hire coming off hire within 3 days, or overdue" : undefined })),
+        ...(isAdmin ? [{ href: "/estimating", label: "Estimating", active: false, external: true }, { href: "/users", label: "Users", active: isActive("/users") }] : []),
+      ]);
+
   return (
-    <nav className="relative z-10 flex h-14 w-full shrink-0 items-center border-b-[3px] border-brand-500 bg-sidebar px-3 shadow-soft">
+    <nav className="relative z-30 flex h-14 w-full shrink-0 items-center border-b-[3px] border-brand-500 bg-sidebar px-3 shadow-soft">
       <Link href={onePage ?? (screen ? `/${screen}` : "/projects")} className="mr-3 flex shrink-0 items-center">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/logo-dark.png" alt="Lobos Contracting" width={400} height={96} className="h-8 w-auto" />
       </Link>
 
-      <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto py-1.5">
+      {grouped && (
+        <div className="hidden min-w-0 flex-1 items-center gap-0.5 overflow-x-auto py-1.5 min-[768px]:flex min-[3440px]:hidden" data-testid="nav-grouped">
+          {!screen && isDirector && (
+            <>
+              <NavTab href="/directors" label="Directors" active={isActive("/directors")} />
+              <Divider />
+            </>
+          )}
+          {!screen && isAdmin && (
+            <>
+              <NavTab href="/accounts" label="Accounts" active={isActive("/accounts")} />
+              <Divider />
+            </>
+          )}
+          <GroupedNav entries={grouped} />
+        </div>
+      )}
+
+      <div className={`flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto py-1.5 ${grouped ? "min-[768px]:hidden min-[3440px]:flex" : ""}`} data-testid="nav-flat">
         {loading ? null : screen ? (
           <>
             {!onePage && (
@@ -294,7 +332,7 @@ export default function TopNav() {
             <Divider />
           </>
         )}
-        {OPERATIONS.filter((i) => (i.href !== "/tracking" && i.href !== "/invoices" && i.href !== "/assistant" && i.href !== "/attendance" && i.href !== PRESTARTS_HREF && i.href !== "/timesheets" && i.href !== "/timesheets/labour-hire" && i.href !== "/requests" && i.href !== "/office-requests" && i.href !== "/purchases" && i.href !== "/questions" && i.href !== "/messages" && i.href !== "/receipts" && i.href !== "/bins" && i.href !== "/variations" && i.href !== "/incidents" && i.href !== "/documents") || canEdit).filter((i) => i.href !== "/incidents" || incidentsOk).filter((i) => i.href !== "/questions" || myQuestions >= 0).map((i) => (
+        {opsVisible.map((i) => (
           <NavTab
             key={i.href}
             href={i.href}
@@ -305,7 +343,7 @@ export default function TopNav() {
           />
         ))}
         <Divider />
-        {REGISTERS.filter((i) => i.href !== "/faults" || canEdit).map((i) => (
+        {regVisible.map((i) => (
           <NavTab
             key={i.href}
             href={i.href}
@@ -332,6 +370,8 @@ export default function TopNav() {
         <div className="relative ml-2 shrink-0">
           <button
             onClick={() => setMenuOpen((o) => !o)}
+            title={`${user.name} (${user.role.charAt(0) + user.role.slice(1).toLowerCase()})`}
+            aria-label={`${user.name} - account menu`}
             className={`flex items-center gap-2 rounded-full py-1.5 pl-3 pr-2 ${
               menuOpen ? "bg-white/10" : "hover:bg-white/5"
             }`}
@@ -339,7 +379,8 @@ export default function TopNav() {
             <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brand-600 text-xs font-semibold text-white">
               {user.name.charAt(0).toUpperCase()}
             </span>
-            <div className="min-w-0 text-left">
+            {/* Laptop widths (27 Nov 2026): just the initial, so every menu fits; the name and role are in the tooltip. */}
+            <div className="min-w-0 text-left min-[768px]:max-[1439px]:hidden">
               <div className="truncate text-xs font-medium text-white">{user.name}</div>
               <div className="truncate text-[10px] text-slate-400">
                 {user.role.charAt(0) + user.role.slice(1).toLowerCase()}

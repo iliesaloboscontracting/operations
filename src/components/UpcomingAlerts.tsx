@@ -7,6 +7,7 @@ import { StartAlertDTO } from "@/lib/types";
 import { fmtDay, } from "@/lib/dates";
 import { localISODate } from "@/lib/resource";
 import { apiFetch } from "@/lib/apiFetch";
+import { useBoardSection } from "./board/BoardSummary";
 
 const LEVEL: Record<StartAlertDTO["level"], { box: string; dot: string; label: string }> = {
   critical: { box: "border-red-500/60 bg-red-950/40", dot: "bg-red-500", label: "text-red-300" },
@@ -45,14 +46,31 @@ export default function UpcomingAlerts({
   useEffect(refresh, [refresh]);
   useAutoRefresh(refresh);
 
-  if (alerts.length === 0) return null;
-
   const needAttention = alerts.filter((a) => a.level !== "ok").length;
+  const critical = alerts.filter((a) => a.level === "critical").length;
+  // On the board's slim summary row (laptop windows, 27 Nov 2026) - critical starts stay red there, never hidden.
+  const section = useBoardSection(
+    "starts",
+    compact && alerts.length > 0
+      ? {
+          label: `${alerts.length} starting within a week`,
+          parts: [
+            ...(critical > 0 ? [{ text: `${critical} not ready`, tone: "red" as const }] : []),
+            ...(needAttention - critical > 0 ? [{ text: `${needAttention - critical} to check`, tone: "amber" as const }] : []),
+          ],
+        }
+      : null
+  );
+  const boardRow = compact && !!section?.compact;
+  const shown = boardRow ? true : open;
+
+  if (alerts.length === 0) return null;
 
   return (
     <div className="mb-3 rounded-lg border border-edge bg-panel">
       <button
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => (boardRow ? section!.collapse() : setOpen((o) => !o))}
+        aria-expanded={shown}
         className="flex w-full items-center justify-between px-3 py-2 text-left text-sm"
       >
         <span className="font-semibold text-gray-100">
@@ -63,10 +81,10 @@ export default function UpcomingAlerts({
             </span>
           )}
         </span>
-        <span className="text-gray-500">{open ? "−" : "+"}</span>
+        <span className="text-gray-500">{shown ? "−" : "+"}</span>
       </button>
 
-      {open && (
+      {shown && (
         <div className="grid gap-2 border-t border-edge p-2 md:grid-cols-2 xl:grid-cols-3">
           {alerts.map((a) => {
             const l = LEVEL[a.level];
