@@ -12,6 +12,7 @@ import { saveReceiptPhoto } from "../receipts/files";
 import { recordChanges, writeChanges, writeLock, type Who } from "../history/store";
 import type { BinLink } from "../siteLinks";
 import { pushToUsers } from "../push";
+import { clientLoadCounts, tipperLoadsOn } from "./tipperRules";
 import {
   BIN_CONTENTS, BIN_SIZES, BIN_USES, CONFIRM_WINDOW, binAlertsOn, clientBinAlert, clientBinCounts, LIMITS, STATUS_LABEL, binLabel, canMove, chooseBin, contentsLabel, dayText, daysOut, daysText,
   defaultLabel, inWindow, isBinSize, overFleet, parseCorrection, parseDelivery, parsePickup, rejectedOf, sizeLabel, tidy, tipCandidates, useLabel,
@@ -30,7 +31,7 @@ const byName = (w: Who) => (w?.name && w.name.trim()) || "Operations";
 // ---------- the link (SUPERVISOR / DRIVER) ----------
 
 // Active projects only, like the other site-link pickers - the person's jobs today (and last night's night shift) first.
-async function linkProjects(personId: string) {
+export async function linkProjects(personId: string) {
   const { today, yesterday } = signinDates();
   const [projects, mine] = await Promise.all([
     prisma.project.findMany({ where: { status: "ACTIVE", archived: false }, select: { id: true, name: true }, orderBy: { name: "asc" }, take: 300 }),
@@ -86,6 +87,8 @@ export async function binOptions(link: BinLink): Promise<BinLinkOptionsDTO> {
     uses: BIN_USES.map((u) => ({ ...u })),
     sizes: BIN_SIZES.map((s) => ({ key: s.key, label: s.label, free: bins.filter((b) => b.size === s.key && !out.has(b.id)).map((b) => ({ id: b.id, label: linkLabel(b.label, s.label) })) })),
     contents: BIN_CONTENTS.map((c) => ({ ...c })),
+    // Tipper loads (27 Nov 2026): a DRIVER link also gets the "Tipper load" option (kill switch TIPPER_LOADS=off).
+    tipperLoads: link.kind === "DRIVER" && tipperLoadsOn(),
     onSite: await linkRows(onSite),
     today: await linkRows(today),
   };
@@ -205,16 +208,17 @@ export type BinsOfficeDTO = {
   projects: { id: string; label: string }[]; pickProjects: { id: string; label: string }[]; sizes: { key: string; label: string }[]; uses: { key: string; label: string }[]; contents: { key: string; label: string }[];
   // Client's bins are charged per bin (Ilies, 23 Nov 2026) - counted per job: delivered in the range, of which on site now
   // and picked up. No days figure here.
-  clientByJob: { projectId: string; project: string; jobNo: string | null; client: string | null; delivered: number; onSite: number; pickedUp: number }[];
+  // Tipper loads (27 Nov 2026): client's tipper loads logged in the same range, next to the bins (tipperLoads).
+  clientByJob: { projectId: string; project: string; jobNo: string | null; client: string | null; delivered: number; onSite: number; pickedUp: number; tipperLoads: number }[];
   range: { from: string; to: string };
 };
 
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 const iso = (d: Date | null) => (d ? d.toISOString() : null);
-const tipFields = { id: true, kind: true, status: true, projectId: true, siteLinkId: true, sentByResourceId: true, sentBy: true, sentAt: true, docketAt: true, docketNo: true, tipSite: true, wasteType: true, tonnes: true } as const;
-type TipRow = { id: string; kind: string; status: string; projectId: string | null; siteLinkId: string; sentByResourceId: string | null; sentBy: string; sentAt: Date; docketAt: Date | null; docketNo: string | null; tipSite: string | null; wasteType: string | null; tonnes: number | null };
+export const tipFields = { id: true, kind: true, status: true, projectId: true, siteLinkId: true, sentByResourceId: true, sentBy: true, sentAt: true, docketAt: true, docketNo: true, tipSite: true, wasteType: true, tonnes: true } as const;
+export type TipRow = { id: string; kind: string; status: string; projectId: string | null; siteLinkId: string; sentByResourceId: string | null; sentBy: string; sentAt: Date; docketAt: Date | null; docketNo: string | null; tipSite: string | null; wasteType: string | null; tonnes: number | null };
 // No price is ever selected - this page is money-free (the coordinator reads it).
-const tipDTO = (r: TipRow, sameDriver = false): TipDTO => ({ receiptId: r.id, docketNo: r.docketNo, docketAt: iso(r.docketAt), sentAt: r.sentAt.toISOString(), sentBy: r.sentBy, tipSite: r.tipSite, wasteType: r.wasteType, tonnes: r.tonnes, sameDriver });
+export const tipDTO = (r: TipRow, sameDriver = false): TipDTO => ({ receiptId: r.id, docketNo: r.docketNo, docketAt: iso(r.docketAt), sentAt: r.sentAt.toISOString(), sentBy: r.sentBy, tipSite: r.tipSite, wasteType: r.wasteType, tonnes: r.tonnes, sameDriver });
 
 type MoveRow = Prisma.BinMovementGetPayload<{ include: { bin: { select: { label: true } }; photos: { select: { id: true; stage: true } } } }>;
 async function officeRows(rows: MoveRow[], withSuggestions: boolean): Promise<BinOfficeRowDTO[]> {
@@ -222,7 +226,7 @@ async function officeRows(rows: MoveRow[], withSuggestions: boolean): Promise<Bi
   const tipIds = rows.map((r) => r.tipReceiptId).filter((x): x is string => !!x);
   const picked = rows.filter((r) => r.status === "PICKED_UP" && !r.tipReceiptId && r.pickedUpAt);
   const times = picked.map((r) => r.pickedUpAt!.getTime());
-  const [confirmed, pool, taken] = await Promise.all([
+  const [confirmed, pool, taken, takenByLoads] = await Promise.all([
     tipIds.length ? prisma.receipt.findMany({ where: { id: { in: tipIds } }, select: tipFields }) : [],
     withSuggestions && picked.length
       ? prisma.receipt.findMany({
@@ -237,12 +241,15 @@ async function officeRows(rows: MoveRow[], withSuggestions: boolean): Promise<Bi
         })
       : [],
     prisma.binMovement.findMany({ where: { tipReceiptId: { not: null } }, select: { id: true, tipReceiptId: true } }),
+    // A docket already matched to a tipper load (27 Nov 2026) isn't suggested for a bin either.
+    prisma.tipperLoad.findMany({ where: { tipReceiptId: { not: null } }, select: { tipReceiptId: true } }),
   ]);
+  const toLoads = new Set(takenByLoads.map((t) => t.tipReceiptId!));
   const now = new Date();
   return rows.map((r) => {
     const p = projects.find((x) => x.id === r.projectId);
     const tip = confirmed.find((x) => x.id === r.tipReceiptId);
-    const elsewhere = new Set(taken.filter((t) => t.id !== r.id).map((t) => t.tipReceiptId!));
+    const elsewhere = new Set([...taken.filter((t) => t.id !== r.id).map((t) => t.tipReceiptId!), ...toLoads]);
     const suggestions = withSuggestions && r.status === "PICKED_UP" && !r.tipReceiptId ? tipCandidates(r, pool, elsewhere).map((x) => tipDTO(x, x.sameDriver)) : [];
     return {
       id: r.id, projectId: r.projectId, project: p?.name ?? "(job not found)", jobNo: p?.jobNo ?? null, client: p?.client ?? null,
@@ -258,6 +265,16 @@ async function officeRows(rows: MoveRow[], withSuggestions: boolean): Promise<Bi
   });
 }
 const moveInclude = { bin: { select: { label: true } }, photos: { select: { id: true, stage: true }, orderBy: { createdAt: "asc" as const } } };
+
+// Client's tipper loads per job in a range (the job filter applies) - counted in the database (groupBy), like BN-009.
+export async function clientTipperCounts(range: { fromAt: Date; toAt: Date }, projectId?: string): Promise<Map<string, number>> {
+  const groups = await prisma.tipperLoad.groupBy({
+    by: ["projectId", "status"],
+    where: { use: "CLIENT", loadedAt: { gte: range.fromAt, lt: range.toAt }, ...(projectId ? { projectId } : {}) },
+    _count: { _all: true },
+  });
+  return clientLoadCounts(groups.map((g) => ({ projectId: g.projectId, use: "CLIENT", status: g.status, n: g._count._all })));
+}
 
 export async function officeBins(f: BinFilters): Promise<BinsOfficeDTO> {
   const today = signinDates().today;
@@ -293,8 +310,9 @@ export async function officeBins(f: BinFilters): Promise<BinsOfficeDTO> {
   const projectName = new Map(projects.map((p) => [p.id, p.name]));
   // Client's bins by job (Alex tracks them as variations; charged per bin - Ilies, 23 Nov 2026): how many were delivered.
   const counts = clientBinCounts(clientRows.map((g) => ({ projectId: g.projectId, use: "CLIENT", status: g.status, n: g._count._all })));
-  const countProjects = await prisma.project.findMany({ where: { id: { in: [...counts.keys()] } }, select: { id: true, name: true, jobNo: true, client: true } });
-  const clientByJob = countProjects.map((p) => ({ projectId: p.id, project: p.name, jobNo: p.jobNo, client: p.client, ...counts.get(p.id)! }));
+  const loads = await clientTipperCounts({ fromAt, toAt }, scope.projectId);
+  const countProjects = await prisma.project.findMany({ where: { id: { in: [...new Set([...counts.keys(), ...loads.keys()])] } }, select: { id: true, name: true, jobNo: true, client: true } });
+  const clientByJob = countProjects.map((p) => ({ projectId: p.id, project: p.name, jobNo: p.jobNo, client: p.client, ...(counts.get(p.id) ?? { delivered: 0, onSite: 0, pickedUp: 0 }), tipperLoads: loads.get(p.id) ?? 0 }));
   const active = bins.filter((b) => !b.retiredAt);
   return {
     out, history,
@@ -308,7 +326,7 @@ export async function officeBins(f: BinFilters): Promise<BinsOfficeDTO> {
     pickProjects: [...pickProjects].sort((a, b) => Number(b.status === "ACTIVE") - Number(a.status === "ACTIVE") || a.name.localeCompare(b.name))
       .map((p) => ({ id: p.id, label: `${p.jobNo ? `${p.name} (${p.jobNo})` : p.name}${p.status === "ACTIVE" ? "" : ` - ${p.status.toLowerCase()}`}` })),
     sizes: BIN_SIZES.map((s) => ({ key: s.key, label: s.label })), uses: BIN_USES.map((u) => ({ key: u.key, label: u.label })), contents: BIN_CONTENTS.map((c) => ({ ...c })),
-    clientByJob: clientByJob.sort((a, b) => b.delivered - a.delivered || b.onSite - a.onSite || a.project.localeCompare(b.project)),
+    clientByJob: clientByJob.sort((a, b) => b.delivered - a.delivered || b.tipperLoads - a.tipperLoads || b.onSite - a.onSite || a.project.localeCompare(b.project)),
     range: { from, to },
   };
 }
@@ -448,6 +466,8 @@ export async function changeMovement(idIn: unknown, body: Record<string, unknown
         if (r.projectId !== m.projectId) throw new BinError("That docket is for another job.");
         if (!inWindow(m, r, CONFIRM_WINDOW)) throw new BinError("That docket is too far from the pick-up date.");
         if (await tx.binMovement.findFirst({ where: { tipReceiptId: r.id, id: { not: m.id } } })) throw new BinError("That docket is already matched to another bin.", 409);
+        // One docket, one bin or tipper load (27 Nov 2026) - under the same write lock.
+        if (await tx.tipperLoad.findFirst({ where: { tipReceiptId: r.id }, select: { id: true } })) throw new BinError("That docket is already matched to a tipper load.", 409);
         const rejected = rejectedOf(m.tipRejectedIds);
         data = { tipReceiptId: r.id, tipConfirmedBy: byName(by).slice(0, 120), tipConfirmedAt: new Date(), ...(rejected.includes(r.id) ? { tipRejectedIds: JSON.stringify(rejected.filter((x) => x !== r.id)) } : {}) };
       } else if (action === "tip-reject") {

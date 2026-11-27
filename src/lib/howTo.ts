@@ -96,6 +96,7 @@ export const DRIVER_GUIDE: HowToGuide = {
         { lead: "Reimbursement:", text: "only when you paid with your own money (e.g. fuel on your own card). Photo of the receipt. Accounts pay you back." },
         { lead: "Bins - Delivered:", text: "photo of the bin on site, then pick the job, Client's bin or Our bin, the size, and what's going in it." },
         { lead: "Bins - Picked up:", text: "pick the bin from the list and take a photo." },
+        { lead: "Bins - Tipper load:", text: "waste loaded into one of our tippers at a job - photo of the load, then the tipper (already picked if you signed in on its QR), the job, Client's load or Our load, and what's in it." },
       ],
     },
     MESSAGES,

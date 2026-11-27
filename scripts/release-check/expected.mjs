@@ -37,7 +37,7 @@ export const MAY_ANSWER = {
     /^\/api\/hire-(alerts|checks)$/, /^\/api\/tools$/, /^\/api\/toolboxes$/, /^\/api\/tool-issues$/, /^\/api\/stock-takes$/, /^\/api\/purchases$/,
     /^\/api\/messages(\/|$)/, /^\/api\/documents(\/|$)/, /^\/api\/queries$/, /^\/api\/inventory$/,
     /^\/api\/bins$/, // bins out and picked up, view only (23 Nov 2026, guardOrCoordinator; checks/99-bins.mjs)
-    /^\/api\/push$/, // his own phone alerts - client's bin delivered (Ilies, 23 Nov 2026; checks/99-bins.mjs)
+    /^\/api\/bins\/tipper-loads$/, // tipper loads, view only - the same walls as bins (27 Nov 2026, guardOrCoordinator; checks/112-tipper-loads.mjs)    /^\/api\/push$/, // his own phone alerts - client's bin delivered (Ilies, 23 Nov 2026; checks/99-bins.mjs)
     /^\/api\/findings\/card$/, // his money-free "For you" card (LCI Stage 1, 25 Nov 2026; checks/107-lci-stage1.mjs)
     /^\/api\/variations$/, // variation / day dockets + his "Variations to price" card (25 Nov 2026, guardVariations; checks/108-variation-dockets.mjs)
     /^\/api\/site-documents(\/(records|topic))?$/, // site documents: plans, SWMS + register, pre-starts, toolbox talks, topic of the week (25 Nov 2026, guardSiteDocs; checks/109-site-documents.mjs) - never /api/directors/incidents

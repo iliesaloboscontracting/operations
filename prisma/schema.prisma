@@ -2985,6 +2985,74 @@ model BinPhoto {
   @@index([movementId])
 }
 
+// Tipper loads (Ilies, 27 Nov 2026: "please build into the bins for the driver sections a option for the tippers we
+// have within our fleet.. this allows the drivers to log waste collected in the tippers also"). One load = one event:
+// loaded at the job, off to the tip. From a DRIVER link only (lib/bins/tipperStore.ts): the tipper (one of our own -
+// lib/bins/tipperRules.ts isTipper), the job, client's load / our load, what's in it (BIN_CONTENTS), 1-2 photos
+// (TipperLoadPhoto), an optional note. No load size, no money. A wrong entry is CANCELLED by the office with a reason;
+// corrections are Manager+ with a reason (RecordChange); the tip docket (a TIP Receipt) is suggested and only a
+// Manager+ confirms it. Nothing is deleted.
+model TipperLoad {
+  id                 String            @id @default(cuid())
+  vehicleId          String // the tipper - a Lobos-owned VEHICLE Resource (a plain id, like SiteAttendance.vehicleId)
+  vehicleLabel       String // its name when logged (or corrected), e.g. "Tipper - CN03RK"
+  vehicleFromSignIn  Boolean           @default(false) // the driver's truck sign-in today named this tipper and they kept it
+  projectId          String
+  use                String // CLIENT | OURS
+  contents           String // one of lib/bins/rules.ts BIN_CONTENTS (the waste classes, or OTHER)
+  contentsNote       String? // what it is when OTHER, or any note - one line, no amounts
+  status             String            @default("LOGGED") // LOGGED | CANCELLED
+  loadedAt           DateTime          @default(now())
+  loadedBy           String // the person's name on the link
+  loadedByResourceId String?
+  linkId             String // the DRIVER link it came from
+  // The tip docket (a TIP Receipt) a Manager+ confirmed for this load - never set automatically. A docket is matched to
+  // at most one bin entry or tipper load (checked across both inside the same locked transaction).
+  tipReceiptId       String?           @unique
+  tipConfirmedBy     String?
+  tipConfirmedAt     DateTime?
+  tipRejectedIds     String? // JSON list of receipt ids a person said aren't this load's
+  cancelledAt        DateTime?
+  cancelledBy        String?
+  cancelReason       String?
+  photos             TipperLoadPhoto[]
+
+  @@index([projectId])
+  @@index([vehicleId])
+  @@index([status])
+  @@index([loadedAt])
+  @@index([linkId, loadedAt])
+}
+
+// A photo of a tipper load from a DRIVER link. Stored exactly like bin photos (lib/receipts/files.ts saveReceiptPhoto,
+// RECEIPT_FILE_DIR - in the nightly backup and the off-site copy); the office reads it through
+// GET /api/bins/tipper-loads/photos/:id behind a login. Attached when the load is sent; never moved or deleted.
+model TipperLoadPhoto {
+  id         String      @id @default(cuid())
+  fileName   String      @unique
+  siteLinkId String
+  takenBy    String
+  createdAt  DateTime    @default(now())
+  loadId     String?
+  load       TipperLoad? @relation(fields: [loadId], references: [id], onDelete: Restrict)
+
+  @@index([siteLinkId, createdAt])
+  @@index([loadId])
+}
+
+// Which of our VEHICLEs are tippers, when the office has said so (27 Nov 2026). No row = from the vehicle's name
+// (/tipper/i - lib/bins/tipperRules.ts isTipper); a row = a Manager+ set it on the Bins page (Tipper loads -> Our
+// tippers). Each change is in the vehicle's own history (RecordChange, model Resource, field "tipper"). Kept apart from
+// Resource so no existing table changes.
+model TipperVehicle {
+  vehicleId String   @id // a VEHICLE Resource id
+  tipper    Boolean
+  setBy     String
+  setById   String?
+  reason    String?
+  updatedAt DateTime @updatedAt
+}
+
 // Variation / Day docket (Ilies approved 25 Nov 2026: "yes build it, deploy once it passes") - his paper "Variation /
 // Day Docket", made digital (src/lib/variations/). A supervisor (SUPERVISOR link, or a HANDOVER link on its own job)
 // fills it in on site, the client signs with a finger on the phone, the supervisor signs, Send. A sent docket is

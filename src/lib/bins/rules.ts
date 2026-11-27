@@ -237,6 +237,7 @@ export type BinLinkOptionsDTO = {
   uses: { key: string; label: string; hint: string }[];
   sizes: { key: string; label: string; free: { id: string; label: string }[] }[];
   contents: { key: string; label: string }[];
+  tipperLoads: boolean; // a DRIVER link also logs tipper loads (27 Nov 2026, lib/bins/tipperRules.ts)
   onSite: BinLinkRowDTO[];
   today: BinLinkRowDTO[];
 };

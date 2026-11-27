@@ -853,6 +853,27 @@ business, without becoming unnecessarily complicated.
   charset + viewport, adds the Back link to its top bar, refuses a $ figure, any outside address but Google Fonts or
   anything that would fetch / send; LF; length + sha256 into `howto-videos/manifest.json`), then commit; a NEW slug also
   needs its entry in `HOWTO_VIDEOS`. The LCI explainer is not served anywhere (Ilies 26 Nov 2026: "the lci no"). Release check `111-howto-videos`.
+- **Bins** (23 Nov 2026, `src/lib/bins/`, `/bins` Managers / Admins + the coordinator view-only): bins delivered /
+  picked up with a photo from SUPERVISOR and DRIVER links (`resolveBinLink`), client's bin / our bin, the register,
+  tip docket suggested + Manager+ confirms, client's bin alert to the coordinator (`BIN_ALERTS`). Release check `99-bins`.
+  - **Tipper loads** (27 Nov 2026, Ilies: "please build into the bins for the driver sections a option for the tippers
+    we have within our fleet.. this allows the drivers to log waste collected in the tippers also"; per load "Tipper,
+    job, waste type, photo"; charging "Yes - client's or ours"; tip docket "Suggest it, office confirms";
+    `lib/bins/tipperRules.ts`, `tipperStore.ts`): **DRIVER links only** - "Tipper load" on the Bins screen
+    (`/api/site/<token>/tipper-loads`, `resolveBinLink` + kind DRIVER; supervisor links keep Delivered / Picked up). One
+    event per load (loaded at the job, off to the tip): our tipper (prefilled from today's truck-QR sign-in), the job
+    (their jobs first, active only), client's load / our load, what's in it (`BIN_CONTENTS`), 1-2 photos required, an
+    optional one-line note; no load size, no money (`linkSafe`). "Our tippers" = owned, active VEHICLE resources whose
+    name says "Tipper", unless a Manager+ set it on the Bins page (`TipperVehicle`, history on the vehicle as Resource
+    field "tipper") - the register's category isn't used (the 7 Seater is filed under Tipper); the hook trucks aren't
+    tippers. `TipperLoad` (LOGGED / CANCELLED) + `TipperLoadPhoto` (stored like bin / receipt photos in
+    `RECEIPT_FILE_DIR`, nightly backup); append-only - the office cancels / corrects with a reason (RecordChange
+    `TipperLoad`), nothing deleted. Office: Bins -> "Tipper loads" tab (filters job / tipper / client's-ours / dates /
+    status, photos, suggested tip docket with Confirm / Not this one - the bins' `tipCandidates`; one docket matches at
+    most one bin entry or tipper load, checked both ways), client's loads by job there and a "Client's tipper loads"
+    column on Client's bins by job. A client's load sends the active COORDINATOR login(s) a quiet alert (job + tipper,
+    per-job tag, opens `/bins?tab=tipper`). Caps: 40 loads and 40 load photos a link a day. Kill switches
+    `TIPPER_LOADS=off` (link side, 503), `TIPPER_ALERTS=off` or `BIN_ALERTS=off` (alert). Release check `112-tipper-loads`.
 - **Money-guard principle:** crew-facing/operational views (day sheets, Day
   Review, the Yard) never carry dollar figures — enforced at both the
   TypeScript type level (narrow DTOs with no money fields) and via a runtime

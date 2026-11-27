@@ -144,6 +144,7 @@ test("a link's options carry no dollar figure, and the lists the phone shows are
     uses: BIN_USES.map((u) => ({ ...u })),
     sizes: BIN_SIZES.map((s) => ({ key: s.key, label: s.label, free: [] })),
     contents: BIN_CONTENTS.map((c) => ({ ...c })),
+    tipperLoads: false,
     onSite: [{ id: id(50), projectId: id(2), project: "Bondi Rd", bin: "15 m³ (1)", size: "15 m³", use: "Client's bin", contents: "Mixed C&D", delivered: "Fri 20 Nov", days: "3 days", status: "On site" }],
     today: [],
   };

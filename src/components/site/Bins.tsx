@@ -1,14 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { ArrowDownToLine, ArrowUpFromLine, Check, Loader2 } from "lucide-react";
+import { ArrowDownToLine, ArrowUpFromLine, Check, Loader2, Truck } from "lucide-react";
 import PhotoPicker from "@/components/tools/PhotoPicker";
 import { serverErrorMessage } from "@/lib/apiFetch";
 import type { BinLinkOptionsDTO, BinLinkRowDTO } from "@/lib/bins/rules";
+import TipperLoad from "./TipperLoad";
 
 // Bins on a supervisor's or driver's link (Ilies, 23 Nov 2026). Delivered: photo -> job -> client's bin / our bin ->
 // size (and which bin, when more than one is free) -> what's going in it. Picked up: the bin from the list of bins on
-// site -> photo. Words and dates only - never a price.
+// site -> photo. A DRIVER link also has "Tipper load" (27 Nov 2026, ./TipperLoad.tsx). Words and dates only - never a price.
 
 const input = "w-full rounded-lg border border-edge bg-panel2 px-3 py-2.5 text-base text-gray-200 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500";
 const primary = "flex w-full items-center justify-center gap-2 rounded-xl bg-brand-600 px-4 py-3 text-base font-semibold text-white disabled:opacity-50";
@@ -37,15 +38,16 @@ async function send(api: string, body: Record<string, unknown>): Promise<{ messa
 
 export default function Bins({ api, onDone }: { api: string; onDone: (message: string) => void }) {
   const { data, error } = useBins(api);
-  const [step, setStep] = useState<"home" | "deliver" | "pickup">("home");
+  const [step, setStep] = useState<"home" | "deliver" | "pickup" | "tipper">("home");
   if (error) return <p className="rounded-xl border border-edge bg-panel p-4 text-sm text-red-300">{error}</p>;
   if (!data) return <div className="py-16 text-center text-gray-500"><Loader2 className="mx-auto animate-spin" /></div>;
   if (step === "deliver") return <Deliver api={api} data={data} onDone={onDone} onBack={() => setStep("home")} />;
   if (step === "pickup") return <PickUp api={api} data={data} onDone={onDone} onBack={() => setStep("home")} />;
+  if (step === "tipper" && data.tipperLoads) return <TipperLoad api={api} onDone={onDone} onBack={() => setStep("home")} />;
   return (
     <div className="space-y-4">
       <h1 className="text-xl font-semibold text-gray-100">Bins</h1>
-      <p className="text-sm text-gray-400">A photo when you drop a bin off, and again when you pick it up.</p>
+      <p className="text-sm text-gray-400">A photo when you drop a bin off, and again when you pick it up.{data.tipperLoads ? " Tipper load: waste loaded into one of our tippers." : ""}</p>
       <div className="flex gap-3">
         <button className={choice(false)} onClick={() => setStep("deliver")}><ArrowDownToLine size={24} /> Delivered</button>
         <button className={choice(false)} onClick={() => setStep("pickup")} disabled={data.onSite.length === 0}>
@@ -53,6 +55,11 @@ export default function Bins({ api, onDone }: { api: string; onDone: (message: s
           <span className="text-xs font-normal text-gray-400">{data.onSite.length ? `${data.onSite.length} on site` : "none on site"}</span>
         </button>
       </div>
+      {data.tipperLoads && (
+        <button className={choice(false) + " w-full"} onClick={() => setStep("tipper")}>
+          <Truck size={24} /> Tipper load<span className="text-xs font-normal text-gray-400">waste loaded into our tipper</span>
+        </button>
+      )}
       {data.today.length > 0 && (
         <div>
           <div className="mb-2 text-sm font-semibold text-gray-300">You today</div>

@@ -5,16 +5,19 @@
 // and the register of Lobos's own bins. Managers and Admins correct, cancel, confirm tip dockets and keep the register;
 // the coordinator only looks. Nothing is deleted - every change is in the record's History with its reason.
 // No money here: charging the client is done elsewhere.
+// Tipper loads (Ilies, 27 Nov 2026): their own tab (components/bins/TipperLoadsTab.tsx) - the same walls as the bins;
+// client's tipper loads are counted per job next to the client's bins.
 import { useCallback, useEffect, useState } from "react";
 import { AlertTriangle, Container } from "lucide-react";
 import PageShell from "@/components/PageShell";
 import FormModal, { type FieldDef } from "@/components/FormModal";
 import HistoryButton from "@/components/HistoryButton";
 import { useAuth } from "@/components/AuthProvider";
+import TipperLoadsTab from "@/components/bins/TipperLoadsTab";
 import { apiFetch, serverErrorMessage } from "@/lib/apiFetch";
 import type { BinOfficeRowDTO, BinRegisterDTO, BinsOfficeDTO, TipDTO } from "@/lib/bins/store";
 
-type Tab = "out" | "history" | "client" | "register";
+type Tab = "out" | "history" | "client" | "tipper" | "register";
 type Filters = { projectId?: string; use?: string; from?: string; to?: string; status?: string };
 const select = "rounded-lg border border-edge bg-panel2 px-2.5 py-1.5 text-xs text-gray-200";
 const btn = "rounded-md border border-edge px-2 py-1 text-xs text-gray-300 hover:bg-panel2 hover:text-white";
@@ -37,6 +40,8 @@ type Modal =
 export default function BinsPage() {
   const { canEdit, coordinatorOnly, loading } = useAuth();
   const [tab, setTab] = useState<Tab>("out");
+  // The client's tipper load alert opens /bins?tab=tipper.
+  useEffect(() => { if (new URLSearchParams(window.location.search).get("tab") === "tipper") setTab("tipper"); }, []);
   const [f, setF] = useState<Filters>({});
   const [data, setData] = useState<BinsOfficeDTO | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -74,6 +79,7 @@ export default function BinsPage() {
         <button className={tabBtn(tab === "out")} onClick={() => setTab("out")}>Out now{data ? ` (${data.out.length})` : ""}</button>
         <button className={tabBtn(tab === "history")} onClick={() => setTab("history")}>Picked up</button>
         <button className={tabBtn(tab === "client")} onClick={() => setTab("client")}>Client&apos;s bins by job</button>
+        <button className={tabBtn(tab === "tipper")} onClick={() => setTab("tipper")}>Tipper loads</button>
         <button className={tabBtn(tab === "register")} onClick={() => setTab("register")}>Register</button>
       </div>
       {(tab === "out" || tab === "history" || tab === "client") && (
@@ -100,7 +106,7 @@ export default function BinsPage() {
       )}
       {flash && <div className="mb-3 rounded-lg bg-emerald-500/15 px-3 py-2 text-sm text-emerald-300">{flash}</div>}
       {error && <p className="mb-3 text-sm text-red-400">{error}</p>}
-      {!data ? <p className="py-8 text-center text-sm text-gray-500">Loading...</p> : tab === "out" ? (
+      {tab === "tipper" ? <TipperLoadsTab canEdit={canEdit} coordinatorOnly={coordinatorOnly} /> : !data ? <p className="py-8 text-center text-sm text-gray-500">Loading...</p> : tab === "out" ? (
         outByJob.length === 0 ? <Empty text="No bins on site." /> : (
           <div className="space-y-4">
             {outByJob.map((g) => (
@@ -216,13 +222,14 @@ function MoveRow({ r, canEdit, onModal, onTip, showJob }: { r: BinOfficeRowDTO; 
 }
 
 function ClientByJob({ data, onOpen }: { data: BinsOfficeDTO; onOpen: (projectId: string) => void }) {
-  if (!data.clientByJob.length) return <Empty text="No client's bins delivered in that range." />;
+  if (!data.clientByJob.length) return <Empty text="No client's bins or tipper loads in that range." />;
   const total = data.clientByJob.reduce((n, c) => n + c.delivered, 0);
+  const loads = data.clientByJob.reduce((n, c) => n + c.tipperLoads, 0);
   return (
     <div className="overflow-x-auto rounded-xl border border-edge bg-panel">
-      <p className="px-4 pt-3 text-xs text-gray-500">Client&apos;s bins are charged per bin. Bins delivered from {day(data.range.from)} to {day(data.range.to)}: {total} - of each job&apos;s, how many are on site now and how many have been picked up. Cancelled entries don&apos;t count.</p>
+      <p className="px-4 pt-3 text-xs text-gray-500">Client&apos;s bins are charged per bin. Bins delivered from {day(data.range.from)} to {day(data.range.to)}: {total} - of each job&apos;s, how many are on site now and how many have been picked up. Client&apos;s tipper loads logged in the same days: {loads}. Cancelled entries don&apos;t count.</p>
       <table className="w-full text-sm">
-        <thead className="text-left text-xs text-gray-500"><tr><th className="px-4 py-2">Job</th><th className="px-2">Client</th><th className="px-2">Client&apos;s bins delivered</th><th className="px-2">On site now</th><th className="px-2">Picked up</th><th /></tr></thead>
+        <thead className="text-left text-xs text-gray-500"><tr><th className="px-4 py-2">Job</th><th className="px-2">Client</th><th className="px-2">Client&apos;s bins delivered</th><th className="px-2">On site now</th><th className="px-2">Picked up</th><th className="px-2">Client&apos;s tipper loads</th><th /></tr></thead>
         <tbody className="divide-y divide-edge/60">
           {data.clientByJob.map((c) => (
             <tr key={c.projectId}>
@@ -231,6 +238,7 @@ function ClientByJob({ data, onOpen }: { data: BinsOfficeDTO; onOpen: (projectId
               <td className="px-2 font-semibold text-amber-200">{c.delivered}</td>
               <td className="px-2 text-gray-300">{c.onSite}</td>
               <td className="px-2 text-gray-300">{c.pickedUp}</td>
+              <td className="px-2 font-semibold text-amber-200">{c.tipperLoads}</td>
               <td className="px-2 text-right"><button className={btn} onClick={() => onOpen(c.projectId)}>See them</button></td>
             </tr>
           ))}

@@ -176,7 +176,7 @@ export default function SitePhotosPage({ params: paramsP }: { params: Promise<{ 
               <Big icon={<ReceiptText size={22} />} title="My receipts" text={info.receiptsToday ? `${info.receiptsToday} sent today` : "What you sent today"} onClick={() => { setFlash(null); setMode("receipts"); }} />
               <Big icon={<Wallet size={22} />} title="Reimbursement" text="Paid for something yourself? Get it back" onClick={() => { setFlash(null); setMode("reimburse"); }} />
               {/* Bins (Ilies, 23 Nov 2026): the same links as receipts - supervisors and drivers, never a hand-over link. */}
-              <Big icon={<Container size={22} />} title="Bins" text="Delivered or picked up - a photo each time" onClick={() => { setFlash(null); setMode("bins"); }} />
+              <Big icon={<Container size={22} />} title="Bins" text={driver ? "Delivered, picked up or a tipper load - a photo each time" : "Delivered or picked up - a photo each time"} onClick={() => { setFlash(null); setMode("bins"); }} />
               {/* Regional travel (Ilies, 24 Nov 2026): only SUPERVISOR / DRIVER link-holders record travel - Start travel /
                   Travelling home on the travel page (the phone's travel pass still proves who it is - AT-001). */}
               <Big icon={<Car size={22} />} title="Regional travel" text="Own car or ute, or riding as a passenger: Start travel / Travelling home" onClick={() => { window.location.href = "/site/in/travel"; }} />
