@@ -11,6 +11,7 @@ import { recordOffHire } from "@/lib/offHire/store";
 import { todaySydney } from "@/lib/today";
 import { coordinatorHireWrite, toCoordinatorHire } from "@/lib/coordinatorHire";
 import { fullTimeInputError } from "@/lib/fullTime";
+import { duplicateNameMessage, sameNamePerson } from "@/lib/personNames";
 
 // GET /api/resources?type=PERSONNEL,EQUIPMENT&category=LABOUR
 // Includes assignments (+ job) so the UI can show "where is it today".
@@ -88,6 +89,12 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   }
 
   const data = pickResourceData(body) as Record<string, unknown>;
+  // One active person per name on the Labour register (Ilies, 27 Nov 2026: "add the warning" - Chris.L was added twice).
+  if (data.type === "PERSONNEL" && data.active !== false) {
+    const people = await prisma.resource.findMany({ where: { type: "PERSONNEL", active: true }, select: { id: true, name: true } });
+    const same = sameNamePerson(data.name, people);
+    if (same) return NextResponse.json({ error: duplicateNameMessage(same.name), code: "DUPLICATE_NAME", existingId: same.id }, { status: 409 });
+  }
   if (data.type !== "PERSONNEL") data.fullTime = false; // FT-003: only Labour-register people are ever full-time
   const hireError = hireDateError(data as Parameters<typeof hireDateError>[0]);
   if (hireError) return NextResponse.json({ error: hireError }, { status: 400 });

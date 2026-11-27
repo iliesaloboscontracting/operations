@@ -6,6 +6,7 @@ import { toPublicResource } from "@/lib/serializeResource";
 import { applyResourcePatch } from "@/lib/recordPatch";
 import { updateTracked } from "@/lib/history/store";
 import { coordinatorHireWrite, toCoordinatorHire } from "@/lib/coordinatorHire";
+import { duplicateNameMessage, sameNamePerson } from "@/lib/personNames";
 
 // PATCH /api/resources/:id
 // The COORDINATOR login (2 Nov 2026): hire items only, the hire fields only, no money in or out
@@ -26,6 +27,18 @@ export const PATCH = withErrorHandling(async (
     const ok = coordinatorHireWrite(body && typeof body === "object" ? body : {}, existing);
     if ("error" in ok) return NextResponse.json({ error: ok.error }, { status: ok.status });
     body = ok.body;
+  }
+  // One active person per name on the Labour register (Ilies, 27 Nov 2026): renaming a person, or bringing an archived
+  // one back, onto a name another active person already has is refused.
+  if (!coordinator && body && typeof body === "object" && ("name" in body || body.active === true)) {
+    const current = await prisma.resource.findUnique({ where: { id: params.id }, select: { type: true, name: true, active: true } });
+    const type = typeof body.type === "string" ? body.type : current?.type;
+    const active = body.active === undefined ? current?.active : body.active !== false;
+    if (current && type === "PERSONNEL" && active) {
+      const people = await prisma.resource.findMany({ where: { type: "PERSONNEL", active: true }, select: { id: true, name: true } });
+      const same = sameNamePerson("name" in body ? body.name : current.name, people, params.id);
+      if (same) return NextResponse.json({ error: duplicateNameMessage(same.name), code: "DUPLICATE_NAME", existingId: same.id }, { status: 409 });
+    }
   }
   // The checks and the update live in lib/recordPatch.ts (shared with approved changes, LCI phase 4).
   const out = await applyResourcePatch(params.id, body, { role: user?.role ?? null, name: user?.name ?? null, id: user?.id ?? null, source: coordinator ? "Hire edit (coordinator)" : "Resource edit" });
