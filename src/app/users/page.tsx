@@ -8,6 +8,7 @@ import { isOwner } from "@/lib/owner";
 import { apiFetch } from "@/lib/apiFetch";
 import { OWNER_ONLY_ROLES, ownerGuardsAccount, type Role } from "@/lib/roles";
 import { isPairedLogin } from "@/lib/samePerson";
+import { EMAIL_CHANGE_NOTICE, LOGIN_EMAIL_DOMAIN, mayChangeEmail } from "@/lib/userEmail";
 
 interface UserRow {
   id: string;
@@ -232,8 +233,73 @@ export default function UsersPage() {
           }
           onSave={save}
           onClose={() => setEditing(null)}
+          extra={!isNew && mayChangeEmail(me?.email, editing as UserRow) ? (
+            <ChangeEmail user={editing as UserRow} onChanged={async () => { setEditing(null); await load(); }} />
+          ) : undefined}
         />
       )}
     </PageShell>
+  );
+}
+
+// The owner's "Change email" (Ilies, 27 Nov 2026) - its own save, apart from the form above. The server's rules
+// (lib/userEmail.ts) decide; its error text is shown as it comes.
+function ChangeEmail({ user, onChanged }: { user: UserRow; onChanged: () => Promise<void> }) {
+  const [open, setOpen] = useState(false);
+  const [email, setEmail] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function change() {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/users/${user.id}/email`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j.error || "Couldn't change the email");
+      await onChanged();
+    } catch (e) {
+      setError((e as Error).message);
+      setBusy(false);
+    }
+  }
+
+  if (!open) {
+    return (
+      <div className="mt-4 border-t border-edge pt-3">
+        <button type="button" onClick={() => setOpen(true)} className="rounded-md border border-edge px-3 py-1.5 text-xs text-gray-300 hover:bg-panel2">
+          Change email
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div className="mt-4 space-y-2 border-t border-edge pt-3">
+      <div className="text-[11px] font-medium uppercase tracking-wide text-gray-500">Change email</div>
+      <div className="text-xs text-gray-400">Now: {user.email}</div>
+      <input
+        type="email"
+        value={email}
+        autoFocus
+        placeholder={`name${LOGIN_EMAIL_DOMAIN}`}
+        onChange={(e) => setEmail(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Enter" && email.trim() && !busy) change(); }}
+        className="w-full rounded-md border border-edge bg-panel2 px-3 py-2 text-sm text-gray-100 outline-none focus:border-brand-500"
+      />
+      <p className="text-xs text-amber-300">{EMAIL_CHANGE_NOTICE}</p>
+      {error && <div className="rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs text-red-400">{error}</div>}
+      <div className="flex gap-2">
+        <button type="button" onClick={change} disabled={busy || !email.trim()} className="rounded-md bg-brand-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-500 disabled:opacity-50">
+          {busy ? "Changing..." : "Change email"}
+        </button>
+        <button type="button" onClick={() => { setOpen(false); setEmail(""); setError(null); }} className="rounded-md px-3 py-1.5 text-xs text-gray-400 hover:bg-panel2">
+          Cancel
+        </button>
+      </div>
+    </div>
   );
 }

@@ -106,6 +106,15 @@ business, without becoming unnecessarily complicated.
   `guardOrYard()` / `guardTools()` only, home `/yard`, pages `/yard/*` + the Tools pages; never money,
   never director access. Only the owner creates, renames, resets, switches off or re-roles a YARD (or
   COORDINATOR / DIRECTOR) login (YD-009). Its login is yard@loboscontracting.com.au (Ilies, 5 Nov 2026; was iliesa+yard@).
+  **Change email** (27 Nov 2026, Ilies: "Add 'change email' to Users" - he changes the yard login to yard@ himself, and
+  it works for any login later): **owner only** - a "Change email" panel in the Users page's edit box, `POST
+  /api/users/:id/email`, rules in `src/lib/userEmail.ts`; every other Admin gets 403, and PATCH refuses an email change.
+  Trimmed + lower-cased, a plain email ending `@loboscontracting.com.au` (Cloudflare Access lets nothing else in),
+  unique ignoring case; never the owner's own login or the Building Agent's (both known by email: `isOwner()`,
+  `BUILDING_AGENT_EMAIL`), never TO either address. Bumps `sessionVersion` (signed out everywhere) and writes a
+  `UserEvent` `{ email: [before, after] }`, together. Ids don't change, so SAME_PERSON, FORMER_ADMIN_IDS, push
+  subscriptions and maker-checker are unaffected; Estimating's tender routing lists that name a login by email
+  (`x-lobos-user-email`) would need the new address. Release check `112-user-email`.
   **Yard** (live 4 Nov 2026 ~21:12, `src/lib/yard/`, `src/lib/stockTake/`, `src/lib/inventory/`):
   (A) yard jobs - supervisors send TOOLS / MATERIALS / DELIVERY requests "Send to: Yard", Admins send /
   pull back; the yard (shared Yard site link or the YARD login) marks Ready with a required photo and a

@@ -9,7 +9,7 @@ import { isPairedLogin, normName, sameUser, userNameProblem } from "@/lib/samePe
 import { saveUserEdit } from "@/lib/userEdit";
 import { RESERVED_NAME_ERROR, isReservedUserName } from "@/lib/infoRequests/rules";
 
-// PATCH /api/users/:id { name?, role?, active?, password? } (admin only)
+// PATCH /api/users/:id { name?, role?, active?, password? } (admin only; the email is changed by ./email)
 // Safety rules: you can't demote or deactivate yourself, the last active admin
 // can't be removed, and only the owner (lib/owner.ts) can change the owner's account.
 export const PATCH = withErrorHandling(async (
@@ -49,6 +49,13 @@ export const PATCH = withErrorHandling(async (
     if (isFormerAdmin(target.id, history.map((h) => h.changes))) { // IND-025: + the logins known to predate the log
       return NextResponse.json({ error: "Only Iliesa can change the password, name or on/off switch of a former Admin login." }, { status: 403 });
     }
+  }
+
+  // 27 Nov 2026: a login's email changes only through POST /api/users/:id/email (the owner's "Change email") - never here.
+  if (typeof body.email === "string" && body.email.trim().toLowerCase() !== target.email.toLowerCase()) {
+    return isOwner(me?.email)
+      ? NextResponse.json({ error: "Use Change email to change a login's email." }, { status: 400 })
+      : NextResponse.json({ error: "Only Iliesa can change a login's email." }, { status: 403 });
   }
 
   const data: Record<string, unknown> = {};
