@@ -118,7 +118,7 @@ export async function receiptOptions(link: ReceiptLink): Promise<ReceiptOptionsD
 
 // ---------- photos ----------
 
-// TL-001 (Ilies approved 27 Nov 2026): the day's cap is counted again inside the locked save (lib/uploadCaps.ts), and at
+// TL-001 (Ilies approved 27 Nov 2026): the day's cap is counted again just before the save, one save at a time per link (lib/uploadCaps.ts), and at
 // most 3 uploads per link are in progress at once - parallel taps can't go past the cap.
 export async function uploadReceiptPhoto(link: { id: string; person: { name: string } }, dataUrl: unknown): Promise<{ id: string } | Problem> {
   const capMessage = "That's the most photos this link can send in a day - call the office.";

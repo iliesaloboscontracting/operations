@@ -77,7 +77,7 @@ export async function tipperOptions(link: BinLink): Promise<TipperLinkOptionsDTO
 }
 
 // One load photo from a driver's link (stored like a receipt / bin photo - same type, size and first-bytes checks).
-// TL-001 (Ilies approved 27 Nov 2026): the day's cap is counted again inside the locked save (lib/uploadCaps.ts), and at
+// TL-001 (Ilies approved 27 Nov 2026): the day's cap is counted again just before the save, one save at a time per link (lib/uploadCaps.ts), and at
 // most 3 uploads per link are in progress at once. TL-002: the photo's sha256 is kept, so the office sees a photo reused.
 export async function uploadTipperPhoto(link: { id: string; person: { name: string } }, dataUrl: unknown): Promise<{ id: string } | Problem> {
   const capMessage = "That's the most load photos this link can send in a day - call the office.";

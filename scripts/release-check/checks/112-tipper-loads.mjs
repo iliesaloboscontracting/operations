@@ -256,7 +256,7 @@ export default {
       try { res = JSON.parse(out.split("\n").find((l) => l.startsWith("RESULT "))?.slice(7) ?? "null"); } catch { /* checked below */ }
       t.ok(!!res && res.a >= 1, "a client's load alert reached a coordinator phone (through the stub push host)", res ? JSON.stringify({ a: res.a }) : out.slice(0, 200));
       const coordPhones = new Set((await db.pushDevice.findMany({ where: { user: { role: "COORDINATOR", active: true } }, select: { endpoint: true } })).map((x) => { try { const u = new URL(x.endpoint); return `${u.hostname}${u.pathname}`; } catch { return ""; } }));
-      const toCoord = (res?.seen ?? []).filter((s) => s.path === new URL(coEp).pathname);
+      const toCoord = (res?.seen ?? []).slice(0, res?.afterClient ?? 0).filter((s) => s.path === new URL(coEp).pathname);
       t.ok(toCoord.length === 1 && (res?.seen ?? []).every((s) => coordPhones.has(`${s.host}${s.path}`)), "...to coordinator phones only (this check's coordinator once)");
       let payload = null;
       try {
@@ -279,7 +279,7 @@ export default {
 
 
     // (10b) The security follow-ups (Ilies approved TL-001..TL-005, 27 Nov 2026).
-    // TL-001: the day's caps are re-counted inside the locked save, and at most 3 uploads per link are in progress - 60
+    // TL-001: the day's caps are re-counted just before the save, one at a time per link, and at most 3 uploads per link are in progress - 60
     // parallel uploads from one link store at most the cap (photos, loads, and the receipts path too).
     const D3 = await mk("RC Tip driver F", { category: "Truck Driver" });
     const capLink = await makeLink(db, "DRIVER", D3.id);

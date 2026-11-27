@@ -884,7 +884,7 @@ business, without becoming unnecessarily complicated.
     per-job tag, opens `/bins?tab=tipper`). Caps: 40 loads and 40 load photos a link a day. Kill switches
     `TIPPER_LOADS=off` (link side, 503), `TIPPER_ALERTS=off` or `BIN_ALERTS=off` (alert). Release check `112-tipper-loads`.
   - Security fixes (Ilies approved TL-001..TL-005, TL-007, 27 Nov 2026): the daily photo / load caps of tipper loads,
-    bins and receipt photos are re-counted inside one locked save, and at most 3 uploads per link are in progress
+    bins and receipt photos are re-counted just before the save, one save at a time per link (bin moves and loads under the write lock), and at most 3 uploads per link are in progress
     (`lib/uploadCaps.ts`); a tipper load photo keeps its `sha256` and the office row flags "Same photo as the load of
     <date> / <tipper>" (never refused); the Building Agent login (Operations AI) reads Bins and tipper loads but gets 403
     on every bins / tipper-load write (`refuseAgent` in `lib/bins/store.ts`, Ilies: "Block it"); no amount in a cancel /

@@ -110,7 +110,7 @@ export async function binOptions(link: BinLink): Promise<BinLinkOptionsDTO> {
 }
 
 // One bin photo from a link (stored like a receipt photo - same type, size and first-bytes checks). TL-001 (Ilies
-// approved 27 Nov 2026): the day's cap is counted again inside the locked save, at most 3 in progress per link.
+// approved 27 Nov 2026): the day's cap is counted again just before the save, one save at a time per link, at most 3 in progress per link.
 export async function uploadBinPhoto(link: { id: string; person: { name: string } }, dataUrl: unknown): Promise<{ id: string } | Problem> {
   const capMessage = "That's the most bin photos this link can send in a day - call the office.";
   const sent = await prisma.binPhoto.count({ where: { siteLinkId: link.id, createdAt: { gte: since24h() } } });
