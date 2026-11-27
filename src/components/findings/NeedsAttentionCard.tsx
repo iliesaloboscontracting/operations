@@ -12,6 +12,7 @@ import { AlertTriangle, ChevronDown, ChevronRight, X } from "lucide-react";
 import { apiFetch, serverErrorMessage } from "@/lib/apiFetch";
 import { useAutoRefresh } from "@/lib/useAutoRefresh";
 import type { CardDTO, CardEntry, CardLine } from "@/lib/findings/card";
+import { useBoardSection, type SectionSummary } from "../board/BoardSummary";
 
 const KEY = "lobos-needs-attention-card"; // "closed" = folded on this computer (a convenience only)
 const DOT: Record<CardLine["severity"], string> = { CRITICAL: "bg-red-500", HIGH: "bg-orange-400", MEDIUM: "bg-amber-300", INFO: "bg-gray-500" };
@@ -30,20 +31,27 @@ export default function NeedsAttentionCard({ variant }: { variant: "board" | "co
   }, []);
   useEffect(load, [load]);
   useAutoRefresh(load);
-  if (!data || (data.top.length === 0 && data.dataGaps.length === 0)) return null;
-  const toggle = () => { const next = !open; setOpen(next); try { localStorage.setItem(KEY, next ? "open" : "closed"); } catch { /* fine */ } };
+  const hasAny = !!data && (data.top.length > 0 || data.dataGaps.length > 0);
+  // On the board's slim summary row (laptop windows, 27 Nov 2026) - urgent stays red there, never hidden.
+  const section = useBoardSection("attention", variant === "board" && hasAny && data ? attentionSummary(data) : null);
+  if (!data || !hasAny) return null;
+  const ownToggle = () => { const next = !open; setOpen(next); try { localStorage.setItem(KEY, next ? "open" : "closed"); } catch { /* fine */ } };
+  // Opened from the summary row: the whole card shows, and its header folds it back into the row.
+  const boardRow = variant === "board" && !!section?.compact;
+  const toggle = boardRow ? section!.collapse : ownToggle;
+  const shown = boardRow ? true : open;
   const moreCount = data.more.reduce((n, e) => n + (e.kind === "GROUP" ? e.items.length : 1), 0);
   const title = variant === "coordinator" ? "For you" : "Needs attention";
   return (
     <section className={`rounded-xl border border-edge bg-panel px-3 py-2 ${variant === "coordinator" ? "shadow-soft" : ""}`} data-testid="needs-attention" aria-label={title}>
-      <button onClick={toggle} className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 text-left text-sm" aria-expanded={open}>
-        {open ? <ChevronDown size={14} className="text-gray-500" /> : <ChevronRight size={14} className="text-gray-500" />}
+      <button onClick={toggle} className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 text-left text-sm" aria-expanded={shown}>
+        {shown ? <ChevronDown size={14} className="text-gray-500" /> : <ChevronRight size={14} className="text-gray-500" />}
         <span className="flex items-center gap-1.5 font-semibold text-gray-100"><AlertTriangle size={15} /> {title}</span>
         {data.counts.urgent > 0 && <span className="font-semibold text-red-300">{data.counts.urgent} urgent</span>}
         {data.counts.toDo > 0 && <span className="text-amber-300">{data.counts.toDo} to do</span>}
         {data.counts.urgent + data.counts.toDo === 0 && <span className="text-gray-400">Nothing urgent</span>}
       </button>
-      {open && (
+      {shown && (
         <div className="mt-2 max-h-72 space-y-1 overflow-y-auto pl-5">
           {data.top.map((e) => <Entry key={e.kind === "ONE" ? e.line.id : e.rule} e={e} onDone={load} max={data.snoozeMaxDays} />)}
           {(moreCount > 0 || data.dataGaps.length > 0) && (
@@ -69,6 +77,14 @@ export default function NeedsAttentionCard({ variant }: { variant: "board" | "co
       )}
     </section>
   );
+}
+
+function attentionSummary(data: CardDTO): SectionSummary {
+  const parts: SectionSummary["parts"] = [];
+  if (data.counts.urgent > 0) parts.push({ text: `${data.counts.urgent} urgent`, tone: "red" });
+  if (data.counts.toDo > 0) parts.push({ text: `${data.counts.toDo} to do`, tone: "amber" });
+  if (!parts.length) parts.push({ text: "nothing urgent", tone: "muted" });
+  return { label: "Needs attention", parts };
 }
 
 function DataGaps({ lines, onDone, max }: { lines: CardLine[]; onDone: () => void; max: number }) {
