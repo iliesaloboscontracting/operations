@@ -174,7 +174,9 @@ business, without becoming unnecessarily complicated.
   cleaned, shown as data. From site shows the photo, what it shows and likely tools (plain code: tag, serial, model,
   name); a person picks the tool (or adds it with Register by photo) and Log fault links it - nothing automatic.
   The Tools page shows Managers / Admins the supervisors with no tools in any toolbox (`/api/tools/supervisor-gaps`,
-  guard MANAGER - coordinator / yard unchanged). Release check `112-fault-any-tool`.
+  guard MANAGER - coordinator / yard unchanged). Release check `112-fault-any-tool`. FT-001 (Ilies approved
+  27 Nov 2026): since every supervisor link sees tool ids, a check's "This is mine" (CHECK_ACTION MINE) moves a tool
+  only if that link's own check of that toolbox found it as from another box (`seenAsForeign`), never a retired one.
   Photos live outside the app in
   `TOOL_PHOTO_DIR` (`C:\Users\ilies\Documents\operations-tool-photos`) — not
   yet in the nightly backup. Supervisors send photos from site through a
