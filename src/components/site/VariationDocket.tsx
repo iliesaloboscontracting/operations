@@ -6,7 +6,7 @@ import MediaUpload from "./MediaUpload";
 import SignaturePad from "./SignaturePad";
 import { serverErrorMessage } from "@/lib/apiFetch";
 import { mediaIdOf } from "@/lib/media/rules";
-import { LIMITS, TICKS, UNITS, docketNo, hoursText, spanHours, taskHours, tickLabel, unitLabel, type LinkDocketDTO, type LinkViewDTO } from "@/lib/variations/rules";
+import { LIMITS, LOADS, MATERIAL_SUGGESTIONS, TICKS, UNITS, docketNo, hoursText, itemQty, spanHours, taskHours, tickLabel, type LinkDocketDTO, type LinkViewDTO } from "@/lib/variations/rules";
 
 // The Variation / Day docket on a supervisor's phone (Ilies, 25 Nov 2026) - his paper docket, top to bottom: the job
 // (project details filled in), the ticks, the variation works (hours worked out from the times and men - and editable),
@@ -90,7 +90,7 @@ function SentCard({ d }: { d: LinkDocketDTO }) {
             <p key={`t${t.n}`}><span className="text-gray-500">Task {t.n}:</span> {t.description}{t.men ? ` · ${t.men} men` : ""}{t.start ? ` · ${t.start}-${t.finish}` : ""}{t.hours != null ? ` · ${hoursText(t.hours)}` : ""}</p>
           ))}
           {d.items.map((x) => (
-            <p key={`i${x.n}`}><span className="text-gray-500">Item:</span> {x.quantity != null ? `${x.quantity} ${unitLabel(x.unit)} ` : ""}{x.type}{x.comment ? ` - ${x.comment}` : ""}</p>
+            <p key={`i${x.n}`}><span className="text-gray-500">Item:</span> {x.quantity != null ? `${itemQty(x.quantity, x.unit)} ` : ""}{x.type}{x.comment ? ` - ${x.comment}` : ""}</p>
           ))}
           {d.photos > 0 && <p className="text-gray-500">{d.photos} photo{d.photos === 1 ? "" : "s"}</p>}
         </div>
@@ -123,16 +123,18 @@ function DocketForm({ api, view, onCancel, onSent }: { api: string; view: LinkVi
   const hoursOf = (t: Task) => (t.edited ? (t.hours === "" ? null : Number(t.hours)) : calcOf(t));
   const filledTasks = tasks.filter((t) => t.description.trim() || t.start || t.finish || t.men);
   const filledItems = items.filter((x) => x.type.trim() || x.quantity || x.comment.trim());
+  const loads = view.itemMode === "LOADS";
   const sameJob = useMemo(() => view.sent.filter((d) => job && d.project === job.projectName), [view.sent, job]);
 
   // What still stops Send - in the order the screen asks for it.
   const missing = !job ? "Pick the job."
     : !ticks.length ? "Tick what the docket is for."
     : ticks.includes("OTHER") && otherText.trim().length < 2 ? "Say what \"Other\" is."
-    : !filledTasks.length && !filledItems.length ? "Add a task, or the equipment / materials used."
+    : !filledTasks.length && !filledItems.length ? (loads ? "Add a task, or the loads taken away." : "Add a task, or the equipment / materials used.")
     : filledTasks.some((t) => t.description.trim().length < 2) ? "Describe the work on each task."
     : filledTasks.some((t) => (!!t.start) !== (!!t.finish)) ? "Put both the start and the finish on each task (or neither)."
-    : filledItems.some((x) => !x.type.trim()) ? "Say what each equipment / materials row is."
+    : loads && filledItems.some((x) => !/^[1-9][0-9]*$/.test(x.quantity)) ? "Say how many loads on each load row."
+    : filledItems.some((x) => !x.type.trim()) ? (loads ? "Say the material type on each load row." : "Say what each equipment / materials row is.")
     : uploading ? "Wait for the photos to finish sending."
     : customerName.trim().length < 2 ? "The client's name."
     : !customerSig ? "The client needs to sign."
@@ -233,6 +235,30 @@ function DocketForm({ api, view, onCancel, onSent }: { api: string; view: LinkVi
         {tasks.length < view.limits.tasks && <button type="button" className={`${secondary} mt-3`} onClick={() => setTasks((ts) => [...ts, blankTask()])}><Plus size={18} /> Another task</button>}
       </section>
 
+      {view.itemMode === "LOADS" ? (
+      <section className={card}>
+        <h2 className={h2}>4. Loads</h2>
+        <p className="mb-2 text-xs text-gray-500">How many loads, and what the material is.</p>
+        <datalist id="variation-materials">{MATERIAL_SUGGESTIONS.map((m) => <option key={m} value={m} />)}</datalist>
+        <div className="space-y-3">
+          {items.map((x, i) => (
+            <div key={x.key} className="rounded-xl border border-edge/70 bg-panel2/40 p-3">
+              <div className="mb-2 flex items-center justify-between">
+                <span className="text-sm font-semibold text-gray-200">Load row {i + 1}</span>
+                <button type="button" className="rounded-lg p-2 text-gray-400 active:bg-panel2" aria-label={`Remove load row ${i + 1}`} onClick={() => setItems((xs) => xs.filter((y) => y.key !== x.key))}><X size={18} /></button>
+              </div>
+              <label className="block"><span className="mb-1 block text-xs text-gray-400">How many loads</span>
+                <input className={input} inputMode="numeric" placeholder="e.g. 1" value={x.quantity} onChange={(e) => setItem(x.key, { quantity: e.target.value.replace(/[^0-9]/g, "").slice(0, 3), unit: LOADS })} /></label>
+              <label className="mt-2 block"><span className="mb-1 block text-xs text-gray-400">Material type</span>
+                <input className={input} list="variation-materials" maxLength={LIMITS.type} placeholder="e.g. mixed waste" value={x.type} onChange={(e) => setItem(x.key, { type: e.target.value, unit: LOADS })} /></label>
+              <input className={`${input} mt-2`} maxLength={LIMITS.comment} placeholder="Comments (optional)" value={x.comment} onChange={(e) => setItem(x.key, { comment: e.target.value })} />
+            </div>
+          ))}
+        </div>
+        {items.length < view.limits.items && <button type="button" className={`${secondary} mt-3`} onClick={() => setItems((xs) => [...xs, { ...blankItem(), unit: LOADS }])}><Plus size={18} /> Add a load row</button>}
+      </section>
+      ) : (
+      // The old quantity + unit rows - switched off 28 Nov 2026 (VARIATION_ITEMS=detailed brings them back).
       <section className={card}>
         <h2 className={h2}>4. Equipment / tools / materials / waste</h2>
         <p className="mb-2 text-xs text-gray-500">Quantity (or total m³), what it is, and any comments.</p>
@@ -256,6 +282,7 @@ function DocketForm({ api, view, onCancel, onSent }: { api: string; view: LinkVi
         </div>
         {items.length < view.limits.items && <button type="button" className={`${secondary} mt-3`} onClick={() => setItems((xs) => [...xs, blankItem()])}><Plus size={18} /> Add a row</button>}
       </section>
+      )}
 
       <section className={card}>
         <h2 className={h2}>5. Photos and a note (optional)</h2>

@@ -118,7 +118,7 @@ export default {
       const base = (x = {}) => ({
         jobId: J.id, ticks: ["VARIATION", "RUBBISH"], otherText: "",
         tasks: [{ description: `RC extra partition wall ${tag}`, men: 3, start: "07:00", finish: "10:30" }, { description: "RC night cut", men: 2, start: "22:00", finish: "01:00", hours: 5 }],
-        items: [{ quantity: 6, unit: "M3", type: "Mixed waste", comment: "two skips" }],
+        items: [{ quantity: 2, unit: "LOADS", type: "Mixed waste", comment: "two skips" }], // loads (28 Nov 2026)
         note: "", photoIds: [], customerName: "Sam Client", customerPosition: "Site manager", customerSignature: PNG, lobosPosition: "Supervisor", lobosSignature: CHROME_PNG, ...x,
       });
 
@@ -139,6 +139,7 @@ export default {
       t.ok(vj?.projectName === P.name && vj?.jobNo === "26_999" && vj?.address === "1 Test St Wolli Creek" && vj?.day === c.today, "the project details are filled in", JSON.stringify(vj));
       t.ok(!!vj?.client && !vj.client.includes("$") && vj.client.includes("RC Client"), "a $ in the client's name never reaches the phone", vj?.client);
       t.ok(v?.lobosName === S.name, "Lobos sign-off is the link's person");
+      t.ok(v?.itemMode === "LOADS", "28 Nov 2026: the phone gets the loads rows (How many loads + Material type)", v?.itemMode);
       const hv = (await call("GET", L.handover, "/variation")).body;
       t.ok(hv?.jobs?.length === 1 && hv.jobs[0].id === J.id && hv.lobosName === H.name, "the hand-over link sees only its own job");
 
@@ -154,7 +155,10 @@ export default {
         ["HTML as the Lobos signature", base({ lobosSignature: HTML_AS_PNG }), 400],
         ["a $ figure in a task", base({ tasks: [{ description: "Extra wall $450", men: 1 }] }), 400],
         ["a money phrase in the note", base({ note: "client agreed 1200 dollars" }), 400],
-        ["a $ figure in an item", base({ items: [{ type: "Skip $380", unit: "EACH" }] }), 400],
+        ["a $ figure in an item", base({ items: [{ quantity: 1, type: "Skip $380" }] }), 400],
+        ["loads: a part load (2.5)", base({ items: [{ quantity: 2.5, type: "Mixed waste" }] }), 400],
+        ["loads: no number of loads", base({ items: [{ type: "Mixed waste" }] }), 400],
+        ["loads: no material type", base({ items: [{ quantity: 1, type: "" }] }), 400],
         ["a bad time", base({ tasks: [{ description: "Extra wall", start: "7am", finish: "9am" }] }), 400],
         ["no ticks", base({ ticks: [] }), 400],
         ["another supervisor's job", base({ jobId: J2.id }), 403],
@@ -172,7 +176,7 @@ export default {
       const d1 = await db.variationDocket.findFirst({ where: { id: r1.body?.docket?.id ?? "-" }, include: { tasks: { orderBy: { n: "asc" } }, items: true, signatures: true } });
       t.ok(d1 && d1.jobId === J.id && d1.projectId === P.id && d1.linkKind === "SUPERVISOR" && d1.resourceId === S.id && d1.lobosName === S.name && d1.client === P.client, "saved with the job, project details, link kind and person");
       t.ok(d1?.tasks?.[0]?.hoursCalc === 10.5 && d1.tasks[0].hours === 10.5 && d1.tasks[1].hoursCalc === 6 && d1.tasks[1].hours === 5, "hours: 3 men x 3.5 h = 10.5; past midnight 2 x 3 = 6, the typed 5 kept beside it", JSON.stringify(d1?.tasks?.map((x) => [x.hours, x.hoursCalc])));
-      t.ok(d1?.items?.length === 1 && d1.items[0].unit === "M3" && d1.items[0].quantity === 6, "the item row");
+      t.ok(d1?.items?.length === 1 && d1.items[0].unit === "LOADS" && d1.items[0].quantity === 2 && d1.items[0].type === "Mixed waste", "the load row: 2 loads of mixed waste", JSON.stringify(d1?.items?.map((x) => [x.quantity, x.unit, x.type])));
       const sig = d1?.signatures ?? [];
       t.ok(sig.length === 2 && sig.every((s) => Buffer.from(s.png).subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) && sig.map((s) => s.role).sort().join() === "CUSTOMER,LOBOS", "both signatures stored as real PNGs");
       const rh = await send(L.handover, base());

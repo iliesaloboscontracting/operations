@@ -10,7 +10,7 @@ import Link from "next/link";
 import { Printer } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
 import { apiFetch, serverErrorMessage } from "@/lib/apiFetch";
-import { LOBOS, STATUSES, STATUS_LABEL, TICKS, hoursText, totalHours, unitLabel, type OfficeDetailDTO, type Status } from "@/lib/variations/rules";
+import { LOBOS, STATUSES, STATUS_LABEL, TICKS, hoursText, itemQty, totalHours, type OfficeDetailDTO, type Status } from "@/lib/variations/rules";
 import { STATUS_TONE } from "@/components/variations/statusTone";
 
 const PRINT = `
@@ -116,12 +116,12 @@ export default function VariationDocketPage({ params: paramsP }: { params: Promi
           </section>
 
           <section className="vd-block mb-4">
-            <h2 className="mb-1 text-xs font-bold uppercase tracking-wide text-gray-700">Equipment / tool / materials used / waste removal</h2>
+            <h2 className="mb-1 text-xs font-bold uppercase tracking-wide text-gray-700">Loads / equipment / materials / waste removal</h2>
             <table className="w-full border-collapse">
-              <thead><tr><th className={`${th} w-32`}>Quantity / total m³</th><th className={th}>Type</th><th className={th}>Comments</th></tr></thead>
+              <thead><tr><th className={`${th} w-32`}>Loads / quantity</th><th className={th}>Material / type</th><th className={th}>Comments</th></tr></thead>
               <tbody>
                 {d.itemRows.length === 0 ? <tr><td className={td} colSpan={3}>&nbsp;</td></tr> : d.itemRows.map((x) => (
-                  <tr key={x.n}><td className={td}>{x.quantity != null ? `${x.quantity} ${unitLabel(x.unit)}` : ""}</td><td className={td}>{x.type}</td><td className={td}>{x.comment ?? ""}</td></tr>
+                  <tr key={x.n}><td className={td}>{itemQty(x.quantity, x.unit)}</td><td className={td}>{x.type}</td><td className={td}>{x.comment ?? ""}</td></tr>
                 ))}
               </tbody>
             </table>

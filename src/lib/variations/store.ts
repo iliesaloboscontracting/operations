@@ -18,7 +18,7 @@ import { Prisma } from "@prisma/client";
 import { BUILDING_AGENT_EMAIL } from "../session";
 import {
   AGENT_NO_STATUS, LIMITS, STATUS_LABEL, alertRecipients, allocateNumber, currentStatus, docketNo, isAgentEmail, isStatus, linkMayFill, mayReadVariations, parseDocket,
-  replaceRefusal, signedAlert, statusChange, totalHours, variationsOn, type LinkDocketDTO, type LinkJobDTO, type LinkViewDTO, type OfficeDetailDTO, type OfficeRowDTO, type Status,
+  replaceRefusal, signedAlert, statusChange, totalHours, variationItemMode, variationsOn, type LinkDocketDTO, type LinkJobDTO, type LinkViewDTO, type OfficeDetailDTO, type OfficeRowDTO, type Status,
 } from "./rules";
 import { IDENTICAL_SIGNATURES, identicalSignatures, parseSignature } from "./signature";
 
@@ -116,6 +116,7 @@ export async function linkView(link: ResolvedLink, now = new Date()): Promise<Li
     on: true, jobs: jobs.map(linkJob), lobosName: link.person.name, sent, sentToday, perDay: LIMITS.perLinkDay,
     media: mediaOn() ? { on: true, kinds: ["PHOTO"], photoMaxBytes: MEDIA_LIMITS.photoMaxBytes } : { on: false },
     limits: { tasks: LIMITS.tasks, items: LIMITS.items, photos: LIMITS.photos },
+    itemMode: variationItemMode(),
   };
 }
 

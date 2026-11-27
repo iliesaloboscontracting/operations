@@ -2,6 +2,8 @@
 // signature bytes, the docket number (also with several phones at once), the role walls, that a sent docket has no
 // update / delete path, and that the phone alert goes to the coordinator and the owner only with no money. `npm test`.
 import { test } from "node:test";
+// These are the DETAILED rows' tests (quantity + unit) - switched off 28 Nov 2026 but kept; loads.test.ts covers loads.
+process.env.VARIATION_ITEMS = "detailed";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";

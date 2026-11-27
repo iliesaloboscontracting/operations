@@ -12,6 +12,7 @@
 // - Hours are a record only - never sign-ins, timesheets, JobActual, allocations or costs.
 import { assertNoMoney } from "../moneyGuard";
 import { linkLabel, stripMoney } from "../dailyLog/money";
+import { WASTE_CLASSES } from "../activityCodes";
 
 // Kill switch: VARIATION_DOCKETS=off turns off the link side (the tile, the link routes and their photo uploads - 503)
 // and the phone alerts. The office still reads, prints and prices the dockets already sent (/variations and
@@ -38,13 +39,28 @@ export const UNITS = [
   { key: "HRS", label: "hrs" },
   { key: "OTHER", label: "other" },
 ] as const;
-export type Unit = (typeof UNITS)[number]["key"];
-export const unitLabel = (k: string) => UNITS.find((u) => u.key === k)?.label ?? k;
+export type Unit = (typeof UNITS)[number]["key"] | typeof LOADS;
+
+// Loads (Ilies, 28 Nov 2026: "lets actually change the quanitity estimated to just loads.. eg: how many loads 1, what
+// is the material type: mixed waste" - and "dont delete the current code. just switcht the current set up off. i think
+// in the future we may go back to that when the pricing is right"). Each row is now "How many loads" + "Material type"
+// (unit LOADS). The old quantity + unit rows (m³ / each / hrs / other) are still here, switched off:
+// VARIATION_ITEMS=detailed in .env brings them back on the phone (and the server accepts them again). Dockets already
+// sent keep whatever they were sent with, and show it.
+export const LOADS = "LOADS";
+export type ItemMode = "LOADS" | "DETAILED";
+export const variationItemMode = (env: Record<string, string | undefined> = process.env): ItemMode =>
+  (env.VARIATION_ITEMS ?? "").trim().toLowerCase() === "detailed" ? "DETAILED" : "LOADS";
+// Suggestions only - the supervisor can type any material.
+export const MATERIAL_SUGGESTIONS: readonly string[] = ["Mixed waste", ...WASTE_CLASSES];
+export const unitLabel = (k: string, q?: number | null) => (k === LOADS ? (q === 1 ? "load" : "loads") : UNITS.find((u) => u.key === k)?.label ?? k);
+// "1 load", "3 loads", "2.5 m³" - one place for the phone and the office.
+export const itemQty = (quantity: number | null, unit: string) => (quantity != null ? `${quantity} ${unitLabel(unit, quantity)}` : "");
 
 export const LIMITS = {
   tasks: 20, items: 30, photos: 10,
   description: 500, type: 80, comment: 200, name: 80, position: 60, otherText: 80, note: 1000,
-  men: 50, quantity: 100_000,
+  men: 50, quantity: 100_000, loads: 500,
   signatureBytes: 200 * 1024, // a finger signature PNG is a few KB; 200 KB is plenty
   signatureSide: 4000, // px, either way
   perLinkDay: 30, // dockets one link can send in a Sydney day
@@ -141,7 +157,7 @@ type Err = { error: string };
 
 // The whole docket from the phone, checked: lengths, times, row counts, no amounts anywhere. Whether the job, the
 // photos and the docket it replaces are real (and this link's) is the store's job; the signatures' bytes ./signature.ts.
-export function parseDocket(b: Record<string, unknown>): DocketInput | Err {
+export function parseDocket(b: Record<string, unknown>, mode: ItemMode = variationItemMode()): DocketInput | Err {
   const jobId = typeof b.jobId === "string" && ID.test(b.jobId) ? b.jobId : null;
   if (!jobId) return { error: "Which job is it for?" };
   const rawTicks = Array.isArray(b.ticks) ? b.ticks : [];
@@ -176,10 +192,22 @@ export function parseDocket(b: Record<string, unknown>): DocketInput | Err {
   }
 
   const rawItems = Array.isArray(b.items) ? b.items : [];
-  if (rawItems.length > LIMITS.items) return { error: `At most ${LIMITS.items} equipment / materials rows.` };
+  if (rawItems.length > LIMITS.items) return { error: mode === "LOADS" ? `At most ${LIMITS.items} load rows.` : `At most ${LIMITS.items} equipment / materials rows.` };
   const items: ItemInput[] = [];
   for (const [i, x] of rawItems.entries()) {
     const t = x && typeof x === "object" ? (x as Record<string, unknown>) : {};
+    if (mode === "LOADS") {
+      const row = `Load row ${i + 1}`;
+      const type = line(t.type, LIMITS.type + 1);
+      if (type.length < 1) return { error: `${row}: say what the material is (e.g. mixed waste).` };
+      if (type.length > LIMITS.type) return { error: `${row}: the material at most ${LIMITS.type} characters.` };
+      const q = num(t.quantity);
+      if (q === null || !Number.isInteger(q) || q < 1 || q > LIMITS.loads) return { error: `${row}: how many loads - a whole number from 1 to ${LIMITS.loads}.` };
+      const comment = line(t.comment, LIMITS.comment + 1);
+      if (comment.length > LIMITS.comment) return { error: `${row}: comments at most ${LIMITS.comment} characters.` };
+      items.push({ n: i + 1, quantity: q, unit: LOADS, type, comment: comment || null });
+      continue;
+    }
     const row = `Equipment / materials row ${i + 1}`;
     const type = line(t.type, LIMITS.type + 1);
     if (type.length < 1) return { error: `${row}: say what it is.` };
@@ -193,7 +221,7 @@ export function parseDocket(b: Record<string, unknown>): DocketInput | Err {
     if (comment.length > LIMITS.comment) return { error: `${row}: comments at most ${LIMITS.comment} characters.` };
     items.push({ n: i + 1, quantity: q === null ? null : r2(q), unit, type, comment: comment || null });
   }
-  if (!tasks.length && !items.length) return { error: "Add a task, or the equipment / materials used." };
+  if (!tasks.length && !items.length) return { error: mode === "LOADS" ? "Add a task, or the loads taken away." : "Add a task, or the equipment / materials used." };
 
   const note = lines(b.note, LIMITS.note + 1);
   if (note.length > LIMITS.note) return { error: `The note - at most ${LIMITS.note} characters.` };
@@ -314,6 +342,7 @@ export type LinkViewDTO = {
   on: boolean; jobs: LinkJobDTO[]; lobosName: string; sent: LinkDocketDTO[]; sentToday: number; perDay: number;
   media: { on: true; kinds: readonly string[]; photoMaxBytes: number } | { on: false };
   limits: { tasks: number; items: number; photos: number };
+  itemMode: ItemMode; // LOADS = "How many loads" + "Material type" (28 Nov 2026); DETAILED = the old quantity + unit rows
 };
 // The money guard for everything a link gets back - no dollar figure anywhere in it.
 export const linkSafe = (x: unknown) => assertNoMoney(JSON.stringify(x));
