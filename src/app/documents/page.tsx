@@ -1,33 +1,98 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { ExternalLink, Loader2, RefreshCw, Search } from "lucide-react";
 import PageShell from "@/components/PageShell";
 import { useAuth } from "@/components/AuthProvider";
+import SiteDocsOffice from "@/components/siteDocs/SiteDocsOffice";
 import { apiFetch, serverErrorMessage } from "@/lib/apiFetch";
 import { snippetParts } from "@/lib/docsearch/query";
+import { DOCUMENTS_TABS, cleanProjectId, documentsTabsFor, pickDocumentsTab, type DocumentsTab } from "@/lib/documentsTabs";
 
-// Documents (LCI phase 6, docs/lci/PHASE6-DESIGN.md): search the approved SharePoint folders - SWMS, scopes,
-// drawings, contracts - by the words in them. Managers and Admins; what each login sees is decided on the server.
-// The link opens the document in SharePoint, which checks the person's own Microsoft permission again.
+// Documents - the one place for documents (Ilies, 26 Nov 2026: "Yes, one place: Documents"). Two parts, each with its
+// own existing access rule (lib/documentsTabs.ts); a login sees only the parts it may see:
+//   - Search (LCI phase 6, docs/lci/PHASE6-DESIGN.md): search the approved SharePoint folders - SWMS, scopes,
+//     drawings, contracts - by the words in them. Managers, Admins and the coordinator (site & safety folders only);
+//     what each login sees is decided on the server. The link opens the document in SharePoint, which checks the
+//     person's own Microsoft permission again.
+//   - Site documents (25 Nov 2026, was /site-documents): plans, SWMS + register, pre-starts, toolbox talks, the topic
+//     of the week. Managers, Admins and the coordinator. Never incidents.
+// The address says which part: ?tab=search | ?tab=site (and ?projectId= for Site documents). Without one it opens on
+// Search when search is connected, otherwise on Site documents.
 type Hit = { id: string; name: string; folder: string; path: string; webUrl: string | null; modified: string | null; revision: string | null; snippet: string };
 type Status = {
   connected: boolean; why: string | null; documents: number; notReadable: number; canRefresh: boolean;
   lastRun: { startedAt: string; finishedAt: string | null; error: string | null } | null; unreadable?: { name: string; folder: string; why: string | null }[];
 };
 const when = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" }) : "");
+const tabBtn = (on: boolean) => `rounded-md px-3 py-1 text-xs font-semibold uppercase tracking-wide ${on ? "bg-brand-600 text-white" : "bg-panel2 text-gray-400 hover:text-gray-200"}`;
 
-export default function DocumentsPage() {
-  // The coordinator searches the site & safety folders only (the server decides which - 2 Nov 2026).
-  const { canEdit: manager, coordinatorOnly, loading } = useAuth();
-  const canEdit = manager || coordinatorOnly;
+// useSearchParams needs a Suspense boundary in the App Router (a link to ?tab=site from another page changes only the address).
+export default function DocumentsPageWithAddress() {
+  return <Suspense fallback={<PageShell title="Documents"><p className="text-sm text-gray-500">Loading...</p></PageShell>}><DocumentsPage /></Suspense>;
+}
+
+function DocumentsPage() {
+  const { user, loading } = useAuth();
+  const allowed = documentsTabsFor(user?.role);
+  const maySearch = allowed.includes("search");
+  const params = useSearchParams();
+  const query = params?.toString() ?? "";
+  const [asked, setAsked] = useState<string | null>(null);
+  const [projectId, setProjectId] = useState<string | null>(null);
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    const q = new URLSearchParams(query);
+    setAsked(q.get("tab"));
+    setProjectId(cleanProjectId(q.get("projectId")));
+    setReady(true);
+  }, [query]);
+
+  const [st, setSt] = useState<Status | null>(null);
+  const [stFailed, setStFailed] = useState(false);
+  const loadStatus = useCallback(() => apiFetch("/api/documents/status").then((r) => (r.ok ? r.json() : null))
+    .then((d) => (d ? setSt(d) : setStFailed(true))).catch(() => setStFailed(true)), []);
+  useEffect(() => { if (maySearch) loadStatus(); }, [maySearch, loadStatus]);
+
+  const connected = st ? st.connected : stFailed ? false : null;
+  const tab = ready ? pickDocumentsTab({ asked, projectId, allowed, searchConnected: connected }) : null;
+  // Switching keeps the address in step, so a reload lands on the same part (the project stays for Site documents).
+  const pick = (t: DocumentsTab) => {
+    setAsked(t);
+    try {
+      const u = new URL(window.location.href);
+      u.searchParams.set("tab", t);
+      if (t !== "site") u.searchParams.delete("projectId");
+      window.history.replaceState(null, "", u);
+    } catch { /* not allowed - fine */ }
+  };
+
+  if (loading) return <PageShell title="Documents"><p className="text-sm text-gray-500">Loading...</p></PageShell>;
+  if (allowed.length === 0) return <PageShell title="Documents"><p className="text-sm text-gray-400">Documents are for the office - Managers, Admins and the project coordinator.</p></PageShell>;
+  return (
+    <PageShell title="Documents" subtitle={tab === "site"
+      ? "Site documents: plans, SWMS and their sign-on register, pre-starts and toolbox talks from the supervisors' links."
+      : "Search SWMS, scopes, drawings and contracts in the approved SharePoint folders. Opening a document goes through SharePoint's own permissions."}>
+      {allowed.length > 1 && (
+        <div className="mb-3 flex gap-1" role="tablist" aria-label="Documents">
+          {DOCUMENTS_TABS.filter((t) => allowed.includes(t.id)).map((t) => (
+            <button key={t.id} role="tab" aria-selected={tab === t.id} className={tabBtn(tab === t.id)} onClick={() => pick(t.id)}>{t.label}</button>
+          ))}
+        </div>
+      )}
+      {tab === null ? <p className="text-sm text-gray-500">Loading...</p>
+        : tab === "site" ? <SiteDocsOffice initialProjectId={projectId} />
+        : <SearchPanel st={st} loadStatus={loadStatus} />}
+    </PageShell>
+  );
+}
+
+function SearchPanel({ st, loadStatus }: { st: Status | null; loadStatus: () => void }) {
   const [q, setQ] = useState("");
   const [hits, setHits] = useState<Hit[] | null>(null);
   const [busy, setBusy] = useState(false);
-  const [st, setSt] = useState<Status | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
-  const loadStatus = useCallback(() => apiFetch("/api/documents/status").then((r) => (r.ok ? r.json() : null)).then((d) => d && setSt(d)), []);
-  useEffect(() => { if (canEdit) loadStatus(); }, [canEdit, loadStatus]);
 
   async function go(e: React.FormEvent) {
     e.preventDefault();
@@ -47,9 +112,8 @@ export default function DocumentsPage() {
     loadStatus();
   }
 
-  if (!loading && !canEdit) return <PageShell title="Documents"><p className="text-sm text-gray-400">Document search is for the office.</p></PageShell>;
   return (
-    <PageShell title="Documents" subtitle="Search SWMS, scopes, drawings and contracts in the approved SharePoint folders. Opening a document goes through SharePoint's own permissions.">
+    <>
       {st && (
         <p className="mb-3 text-xs text-gray-500">
           {st.connected ? `${st.documents} documents searchable${st.notReadable ? ` · ${st.notReadable} not readable` : ""}${st.lastRun ? ` · last refreshed ${when(st.lastRun.finishedAt ?? st.lastRun.startedAt)}` : " · not refreshed yet"}` : st.why}
@@ -87,6 +151,6 @@ export default function DocumentsPage() {
           <ul className="mt-1 space-y-0.5">{st.unreadable.map((u, i) => <li key={i}>{u.folder} · {u.name}{u.why ? ` - ${u.why}` : ""}</li>)}</ul>
         </details>
       )}
-    </PageShell>
+    </>
   );
 }

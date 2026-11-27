@@ -97,7 +97,10 @@ export const COORDINATOR_PAGES = [
   "/timesheets/labour-hire", // labour hire hours, view + export (Ilies, 11 Nov 2026: "Managers + Admins + Alex")
   "/bins", // bins out and picked up, view only - client's bins are variations he tracks (Ilies, 23 Nov 2026)
   "/variations", // variation / day dockets signed on site - he sets To price / Priced / Sent to client (Ilies, 25 Nov 2026)
-  "/site-documents", // site documents: plans, SWMS + register, pre-starts, toolbox talks, topic of the week (Ilies, 25 Nov 2026) - never incidents
+  // Site documents: plans, SWMS + register, pre-starts, toolbox talks, topic of the week (Ilies, 25 Nov 2026) - never
+  // incidents. Since 26 Nov 2026 the office side is /documents?tab=site (Ilies: "Yes, one place: Documents");
+  // /site-documents is only the old address that redirects there, its sub-pages (topic, records, swms) stay below.
+  "/site-documents",
   "/receipts", // tip dockets only - see and check, with $ (Ilies, 25 Nov 2026; lib/receipts/tipsAccess.ts, guardTipsOrManager)
 ] as const;
 export function isCoordinatorPage(path: string): boolean {

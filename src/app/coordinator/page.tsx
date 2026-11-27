@@ -9,6 +9,7 @@ import VariationsCard from "@/components/variations/VariationsCard";
 import SiteDocsCard from "@/components/siteDocs/SiteDocsCard";
 import PushToggle from "@/components/PushToggle";
 import NeedsAttentionCard from "@/components/findings/NeedsAttentionCard";
+import { documentSearchHref, siteDocumentsHref } from "@/lib/documentsTabs";
 
 // The project coordinator's dashboard (Alex, 2 Nov 2026 - Ilies "approve phase 1"): his own screen, like the
 // Directors and Accounts screens - one tile per page he uses (lib/roles.ts COORDINATOR_PAGES). Every other
@@ -27,8 +28,9 @@ const TILES = [
   { href: "/receipts", label: "Tip dockets", what: "Tip dockets from site and the office - check what was read, confirm, correct, move to the right job. Tip rates, mismatches and tip loads by job.", icon: Receipt },
   { href: "/purchases", label: "Purchase requests", what: "Buy or hire something, with suppliers' quotes - Ilies or a director approves.", icon: ShoppingCart },
   { href: "/messages", label: "Messages", what: "The office chat and your one-to-ones.", icon: MessageSquare },
-  { href: "/site-documents", label: "Site documents", what: "Plans, SWMS and who has signed them, pre-starts and toolbox talks from site, the topic of the week.", icon: FolderOpen },
-  { href: "/documents", label: "Documents", what: "Search the site & safety folders - SWMS, scopes, drawings.", icon: FileSearch },
+  // Both parts of the one Documents page (Ilies, 26 Nov 2026: "Yes, one place: Documents").
+  { href: siteDocumentsHref(), label: "Documents - Site documents", what: "Plans, SWMS and who has signed them, pre-starts and toolbox talks from site, the topic of the week.", icon: FolderOpen },
+  { href: documentSearchHref, label: "Documents - Search", what: "Search the site & safety folders - SWMS, scopes, drawings.", icon: FileSearch },
 ];
 
 export default function CoordinatorPage() {

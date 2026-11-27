@@ -423,7 +423,26 @@ export default {
       t.status(await c.get(`/api/site-documents/swms/signature/${swRow?.id}`, "OPS_AI"), 403, "...or a SWMS signature");
       t.ok((await c.json(`/api/site-documents/records/${recId}`, "OPS_AI")).body?.record?.signaturesHidden === true, "the Building Agent sees the record with 'Signature hidden'");
       t.status(await c.get(`/api/site-documents/records/${"z".repeat(25)}/signature/${sigRow?.id}`, "MANAGER"), 404, "a signature asked for under another record");
-      for (const who of ["MANAGER", "COORDINATOR"]) for (const pg of ["/site-documents", "/site-documents/topic"]) t.status(await c.get(pg, who), 200, `page ${pg} loads for ${who}`);
+      // Since 26 Nov 2026 the office side is the Documents page's Site documents part (Ilies: "Yes, one place:
+      // Documents"): /documents loads, /site-documents (and ?projectId=) redirects there with the project kept, and
+      // the sub-pages stay where they are.
+      for (const who of ["MANAGER", "ADMIN", "COORDINATOR"]) {
+        const pg = await c.text("/documents?tab=site", who);
+        t.ok(pg.status === 200 && !/Application error|Unhandled Runtime Error/.test(pg.text), `page /documents?tab=site loads for ${who}`, pg.status);
+        const r0 = await c.get("/site-documents", who);
+        t.ok([307, 308].includes(r0.status) && /\/documents\?tab=site$/.test(r0.headers.get("location") ?? ""), `/site-documents redirects to /documents?tab=site for ${who}`, `${r0.status} ${r0.headers.get("location")}`);
+        const r1 = await c.get(`/site-documents?projectId=${P.id}`, who);
+        t.ok([307, 308].includes(r1.status) && (r1.headers.get("location") ?? "").endsWith(`/documents?tab=site&projectId=${P.id}`), `/site-documents?projectId= keeps the project for ${who}`, `${r1.status} ${r1.headers.get("location")}`);
+        t.status(await c.get("/site-documents/topic", who), 200, `page /site-documents/topic still loads for ${who}`);
+      }
+      const rx = await c.get("/site-documents?projectId=https://evil.example", "MANAGER");
+      t.ok(/^(\/|https?:\/\/(127\.0\.0\.1|localhost)[:/])/.test(rx.headers.get("location") ?? "") && /\/documents\?tab=site$/.test(rx.headers.get("location") ?? ""), "a junk projectId is dropped - the redirect stays on this app", rx.headers.get("location"));
+      t.status(await c.get("/site-documents", null), [307, 308], "/site-documents signed out -> redirected (then the sign-in)");
+      const srcOf = (rel) => { try { return readFileSync(path.join(c.p.appDir, rel), "utf8"); } catch { return ""; } };
+      const nav = srcOf("src/components/TopNav.tsx");
+      t.ok(!/href: "\/site-documents"/.test(nav) && /\{ href: "\/documents", label: "Documents" \}/.test(nav), "no 'Site documents' top-menu item; Documents is there (source)");
+      t.ok(/<SiteDocsCard \/>/.test(srcOf("src/app/coordinator/page.tsx")) && /siteDocumentsHref\(\)/.test(srcOf("src/components/siteDocs/SiteDocsCard.tsx")), "the coordinator keeps his card; it opens Documents' Site documents (source)");
+      t.ok(/documentsTabsFor\(user\?\.role\)/.test(srcOf("src/app/documents/page.tsx")) && /mayReadSiteDocs\(r\)/.test(srcOf("src/lib/documentsTabs.ts")), "Documents shows Site documents by the same rule as the API (source)");
       const detail = (await c.json(`/api/site-documents/records/${recId}`, "MANAGER")).body;
       t.ok(!JSON.stringify(detail ?? {}).includes("iVBOR") && !Object.keys(detail?.record ?? {}).some((k) => /price|rate|amount|cost/i.test(k)), "the office record carries no signature bytes and no money field");
 

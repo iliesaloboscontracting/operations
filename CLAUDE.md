@@ -782,9 +782,17 @@ business, without becoming unnecessarily complicated.
   type only and can't read its photo back (neither route). Follow-up = append-only `IncidentEvent` (Open ->
   Investigating -> Closed, reopen with why). The owner's push only: "Incident report INC-0004 sent - <project>
   (<supervisor>)" - no health detail. Never to any AI (not the Assistant, not LCI). (F) Truck & plant pre-starts: today's
-  checks on the job's booked trucks / Lobos machines, read only. Office: `/site-documents` (+ `/topic`, `/records/<id>`,
-  `/swms/<id>` printable) for Managers, Admins and the coordinator (`guardSiteDocs`, COORDINATOR_PAGES - never
-  incidents); the coordinator also uploads from a "Site documents" card on /coordinator (Ilies: "allow him to upload
+  checks on the job's booked trucks / Lobos machines, read only. Office: the **Documents page's "Site documents" part**,
+  `/documents?tab=site` (+ `/site-documents/topic`, `/site-documents/records/<id>`, `/site-documents/swms/<id>`
+  printable, which stay where they are) for Managers, Admins and the coordinator (`guardSiteDocs`, COORDINATOR_PAGES -
+  never incidents). Moved 26 Nov 2026 (Ilies: "the documents should have never have been put here. there is already a
+  documents tab which is where the new feature should have been put", then "Yes, one place: Documents" and "Keep it on
+  Alex's screen"): /documents has two parts, "Search" (doc search) and "Site documents" (`?tab=search|site`,
+  `?projectId=`; no tab = Search when search is connected, else Site documents); each part shows only to the roles its
+  own API admits (`lib/documentsTabs.ts` - `canSearch` / `mayReadSiteDocs`, today both ADMIN / MANAGER / COORDINATOR;
+  component `components/siteDocs/SiteDocsOffice.tsx`). No "Site documents" top-menu item any more; `/site-documents`
+  (and `?projectId=`) redirects to `/documents?tab=site` with the project kept (`siteDocumentsHref`). The board card is
+  gone (26 Nov 2026); the coordinator also uploads from a "Site documents" card on /coordinator (Ilies: "allow him to upload
   documents aswell from his dashboard which the crew get on their apps" - project, plan or new SWMS version, topic of
   the week; "SWMS not signed by people on site today: N" from `?summary=1`); the Building Agent reads lists only - no signature, upload, archive or topic (403). Files in
   `SITE_DOC_FILE_DIR` (server `/srv/operations/sitedoc-files`, nightly backup `sitedoc-files-<stamp>.tar.gz` + the

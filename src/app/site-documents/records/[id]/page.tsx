@@ -11,6 +11,7 @@ import { useAuth } from "@/components/AuthProvider";
 import { apiFetch, serverErrorMessage } from "@/lib/apiFetch";
 import type { recordDetail } from "@/lib/siteDocs/office";
 import { PRINT_CSS } from "@/lib/siteDocs/browser";
+import { siteDocumentsHref } from "@/lib/documentsTabs"; // back to the Documents page's Site documents (26 Nov 2026)
 
 type Rec = NonNullable<Awaited<ReturnType<typeof recordDetail>>>;
 const th = "border border-gray-400 bg-gray-100 px-2 py-1 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-700";
@@ -34,7 +35,7 @@ export default function RecordPage({ params: paramsP }: { params: Promise<{ id: 
     <div className="mx-auto h-full max-w-5xl overflow-y-auto p-4">
       <style>{PRINT_CSS}</style>
       <div className="mb-3 flex items-center justify-between">
-        <Link href={r.projectId ? `/site-documents?projectId=${r.projectId}` : "/site-documents"} className="text-xs text-brand-400 hover:underline">← Site documents</Link>
+        <Link href={siteDocumentsHref(r.projectId)} className="text-xs text-brand-400 hover:underline">← Documents - Site documents</Link>
         <button onClick={() => window.print()} className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white"><Printer size={14} /> Print / Save as PDF</button>
       </div>
       <article id="print-sheet" className="w-full max-w-[210mm] rounded-md border border-gray-300 bg-white p-6 text-gray-900 shadow-soft">

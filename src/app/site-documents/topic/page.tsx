@@ -12,6 +12,7 @@ import { UPLOAD_FILE_MAX, UPLOAD_TOO_LARGE } from "@/lib/uploadLimits";
 import { readAsDataUrl } from "@/lib/siteDocs/browser";
 import { LIMITS } from "@/lib/siteDocs/rules";
 import type { topicList } from "@/lib/siteDocs/office";
+import { siteDocumentsHref } from "@/lib/documentsTabs"; // back to the Documents page's Site documents (26 Nov 2026)
 
 type Data = Awaited<ReturnType<typeof topicList>>;
 const inputCls = "w-full rounded-lg border border-edge bg-panel2 px-2.5 py-2 text-sm text-gray-200";
@@ -58,7 +59,7 @@ export default function TopicPage() {
   if (!canEdit && !coordinatorOnly) return <PageShell title="Topic of the week"><p className="text-sm text-gray-500">Managers, Admins and the project coordinator only.</p></PageShell>;
   return (
     <PageShell title="Toolbox talk - topic of the week" subtitle="For every site. Supervisors run it on their link (or their own topic) and add points for their site."
-      actions={<Link href="/site-documents" className="text-xs text-brand-400 hover:underline">← Site documents</Link>}>
+      actions={<Link href={siteDocumentsHref()} className="text-xs text-brand-400 hover:underline">← Documents - Site documents</Link>}>
       <div className="grid gap-4 lg:grid-cols-[1fr_22rem]">
         <section className="space-y-3 rounded-xl border border-edge bg-panel p-4">
           {d && (

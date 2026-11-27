@@ -30,8 +30,6 @@ const OPERATIONS = [
   { href: "/bins", label: "Bins" },
   // Variations (25 Nov 2026): variation / day dockets signed on site - Managers and Admins (the coordinator on his screen).
   { href: "/variations", label: "Variations" },
-  // Site documents (25 Nov 2026): plans, SWMS + register, pre-starts, toolbox talks, topic of the week - Managers and Admins.
-  { href: "/site-documents", label: "Site documents" },
   // Incident reports (25 Nov 2026): the owner only here (filtered below); DIRECTOR logins on the Directors screen.
   { href: "/incidents", label: "Incidents" },
   { href: "/attendance", label: "Sign-ins" },
@@ -45,6 +43,9 @@ const OPERATIONS = [
   { href: "/tracking", label: "Project Tracking" },
   // Production has no tab (Ilies, 8 Nov 2026: "hide the tab only") - /production still works by its address
   // (with Offer to Estimating), and Directors -> Production is unchanged.
+  // Documents = document search AND Site documents (plans, SWMS + register, pre-starts, toolbox talks, topic of the
+  // week) - one place, no separate "Site documents" tab (Ilies, 26 Nov 2026: "Yes, one place: Documents"). Managers and
+  // Admins here (filtered below), the coordinator on his own screen.
   { href: "/documents", label: "Documents" },
   { href: "/assistant", label: "Assistant" },
   { href: "/bugs", label: "Bug Reports" },
@@ -146,11 +147,10 @@ const COORDINATOR = [
   { href: "/hire", label: "Hire" },
   { href: "/bins", label: "Bins" }, // view only (23 Nov 2026)
   { href: "/variations", label: "Variations" }, // signed dockets - he sets the office status (25 Nov 2026)
-  { href: "/site-documents", label: "Site documents" }, // plans, SWMS, pre-starts, toolbox talks (25 Nov 2026) - never incidents
   { href: "/receipts", label: "Tip dockets" }, // tip dockets only - see and check, with $ (25 Nov 2026)
   { href: "/purchases", label: "Purchases" },
   { href: "/messages", label: "Messages" },
-  { href: "/documents", label: "Documents" },
+  { href: "/documents", label: "Documents" }, // search + Site documents, one place (Ilies, 26 Nov 2026) - never incidents
 ];
 // The yard computer's screen (Ilies, 4 Nov 2026): the yard jobs, the stock take (Yard Stage B) and the Tools pages
 // (lib/roles.ts YARD_PAGES).
@@ -294,7 +294,7 @@ export default function TopNav() {
             <Divider />
           </>
         )}
-        {OPERATIONS.filter((i) => (i.href !== "/tracking" && i.href !== "/invoices" && i.href !== "/assistant" && i.href !== "/attendance" && i.href !== PRESTARTS_HREF && i.href !== "/timesheets" && i.href !== "/timesheets/labour-hire" && i.href !== "/requests" && i.href !== "/office-requests" && i.href !== "/purchases" && i.href !== "/questions" && i.href !== "/messages" && i.href !== "/receipts" && i.href !== "/bins" && i.href !== "/variations" && i.href !== "/site-documents" && i.href !== "/incidents" && i.href !== "/documents") || canEdit).filter((i) => i.href !== "/incidents" || incidentsOk).filter((i) => i.href !== "/questions" || myQuestions >= 0).map((i) => (
+        {OPERATIONS.filter((i) => (i.href !== "/tracking" && i.href !== "/invoices" && i.href !== "/assistant" && i.href !== "/attendance" && i.href !== PRESTARTS_HREF && i.href !== "/timesheets" && i.href !== "/timesheets/labour-hire" && i.href !== "/requests" && i.href !== "/office-requests" && i.href !== "/purchases" && i.href !== "/questions" && i.href !== "/messages" && i.href !== "/receipts" && i.href !== "/bins" && i.href !== "/variations" && i.href !== "/incidents" && i.href !== "/documents") || canEdit).filter((i) => i.href !== "/incidents" || incidentsOk).filter((i) => i.href !== "/questions" || myQuestions >= 0).map((i) => (
           <NavTab
             key={i.href}
             href={i.href}

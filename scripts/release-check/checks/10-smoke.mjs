@@ -3,7 +3,8 @@ import { noMoney } from "../lib/context.mjs";
 
 const PAGES = ["/assistant", "/attendance", "/bugs", "/calendar", "/command", "/completed", "/day-review", "/hire", "/labour",
   "/plant", "/projects", "/requests", "/timesheets", "/tools", "/tools/faults", "/tools/site", "/tools/toolboxes", "/tracking",
-  "/users", "/vehicles", "/receipts", "/production", "/changes", "/office-requests", "/purchases"];
+  "/users", "/vehicles", "/receipts", "/production", "/changes", "/office-requests", "/purchases",
+  "/documents", "/documents?tab=site", "/documents?tab=search"]; // Documents = search + Site documents, one place (Ilies, 26 Nov 2026)
 
 export default {
   id: "smoke", title: "Pages, core APIs, site links, PDF, sign-in gate",

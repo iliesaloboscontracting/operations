@@ -4,11 +4,14 @@
 // dashboard which the crew get on their apps"): pick the project, then upload a plan / drawing or a new SWMS version
 // - it shows on the supervisors' links for that project straight away - or set the toolbox talk topic of the week.
 // A short summary first: people on site today who haven't signed their project's current SWMS, projects with no SWMS.
-// Managers / Admins see the same card on the board (Ilies, 26 Nov 2026) and if they open /coordinator. Never incidents.
+// Managers / Admins see the same card if they open /coordinator (it came off the board on 26 Nov 2026). Never incidents.
+// "Open" and "See the project" go to the Site documents part of the Documents page (Ilies, 26 Nov 2026: "Yes, one
+// place: Documents"; "Keep it on Alex's screen").
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { FolderOpen, Megaphone } from "lucide-react";
 import { apiFetch } from "@/lib/apiFetch";
+import { siteDocumentsHref } from "@/lib/documentsTabs";
 import UploadForm from "./UploadForm";
 import type { officeProjects, officeSummary } from "@/lib/siteDocs/office";
 
@@ -34,7 +37,7 @@ export default function SiteDocsCard() {
     <div className="w-full rounded-xl border border-edge bg-panel p-4 shadow-soft">
       <div className="mb-1 flex items-center justify-between gap-2">
         <span className="flex items-center gap-2 font-semibold text-gray-100"><FolderOpen size={16} className="text-brand-400" /> Site documents</span>
-        <Link href="/site-documents" className="text-xs text-brand-300 hover:underline">Open</Link>
+        <Link href={siteDocumentsHref()} className="text-xs text-brand-300 hover:underline">Open</Link>
       </div>
       {sum && (
         <p className={`mb-2 text-xs ${sum.notSigned || sum.noSwms ? "text-amber-300" : "text-gray-400"}`}>
@@ -60,7 +63,7 @@ export default function SiteDocsCard() {
             ))}
           </div>
           <UploadForm key={`${pid}-${kind}`} projectId={pid} kind={kind} onDone={() => { setDone(kind === "SWMS" ? "SWMS uploaded - the crew sign the new version on site." : "Plan uploaded - it's on the supervisors' links."); load(); }} />
-          {done && <p className="mt-2 text-xs text-emerald-300">✓ {done} <Link className="text-brand-300 underline" href={`/site-documents?projectId=${pid}`}>See the project</Link></p>}
+          {done && <p className="mt-2 text-xs text-emerald-300">✓ {done} <Link className="text-brand-300 underline" href={siteDocumentsHref(pid)}>See the project</Link></p>}
         </>
       )}
       <Link href="/site-documents/topic" className="mt-3 inline-flex items-center gap-1.5 text-xs text-brand-300 hover:underline"><Megaphone size={13} /> Toolbox talk - topic of the week</Link>
