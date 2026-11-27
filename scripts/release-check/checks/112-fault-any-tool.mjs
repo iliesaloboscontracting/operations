@@ -62,7 +62,13 @@ export default {
         const r = await db.tool.create({ data: { tag: `RCFT-${tag}-${String(n).padStart(2, "0")}`, name: `RC fault tool ${n}`, serialNumber: `RCFSERIAL${tag}${n}`, notes: `RCFNOTE${tag}`, heldBy: `RCFHOLDER${tag}`, toolboxId: b?.id ?? null, ...extra } });
         made.tools.push(r.id); return r;
       };
-      const polTool = await tool(PB, { name: "RC impact wrench", brand: "Hilti", model: `RCMODEL${tag}` });
+      // A real LOB-style tag (LOB-9#####, unused on the copy), so the photo's tag can match it exactly.
+      let lobTag = "";
+      for (let i = 0; i < 20 && !lobTag; i++) {
+        const cand = `LOB-9${String(Math.floor(Math.random() * 100000)).padStart(5, "0")}`;
+        if (!(await db.tool.findUnique({ where: { tag: cand } }))) lobTag = cand;
+      }
+      const polTool = await tool(PB, { name: "RC impact wrench", brand: "Hilti", model: `RCMODEL${tag}`, ...(lobTag ? { tag: lobTag } : {}) });
       const yardTool = await tool(null);
       const retired = await tool(PB, { retiredAt: new Date() });
       const swapped = await tool(PB, { condition: "Swapped out" });
