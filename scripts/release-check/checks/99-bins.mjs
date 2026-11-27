@@ -382,6 +382,32 @@ async function checks(t, c) {
       t.ok(res?.d === 0 && res?.afterOff === res?.afterOurs, "BIN_ALERTS=off sends nothing");
     } else t.block("no tsx in the candidate's node_modules (or no client / our bin entry) - the alert couldn't be run end to end");
 
+    // (9d) Security follow-ups (Ilies approved TL-001, TL-003, TL-004, 27 Nov 2026).
+    // TL-003 ("Block it"): the Building Agent login reads the Bins page, but every bins write is 403 and changes nothing.
+    if (c.users.OPS_AI) {
+      t.status(await c.get("/api/bins", "OPS_AI"), 200, "TL-003: the Building Agent login still reads the Bins data");
+      const snap = async () => JSON.stringify([await db.binMovement.findUnique({ where: { id: mA.id } }), await db.bin.findUnique({ where: { id: binA } }), await db.bin.count()]);
+      const before = await snap();
+      for (const body of [{ action: "correct", use: "OURS", reason: "RC agent" }, { action: "cancel", reason: "RC agent" }, { action: "unpick", reason: "RC agent" }, { action: "tip-confirm", receiptId: tipR.id }, { action: "tip-reject", receiptId: tipR.id }]) {
+        t.status(await c.patch(`/api/bins/${mA.id}`, "OPS_AI", body), 403, `TL-003: the Building Agent login is refused ${body.action} on a bin entry`);
+      }
+      t.status(await c.post("/api/bins/register", "OPS_AI", { size: "M8", label: `RC agent ${tag}` }), 403, "TL-003: ...adding a bin to the register");
+      t.status(await c.patch(`/api/bins/register/${binA}`, "OPS_AI", { action: "rename", label: `RC agent ${tag}` }), 403, "TL-003: ...renaming a bin");
+      t.ok((await snap()) === before, "TL-003: nothing changed");
+    } else t.block("no Operations AI (Building Agent) login on the copy - TL-003 not run");
+    // TL-004: no amount in a cancel or put-back-on-site reason.
+    const live = await db.binMovement.findFirst({ where: { projectId: P.id, status: "ON_SITE" } });
+    t.status(await c.patch(`/api/bins/${live.id}`, "MANAGER", { action: "cancel", reason: "RC charged $180 for it" }), 400, "TL-004: a cancel reason with an amount is refused");
+    const picked = await db.binMovement.findFirst({ where: { projectId: P.id, status: "PICKED_UP" } });
+    if (picked) t.status(await c.patch(`/api/bins/${picked.id}`, "MANAGER", { action: "unpick", reason: "RC $90 lift fee" }), 400, "TL-004: a put-back-on-site reason with an amount is refused");
+    t.ok((await db.binMovement.findUnique({ where: { id: live.id } })).status === "ON_SITE", "...nothing changed");
+    // TL-001: 60 parallel bin photos from one link (38 already today) store at most the cap of 40.
+    const capLink = await makeLink(db, "DRIVER", D.id);
+    for (let i = 0; i < 38; i++) await db.binPhoto.create({ data: { fileName: `rc-bcap-${tag}-${i}.jpg`, siteLinkId: capLink.id, takenBy: D.name } });
+    const burst = (await Promise.all(Array.from({ length: 60 }, () => c.post(c.site(capLink, "/bins/photos"), null, { dataUrl: JPEG })))).map((r) => r.status);
+    const stored = await db.binPhoto.count({ where: { siteLinkId: capLink.id } });
+    t.ok(stored <= 40 && burst.every((x) => x === 201 || x === 429) && burst.filter((x) => x === 201).length === stored - 38, "TL-001: 60 parallel bin-photo uploads from one link store at most the cap (the rest 429)", JSON.stringify({ stored, ok: burst.filter((x) => x === 201).length }));
+
     // (10) Nothing is deleted: no DELETE handler, no delete in the source, the counts never went down.
     for (const pth of [`/api/bins/${mA.id}`, `/api/bins/register/${binA}`, "/api/bins", c.site(L.sup, "/bins")]) t.status(await c.del(pth, "ADMIN"), [404, 405], `DELETE ${pth.replace(L.sup.secret, "<link>")}`);
     const srcFiles = [...filesUnder(path.join(c.p.appDir, "src", "lib", "bins")), ...filesUnder(path.join(c.p.appDir, "src", "app", "api", "bins")), ...binRoutes];

@@ -216,6 +216,8 @@ export default {
     const tsxCli = path.join(c.p.appDir, "node_modules", "tsx", "dist", "cli.mjs");
     const client = await db.tipperLoad.findFirst({ where: { projectId: P.id, use: "CLIENT", status: "LOGGED" } });
     const ours = await db.tipperLoad.findFirst({ where: { projectId: P.id, use: "OURS" } });
+    // TL-005: an our-load that the office will correct to a client's load inside the child (the alert after the commit).
+    const ours3 = await db.tipperLoad.create({ data: { vehicleId: T1.id, vehicleLabel: T1.name, projectId: P.id, use: "OURS", contents: "Mixed C&D", status: "LOGGED", loadedBy: D.name, loadedByResourceId: D.id, linkId: L.drv.id } });
     if (existsSync(tsxCli) && c.p.files && client && ours) {
       const script = path.join(c.p.files, `rc112-alert-${tag}.mts`);
       const fileUrl = (rel) => "file:///" + path.join(c.p.appDir, ...rel.split("/")).split(path.sep).join("/");
@@ -236,12 +238,14 @@ export default {
         `    const res = new EventEmitter(); res.statusCode = 201; res.headers = {}; cb(res); process.nextTick(() => res.emit("end")); };`,
         `  return r;`,
         `};`,
-        `const { alertClientTipper } = await import(${JSON.stringify(fileUrl("src/lib/bins/tipperStore.ts"))});`,
+        `const { alertClientTipper, changeTipperLoad } = await import(${JSON.stringify(fileUrl("src/lib/bins/tipperStore.ts"))});`,
         `const a = await alertClientTipper(${JSON.stringify(client.id)}); const afterClient = seen.length;`,
         `const b = await alertClientTipper(${JSON.stringify(ours.id)}); const afterOurs = seen.length;`,
         `process.env.TIPPER_ALERTS = "off"; const d = await alertClientTipper(${JSON.stringify(client.id)}); delete process.env.TIPPER_ALERTS;`,
-        `process.env.BIN_ALERTS = "off"; const e = await alertClientTipper(${JSON.stringify(client.id)}); const afterOff = seen.length;`,
-        `console.log("RESULT " + JSON.stringify({ a, b, d, e, afterClient, afterOurs, afterOff, seen }));`,
+        `process.env.BIN_ALERTS = "off"; const e = await alertClientTipper(${JSON.stringify(client.id)}); const afterOff = seen.length; delete process.env.BIN_ALERTS;`,
+        `await changeTipperLoad(${JSON.stringify(ours3.id)}, { action: "correct", use: "CLIENT", reason: "RC TL-005 it was the client's" }, { id: null, name: "RC check" });`,
+        `for (let i = 0; i < 40 && seen.length === afterOff; i++) await new Promise((r) => setTimeout(r, 100)); const afterCorrect = seen.length;`,
+        `console.log("RESULT " + JSON.stringify({ a, b, d, e, afterClient, afterOurs, afterOff, afterCorrect, seen }));`,
         `process.exit(0);`,
       ].join("\n"));
       let out = "";
@@ -263,9 +267,62 @@ export default {
       t.ok(!!payload && noMoney(JSON.stringify(payload)) && payload.body.includes(`RC Tip job ${tag}`), "words only - the job and the tipper, no money", payload?.body);
       t.ok(res?.b === 0 && res?.afterOurs === res?.afterClient, "our load sends nothing");
       t.ok(res?.d === 0 && res?.e === 0 && res?.afterOff === res?.afterOurs, "TIPPER_ALERTS=off and BIN_ALERTS=off send nothing");
+      // TL-005 (Ilies, 27 Nov 2026: "Yes, alert Alex"): our load corrected to a client's load -> the same quiet alert, after the commit.
+      const afterFix = (res?.seen ?? []).slice(res?.afterOff ?? 0).filter((s) => s.path === new URL(coEp).pathname);
+      let fixPayload = null;
+      try { fixPayload = JSON.parse(createRequire(path.join(c.p.appDir, "package.json"))("http_ece").decrypt(Buffer.from(afterFix[0].body, "base64"), { version: "aes128gcm", privateKey: ecdh, authSecret: auth }).toString("utf8")); } catch { /* checked below */ }
+      t.ok(afterFix.length === 1 && fixPayload?.title === "Client's tipper load" && fixPayload?.tag === `tip-client-${P.id}`.slice(0, 40) && noMoney(JSON.stringify(fixPayload)), "TL-005: an our-load corrected to a client's load alerts the coordinator once (same alert, per-job tag, no money)", JSON.stringify({ n: afterFix.length, title: fixPayload?.title }));
+      t.ok((await db.tipperLoad.findUnique({ where: { id: ours3.id } })).use === "CLIENT", "...and the correction was saved");
     } else t.block("no tsx in the candidate's node_modules (or no client / our load) - the alert couldn't be run end to end");
     const storeSrc = readFileSync(path.join(c.p.appDir, "src", "lib", "bins", "tipperStore.ts"), "utf8");
     t.ok(/if \(input\.use === "CLIENT"\) void alertClientTipper\(/.test(storeSrc) && /tipperAlertsOn\(\)/.test(storeSrc) && /role: "COORDINATOR", active: true/.test(storeSrc), "a client's load alerts the active coordinator login(s) only, behind the kill switches");
+
+
+    // (10b) The security follow-ups (Ilies approved TL-001..TL-005, 27 Nov 2026).
+    // TL-001: the day's caps are re-counted inside the locked save, and at most 3 uploads per link are in progress - 60
+    // parallel uploads from one link store at most the cap (photos, loads, and the receipts path too).
+    const D3 = await mk("RC Tip driver F", { category: "Truck Driver" });
+    const capLink = await makeLink(db, "DRIVER", D3.id);
+    for (let i = 0; i < 37; i++) await db.tipperLoadPhoto.create({ data: { fileName: `rc-cap-${tag}-${i}.jpg`, siteLinkId: capLink.id, takenBy: D3.name } });
+    const burst = await Promise.all(Array.from({ length: 60 }, () => c.post(c.site(capLink, "/tipper-loads/photos"), null, { dataUrl: JPEG })));
+    const codes = burst.map((r) => r.status);
+    const stored = await db.tipperLoadPhoto.count({ where: { siteLinkId: capLink.id } });
+    t.ok(stored <= 40 && codes.every((x) => x === 201 || x === 429) && codes.filter((x) => x === 201).length === stored - 37, "TL-001: 60 parallel load-photo uploads from one link store at most the cap of 40 (the rest 429)", JSON.stringify({ stored, ok: codes.filter((x) => x === 201).length, refused: codes.filter((x) => x === 429).length }));
+    const fresh = await makeLink(db, "DRIVER", D3.id);
+    const burst2 = (await Promise.all(Array.from({ length: 12 }, () => c.post(c.site(fresh, "/tipper-loads/photos"), null, { dataUrl: JPEG })))).map((r) => r.status);
+    t.ok(burst2.includes(429) && burst2.every((x) => x === 201 || x === 429), "TL-001: a burst of 12 at once from a fresh link is held to a few in progress (some 429)", burst2.join(","));
+    // Loads: 39 already today, 5 sent at once with their own photos -> exactly one more.
+    const loadLink = await makeLink(db, "DRIVER", D3.id);
+    const lp = [];
+    for (let i = 0; i < 5; i++) lp.push(await photo(loadLink));
+    for (let i = 0; i < 39; i++) await db.tipperLoad.create({ data: { vehicleId: T1.id, vehicleLabel: T1.name, projectId: P.id, use: "OURS", contents: "Mixed C&D", status: "LOGGED", loadedBy: D3.name, loadedByResourceId: D3.id, linkId: loadLink.id } });
+    const lr = (await Promise.all(lp.map((pid) => send(loadLink, { ...base, use: "OURS", photoIds: [pid] })))).map((r) => r.status);
+    t.ok((await db.tipperLoad.count({ where: { linkId: loadLink.id } })) === 40 && lr.filter((x) => x === 201).length === 1, "TL-001: 5 loads sent at once with 39 already today -> exactly one more (cap 40)", lr.join(","));
+    // Receipts: 58 already today on a driver link, 60 at once -> at most 60 in all.
+    const recLink = await makeLink(db, "DRIVER", D3.id);
+    for (let i = 0; i < 58; i++) await db.receiptPhoto.create({ data: { fileName: `rc-rcap-${tag}-${i}.jpg`, siteLinkId: recLink.id, takenBy: D3.name } });
+    const rb = (await Promise.all(Array.from({ length: 60 }, () => c.post(c.site(recLink, "/receipts/photos"), null, { dataUrl: JPEG })))).map((r) => r.status);
+    const recStored = await db.receiptPhoto.count({ where: { siteLinkId: recLink.id } });
+    t.ok(recStored <= 60 && rb.every((x) => x === 201 || x === 429), "TL-001: 60 parallel receipt-photo uploads store at most the receipts cap of 60", JSON.stringify({ recStored, ok: rb.filter((x) => x === 201).length }));
+    // TL-002: the same photo on another load is flagged on the office row (never refused - both loads went in).
+    const withHash = await db.tipperLoadPhoto.count({ where: { loadId: load1.id, sha256: { not: null } } });
+    const flagged = (await c.json(`/api/bins/tipper-loads?projectId=${P.id}`, "MANAGER")).body?.loads?.find?.((r) => r.id === load1.id);
+    t.ok(withHash === 1 && flagged?.samePhotoAs?.length >= 1 && flagged.samePhotoAs.every((s) => s.loadId !== load1.id && s.tipper && s.loadedAt), "TL-002: the photo's sha256 is kept, and the office row says \"Same photo as the load of ...\"", JSON.stringify(flagged?.samePhotoAs ?? null).slice(0, 160));
+    // TL-003 ("Block it"): the Building Agent login reads, but every tipper-load write is 403 and changes nothing.
+    if (c.users.OPS_AI) {
+      t.status(await c.get("/api/bins/tipper-loads", "OPS_AI"), 200, "TL-003: the Building Agent login still reads the tipper loads");
+      const beforeAgent = JSON.stringify(await db.tipperLoad.findUnique({ where: { id: load1.id } }));
+      for (const body of [{ action: "correct", use: "OURS", reason: "RC agent" }, { action: "cancel", reason: "RC agent" }, { action: "tip-confirm", receiptId: tipR.id }, { action: "tip-reject", receiptId: tipR.id }]) {
+        t.status(await c.patch(`/api/bins/tipper-loads/${load1.id}`, "OPS_AI", body), 403, `TL-003: the Building Agent login is refused ${body.action} on a load`);
+      }
+      t.status(await c.patch(`/api/bins/tippers/${T2.id}`, "OPS_AI", { tipper: true }), 403, "TL-003: ...and the tipper on / off switch");
+      t.ok(JSON.stringify(await db.tipperLoad.findUnique({ where: { id: load1.id } })) === beforeAgent && !(await db.tipperVehicle.findUnique({ where: { vehicleId: T2.id } }))?.tipper, "TL-003: nothing changed");
+    } else t.block("no Operations AI (Building Agent) login on the copy - TL-003 not run");
+    // TL-004: no amount in a cancel reason.
+    t.status(await c.patch(`/api/bins/tipper-loads/${load1.id}`, "MANAGER", { action: "cancel", reason: "RC charged $250 already" }), 400, "TL-004: a cancel reason with an amount is refused");
+    t.ok((await db.tipperLoad.findUnique({ where: { id: load1.id } })).status === "LOGGED", "...the load is still logged");
+    const tlSrc = readFileSync(path.join(c.p.appDir, "src", "lib", "bins", "tipperStore.ts"), "utf8");
+    t.ok(/if \(becameClient\) void alertClientTipper\(out\.id\)/.test(tlSrc) && tlSrc.indexOf("if (becameClient)") > tlSrc.indexOf("const out = await prisma.$transaction"), "TL-005: the correction alert is sent after the transaction");
 
     // (11) Nothing is deleted: no DELETE handler, no delete in the source, the counts never went down.
     for (const pth of [`/api/bins/tipper-loads/${load1.id}`, "/api/bins/tipper-loads", `/api/bins/tippers/${T1.id}`, c.site(L.drv, "/tipper-loads")]) t.status(await c.del(pth, "ADMIN"), [404, 405], `DELETE ${pth.replace(L.drv.secret, "<link>")}`);

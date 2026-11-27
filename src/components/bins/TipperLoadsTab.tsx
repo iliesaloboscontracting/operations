@@ -154,6 +154,9 @@ function LoadRow({ r, canEdit, onModal, onTip }: { r: TipperOfficeRowDTO; canEdi
         Loaded {when(r.loadedAt)} by {r.loadedBy}{r.fromSignIn ? " (tipper from their truck sign-in)" : ""}
         {r.cancelled && <> · cancelled by {r.cancelled.by}: {r.cancelled.reason}</>}
       </div>
+      {r.samePhotoAs.map((s) => (
+        <p key={s.loadId} className="mt-1 text-xs text-amber-300">Same photo as the load of {when(s.loadedAt)} / {s.tipper}</p>
+      ))}
       {r.photos.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-2">
           {r.photos.map((p) => (
