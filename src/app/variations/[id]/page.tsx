@@ -21,6 +21,7 @@ const PRINT = `
   #variation-docket { position: absolute; left: 0; top: 0; width: 100%; box-shadow: none !important; border: 0 !important; }
   #variation-docket .vd-block { break-inside: avoid; }
   #variation-docket img.vd-photo { max-height: 60mm; }
+  .h-screen, main, .print-scroll { height: auto !important; overflow: visible !important; }
 }`;
 const day = (iso: string) => new Date(`${iso}T00:00:00.000Z`).toLocaleDateString("en-AU", { timeZone: "UTC", day: "2-digit", month: "2-digit", year: "numeric" });
 const sydDay = (iso: string) => new Date(iso).toLocaleDateString("en-AU", { timeZone: "Australia/Sydney", day: "2-digit", month: "2-digit", year: "numeric" });
@@ -43,6 +44,9 @@ export default function VariationDocketPage({ params: paramsP }: { params: Promi
   if (!d) return <p className="p-6 text-sm text-gray-500">Loading…</p>;
   const base = `/api/variations/${d.id}`;
   return (
+    // The app's main area doesn't scroll itself - each page scrolls its own content (Ilies, 27 Nov 2026: "i cant scroll
+    // on this page to view the entire document").
+    <div className="print-scroll h-full overflow-y-auto">
     <div className="mx-auto max-w-5xl p-4">
       <style>{PRINT}</style>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -163,6 +167,7 @@ export default function VariationDocketPage({ params: paramsP }: { params: Promi
           </div>
         </aside>
       </div>
+    </div>
     </div>
   );
 }

@@ -33,6 +33,7 @@ const PRINT = `
   #site-report img { max-height: 70mm; }
   #site-report .media-video { display: none !important; }
   #site-report .media-print-note { display: flex !important; }
+  .h-screen, main, .print-scroll { height: auto !important; overflow: visible !important; }
 }`;
 
 export default function SiteReport({ jobId, mode, inline = false }: { jobId: string; mode: "ops" | "director"; inline?: boolean }) {
@@ -56,7 +57,7 @@ export default function SiteReport({ jobId, mode, inline = false }: { jobId: str
   const card = "sr-card rounded-xl border border-edge bg-panel p-4";
   const h3 = "mb-2 text-sm font-semibold uppercase tracking-wide text-gray-400 sr-muted";
 
-  return (
+  const body = (
     <div id={inline ? undefined : "site-report"} className={inline ? "space-y-3 text-gray-100" : "mx-auto max-w-3xl space-y-4 p-4 text-gray-100"}>
       {!inline && <style>{PRINT}</style>}
       {!inline && (
@@ -146,4 +147,7 @@ export default function SiteReport({ jobId, mode, inline = false }: { jobId: str
       <p className="sr-muted text-[11px] text-gray-500">From Operations - sign-ins and the supervisor&apos;s daily log. Hours only; no costs.</p>
     </div>
   );
+  // Its own page scrolls its own content (the app's main area doesn't scroll - 27 Nov 2026); inside a Day Review card
+  // the card's page does the scrolling.
+  return inline ? body : <div className="print-scroll h-full overflow-y-auto">{body}</div>;
 }
