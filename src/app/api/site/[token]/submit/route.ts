@@ -6,7 +6,7 @@ import { readToolPhotos, VisionNotConfigured } from "@/lib/toolVision";
 import { runToolboxCheck } from "@/lib/toolboxCheckRun";
 import { moveTool } from "@/lib/toolMoves";
 import { createTool, duplicateMessage, findDuplicate } from "@/lib/toolCreate";
-import { TICK_LIMIT_MESSAGE, buildTickResult, tickReply } from "@/lib/toolboxTick";
+import { TICK_LIMIT_MESSAGE, buildTickResult, seenAsForeign, tickReply } from "@/lib/toolboxTick";
 import { checkIdFor, markToolMissing, saveTickCheck } from "@/lib/toolboxTickStore";
 import { faultTarget, reportable } from "@/lib/toolFaults";
 import { readUnlistedFault, saveUnlistedFault } from "@/lib/toolFaultStore";
@@ -238,11 +238,18 @@ async function checkAction(link: ResolvedLink, body: Record<string, unknown>, by
   const box = ownBox(link, body.toolboxId);
   if (!box) return bad("Pick your toolbox.");
   const tool = typeof body.toolId === "string"
-    ? await prisma.tool.findUnique({ where: { id: body.toolId }, select: { id: true, tag: true, toolboxId: true, condition: true } })
+    ? await prisma.tool.findUnique({ where: { id: body.toolId }, select: { id: true, tag: true, toolboxId: true, condition: true, retiredAt: true } })
     : null;
   if (!tool || tool.condition === "Swapped out") return bad("That tool isn't on the register.");
   if (body.action === "MINE") {
+    if (tool.retiredAt) return bad("That tool isn't on the register.");
     if (tool.toolboxId === box.id) return NextResponse.json({ ok: true, message: `${tool.tag} is already in ${box.name}.` });
+    // FT-001 (Ilies approved 27 Nov 2026): only a tool this link's own check of this toolbox found as "from another box"
+    // - every supervisor link can see tool ids now (Report a fault's picker), so an id alone is never enough.
+    const checkId = await checkIdFor(link.id, box.id, body.checkId);
+    if (!checkId) return bad("Check the toolbox again first.");
+    const check = await prisma.toolboxCheck.findUnique({ where: { id: checkId }, select: { result: true } });
+    if (!seenAsForeign(check?.result, tool.id)) return bad("That tool wasn't found on your check.");
     await moveTool(tool.id, box.id, `Found in ${box.name} on a site photo check`, by);
     return NextResponse.json({ ok: true, message: `${tool.tag} now belongs in ${box.name}.` });
   }

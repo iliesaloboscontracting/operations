@@ -99,3 +99,16 @@ export const markMissingSource = (linkId: string, checkId: string | null) =>
 
 // No dollar figure in anything a link gets back.
 export const linkSafe = (x: unknown) => assertNoMoney(JSON.stringify(x));
+
+// FT-001 (Ilies approved 27 Nov 2026): "This is mine" after a check moves a tool into the link's toolbox only when that
+// check (one of this link's own checks of this toolbox) saw the tool as belonging to another box. Since a supervisor's
+// link can see every tool's id (Report a fault's picker), an id alone is never enough. The check's saved result is
+// JSON; anything unreadable counts as "not seen".
+export function seenAsForeign(resultJson: string | null | undefined, toolId: string): boolean {
+  try {
+    const r = JSON.parse(resultJson ?? "") as Partial<CheckResult> | null;
+    return Array.isArray(r?.foreign) && r.foreign.some((l) => l?.toolId === toolId);
+  } catch {
+    return false;
+  }
+}

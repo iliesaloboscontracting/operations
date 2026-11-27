@@ -16,6 +16,9 @@
 //       with the tool; a second Log -> 409. An ordinary fault still logs as before (no tool needed in the body).
 //   (5) The empty-toolbox gap: /api/tools/supervisor-gaps (Manager) lists the supervisor with empty toolboxes and the
 //       one with none, not the one with tools; the coordinator and the yard login get 403 (their access is unchanged).
+//   FT-001 (Ilies approved 27 Nov 2026): CHECK_ACTION MINE needs the tool on this link's own check as from another box:
+//       a picker id with no check / not on the check / another link's check / a retired tool -> 400, nothing moved (no
+//       ToolMovement); a tool the link's own (seeded) check found as foreign -> 200, moved, with its ToolMovement.
 //   (6) No $ in any link reply; no outbound call.
 // WRITES on the test copy: made-up supervisors, toolboxes, tools, links, photos, fault submissions and a tool fault.
 // At the end the links are revoked, toolboxes switched off, tools retired, people switched off.
@@ -196,6 +199,38 @@ export default {
       }
       const toolsPage = (() => { try { return readFileSync(`${c.p.appDir}/src/app/tools/page.tsx`, "utf8"); } catch { return ""; } })();
       t.ok(/canEdit && <SupervisorToolGap \/>/.test(toolsPage), "the Tools page shows the note to Managers and Admins (source)");
+
+      // FT-001 (Ilies approved 27 Nov 2026): "This is mine" (CHECK_ACTION MINE) only for a tool this link's own check
+      // of this toolbox found as from another box - a tool id from the picker alone moves nothing.
+      const mineTool = await tool(PB, { name: "RC found tool" });
+      const moves = (id) => db.toolMovement.count({ where: { toolId: id } });
+      const boxOf = async (id) => (await db.tool.findUnique({ where: { id }, select: { toolboxId: true } }))?.toolboxId;
+      const mine = (link, toolId, checkId) => send(link, { kind: "CHECK_ACTION", action: "MINE", toolId, toolboxId: O1.id, ...(checkId ? { checkId } : {}) });
+      const m0 = { pol: await moves(polTool.id), mine: await moves(mineTool.id) };
+      t.ok(flat.some((x) => x.id === polTool.id), "FT-001: the picker gave Omar's link Pol's tool id");
+      r = await mine(L.omar, polTool.id);
+      t.status(r, 400, "FT-001: MINE with a picker id and no check of this toolbox");
+      t.ok(r.body?.error === "Check the toolbox again first.", "FT-001: 'Check the toolbox again first.'", r.text.slice(0, 120));
+      // A check of Omar's toolbox through his link (seeded - no photo is read on the copy) that saw mineTool and the
+      // retired tool as from Pol's box; and a check of Pol's toolbox through Pol's link.
+      const res = (foreign) => JSON.stringify({ present: [], presentUnconfirmed: [], missing: [], foreign: foreign.map((x) => ({ toolId: x.id, tag: x.tag, name: x.name, serialNumber: null, how: "tag", belongsTo: PB.name })), unknown: [], notes: "" });
+      const seedCheck = async (link, boxId, foreign) => {
+        const ch = await db.toolboxCheck.create({ data: { toolboxId: boxId, photoIds: JSON.stringify(["rc-seeded-photo"]), result: res(foreign), checkedBy: "RC seeded" } });
+        await db.siteSubmission.create({ data: { siteLinkId: link.id, kind: "CHECK", photoIds: JSON.stringify(["rc-seeded-photo"]), toolboxId: boxId, checkId: ch.id, status: "APPLIED", reviewedBy: "RC seeded", reviewedAt: new Date() } });
+        return ch.id;
+      };
+      const omarCheck = await seedCheck(L.omar, O1.id, [mineTool, retired]);
+      const polCheck = await seedCheck(L.pol, PB.id, [polTool]);
+      r = await mine(L.omar, polTool.id, omarCheck);
+      t.status(r, 400, "FT-001: MINE with a picker id that wasn't on this link's check");
+      t.ok(r.body?.error === "That tool wasn't found on your check.", "FT-001: 'That tool wasn't found on your check.'", r.text.slice(0, 120));
+      t.status(await mine(L.omar, polTool.id), 400, "FT-001: the same with no check id (the link's latest check is used)");
+      t.status(await mine(L.omar, polTool.id, polCheck), 400, "FT-001: MINE naming another link's check");
+      t.status(await mine(L.omar, retired.id, omarCheck), 400, "FT-001: MINE on a retired tool, even one the check listed");
+      t.ok((await boxOf(polTool.id)) === PB.id && (await moves(polTool.id)) === m0.pol && (await boxOf(retired.id)) === PB.id, "FT-001: nothing moved - toolbox unchanged, no ToolMovement row");
+      r = await mine(L.omar, mineTool.id, omarCheck);
+      t.status(r, 200, "FT-001: MINE on a tool the link's own check found as from another box");
+      t.ok((await boxOf(mineTool.id)) === O1.id && (await moves(mineTool.id)) === m0.mine + 1, "FT-001: it moves into Omar's toolbox, with its ToolMovement row");
 
       // (6)
       const bad = seen.filter(([, text]) => !noMoney(text));

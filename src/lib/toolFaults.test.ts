@@ -163,3 +163,18 @@ test("empty-toolbox gap: active supervisors with no tools in any toolbox", () =>
   assert.equal(gapLine(rows[1]), "Zed - no toolbox");
   assert.equal(gapLine({ id: "x", name: "X", toolboxes: 1, hasLink: true }), "X - 1 toolbox, no tools");
 });
+
+// FT-001 (Ilies approved 27 Nov 2026): "This is mine" needs the tool on the link's own check, as from another box.
+import { seenAsForeign } from "./toolboxTick";
+
+test("FT-001: a tool counts only when the check saw it as from another box", () => {
+  const result = JSON.stringify({ present: [{ toolId: "p" }], presentUnconfirmed: [], missing: [{ toolId: "m" }], foreign: [{ toolId: "f", belongsTo: "Pol" }], unknown: [], notes: "" });
+  assert.ok(seenAsForeign(result, "f"));
+  assert.ok(!seenAsForeign(result, "p"), "present in the box isn't 'from another box'");
+  assert.ok(!seenAsForeign(result, "m"));
+  assert.ok(!seenAsForeign(result, "anyIdFromThePicker"));
+  assert.ok(!seenAsForeign(null, "f"));
+  assert.ok(!seenAsForeign("{bad", "f"));
+  assert.ok(!seenAsForeign(JSON.stringify({ foreign: "f" }), "f"));
+  assert.ok(!seenAsForeign("null", "f"));
+});
