@@ -77,9 +77,15 @@ const logJobSelect = {
   project: { select: { id: true, name: true, unpaidBreakMinutes: true, dayStart: true, dayEnd: true, nightStart: true, nightEnd: true, jobNo: true, quoteNo: true } },
 } as const;
 
-export async function loggableJobs(link: ResolvedLink, now: Date) {
+// daysBack: the variation docket's wider window (Ilies, 27 Nov 2026: "allow for the submitting of the variation 48hr
+// window.. this allows for the tipping to be documented if they cant tip the same day") - today and the two days
+// before, all day. The daily log keeps its own rule (today, plus yesterday until midday).
+export async function loggableJobs(link: ResolvedLink, now: Date, opts: { daysBack?: number } = {}) {
   const today = sydneyDay(now);
-  const days = sydneyHour(now) < 12 ? [addDays(today, -1), today] : [today];
+  const back = Math.max(0, Math.min(7, Math.floor(opts.daysBack ?? 0)));
+  const days = back > 0
+    ? Array.from({ length: back + 1 }, (_, i) => addDays(today, -i))
+    : sydneyHour(now) < 12 ? [addDays(today, -1), today] : [today];
   const who = link.kind === "HANDOVER" ? { id: link.jobId ?? "-" } : { assignments: { some: { resourceId: link.person.id ?? "-" } } };
   return prisma.job.findMany({
     where: { ...who, date: { in: days.map(dateOnly) }, status: { notIn: NOT_RUN }, cancelledAt: null },

@@ -48,10 +48,13 @@ export async function resolveVariationLink(token: unknown): Promise<ResolvedLink
   return link && linkMayFill(link) ? link : null;
 }
 
-// The jobs this link can do a docket for now - the daily log's own rule (lib/dailyLog/store.ts loggableJobs), with the
-// project's details filled in (or the board job's own, when it has no project).
+// The jobs this link can do a docket for now, with the project's details filled in (or the board job's own, when it
+// has no project). The 48-hour window (Ilies, 27 Nov 2026): the person's jobs today and the two days before
+// (VARIATION_DAYS_BACK), so tipping done the next day can still go on that job's docket. Same people rule as the daily
+// log (lib/dailyLog/store.ts loggableJobs).
+export const VARIATION_DAYS_BACK = 2;
 export async function variationJobs(link: ResolvedLink, now = new Date()) {
-  const jobs = await loggableJobs(link, now);
+  const jobs = await loggableJobs(link, now, { daysBack: VARIATION_DAYS_BACK });
   const pids = [...new Set(jobs.map((j) => j.projectId).filter((x): x is string => !!x))];
   const [projects, own] = await Promise.all([
     pids.length ? prisma.project.findMany({ where: { id: { in: pids } }, select: { id: true, name: true, client: true, address: true, jobNo: true } }) : [],

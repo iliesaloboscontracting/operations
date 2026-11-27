@@ -54,7 +54,7 @@ export default function VariationDocketScreen({ api, onHome }: { api: string; on
       <p className="text-sm text-gray-400">Extra work, labour hire, materials, rubbish removal or tool hire the client asked for. Fill it in, the client signs on your phone, then you sign. No prices - the office prices it.</p>
       {sent && <div className="rounded-xl bg-emerald-500/15 px-4 py-3 text-sm text-emerald-300">✓ {sent}</div>}
       {view.jobs.length === 0 ? (
-        <div className={`${card} text-sm text-gray-300`}>You&apos;re not on a job today, so there&apos;s nothing to do a docket for. If that&apos;s wrong, call the office.</div>
+        <div className={`${card} text-sm text-gray-300`}>You haven&apos;t been on a job today or in the last two days, so there&apos;s nothing to do a docket for. If that&apos;s wrong, call the office.</div>
       ) : full ? (
         <div className={`${card} text-sm text-amber-300`}>That&apos;s {view.perDay} dockets today - call the office.</div>
       ) : (
