@@ -6,6 +6,7 @@ import { ChevronDown, ChevronRight, ClipboardCheck, Tractor, Truck } from "lucid
 import { apiFetch } from "@/lib/apiFetch";
 import { useAutoRefresh } from "@/lib/useAutoRefresh";
 import type { PrestartTodayCard, CardRow } from "@/lib/prestart/today";
+import { useBoardSection, type SectionSummary } from "../board/BoardSummary";
 
 // "Pre-starts today" (Ilies, 23 Nov 2026: "yes do 1 and 2") - a compact card on the Allocations board, the first page an
 // Admin sees: each truck signed in today and each owned machine with a QR sticker or booked today, with Done / Pre-start
@@ -30,13 +31,18 @@ export default function PrestartToday({ enabled }: { enabled: boolean }) {
   }, [enabled]);
   useEffect(load, [load]);
   useAutoRefresh(load);
+  // On the board's slim summary row (laptop windows, 27 Nov 2026): a few words for the row; "not done" stays red.
+  const section = useBoardSection("prestarts", enabled && data ? prestartSummary(data) : null);
   if (!enabled || !data) return null;
-  const toggle = () => { const next = !open; setOpen(next); try { localStorage.setItem(KEY, next ? "open" : "closed"); } catch { /* fine */ } };
+  const ownToggle = () => { const next = !open; setOpen(next); try { localStorage.setItem(KEY, next ? "open" : "closed"); } catch { /* fine */ } };
+  // Opened from the summary row: the whole card shows, and its header folds it back into the row.
+  const toggle = section?.compact ? section.collapse : ownToggle;
+  const shown = section?.compact ? true : open;
   const t = data.counts.trucks, m = data.counts.machines;
   return (
     <section className="rounded-xl border border-edge bg-panel px-3 py-2" data-testid="prestart-today" aria-label="Pre-starts today">
-      <button onClick={toggle} className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 text-left text-sm" aria-expanded={open}>
-        {open ? <ChevronDown size={14} className="text-gray-500" /> : <ChevronRight size={14} className="text-gray-500" />}
+      <button onClick={toggle} className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 text-left text-sm" aria-expanded={shown}>
+        {shown ? <ChevronDown size={14} className="text-gray-500" /> : <ChevronRight size={14} className="text-gray-500" />}
         <span className="flex items-center gap-1.5 font-semibold text-gray-100"><ClipboardCheck size={15} /> Pre-starts today</span>
         <span className="text-gray-300">
           <Truck size={13} className="mr-1 inline text-gray-500" />Trucks {t.done} of {t.total} done
@@ -50,7 +56,7 @@ export default function PrestartToday({ enabled }: { enabled: boolean }) {
         </span>
         {data.noStickerText && <span className="text-xs text-gray-500">{data.noStickerText}</span>}
       </button>
-      {open && (
+      {shown && (
         <div className="mt-2 space-y-1.5 pl-5">
           <Rows icon={<Truck size={13} />} empty="No truck sign-ins yet today." rows={data.trucks} />
           <Rows icon={<Tractor size={13} />} empty="No machines with a sticker or booked today." rows={data.machines} />
@@ -58,6 +64,15 @@ export default function PrestartToday({ enabled }: { enabled: boolean }) {
       )}
     </section>
   );
+}
+
+function prestartSummary(data: PrestartTodayCard): SectionSummary {
+  const t = data.counts.trucks, m = data.counts.machines;
+  const parts: SectionSummary["parts"] = [{ text: `trucks ${t.done}/${t.total}` }, { text: `machines ${m.done}/${m.total}` }];
+  const notDone = t.notDone + m.notDone, faults = t.faults + m.faults;
+  if (notDone > 0) parts.push({ text: `${notDone} not done`, tone: "red" });
+  if (faults > 0) parts.push({ text: `${faults} with a fault`, tone: "amber" });
+  return { label: "Pre-starts", parts };
 }
 
 function Rows({ icon, rows, empty }: { icon: React.ReactNode; rows: CardRow[]; empty: string }) {

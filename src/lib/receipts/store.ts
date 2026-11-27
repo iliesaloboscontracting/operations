@@ -7,7 +7,7 @@ import { jobLabel, signinDates, sydneyTime } from "../signin";
 import { linkLabel } from "../dailyLog/money";
 import { fromSydneyLocal } from "../shiftTimes";
 import type { ReceiptLink } from "../siteLinks";
-import { saveReceiptPhoto } from "./files";
+import { savePhotoUnderCap } from "../uploadCaps";
 import { KIND_LABEL, LIMITS, PURPOSE_LABEL, STATUS_LABEL, parseReceipt, parseReimbursement, reimburseStatus, type Purpose, type ReceiptKind, type ReceiptLinkDTO } from "./rules";
 import { MAX_TRIES, logOf, readOdometerSoon, readReceiptSoon } from "./runner";
 import { filtersFor } from "./tipsAccess";
@@ -118,13 +118,17 @@ export async function receiptOptions(link: ReceiptLink): Promise<ReceiptOptionsD
 
 // ---------- photos ----------
 
+// TL-001 (Ilies approved 27 Nov 2026): the day's cap is counted again just before the save, one save at a time per link (lib/uploadCaps.ts), and at
+// most 3 uploads per link are in progress at once - parallel taps can't go past the cap.
 export async function uploadReceiptPhoto(link: { id: string; person: { name: string } }, dataUrl: unknown): Promise<{ id: string } | Problem> {
+  const capMessage = "That's the most photos this link can send in a day - call the office.";
   const sent = await prisma.receiptPhoto.count({ where: { siteLinkId: link.id, createdAt: { gte: since24h() } } });
-  if (sent >= LIMITS.photosPerLinkPerDay) return { error: "That's the most photos this link can send in a day - call the office.", status: 429 };
-  const saved = await saveReceiptPhoto(dataUrl);
-  if ("error" in saved) return { error: saved.error, status: 400 };
-  const p = await prisma.receiptPhoto.create({ data: { fileName: saved.fileName, siteLinkId: link.id, takenBy: link.person.name, sha256: saved.sha256 } });
-  return { id: p.id };
+  if (sent >= LIMITS.photosPerLinkPerDay) return { error: capMessage, status: 429 };
+  return savePhotoUnderCap({
+    key: `receipt:${link.id}`, dataUrl, cap: LIMITS.photosPerLinkPerDay, capMessage,
+    count: (tx) => tx.receiptPhoto.count({ where: { siteLinkId: link.id, createdAt: { gte: since24h() } } }),
+    create: async (tx, saved) => ({ id: (await tx.receiptPhoto.create({ data: { fileName: saved.fileName, siteLinkId: link.id, takenBy: link.person.name, sha256: saved.sha256 } })).id }),
+  });
 }
 
 // ---------- sending a receipt ----------

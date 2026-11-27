@@ -41,6 +41,7 @@ import { nightOnly } from "@/lib/shiftTimes";
 import { SentBanner, useBoardGuard } from "./board/BoardGuard";
 import { boardPlaceholder, PROJECT_STATUS_LABEL } from "@/lib/projectLists";
 import AttachToProject from "./board/AttachToProject";
+import { BoardSummaryProvider, BoardSummaryRow, useBoardSummary, type SectionKey } from "./board/BoardSummary";
 
 const BOARD_DATE_KEY = "board.selectedDate";
 
@@ -497,6 +498,27 @@ As an Admin you can go over the limit. Why? (kept on record) - or Cancel to leav
   // A job with no project (18 Nov 2026): "Attach to project" - and a merge when that project already has its job.
   const [attaching, setAttaching] = useState<JobDTO | null>(null);
 
+  // Slim board header (Ilies, 27 Nov 2026): on a laptop-sized window the figures and the three cards fold into one
+  // summary row (board/BoardSummary.tsx); on a big window nothing changes.
+  const slim = useBoardSummary();
+  const c = slim.compact;
+  const summaries = useMemo(
+    () => ({
+      ...slim.summaries,
+      figures: {
+        parts: [
+          { text: `${dayFigures.sites} site${dayFigures.sites === 1 ? "" : "s"}` },
+          { text: `${dayFigures.startingSoon} starting in 7 days` },
+          { text: `${dayFigures.crewDeployed} crew` },
+          { text: `${dayFigures.labourHire} labour hire` },
+        ],
+      },
+    }),
+    [slim.summaries, dayFigures]
+  );
+  // A card's wrapper: as before on a big window; on a laptop window hidden until its part of the row is opened.
+  const sectionCls = (k: SectionKey) => (!c ? "mt-3 empty:hidden" : slim.isOpen(k) ? "mt-2 empty:hidden" : "hidden");
+
   const rowProps = {
     onAssign: handleAssign,
     onRoleChange: handleRoleChange,
@@ -526,13 +548,21 @@ As an Admin you can go over the limit. Why? (kept on record) - or Cancel to leav
     {/* Open vehicle & plant faults (pre-start checks, 8 Nov 2026): the same, information only. */}
     <FaultFlagsProvider enabled={canEdit}>
     <div className="flex h-full flex-col">
-      <header className="border-b border-edge px-4 py-4 lg:px-6">
+      <BoardSummaryProvider value={slim.ctx}>
+      <header className={`border-b border-edge px-4 lg:px-6 ${c ? "py-2" : "py-4"}`}>
         <div className="flex items-center justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight text-gray-100">Allocations</h1>
-            <p className="mt-0.5 text-xs text-gray-500">
-              Every active site, one to a row. Drag to assign or move; it saves on drop.
-            </p>
+            <h1
+              className={`font-semibold tracking-tight text-gray-100 ${c ? "text-lg" : "text-2xl"}`}
+              title={c ? "Every active site, one to a row. Drag to assign or move; it saves on drop." : undefined}
+            >
+              Allocations
+            </h1>
+            {!c && (
+              <p className="mt-0.5 text-xs text-gray-500">
+                Every active site, one to a row. Drag to assign or move; it saves on drop.
+              </p>
+            )}
           </div>
           <div className="flex gap-2">
             <button
@@ -580,7 +610,7 @@ As an Admin you can go over the limit. Why? (kept on record) - or Cancel to leav
             )}
           </div>
         </div>
-        <div className="mt-3 flex items-center gap-3">
+        <div className={`flex items-center gap-3 ${c ? "mt-2" : "mt-3"}`}>
           <DateTabs selected={selectedDate} onSelect={setSelectedDate} />
           <input
             type="date"
@@ -590,28 +620,30 @@ As an Admin you can go over the limit. Why? (kept on record) - or Cancel to leav
             className="shrink-0 rounded-lg border border-edge bg-panel2 px-3 py-2 text-sm text-gray-200 focus:outline-none focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500"
           />
         </div>
-        <div className="mt-3 grid grid-cols-2 gap-3 lg:grid-cols-4">
+        {c && <BoardSummaryRow summaries={summaries} isOpen={slim.isOpen} toggle={slim.toggle} setAll={slim.save} />}
+        <div id="board-section-figures" className={`grid grid-cols-2 gap-3 lg:grid-cols-4 ${!c ? "mt-3" : slim.isOpen("figures") ? "mt-2" : "hidden"}`}>
           <StatTile icon={Building2} value={dayFigures.sites} label="Sites running" />
           <StatTile icon={CalendarClock} value={dayFigures.startingSoon} label="Starting in the next 7 days" />
           <StatTile icon={Users} value={dayFigures.crewDeployed} label="Crew deployed" />
           <StatTile icon={HardHat} value={dayFigures.labourHire} label="Labour hire onsite" tone="labourHire" />
         </div>
-        <div className="mt-3 empty:hidden">
+        <div id="board-section-starts" className={sectionCls("starts")}>
           <UpcomingAlerts compact onSelect={selectAlert} />
         </div>
         {/* Pre-starts today (Ilies, 23 Nov 2026): Managers and Admins - the route refuses anyone else. Always today. */}
-        <div className="mt-3 empty:hidden">
+        <div id="board-section-prestarts" className={sectionCls("prestarts")}>
           <PrestartToday enabled={canEdit} />
         </div>
         {/* Needs attention (LCI Stage 1, Ilies 25 Nov 2026): the owner, Admins and Managers - the route refuses anyone else. */}
         {canEdit && (
-          <div className="mt-3 empty:hidden">
+          <div id="board-section-attention" className={sectionCls("attention")}>
             <NeedsAttentionCard variant="board" />
           </div>
         )}
         {/* No Site documents card here (Ilies, 26 Nov 2026: it pushed the allocations board out of reach, and "the
             documents should have never have been put here" - the office side lives in the Documents tab). */}
       </header>
+      </BoardSummaryProvider>
 
       <SentBanner sent={boardGuard.sent} />
 

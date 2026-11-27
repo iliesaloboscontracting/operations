@@ -8,7 +8,10 @@ import { prisma } from "../prisma";
 import { linkLabel } from "../dailyLog/money";
 import { signinDates } from "../signin";
 import { fromSydneyLocal } from "../shiftTimes";
-import { saveReceiptPhoto } from "../receipts/files";
+import { savePhotoUnderCap } from "../uploadCaps";
+import { assertNoMoney } from "../moneyGuard";
+import { BUILDING_AGENT_EMAIL } from "../session";
+import { isAgentEmail } from "../variations/rules";
 import { recordChanges, writeChanges, writeLock, type Who } from "../history/store";
 import type { BinLink } from "../siteLinks";
 import { pushToUsers } from "../push";
@@ -27,6 +30,18 @@ const since24h = () => new Date(Date.now() - 24 * 3_600_000);
 const sydneyMidnight = () => fromSydneyLocal(`${signinDates().today}T00:00`)!;
 const isUnique = (e: unknown) => e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002";
 const byName = (w: Who) => (w?.name && w.name.trim()) || "Operations";
+const MOVES_CAP = "That's the most bins this link can record in a day - call the office.";
+
+// TL-003 (Ilies approved 27 Nov 2026, "Block it"): the Building Agent login (Operations AI, a MANAGER) may read the Bins
+// page and the tipper loads, but every bins / tipper-load write refuses it (the VD-002 pattern). Checked first, here in
+// the store, so no route can forget it.
+export type Actor = { id?: string | null; name?: string | null; email?: string | null } | null | undefined;
+export const AGENT_NO_WRITE = "The Building Agent login can look at bins and tipper loads, but can't change them.";
+export function refuseAgent(by: Actor) {
+  if (isAgentEmail(by?.email, BUILDING_AGENT_EMAIL)) throw new BinError(AGENT_NO_WRITE, 403);
+}
+// TL-004: no dollar figure in an office reason.
+export const NO_AMOUNT_REASON = "Leave amounts out of the reason.";
 
 // ---------- the link (SUPERVISOR / DRIVER) ----------
 
@@ -94,14 +109,17 @@ export async function binOptions(link: BinLink): Promise<BinLinkOptionsDTO> {
   };
 }
 
-// One bin photo from a link (stored like a receipt photo - same type, size and first-bytes checks).
+// One bin photo from a link (stored like a receipt photo - same type, size and first-bytes checks). TL-001 (Ilies
+// approved 27 Nov 2026): the day's cap is counted again just before the save, one save at a time per link, at most 3 in progress per link.
 export async function uploadBinPhoto(link: { id: string; person: { name: string } }, dataUrl: unknown): Promise<{ id: string } | Problem> {
+  const capMessage = "That's the most bin photos this link can send in a day - call the office.";
   const sent = await prisma.binPhoto.count({ where: { siteLinkId: link.id, createdAt: { gte: since24h() } } });
-  if (sent >= LIMITS.photosPerLinkPerDay) return { error: "That's the most bin photos this link can send in a day - call the office.", status: 429 };
-  const saved = await saveReceiptPhoto(dataUrl);
-  if ("error" in saved) return { error: saved.error, status: 400 };
-  const p = await prisma.binPhoto.create({ data: { fileName: saved.fileName, siteLinkId: link.id, takenBy: link.person.name } });
-  return { id: p.id };
+  if (sent >= LIMITS.photosPerLinkPerDay) return { error: capMessage, status: 429 };
+  return savePhotoUnderCap({
+    key: `bin:${link.id}`, dataUrl, cap: LIMITS.photosPerLinkPerDay, capMessage,
+    count: (tx) => tx.binPhoto.count({ where: { siteLinkId: link.id, createdAt: { gte: since24h() } } }),
+    create: async (tx, saved) => ({ id: (await tx.binPhoto.create({ data: { fileName: saved.fileName, siteLinkId: link.id, takenBy: link.person.name } })).id }),
+  });
 }
 
 // Only photos this link uploaded in the last day and not already on a bin.
@@ -109,15 +127,15 @@ async function ownPhotos(linkId: string, photoIds: string[]) {
   const photos = await prisma.binPhoto.findMany({ where: { id: { in: photoIds }, siteLinkId: linkId, movementId: null, createdAt: { gte: since24h() } }, select: { id: true } });
   return photos.length === photoIds.length;
 }
-async function movesToday(linkId: string) {
-  return prisma.binMovement.count({ where: { OR: [{ deliveredLinkId: linkId, deliveredAt: { gte: since24h() } }, { pickedUpLinkId: linkId, pickedUpAt: { gte: since24h() } }] } });
+async function movesToday(linkId: string, db: Pick<typeof prisma, "binMovement"> = prisma) {
+  return db.binMovement.count({ where: { OR: [{ deliveredLinkId: linkId, deliveredAt: { gte: since24h() } }, { pickedUpLinkId: linkId, pickedUpAt: { gte: since24h() } }] } });
 }
 
 export type DeliverResult = { row: BinLinkRowDTO; message: string; warning: string | null };
 export async function deliverBin(link: BinLink, body: Record<string, unknown>): Promise<DeliverResult | Problem> {
   const input = parseDelivery(body);
   if ("error" in input) return { error: input.error, status: 400 };
-  if ((await movesToday(link.id)) >= LIMITS.movesPerLinkPerDay) return { error: "That's the most bins this link can record in a day - call the office.", status: 429 };
+  if ((await movesToday(link.id)) >= LIMITS.movesPerLinkPerDay) return { error: MOVES_CAP, status: 429 };
   if (!(await ownPhotos(link.id, input.photoIds))) return { error: "A photo didn't upload - take it again.", status: 400 };
   const project = await prisma.project.findFirst({ where: { id: input.projectId, status: "ACTIVE", archived: false }, select: { id: true } });
   if (!project) return { error: "Pick the job from the list - call the office if it isn't there.", status: 400 };
@@ -128,6 +146,9 @@ export async function deliverBin(link: BinLink, body: Record<string, unknown>): 
   let id: string;
   try {
     id = await prisma.$transaction(async (tx) => {
+      // TL-001: the day's cap again, under the write lock - parallel sends can't all pass the count above.
+      await writeLock(tx);
+      if ((await movesToday(link.id, tx)) >= LIMITS.movesPerLinkPerDay) throw new BinError(MOVES_CAP, 429);
       const m = await tx.binMovement.create({
         data: {
           projectId: input.projectId, binId: pick.binId, size: input.size, use: input.use, contents: input.contents, contentsNote: input.contentsNote,
@@ -169,10 +190,12 @@ export async function alertClientBin(movementId: string): Promise<number> {
 export async function pickUpBin(link: BinLink, body: Record<string, unknown>): Promise<{ row: BinLinkRowDTO; message: string } | Problem> {
   const input = parsePickup(body);
   if ("error" in input) return { error: input.error, status: 400 };
-  if ((await movesToday(link.id)) >= LIMITS.movesPerLinkPerDay) return { error: "That's the most bins this link can record in a day - call the office.", status: 429 };
+  if ((await movesToday(link.id)) >= LIMITS.movesPerLinkPerDay) return { error: MOVES_CAP, status: 429 };
   if (!(await ownPhotos(link.id, input.photoIds))) return { error: "A photo didn't upload - take it again.", status: 400 };
   try {
     await prisma.$transaction(async (tx) => {
+      await writeLock(tx); // TL-001
+      if ((await movesToday(link.id, tx)) >= LIMITS.movesPerLinkPerDay) throw new BinError(MOVES_CAP, 429);
       // Conditional: only a bin still on site - two phones can't both pick it up.
       const n = await tx.binMovement.updateMany({
         where: { id: input.movementId, status: "ON_SITE" },
@@ -357,7 +380,8 @@ export async function binsSummary(): Promise<BinsSummaryDTO> {
 
 const ctx = (by: Who, reason?: string | null) => ({ by, source: "Bins page", reason: reason ?? null });
 
-export async function addBin(sizeIn: unknown, labelIn: unknown, by: Who) {
+export async function addBin(sizeIn: unknown, labelIn: unknown, by: Actor) {
+  refuseAgent(by);
   if (!isBinSize(sizeIn)) throw new BinError("Pick the bin's size.");
   const size = sizeIn;
   return prisma.$transaction(async (tx) => {
@@ -373,7 +397,8 @@ export async function addBin(sizeIn: unknown, labelIn: unknown, by: Who) {
   });
 }
 
-export async function changeBin(idIn: unknown, body: Record<string, unknown>, by: Who) {
+export async function changeBin(idIn: unknown, body: Record<string, unknown>, by: Actor) {
+  refuseAgent(by);
   if (typeof idIn !== "string" || idIn.length > 64) throw new BinError("Unknown bin.", 404);
   const action = body.action;
   return prisma.$transaction(async (tx) => {
@@ -406,7 +431,8 @@ export async function changeBin(idIn: unknown, body: Record<string, unknown>, by
 }
 
 // A correction, a cancel, putting a wrong pick-up back on site, or the tip docket decision - one movement.
-export async function changeMovement(idIn: unknown, body: Record<string, unknown>, by: Who) {
+export async function changeMovement(idIn: unknown, body: Record<string, unknown>, by: Actor) {
+  refuseAgent(by);
   if (typeof idIn !== "string" || idIn.length > 64) throw new BinError("Unknown bin entry.", 404);
   const action = body.action;
   try {
@@ -444,11 +470,13 @@ export async function changeMovement(idIn: unknown, body: Record<string, unknown
       } else if (action === "cancel") {
         reason = tidy(body.reason, 300);
         if (reason.length < 3) throw new BinError("Say why it's being cancelled.");
+        if (!assertNoMoney(reason)) throw new BinError(NO_AMOUNT_REASON);
         if (!canMove(m.status, "CANCELLED")) throw new BinError("That entry is already cancelled.", 409);
         data = { status: "CANCELLED", onSiteKey: null, cancelledAt: new Date(), cancelledBy: byName(by).slice(0, 120), cancelReason: reason, tipReceiptId: null, tipConfirmedBy: null, tipConfirmedAt: null };
       } else if (action === "unpick") {
         reason = tidy(body.reason, 300);
         if (reason.length < 3) throw new BinError("Say why it's going back on site.");
+        if (!assertNoMoney(reason)) throw new BinError(NO_AMOUNT_REASON);
         if (!canMove(m.status, "ON_SITE")) throw new BinError("Only a picked-up bin can be put back on site.", 409);
         // BN-004 (Ilies approved 23 Nov 2026): a retired bin can't go back on site.
         if (m.binId && (await tx.bin.findUnique({ where: { id: m.binId }, select: { retiredAt: true } }))?.retiredAt) {

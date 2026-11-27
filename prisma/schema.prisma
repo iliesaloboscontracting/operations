@@ -3035,9 +3035,14 @@ model TipperLoadPhoto {
   createdAt  DateTime    @default(now())
   loadId     String?
   load       TipperLoad? @relation(fields: [loadId], references: [id], onDelete: Restrict)
+  // TL-002 (Ilies approved 27 Nov 2026): the photo's SHA-256 (from saveReceiptPhoto) - the office row flags "Same photo
+  // as the load of <date> / <tipper>" when another load has the same photo. A flag only, never a refusal. Null on photos
+  // sent before 27 Nov 2026.
+  sha256     String?
 
   @@index([siteLinkId, createdAt])
   @@index([loadId])
+  @@index([sha256])
 }
 
 // Which of our VEHICLEs are tippers, when the office has said so (27 Nov 2026). No row = from the vehicle's name
